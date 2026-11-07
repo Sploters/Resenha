@@ -302,7 +302,7 @@ ipcMain.on('native-stop', () => native.stop());
 native.onNativeEvent((ev) => { if (win && !win.isDestroyed()) win.webContents.send('native-event', ev); });
 // modo leve: deixa o Chromium desacelerar a página escondida (o renderer só liga fora de chamada)
 ipcMain.on('set-throttle', (_e, on) => { if (win && !win.isDestroyed()) win.webContents.setBackgroundThrottling(!!on); });
-ipcMain.handle('get-settings', () => ({ ...cfg, version: app.getVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName }));
+ipcMain.handle('get-settings', () => ({ ...cfg, version: app.getVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName, updateFailed }));
 ipcMain.handle('set-settings', (_e, patch) => {
   for (const k of ['autoStart', 'startMinimized', 'closeToTray', 'globalHotkeys']) if (k in patch) cfg[k] = !!patch[k];
   for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
@@ -327,6 +327,7 @@ ipcMain.handle('save-server', async (_e, url) => { cfg.server = url; saveCfg(); 
 const REPO = 'Sploters/Resenha';
 let update = null, updating = false;
 // pedidos do atualizador: ao servidor Resenha (certificado próprio aceito só para ele) ou ao GitHub
+function newerVer(a, b) { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; }
 const fromServer = (url) => { try { return new URL(url).hostname === serverHost(); } catch { return false; } };
 const reqOpts = (url, accept) => ({ headers: { 'User-Agent': 'Resenha', Accept: accept }, timeout: 8000, ...(fromServer(url) ? { rejectUnauthorized: false } : {}) });
 const libOf = (url) => (url.startsWith('http:') ? http : https);
@@ -377,18 +378,35 @@ function prepareUpdate() {
 const portable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 // instalação silenciosa (sem janelas): /S = silencioso, --updated = atualização da instalação que já existe (mesmo
 // lugar, atalhos e dados), --force-run = abre o app de novo quando termina
-// reopen (o usuário pediu para atualizar agora): mostra a janelinha "Atualizando…" enquanto instala; fechando o app com a
-// atualização baixada (sem reopen) instala quieto, sem janela
+// Instala a versão nova: o app abre o instalador DIRETO (o jeito que sempre funcionou) e só então fecha.
+// reopen (o usuário pediu "Reiniciar agora"): também abre a janelinha "Atualizando…" (desktop/updsplash.js), que só
+// acompanha o instalador e reabre o app se ele não voltar sozinho; se a janela falhar, a instalação segue igual.
+// Sem reopen (fechou o app com a atualização baixada): instala quieto.
+// A versão pedida fica anotada (cfg.pendingUpdate): se o app abrir de novo na versão velha, a página avisa que não deu.
 function runInstaller(file, reopen) {
   const args = portable ? [] : ['/S', '--updated', ...(reopen ? ['--force-run'] : [])];
-  log('instalando atualização', update?.version, args.join(' '));
-  if (reopen && !portable) {
-    // o ícone está dentro do app.asar (o PowerShell não lê): copia para a pasta temporária
-    let icon = ''; try { icon = path.join(app.getPath('temp'), 'resenha-update.ico'); fs.writeFileSync(icon, fs.readFileSync(path.join(__dirname, 'build', 'icon.ico'))); } catch { icon = ''; }
-    return updSplash.installWithSplash(file, args, { version: update?.version, icon }, log);
-  }
-  const p = require('node:child_process').spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  log('instalando atualização', update?.version, args.join(' '), file);
+  if (!portable && update?.version) { cfg.pendingUpdate = { version: update.version, at: Date.now() }; saveCfg(); }
+  let p;
+  try { p = require('node:child_process').spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true }); }
+  catch (e) { log('instalador não abriu', e.message); return false; }
   p.on('error', (e) => log('instalador não abriu', e.message)); p.unref();
+  if (reopen && !portable && p.pid) {
+    // o ícone está dentro do app.asar (o PowerShell não lê): copia para a pasta temporária
+    const dir = app.getPath('userData');
+    let icon = ''; try { icon = path.join(app.getPath('temp'), 'resenha-update.ico'); fs.writeFileSync(icon, fs.readFileSync(path.join(__dirname, 'build', 'icon.ico'))); } catch { icon = ''; }
+    updSplash.watchInstall({ pid: p.pid, exe: process.execPath, version: update?.version, icon, dir }, log);
+  }
+  return !!p.pid;
+}
+// abriu: a atualização anotada entrou? (versão igual ou maior = sim; senão o instalador não rodou ou falhou)
+let updateFailed = null;
+if (cfg.pendingUpdate) {
+  const pu = cfg.pendingUpdate; delete cfg.pendingUpdate; saveCfg();
+  const ok = !newerVer(pu.version, app.getVersion());
+  let tail = ''; try { tail = fs.readFileSync(path.join(app.getPath('userData'), 'update.log'), 'utf8').trim().split(/\r?\n/).slice(-4).join(' | '); } catch { }
+  log(ok ? 'atualização instalada' : 'ATUALIZAÇÃO NÃO INSTALOU', 'pedida', pu.version, 'aberta', app.getVersion(), tail ? '| ' + tail : '');
+  if (!ok && Date.now() - pu.at < 3 * 3600e3) updateFailed = { version: pu.version };
 }
 function download(url, dest, redirects = 5, onProgress) {
   return new Promise((resolve, reject) => {
@@ -431,9 +449,9 @@ ipcMain.handle('install-update', async () => {
   updating = true;
   try {
     const file = update.file || await prepareUpdate();
-    runInstaller(file, true);
-    // a página mostra "Instalando…" por um instante; a janelinha do instalador aparece logo em seguida
-    quitting = true; setTimeout(() => app.quit(), 900); return true;
+    if (!runInstaller(file, true)) { updating = false; return false; } // instalador não abriu: o app continua aberto
+    // a página mostra "Instalando…" por um instante; o instalador já está rodando e fecha o app se ele demorar
+    quitting = true; setTimeout(() => app.quit(), 500); return true;
   } catch (e) { log('update err', e.message); updating = false; return false; }
 });
 

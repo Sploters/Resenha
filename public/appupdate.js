@@ -64,13 +64,25 @@ function updOverlay(version) {
   return {
     step(text, indeterminate) { status.textContent = text; if (indeterminate) { bar.classList.add('ind'); pct.textContent = ''; } },
     progress(p) { if (!(p >= 0)) return; bar.classList.remove('ind'); fill.style.width = p + '%'; pct.textContent = p + '%'; },
+    // passo a passo para as versões em que o botão não instala (ver BROKEN)
+    manual(v) {
+      el.classList.add('manual'); title.textContent = `A versão ${v} já está baixada`;
+      status.replaceChildren('Nesta versão do app o botão de reiniciar não consegue instalar. Para atualizar:');
+      bar.parentElement.replaceWith(h('ol.uo-steps',
+        h('li', 'Clique com o botão direito no ícone do Resenha ', h('b', 'perto do relógio'), ' (talvez dentro da setinha ', h('b', '^'), ').'),
+        h('li', 'Clique em ', h('b', 'Sair'), '. A versão nova instala sozinha, sem abrir janela.'),
+        h('li', 'Espere uns 15 segundos e abra o Resenha de novo.')));
+      actions.replaceChildren(h('button.btn.grey', { onclick: () => el.remove() }, 'Entendi'));
+    },
     fail(text) {
       el.classList.add('bad'); title.textContent = 'Não deu para atualizar'; bar.classList.remove('ind'); fill.style.width = '0'; pct.textContent = ''; status.textContent = text;
       actions.replaceChildren(h('button.btn.grey', { onclick: () => el.remove() }, 'Fechar'));
     },
+    retry(fn) { actions.append(h('button.btn.green', { onclick: () => { el.remove(); fn(); } }, 'Tentar de novo')); },
   };
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const BROKEN = new Set(['1.0.30', '1.0.31', '1.0.32']);
 // atualiza com a tela de progresso; devolve true quando o app vai fechar para instalar
 export async function runAppUpdate(version) {
   if (!silentUpdate()) return installAppUpdate(); // app antigo: baixa o instalador, como antes
@@ -82,6 +94,10 @@ export async function runAppUpdate(version) {
   for (let i = 0; !v && i < 60; i++) { await sleep(3000); v = await appUpdateReady(); }
   if (!v) { progressCb = null; ov.fail(d.checkUpdate ? 'Não deu para baixar a versão nova agora. Confira a internet e tente de novo.' : 'O app ainda não baixou a versão nova. Feche e abra o Resenha: ele baixa sozinho e avisa quando estiver pronta.'); return false; }
   ov.progress(100);
+  // 1.0.30 a 1.0.32: o botão abre o instalador por dentro do PowerShell e, quando o Windows barra, o app fecha e nada
+  // instala. Nessas versões o caminho que funciona é sair pela bandeja (o app instala direto ao fechar).
+  const cur = (await d.getSettings?.().catch(() => null))?.version;
+  if (BROKEN.has(cur)) { progressCb = null; ov.manual(v); return false; }
   ov.step('Instalando… o app fecha e abre sozinho em alguns segundos.', true);
   const ok = await installAppUpdate(); progressCb = null;
   if (!ok) ov.fail('Não deu para instalar agora. Tente de novo em instantes.');
@@ -93,6 +109,12 @@ function announceUpdated() {
     const v = s?.version; if (!v) return;
     let seen = null; try { seen = localStorage.getItem('lc_desk_seen'); localStorage.setItem('lc_desk_seen', v); } catch { }
     if (seen && newer(v, seen)) toast(`Resenha atualizado para a versão ${v}`);
+    // o app anotou uma atualização e abriu de novo na versão velha: não instalou (desde a 1.0.33)
+    if (s.updateFailed?.version && newer(s.updateFailed.version, v)) {
+      const ov = updOverlay(s.updateFailed.version);
+      ov.fail(`O app fechou mas a versão ${s.updateFailed.version} não foi instalada (você continua na ${v}). Clique em "Tentar de novo"; se não der, saia pelo ícone perto do relógio (botão direito › Sair) e abra o Resenha de novo.`);
+      ov.retry(() => runAppUpdate(s.updateFailed.version));
+    }
   }).catch(() => { });
 }
 

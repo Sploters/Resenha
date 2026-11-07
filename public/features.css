@@ -1235,3 +1235,6 @@ html.anim .gamecard { animation: lc-pop .14s ease-out; }
 html.anim #clipsview .clipcard { transition: outline-color .4s, box-shadow .4s; }
 html.anim #clipsview .clipcard.focus { animation: clipFocus 1s ease-out 2; }
 @keyframes clipFocus { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--brand, #5865f2) 10%, transparent); } }
+.updov .uo-steps { margin: 0 0 16px; padding-left: 22px; text-align: left; display: grid; gap: 8px; color: var(--text); font-size: 14px; line-height: 1.4; }
+.updov .uo-steps b { color: var(--header); }
+.updov .uo-btns { gap: 8px; }
