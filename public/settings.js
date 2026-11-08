@@ -2,7 +2,7 @@ import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce } f
 import { S, api, tryApi, savePrefs, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
-import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow } from './ui.js';
+import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput } from './quick.js';
@@ -283,14 +283,14 @@ function privacyPage(reg) {
   const sessions = h('div');
   const draw = async () => {
     const list = await tryApi('GET', '/sessions') || [];
-    sessions.replaceChildren(...list.map(s => h('div.frow', { style: { cursor: 'default' } }, h('div.fn', h('b', agentName(s.agent)), h('small', `${s.current ? 'Este dispositivo • ' : ''}entrou em ${new Date(+s.created_at).toLocaleString('pt-BR')}`)),
+    sessions.replaceChildren(...list.map(s => h('div.frow.pv-sess', { style: { cursor: 'default' } }, h('span.pv-dev' + (s.current ? '.cur' : ''), icon(/Android|iPhone|iPad|Mobile/.test(s.agent) ? 'phone' : /Electron/.test(s.agent) ? 'layout' : 'screen', 22)), h('div.fn', h('b', agentName(s.agent)), h('small', `${s.current ? 'Este dispositivo • ' : ''}entrou em ${new Date(+s.created_at).toLocaleString('pt-BR')}`)),
       !s.current && h('button.btn.red', { onclick: async () => { await tryApi('DELETE', `/sessions/${s.id}`); draw(); } }, 'Encerrar'))));
   };
   draw();
   return h('div', h('h2', 'Privacidade e segurança'),
-    section('Pedidos de amizade'), card(seg({ all: 'Qualquer pessoa pode enviar', none: 'Ninguém pode enviar' }, S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
+    section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
     section('Usuários bloqueados'), blockedCard(),
-    section('Links'), card(row('Confirmar antes de abrir links externos', 'Mostra o endereço antes de abrir.', toggle(!!S.prefs.confirmLinks, v => { S.prefs.confirmLinks = v; save(); }))),
+    section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
 }
 
@@ -355,14 +355,15 @@ function extrasPage(ctx) {
     hint('Recursos inspirados em plugins populares da comunidade, feitos do zero para a Resenha.'),
     section('Visualizador de imagens'),
     card(
-      row('Lente de zoom no clique', 'Desligado: segure o botão do mouse sobre a imagem. Ligado: um clique liga e outro desliga.', toggle(!!P.lensClick, set('lensClick'))),
-      row('Lente pixelada', 'Mostra os pixels nítidos ao ampliar, em vez de suavizar.', toggle(!!P.lensPixel, set('lensPixel'))),
+      toggleCards([
+        { on: !!P.lensClick, label: 'Lente no clique', sub: 'Desligado: segure o botão', desc: 'Ligado: um clique liga a lente e outro desliga. Desligado: segure o botão do mouse sobre a imagem.', prev: h('span.ex-lens', h('i.ex-img'), h('i.ex-glass'), icon('pointer', 18)), fn: set('lensClick') },
+        { on: !!P.lensPixel, label: 'Lente pixelada', sub: 'Pixels nítidos ao ampliar', desc: 'Mostra os pixels nítidos ao ampliar, em vez de suavizar.', prev: h('span.ex-pix', Array.from({ length: 16 }, (_, i) => h('i', { style: { opacity: [1, .6, .3, .8, .5, 1, .7, .4, .9, .3, .6, 1, .4, .8, 1, .5][i] } }))), fn: set('lensPixel') }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Tamanho da lente', slider(100, 500, P.lensSize ?? 220, 10, set('lensSize'), v => v + ' px')),
       h('label.f', 'Ampliação da lente', slider(1.5, 12, P.lensZoom ?? 3, .5, set('lensZoom'), v => v + '×'))),
     hint('No visualizador: ← → trocam de imagem do canal, R gira, F alterna tamanho real, roda do mouse com a lente muda o zoom e Shift + roda muda o tamanho. Clique com o botão direito numa imagem para copiar, salvar ou abrir no navegador.'),
     section('Prévia de canais'),
     card(
-      h('label.f', 'Como abrir a prévia', seg(PREVIEW_TRIGGERS, P.chPreview ?? 'hover', set('chPreview'))),
+      h('label.f', 'Como abrir a prévia'), choiceCards(PREVIEW_TRIGGERS.map(([k, l]) => [k, l, h('span.ex-trig', k === 'hover' ? icon('pointer', 26) : k === 'shift' ? [h('kbd', 'Shift'), icon('pointer', 22)] : k === 'middle' ? h('span.ex-mouse', h('i')) : icon('x', 26))]), P.chPreview ?? 'hover', set('chPreview')),
       h('label.f', { style: { marginTop: '12px' } }, 'Atraso ao passar o mouse', slider(100, 2000, P.chPreviewDelay ?? 450, 50, set('chPreviewDelay'), v => (v / 1000).toFixed(2).replace('.', ',') + ' s')),
       h('label.f', 'Quantidade de mensagens', slider(10, 100, P.chPreviewCount ?? 20, 5, set('chPreviewCount'))),
       h('label.f', 'Altura da prévia', slider(20, 90, P.chPreviewHeight ?? 45, 5, set('chPreviewHeight'), v => v + '% da janela')),
@@ -371,10 +372,11 @@ function extrasPage(ctx) {
     hint('A prévia não abre o canal nem marca as mensagens como lidas.'),
     section('Nomes de canais'),
     card(
-      row('Maiúscula no início das palavras', null, toggle(!!P.chCaps, set('chCaps', drawDemo))),
-      row('Trocar hífens e sublinhados por espaços', null, toggle(!!P.chDashes, set('chDashes', drawDemo))),
-      row('Remover emojis do nome', null, toggle(!!P.chNoEmoji, set('chNoEmoji', drawDemo))),
-      row('Aplicar também em canais de voz', null, toggle(!!P.chNamesVoice, set('chNamesVoice'))),
+      toggleCards([
+        { on: !!P.chCaps, label: 'Maiúscula no início', prev: h('span.ex-name', h('s', 'bate papo'), h('b', 'Bate Papo')), fn: set('chCaps', drawDemo) },
+        { on: !!P.chDashes, label: 'Hífens viram espaços', prev: h('span.ex-name', h('s', 'bate-papo'), h('b', 'bate papo')), fn: set('chDashes', drawDemo) },
+        { on: !!P.chNoEmoji, label: 'Sem emojis no nome', prev: h('span.ex-name', h('s', '🎮-jogos'), h('b', 'jogos')), fn: set('chNoEmoji', drawDemo) },
+        { on: !!P.chNamesVoice, label: 'Também em salas de voz', prev: h('span.ex-name.voice', icon('voice', 20), h('b', 'Sala Geral')), fn: set('chNamesVoice') }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Palavras com grafia fixa (separadas por vírgula)', words),
       demo),
     hint('Só muda como os nomes aparecem para você: na lista, no topo, na caixa de mensagem e nas abas. O nome real do canal continua o mesmo.'),
@@ -385,9 +387,15 @@ function extrasPage(ctx) {
 
 function accessibilityPage() {
   const set = (k) => (v) => { S.prefs[k] = v; save(); applyTheme(); };
+  const sat = h('div.ac-sat', ['#5865f2', '#23a559', '#f0b232', '#f23f43', '#eb459e'].map(c => h('i', { style: { background: c } })));
+  const paintSat = () => { sat.style.filter = `saturate(${(S.prefs.saturation ?? 100) / 100})`; };
+  paintSat();
   return h('div', h('h2', 'Acessibilidade'),
-    card(row('Reduzir animações', 'Desliga transições e movimentos.', toggle(S.prefs.reduceMotion, set('reduceMotion'))), row('Alto contraste', 'Bordas e textos mais fortes.', toggle(S.prefs.highContrast, set('highContrast'))),
-      row('Sublinhar links', null, toggle(S.prefs.underlineLinks, set('underlineLinks'))), h('label.f', { style: { marginTop: '12px' } }, 'Saturação das cores', slider(0, 100, S.prefs.saturation, 5, set('saturation'), v => v + '%'))),
+    card(toggleCards([
+      { on: S.prefs.reduceMotion, label: 'Reduzir animações', desc: 'Desliga transições e movimentos da interface.', prev: h('span.ac-motion', h('i.am-box'), h('i.am-arrow', '→'), h('i.am-box.still')), fn: set('reduceMotion') },
+      { on: S.prefs.highContrast, label: 'Alto contraste', desc: 'Bordas e textos mais fortes.', prev: h('span.ac-contrast', h('span.lo', 'Aa'), h('span.hi', 'Aa')), fn: set('highContrast') },
+      { on: S.prefs.underlineLinks, label: 'Sublinhar links', desc: 'Todo link no chat aparece sublinhado.', prev: h('span.ac-link', 'veja ', h('u', 'este link')), fn: set('underlineLinks') }]),
+      h('label.f', { style: { marginTop: '12px' } }, 'Saturação das cores', slider(0, 100, S.prefs.saturation, 5, (v) => { set('saturation')(v); paintSat(); }, v => v + '%')), sat),
     hint('Dica: em Aparência há uma fonte legível para dislexia e o tamanho da interface.'));
 }
 
@@ -426,11 +434,16 @@ function voicePage(ctx, reg) {
     } catch (e) { toast(e.message || 'Falha ao acessar o microfone', true); stopTest(); }
   };
   const testBtn = h('button.btn', { onclick: () => (test ? stopTest() : startTest()) }, 'Testar microfone');
-  const noiseCards = h('div.cards'), drawNoise = () => noiseCards.replaceChildren(...Object.entries(NOISE_MODES).map(([k, l]) => h('div.ncard' + (S.prefs.noiseMode === k ? '.on' : ''), { onclick: () => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); drawNoise(); restartTest(); } },
-    h('b', l), h('small', { off: 'Sem processamento. Voz crua.', standard: 'Filtro do navegador; leve e simples.', rnnoise: 'Rede neural RNNoise: remove teclado, ventilador e ruído de fundo.', gtcrn: 'Modelo mais forte; melhor em ruídos difíceis, usa mais CPU.' }[k]))));
+  // supressão de ruído: cada nível mostra a voz (barras altas) e o ruído (pontinhos) que sobra
+  const NOISE_INFO = { off: ['Sem filtro', 'Voz crua, com todo o ruído', 1, null], standard: ['Leve', 'Filtro do navegador', .55, null], rnnoise: ['Forte', 'IA tira teclado e ventilador', .18, 'IA'], gtcrn: ['Máxima', 'IA mais forte, usa mais CPU', 0, 'IA+'] };
+  const VOICE_H = [18, 34, 52, 40, 60, 46, 28, 54, 38, 22], NOISE_H = [10, 6, 12, 8, 5, 11, 7, 9, 6, 12];
+  const noisePrev = (k) => { const [, , n, badge] = NOISE_INFO[k]; return h('span.nz-prev', h('span.nz-wave', VOICE_H.map((v, i) => [h('i.nz-n', { style: { height: NOISE_H[i] + 'px', opacity: n } }), h('i.nz-v', { style: { height: v + '%' } })])), badge && h('b.nz-badge', badge)); };
+  const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); restartTest(); }));
   drawNoise(); setTimeout(placeMark, 0);
   const gateLbl = h('span', S.prefs.gateDb + ' dB');
-  const gate = h('input', { type: 'range', min: -70, max: -10, value: S.prefs.gateDb, oninput: () => { S.prefs.gateDb = +gate.value; gateLbl.textContent = gate.value + ' dB'; placeMark(); }, onchange: () => { save(); restartTest(); } });
+  const gateBox = h('label.f', { style: { marginTop: '4px' } }, 'Limite da porta: ', h('span', S.prefs.gateDb + ' dB')); gateBox.style.display = S.prefs.gate ? '' : 'none';
+  const gate = h('input', { type: 'range', min: -70, max: -10, value: S.prefs.gateDb, oninput: () => { S.prefs.gateDb = +gate.value; gateLbl.textContent = gate.value + ' dB'; gateBox.firstElementChild.textContent = gate.value + ' dB'; placeMark(); }, onchange: () => { save(); restartTest(); } });
+  gateBox.append(gate);
   const pttBtn = captureKey(h('button.btn.grey'), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); }, { combo: false, label: 'Tecla de push-to-talk: ' });
   const dev = (kind) => async () => { try { const s = await navigator.mediaDevices.getUserMedia(kind === 'cam' ? { video: true } : { audio: true }); s.getTracks().forEach(t => t.stop()); toast('Permissão concedida. Reabra a página para listar os nomes.'); } catch (e) { toast(e.message, true); } };
   const camPrev = h('video', { autoplay: true, muted: true, playsInline: true, style: { width: '100%', borderRadius: '8px', background: '#000', display: 'none', marginTop: '12px' } });
@@ -442,14 +455,15 @@ function voicePage(ctx, reg) {
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
       !navigator.mediaDevices?.enumerateDevices ? null : h('button.btn.grey', { onclick: dev('mic') }, 'Pedir permissão do microfone')),
     section('Supressão de ruído'), card(noiseCards,
-      row('Porta de ruído', 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', toggle(S.prefs.gate, v => { S.prefs.gate = v; save(); restartTest(); })),
-      h('label.f', { style: { marginTop: '12px' } }, 'Limite da porta: ', gateLbl, gate),
-      row('Cancelamento de eco', 'Evita retorno do som dos alto-falantes.', toggle(S.prefs.echo !== false, v => { S.prefs.echo = v; save(); restartTest(); })),
-      row('Ganho automático', 'Equaliza o volume da sua voz.', toggle(S.prefs.agc !== false, v => { S.prefs.agc = v; save(); restartTest(); }))),
+      toggleCards([
+        { on: S.prefs.gate, label: 'Porta de ruído', desc: 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', prev: h('span.vp-gate', h('i.g1'), h('i.g2'), h('i.g3'), h('i.g4'), h('i.g5'), h('b.vp-line')), fn: v => { S.prefs.gate = v; save(); gateBox.style.display = v ? '' : 'none'; restartTest(); } },
+        { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },
+        { on: S.prefs.agc !== false, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
+      gateBox),
     section('Teste de microfone'), card(h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(false, (v) => { loopback = v; test?.setLoopback(v); })), meterWrap),
     section('Modo de entrada'), card(choiceCards([['vad', 'Atividade de voz', h('span.im-prev', icon('waves', 28), h('small', 'Fala e já sai'))], ['ptt', 'Push-to-talk', h('span.im-prev', icon('keyboard', 28), h('small', 'Segura a tecla para falar'))]], S.prefs.inputMode || 'vad', v => { S.prefs.inputMode = v; save(); voice.applyMute(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint('O push-to-talk funciona com a janela do app em foco.')),
     section('Qualidade da voz'), card(h('label.f', 'Taxa de bits do áudio', seg(VOICE_BITRATES, S.prefs.voiceBitrate ?? 'auto', v => { S.prefs.voiceBitrate = v; save(); voice?.retuneAudio(); })), hint('Automático: voz mono a 64 kbps, que já soa perfeita; desce para 48 ou 32 kbps se a sua conexão tiver perda ou ping alto. 128 kbps ou mais só faz diferença para música e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala. O nível atual aparece no painel de voz.')),
-    section('Efeitos de voz'), card(row('Ouvir efeitos de voz dos outros', 'Desligado: você ouve todo mundo com a voz normal, mesmo quem estiver usando efeito. Dá também para desligar só de uma pessoa (clique direito nela → "Ouvir sem efeito de voz").', toggle(S.prefs.hearFx !== false, v => { S.prefs.hearFx = v; save(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); }))),
+    section('Efeitos de voz'), card(toggleCards([{ on: S.prefs.hearFx !== false, label: 'Ouvir efeitos de voz dos outros', sub: 'Desligado: todo mundo com a voz normal', desc: 'Dá também para desligar só de uma pessoa: clique direito nela → "Ouvir sem efeito de voz".', prev: h('span.vp-fx', icon('mask', 30), h('i.fx-w'), h('i.fx-w.w2')), fn: v => { S.prefs.hearFx = v; save(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); } }])),
     section('Câmera'), card(sel('videoinput', 'videoId', 'Câmera'), h('label.f', 'Resolução', seg({ 360: '360p', 720: '720p', 1080: '1080p' }, S.prefs.camRes, v => { S.prefs.camRes = v; save(); })), h('label.f', 'Quadros por segundo', seg({ 15: '15', 30: '30', 60: '60' }, S.prefs.camFps, v => { S.prefs.camFps = v; save(); })), camBtn, camPrev),
     section('Diagnóstico'), card(h('button.btn.grey', { onclick: async () => { const st = voice.active ? await voice.stats() : []; modal('Diagnóstico de voz', voice.active ? 'Conexões com os outros participantes' : 'Você não está em uma sala de voz', h('div', ...st.map(s => row(user(s.uid).display_name, `estado: ${s.state}`, h('b', s.rtt != null ? s.rtt + ' ms' : '—'))), !st.length && hint('Entre em uma sala de voz para ver os dados.')), [{ label: 'Fechar' }]); } }, 'Ver conexões agora'),
       h('button.btn.grey', { style: { marginLeft: '8px' }, onclick: () => { voice.active ? voice.rebuildMic().then(() => toast('Áudio reiniciado')) : toast('Entre em uma sala primeiro', true); } }, 'Reiniciar áudio')),

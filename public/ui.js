@@ -19,6 +19,14 @@ export const infoTip = (content) => {
 // linha com um valor à vista (nome de usuário, versão…), não uma explicação
 export const vrow = (title, value, ctl) => h('div.perm', h('div', h('div.rt', title), value != null && value !== '' && h('div.rd', value)), ctl);
 export const row = (title, desc, ctl) => h('div.perm', h('div', h('div.rt', title, desc && infoTip(desc))), ctl);
+// liga/desliga visual: cartões com prévia e uma chave no canto. items: [{ on, label, prev, desc, fn(v) }]
+export const toggleCards = (items) => h('div.choices.togs', items.filter(Boolean).map((it) => {
+  let on = !!it.on;
+  const b = h('button.choice.tog' + (on ? '.on' : ''), { type: 'button', role: 'switch', 'aria-checked': String(on), title: it.desc || null,
+    onclick: () => { on = !on; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); it.fn(on); } },
+    h('div.ch-prev', it.prev), h('span.ch-lbl', h('span.tg-sw'), it.label), it.sub && h('small.tg-sub', it.sub));
+  return b;
+}));
 // escolha visual: cartões com prévia em vez de uma lista de botões. opts: [[valor, rótulo, prévia]]
 export const choiceCards = (opts, val, on) => {
   const box = h('div.choices', { role: 'radiogroup' });
@@ -49,7 +57,9 @@ export function qualityPanel(o, onChange) {
   const draw = () => box.replaceChildren(
     h('label.f', 'Resolução', seg(SCREEN_PRESETS.res, o.res, v => { o.res = v; draw(); onChange?.(o); })),
     h('label.f', 'Taxa de quadros (FPS)', seg(SCREEN_PRESETS.fps, o.fps, v => { o.fps = v; draw(); onChange?.(o); })),
-    h('label.f', 'Otimizar para', seg({ motion: 'Movimento (jogos/vídeo)', detail: 'Nitidez (texto/apresentação)' }, o.hint, v => { o.hint = v; draw(); onChange?.(o); })),
+    h('label.f', 'Otimizar para'), choiceCards([
+      ['motion', 'Movimento (jogos/vídeo)', h('span.opt-motion', h('i.om-ball'), h('i.om-trail'), h('i.om-trail.t2'), h('i.om-trail.t3'))],
+      ['detail', 'Nitidez (texto/apresentação)', h('span.opt-detail', h('b', 'Aa'), h('span.od-lines', h('i'), h('i'), h('i')))]], o.hint || 'motion', v => { o.hint = v; draw(); onChange?.(o); }),
     h('label.f', 'Taxa de dados (bitrate)', seg({ 0: 'Automática', 8: '8 Mbps', 16: '16 Mbps', 24: '24 Mbps', 32: '32 Mbps', 50: '50 Mbps' }, +o.bitrate || 0, v => { o.bitrate = +v; draw(); onChange?.(o); })),
     +o.fps > 60 && (S.nativeOk ? h('div.qinfo.ok', 'Acima de 60 FPS a imagem é capturada e comprimida pelo próprio app (placa de vídeo), sem o limite de ~48 FPS do navegador. O áudio e a prévia continuam como sempre. Quem tem internet mais fraca recebe automaticamente uma versão leve (540p a 60 FPS).')
       : h('div.qinfo.warn', (S.nativeWhy ? `Modo 120 FPS indisponível: ${S.nativeWhy} ` : 'Pelo navegador, ') + 'o capturador de tela do Chromium não passa de ~48 FPS, mesmo pedindo mais. Durante a transmissão o painel mostra os FPS realmente capturados.')),

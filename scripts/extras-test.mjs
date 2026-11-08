@@ -44,7 +44,7 @@ try {
   ok(await rowName() === 'bate-papo_e-avisos', 'nome original por padrão');
   await A.evaluate(() => window.__lc.openSettings('extras')); await sleep(300);
   ok(await A.$$eval('#settings h3.sec', s => s.map(x => x.textContent).join('|')).then(t => /Visualizador.*Prévia.*Nomes.*Volume/.test(t)), 'página "Recursos extras" com as quatro seções');
-  for (const t of ['Maiúscula no início', 'Trocar hífens']) await A.evaluate((t) => [...document.querySelectorAll('#settings .perm')].find(p => p.textContent.includes(t)).querySelector('.switch').click(), t);
+  for (const t of ['Maiúscula no início', 'Hífens viram espaços']) await A.evaluate((t) => [...document.querySelectorAll('#settings .choice.tog')].find(p => p.textContent.includes(t)).click(), t);
   await sleep(100);
   const demo = await A.$$eval('.chdemo-row b', b => b.map(x => x.textContent));
   ok(demo.includes('# Bate Papo') && demo.includes('# Regras e Avisos') && demo.includes('# FAQ do Servidor'), 'prévia nas configurações: ' + demo.join(' / '));
