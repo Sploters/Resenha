@@ -17,3 +17,5 @@ deploy/servidor.conf
 *.key
 *.pem
 cookies.txt
+.loaddata/
+.load-result.json

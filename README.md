@@ -57,6 +57,17 @@ Voz no automático em 64 kbps mono (até 80% menos banda que antes), diagnóstic
 ### Desempenho
 A interface é entregue comprimida e com cache longo (versão do servidor no endereço dos arquivos; ver `docs/AUDITORIA-DESEMPENHO.md`). `STATIC_OFF=1` desliga isso em caso de problema. Medição: `node scripts/perf-audit.mjs <rótulo>`.
 
+**Alerta de lentidão:** resposta acima de 1 s (ou o servidor travando) avisa o administrador da instalação na hora, no app dele; no máximo um aviso por rota a cada 15 min. Para receber no celular mesmo com o app fechado, defina `ALERT_WEBHOOK` com um tópico do [ntfy](https://ntfy.sh) (ex.: `https://ntfy.sh/resenha-seu-topico-secreto`, e assine o tópico no app ntfy) ou um webhook de canal do Discord. `ALERT_MS` muda o limite. Tempos por rota, alertas, velocidade real dos usuários e o atraso do servidor (event loop): `GET /api/perf` (só o administrador).
+
+**Teste de carga** (`scripts/load/`), numa pasta de dados de teste, nunca a de verdade:
+```
+DATA_DIR=./.loaddata node scripts/load/seed.mjs 1000                 # 1000 pessoas no mesmo servidor, 20 canais com histórico
+DATA_DIR=./.loaddata PORT=3000 node server/index.js
+k6 run -e BASE=http://IP-DO-SERVIDOR:3000 scripts/load/k6-resenha.js   # 100 pessoas, depois 1000 (de outro computador)
+BASE=http://localhost:3000 MAX=1000 node scripts/load/node-load.mjs     # o mesmo cenário sem k6
+```
+Resultado de referência (4 núcleos; servidor e simulador na mesma máquina), com 1000 pessoas: abrir o app ~11 ms de trabalho do servidor por pessoa, rotas da API ~5 ms, mensagens entregues a todos em ~50 ms (p50), 0 erros.
+
 ### GIFs
 Botão **GIF** no campo de mensagem: busca, "Em alta", Favoritos (por pessoa) e "Do grupo" (GIFs já mandados nos chats que a pessoa vê). A busca usa a **KLIPY** (gratuita; a API da Tenor foi desligada pelo Google em 2026) ou a **GIPHY**. Crie uma chave de API de desenvolvedor no site do serviço e coloque-a num arquivo na pasta de dados do servidor: `~/resenha-data/klipy.key` (ou `giphy.key`), depois reinicie o container (`sh deploy/umbrel.sh`). Também vale a variável `KLIPY_API_KEY` / `GIPHY_API_KEY`. Sem chave, o botão mostra só Favoritos e "Do grupo". O servidor só busca a lista (com cache de 10 min e um id anônimo por pessoa); os GIFs carregam direto do serviço. No modo leve, os GIFs do chat ficam parados e animam ao passar o mouse.
 

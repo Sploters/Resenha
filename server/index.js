@@ -62,6 +62,8 @@ const cleanNameStyle = (v) => {
 };
 const parseNameStyle = (t) => { try { return t ? JSON.parse(t) : null; } catch { return null; } };
 const cleanPos = (v) => (/^\d{1,3}(\.\d{1,2})?,\d{1,3}(\.\d{1,2})?,[1-3](\.\d{1,2})?$/.test(String(v)) ? String(v) : null);
+// só as colunas que o perfil público usa (sem senha, configurações etc.): consultas de muitas pessoas leem menos
+const PUB_COLS = 'id,username,display_name,avatar,color,banner_color,banner,avatar_pos,banner_pos,pronouns,status_emoji,theme_primary,theme_accent,name_style,bio,custom_status,created_at,status';
 const pubUser = (u) => u && ({
   id: u.id, username: u.username, display_name: u.display_name || u.username, avatar: u.avatar, color: u.color,
   banner_color: u.banner_color, banner: u.banner, avatar_pos: u.avatar_pos, banner_pos: u.banner_pos, pronouns: u.pronouns, status_emoji: u.status_emoji, theme_primary: u.theme_primary, theme_accent: u.theme_accent, name_style: parseNameStyle(u.name_style),
@@ -72,8 +74,48 @@ const getUser = (id) => get('SELECT * FROM users WHERE id=?', id);
 const userPub = (id) => pubUser(getUser(id));
 
 function send(ws, type, d) { if (ws.readyState === 1) ws.send(JSON.stringify({ t: type, d })); }
+// ---- cache do que todo mundo pede igual na abertura (READY) ----
+// A parte de cada servidor que é igual para todos (canais, cargos, membros, emojis, sons) e o perfil público de cada
+// pessoa ficam prontos em texto. Nunca entrega dado velho: qualquer evento que muda o servidor/a pessoa passa pelo
+// dispatch e descarta o guardado; por segurança, nada vale mais que 30 s (servidor) / 60 s (pessoa).
+// Quem está em cada sala de voz, não lidas, DMs e status (online/ausente) são calculados na hora, a cada abertura.
+const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'ROLE_UPDATE', 'ROLE_DELETE',
+  'MEMBER_ADD', 'MEMBER_REMOVE', 'MEMBER_UPDATE', 'EMOJIS_UPDATE', 'SOUNDS_UPDATE']);
+const guildCache = new Map(), userCache = new Map();
+function invalidateFor(type, d) {
+  if (GUILD_EVENTS.has(type)) { const gid = d?.guild_id || (type.startsWith('GUILD_') ? d?.id : null); if (gid) guildCache.delete(gid); else guildCache.clear(); }
+  else if (type === 'USER_UPDATE' || type === 'USER_DELETE') userCache.delete(d?.id);
+}
+function guildCached(gid) {
+  let c = guildCache.get(gid);
+  if (!c || Date.now() - c.at > 30e3) {
+    const g = guildFull(gid, { users: false }); if (!g) return null;
+    delete g.voice_states;
+    c = { at: Date.now(), obj: g, head: JSON.stringify(g).slice(0, -1) }; guildCache.set(gid, c);
+  }
+  return c;
+}
+// perfil público em texto com o status de agora (o status muda o tempo todo; o resto quase nunca)
+function userJson(u) {
+  let c = userCache.get(u.id);
+  if (!c || Date.now() - c.at > 60e3) { const p = pubUser(u); delete p.status; c = { at: Date.now(), head: JSON.stringify(p).slice(0, -1) }; userCache.set(u.id, c); }
+  return c.head + ',"status":' + JSON.stringify(pubUser({ id: u.id, username: u.username, status: u.status }).status) + '}';
+}
+
+// o mesmo evento para muita gente: vira texto (JSON) uma vez só, não uma vez por pessoa (1000 pessoas no servidor = 1000x)
 function dispatch(userIds, type, d) {
-  for (const id of new Set(userIds)) for (const ws of conns.get(id) || []) send(ws, type, d);
+  invalidateFor(type, d);
+  // já em bytes (UTF-8) uma vez só: mandar texto fazia a biblioteca converter de novo para cada pessoa; pequenas não
+  // passam pela compressão (fila do zlib) — com 1000 pessoas, ~30 mil envios por segundo (teste de carga, scripts/load)
+  let raw = null, opts = null;
+  for (const id of new Set(userIds)) for (const ws of conns.get(id) || []) {
+    if (ws.readyState !== 1) continue;
+    // conexão que não consegue ler (internet ruim, aparelho travado): passou de 8 MB acumulados, fecha; o app reconecta
+    // sozinho e recebe tudo atualizado no READY (sem isso a memória do servidor crescia sem limite)
+    if (ws.bufferedAmount > 8 << 20) { ws.terminate(); continue; }
+    if (!raw) { raw = Buffer.from(JSON.stringify({ t: type, d })); opts = { binary: false, compress: raw.length >= 1024 }; }
+    ws.send(raw, opts);
+  }
 }
 const guildMemberIds = (gid) => all('SELECT user_id FROM members WHERE guild_id=?', gid).map(r => r.user_id);
 const channelAudience = (ch) => ch.guild_id ? guildMemberIds(ch.guild_id)
@@ -191,7 +233,7 @@ function sharedAudience(uid) {
   for (const r of all('SELECT p2.user_id FROM dm_participants p1 JOIN dm_participants p2 ON p1.channel_id=p2.channel_id WHERE p1.user_id=?', uid)) ids.add(r.user_id);
   return [...ids];
 }
-const broadcastPresence = (uid) => dispatch(sharedAudience(uid), 'USER_UPDATE', userPub(uid));
+const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAudience(uid); dispatch(to, 'USER_UPDATE', userPub(uid)); mountPerf.time?.(`WS aviso de presença (${to.length > 500 ? '500+' : to.length > 100 ? '100+' : '<100'} pessoas)`, performance.now() - t0); };
 
 function createGuild(owner, name) {
   const gid = newId(), now = Date.now();
@@ -221,7 +263,7 @@ const wrapA = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).c
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
-mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid });
+mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
 // endereço de arquivo enviado (/files/..., sem aspas, barras invertidas nem espaços: esses valores
 // vão parar em url("...") no CSS e em atributos; com aspas dava para fechar o url() e injetar CSS)
 const isFileUrl = (v) => typeof v === 'string' && /^\/files\/[^\s"\\<>]{1,700}$/.test(v);
@@ -1344,20 +1386,26 @@ const iceServers = () => {
   if (process.env.TURN_URL) s.push({ urls: process.env.TURN_URL, username: process.env.TURN_USER, credential: process.env.TURN_PASS });
   return s;
 };
-function buildReady(uid) {
-  const guilds = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildFull(r.guild_id, { users: false }));
+// READY já em texto: as partes guardadas (servidores e perfis) entram prontas; o resto é calculado agora
+function buildReadyRaw(uid, extra) {
+  const gcs = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildCached(r.guild_id)).filter(Boolean), guilds = gcs.map(c => c.obj);
   // cada pessoa uma vez só (antes ia repetida em cada servidor em comum: 250 pessoas em 5 servidores = 1.250 perfis)
-  const users = all('SELECT DISTINCT u.* FROM users u JOIN members m ON m.user_id=u.id WHERE m.guild_id IN (SELECT guild_id FROM members WHERE user_id=?)', uid).map(pubUser);
+  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT guild_id FROM members WHERE user_id=?))`, uid);
   const dms = all('SELECT c.* FROM channels c JOIN dm_participants p ON p.channel_id=c.id WHERE p.user_id=? AND c.type=1', uid).map(dmChannelObj);
   const chIds = [...guilds.flatMap(g => g.channels.filter(c => c.type === 0 || c.type === 2).map(c => c.id)), ...dms.map(d => d.id)];
   const dmVoice = [];
   for (const d of dms) for (const [uid, s] of voice.get(d.id) || []) dmVoice.push(vsObj(d.id, uid, s));
   // não lidas de todos os canais numa consulta só (antes: 2 consultas por canal)
   const unread = {};
-  for (const r of all(`SELECT m.channel_id c, COUNT(*) n, MAX(m.id) l FROM json_each(?) j
-      JOIN messages m ON m.channel_id=j.value AND m.id > COALESCE((SELECT last_id FROM read_states WHERE user_id=? AND channel_id=j.value), '0') AND m.author_id<>?
-      GROUP BY m.channel_id`, JSON.stringify(chIds), uid, uid)) unread[r.c] = { count: r.n, last_id: r.l };
-  return { user: pubUser(getUser(uid)), users, guilds, dms, relationships: relObj(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers() };
+  // canal por canal pelo índice (channel_id, id), contando no máximo até 100 (o app mostra "99+"). A versão anterior,
+  // um JOIN com json_each, fazia o SQLite varrer as mensagens de TODOS os canais: 48 ms por abertura num servidor com
+  // 20 mil mensagens; com 1000 pessoas abrindo o app juntas, 48 s de fila (achado no teste de carga, scripts/load).
+  for (const r of all(`SELECT j.value c,
+      (SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE m.channel_id=j.value AND m.id > COALESCE(rs.last_id, '0') AND m.author_id<>? LIMIT 100)) n,
+      (SELECT MAX(id) FROM messages WHERE channel_id=j.value) l
+      FROM json_each(?) j LEFT JOIN read_states rs ON rs.user_id=? AND rs.channel_id=j.value`, uid, JSON.stringify(chIds), uid)) if (r.n) unread[r.c] = { count: r.n, last_id: r.l };
+  const rest = JSON.stringify({ user: pubUser(getUser(uid)), dms, relationships: relObj(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
+  return '{"t":"READY","d":{"users":[' + users.map(userJson).join(',') + '],"guilds":[' + gcs.map(c => c.head + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
 }
 
 // espectadores de transmissões: "canal:transmissor" -> Set de quem está assistindo
@@ -1409,7 +1457,7 @@ wss.on('connection', (ws) => {
   const first = !conns.has(uid);
   if (first) conns.set(uid, new Set());
   conns.get(uid).add(ws);
-  send(ws, 'READY', { ...buildReady(uid), desktop_min: desktopMin() });
+  { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastPresence(uid); activity.poke(); }
   ws.alive = true; ws.on('pong', () => (ws.alive = true));
 

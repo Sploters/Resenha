@@ -190,9 +190,10 @@ export function imgUrl(url, size) {
   const m = IMG_FILE.exec(String(url || '')); if (!m) return url;
   return `/thumbs/${m[1]}?s=${Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)))}`;
 }
+// foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
 export function avatar(u, size = 40, opts = {}) {
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.color || '#5865f2' } });
-  if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); // tamanho de verdade (com o zoom do enquadramento) else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
+  if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { style: { borderColor: opts.ring || '' } }));
   return el;
 }
