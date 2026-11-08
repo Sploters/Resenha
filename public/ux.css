@@ -333,5 +333,12 @@ button.mgroup .mg-n::before { content: '— '; }
 
 /* configurações → perfil: a prévia ocupa a largura da coluna dela e fica fixa enquanto as opções rolam */
 .pgrid > .col:last-child { align-self: start; position: sticky; top: 16px; }
-.pgrid > .col:last-child > .preview > .popout.static { max-width: none; width: 100%; }
+/* a página de perfil usa a largura livre da tela: coluna da prévia mais larga e cartão da altura da janela */
+#settings .pane:has(> div > .pgrid), #settings .pane:has(.profile-ed) { max-width: 1180px; flex-basis: 1180px; padding-right: 96px; }
+.pgrid { grid-template-columns: minmax(0, 1fr) minmax(360px, 460px); }
+.pgrid > .col:last-child > .preview > .popout.static { max-width: none; width: 100%; min-height: calc(100vh - 150px); display: flex; flex-direction: column; }
+.pgrid > .col:last-child > .preview > .popout.static > .pcard { flex: 1 0 auto; display: flex; flex-direction: column; }
+.pgrid > .col:last-child > .preview > .popout.static > .pcard > .pb { flex: 1 0 auto; }
+.pgrid > .col:last-child > .preview > .popout.static > .pcard .banner { height: 140px; }
+@media (max-width: 1100px) { .pgrid > .col:last-child { position: static; } .pgrid > .col:last-child > .preview > .popout.static { min-height: 0; } }
 .dmp-acts .btn { white-space: nowrap; font-size: 13px; padding: 0 10px; min-height: 34px; }
