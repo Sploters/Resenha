@@ -483,18 +483,31 @@ function streamPage() {
 
 // ============================ Sons do app ============================
 function soundsPage() {
-  const groups = { voz: 'Voz', transmissão: 'Transmissão', chat: 'Mensagens e chamadas' };
-  const rowFor = (name) => {
+  const groups = { voz: ['Voz', 'mic'], transmissão: ['Transmissão', 'screen'], chat: ['Mensagens e chamadas', 'dm'] };
+  // ícone de cada som: o que acontece quando ele toca
+  const ICON = { mute: 'micoff', unmute: 'mic', deafen: 'headoff', undeafen: 'headset', selfJoin: 'arrowr', selfLeave: 'phoneoff', join: 'users', leave: 'logout', camOn: 'video', camOff: 'eye',
+    streamStart: 'live', streamStop: 'stop', selfStreamStart: 'screen', selfStreamStop: 'stop', ring: 'phone', mention: 'bell', message: 'dm', friend: 'invite', error: 'warn' };
+  const tileFor = (name) => {
     const [label] = SOUND_DEFS[name], cfg = soundCfg(name);
-    const status = h('small.mut', cfg.url ? 'Som personalizado' : 'Som padrão');
-    return h('div.srow', h('div.sl1', toggle(cfg.on, v => { cfg.on = v; save(); }), h('div', h('div.rt', label), status)),
-      h('div.sl2', slider(0, 100, cfg.vol, 5, v => { cfg.vol = v; save(); }, v => v + '%'),
-        h('button.btn.grey', { title: 'Testar', onclick: () => playSound(name, { force: true }) }, '▶'),
-        h('button.btn.grey', { title: 'Usar seu próprio áudio (até 1 MB, 5 s)', onclick: async () => { const u = await uploadFile('audio/*', 1); if (u) { cfg.url = u.url; save(); status.textContent = 'Som personalizado'; } } }, icon('music', 16)),
-        h('button.btn.link', { title: 'Voltar ao som padrão', onclick: () => { cfg.url = null; save(); status.textContent = 'Som padrão'; } }, icon('refresh', 16))));
+    const status = h('small.snd-st', cfg.url ? 'Som personalizado' : 'Som padrão');
+    const tile = h('div.snd-tile' + (cfg.on ? '.on' : ''));
+    const sw = h('button.snd-sw', { type: 'button', role: 'switch', 'aria-checked': String(!!cfg.on), 'aria-label': (cfg.on ? 'Desligar ' : 'Ligar ') + label, onclick: () => { cfg.on = !cfg.on; save(); tile.classList.toggle('on', cfg.on); sw.setAttribute('aria-checked', String(cfg.on)); } }, h('span.tg-sw'));
+    const vol = h('input', { type: 'range', min: 0, max: 100, step: 5, value: cfg.vol, 'aria-label': 'Volume de ' + label, oninput: () => { cfg.vol = +vol.value; volLbl.textContent = vol.value + '%'; }, onchange: () => save() });
+    const volLbl = h('small.snd-vl', cfg.vol + '%');
+    tile.append(
+      h('div.snd-top', h('span.snd-ic', icon(ICON[name] || 'vol', 22)), sw),
+      h('b.snd-name', label), status,
+      h('div.snd-vol', icon('vollow', 14), vol, volLbl),
+      h('div.snd-acts',
+        h('button.snd-play', { type: 'button', title: 'Testar', onclick: () => playSound(name, { force: true }) }, icon('play', 16), 'Ouvir'),
+        h('button.snd-b', { type: 'button', title: 'Usar seu próprio áudio (até 1 MB, 5 s)', onclick: async () => { const u = await uploadFile('audio/*', 1); if (u) { cfg.url = u.url; save(); status.textContent = 'Som personalizado'; } } }, icon('music', 16)),
+        h('button.snd-b', { type: 'button', title: 'Voltar ao som padrão', onclick: () => { cfg.url = null; save(); status.textContent = 'Som padrão'; } }, icon('refresh', 16))));
+    return tile;
   };
-  return h('div', h('h2', 'Sons'), card(row('Silenciar todos os sons do app', null, toggle(!!S.prefs.soundsMuted, v => { S.prefs.soundsMuted = v; save(); })), h('label.f', { style: { marginTop: '12px' } }, 'Volume geral dos sons', slider(0, 100, S.prefs.soundVolume, 5, v => { S.prefs.soundVolume = v; save(); }, v => v + '%'))),
-    ...Object.entries(groups).flatMap(([g, title]) => [section(title), card(...Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g).map(rowFor))]),
+  return h('div', h('h2', 'Sons'),
+    card(toggleCards([{ on: !!S.prefs.soundsMuted, label: 'Silenciar todos os sons do app', sub: 'Nenhum efeito sonoro toca', prev: h('span.snd-hero', icon('volmute', 30), h('i.sh-x')), fn: v => { S.prefs.soundsMuted = v; save(); } }]),
+      h('label.f', { style: { marginTop: '12px' } }, 'Volume geral dos sons', slider(0, 100, S.prefs.soundVolume, 5, v => { S.prefs.soundVolume = v; save(); }, v => v + '%'))),
+    ...Object.entries(groups).flatMap(([g, [title, ic]]) => [h('h3.sec.snd-sec', icon(ic, 16), title), h('div.snd-grid', Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g).map(tileFor))]),
     hint([icon('music', 14), ' troca o som pelo seu próprio arquivo de áudio; ', icon('refresh', 14), ' volta ao padrão. As configurações acompanham sua conta.']));
 }
 
@@ -502,17 +515,26 @@ function soundsPage() {
 function soundboardPage() {
   const box = h('div');
   const draw = () => {
-    box.replaceChildren(...soundSources().map(src => card(
-      h('div.sbtitle', h('b', src.title), src.own ? h('button.btn', { onclick: () => addSound(null) }, '+ Novo som') : [h('small.mut', `${src.sounds.length} som(ns)`), h('span', { style: { flex: 1 } }),
-        h('label.sbmute', 'Usar neste servidor', toggle(!src.off, v => { (S.prefs.sbOffGuilds ||= {})[src.key] = !v; save(); }))]),
-      ...(src.sounds.length ? src.sounds.map(s => h('div.srow2', h('span.e', soundEmoji(s.emoji)), h('span.n', s.name), h('small.mut', soundVol(s) + '%'),
-        h('button.btn.grey', { onclick: () => playLocal(s.url, soundVol(s)) }, '▶'),
-        (src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD))) && h('button.btn.grey', { onclick: () => editSound(src, s) }, 'Editar'))) : [h('div.mut', 'Nenhum som ainda.')]))));
+    box.replaceChildren(...soundSources().map(src => {
+      const canEdit = src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD));
+      const head = h('div.sbp-head',
+        src.own ? h('span.sbp-ic', icon('user', 20)) : src.guild?.icon ? h('img.sbp-ic', { src: src.guild.icon, alt: '' }) : h('span.sbp-ic', (src.title || '?').slice(0, 2).toUpperCase()),
+        h('div.sbp-t', h('b', src.title), h('small', `${src.sounds.length} ${src.sounds.length === 1 ? 'som' : 'sons'}`)),
+        !src.own && h('button.sbp-use' + (!src.off ? '.on' : ''), { type: 'button', role: 'switch', 'aria-checked': String(!src.off), title: 'Mostrar os sons deste servidor no soundboard', onclick: () => { (S.prefs.sbOffGuilds ||= {})[src.key] = !src.off; save(); draw(); } }, h('span.tg-sw'), 'Usar neste servidor'));
+      const pads = src.sounds.length ? h('div.sbp-grid' + (src.off ? '.off' : ''), src.sounds.map(s => h('div.sbp-pad',
+        h('button.sbp-play', { type: 'button', title: 'Ouvir ' + s.name, onclick: (e) => { playLocal(s.url, soundVol(s)); const b = e.currentTarget; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); } },
+          h('span.sbp-e', soundEmoji(s.emoji)), h('span.sbp-n', s.name), h('small.sbp-v', icon('vol', 12), soundVol(s) + '%')),
+        canEdit && h('button.sbp-edit', { type: 'button', title: 'Editar ' + s.name, 'aria-label': 'Editar ' + s.name, onclick: () => editSound(src, s) }, icon('edit', 14)))),
+        canEdit && src.own && h('button.sbp-pad.sbp-add', { type: 'button', onclick: () => addSound(null) }, icon('plus', 26), h('span', 'Novo som')))
+        : h('div.sbp-empty', icon('soundboard', 28), h('span', src.own ? 'Você ainda não tem sons. Adicione um curtinho (até 15 s).' : 'Nenhum som neste servidor ainda.'), src.own && h('button.btn', { onclick: () => addSound(null) }, '+ Novo som'));
+      return card(head, pads);
+    }));
   };
   const onChange = () => draw();
   document.addEventListener('sb-changed', onChange); draw(); queueMicrotask(() => whenGone(box, () => document.removeEventListener('sb-changed', onChange)));
-  return h('div', h('h2', 'Soundboard'), card(row('Silenciar sons do soundboard', 'Você deixa de ouvir os sons que os outros tocam.', toggle(!!S.prefs.sbMuted, v => { S.prefs.sbMuted = v; save(); })),
-    h('label.f', { style: { marginTop: '12px' } }, 'Volume dos sons que você ouve', slider(0, 100, S.prefs.sbVolume ?? 70, 5, v => { S.prefs.sbVolume = v; save(); }, v => v + '%'))),
+  return h('div', h('h2', 'Soundboard'),
+    card(toggleCards([{ on: !!S.prefs.sbMuted, label: 'Silenciar sons do soundboard', sub: 'Você deixa de ouvir os sons que os outros tocam', prev: h('span.snd-hero', icon('soundboard', 30), h('i.sh-x')), fn: v => { S.prefs.sbMuted = v; save(); } }]),
+      h('label.f', { style: { marginTop: '12px' } }, 'Volume dos sons que você ouve', slider(0, 100, S.prefs.sbVolume ?? 70, 5, v => { S.prefs.sbVolume = v; save(); }, v => v + '%'))),
     hint(['Abra o soundboard rapidamente pelo botão ', icon('soundboard', 14), ' da barra do usuário ou da chamada. Clique direito num som: favoritar, atalho, prévia.']), box);
 }
 
