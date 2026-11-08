@@ -115,7 +115,6 @@ button.mgroup .mg-n::before { content: '— '; }
 .dmrow .dm-when { margin-left: auto; flex: none; font-size: 11px; color: var(--text-muted); font-weight: 400; }
 .dmrow .dm-pv { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
 .dmrow.unread .dm-pv { color: var(--text); font-weight: 500; }
-.dmrow .dmpin { flex: none; color: var(--text-muted); display: flex; }
 .dmrow .pill { margin-left: 0; flex: none; }
 .dm-empty { padding: 20px 10px; text-align: center; color: var(--text-muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .dm-empty p { margin: 0; }
@@ -317,3 +316,18 @@ button.mgroup .mg-n::before { content: '— '; }
 .np-ch-t b { color: var(--header); }
 .np-ch-t small { color: var(--text-muted); font-size: 12px; }
 @media (max-width: 700px) { .np-row .np-tiles, .np-srv .choices { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- bolinha de status nas listas: o anel acompanha o fundo da linha (normal, hover, selecionada) ---------- */
+:root { --row-ring: var(--bg-sec); --row-ring-hov: color-mix(in srgb, var(--bg-sec), #fff 9%); --row-ring-sel: color-mix(in srgb, var(--bg-sec), #fff 16%); }
+:root[data-theme="light"] { --row-ring-hov: color-mix(in srgb, var(--bg-sec), #060607 7%); --row-ring-sel: color-mix(in srgb, var(--bg-sec), #060607 12%); }
+#side-list .ch .avatar .status, #members .mem .avatar .status { border-color: var(--row-ring) !important; border-width: 3px; transition: border-color .12s; }
+#side-list .ch:hover .avatar .status, #members .mem:hover .avatar .status { border-color: var(--row-ring-hov) !important; }
+#side-list .ch.active .avatar .status { border-color: var(--row-ring-sel) !important; }
+/* conversa fixada: alfinete azul à direita (clique desafixa) */
+.dmrow .dmpin { flex: none; align-self: center; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; margin-left: 2px; border: 0; border-radius: 6px; background: none; color: var(--brand); cursor: pointer; padding: 0; }
+.dmrow .dmpin .icon { fill: currentColor; }
+.dmrow .dmpin:hover { background: color-mix(in srgb, var(--brand) 18%, transparent); }
+.dmrow .dmpin:focus-visible { outline: 2px solid var(--brand); }
+/* barra: bolinha da conversa fixada saindo pela borda, como na referência */
+.raildm .rd-st { width: 14px; height: 14px; right: 8px; bottom: -4px; border-width: 4px; }
+.raildm.active .rd-st, .raildm:hover .rd-st { border-color: var(--bg-tert); }

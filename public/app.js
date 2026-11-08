@@ -671,8 +671,9 @@ function dmRow(dm, pin) {
   const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id], pv = dmPreviewText(dm);
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
     avatar(u, 36, { ring: 'var(--bg-sec)' }),
-    h('div.dm-t', h('div.dm-l1', styleName(h('span.name', u.display_name), u.name_style), pin && h('span.dmpin', { title: 'Fixada' }, icon('pin', 14)), h('span.dm-when', shortWhen(pv.t))),
-      h('div.dm-l2', h('span.dm-pv', pv.text), un > 0 && h('span.pill', un))));
+    h('div.dm-t', h('div.dm-l1', styleName(h('span.name', u.display_name), u.name_style), h('span.dm-when', shortWhen(pv.t))),
+      h('div.dm-l2', h('span.dm-pv', pv.text), un > 0 && h('span.pill', un))),
+    pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 18)));
 }
 // nova mensagem: escolher um amigo (ou qualquer pessoa dos seus servidores)
 function newMessageModal() {
