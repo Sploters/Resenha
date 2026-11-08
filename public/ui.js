@@ -1,5 +1,5 @@
 // Componentes de interface compartilhados (app + configurações)
-import { h } from './util.js';
+import { h, icon } from './util.js';
 import { SCREEN_PRESETS } from './voice.js';
 import { S } from './state.js';
 
@@ -9,7 +9,22 @@ export const seg = (opts, val, on) => { // opts: objeto ou lista de [valor, rót
   draw(val); return box;
 };
 export const toggle = (on, fn) => { const s = h('div.switch' + (on ? '.on' : ''), { role: 'switch', tabIndex: 0, onclick: () => { on = !on; s.classList.toggle('on', on); fn(on); }, onkeydown: (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); s.click(); } } }); return s; };
-export const row = (title, desc, ctl) => h('div.perm', h('div', h('div.rt', title), desc && h('div.rd', desc)), ctl);
+// explicação atrás de um ⓘ: aparece ao passar o mouse, focar com o teclado ou tocar (no celular)
+export const infoTip = (content) => {
+  const b = h('button.itip', { type: 'button', 'aria-label': 'Mais informações', onclick: (e) => { e.preventDefault(); e.stopPropagation(); b.classList.toggle('open'); place(); } }, icon('info', 16), h('span.itip-pop', { role: 'tooltip' }, content));
+  const place = () => { const r = b.getBoundingClientRect(); b.classList.toggle('left', r.left > innerWidth - 300); b.classList.toggle('up', r.bottom > innerHeight - 160); };
+  b.addEventListener('mouseenter', place); b.addEventListener('focus', place); b.addEventListener('blur', () => b.classList.remove('open'));
+  return b;
+};
+// linha com um valor à vista (nome de usuário, versão…), não uma explicação
+export const vrow = (title, value, ctl) => h('div.perm', h('div', h('div.rt', title), value != null && value !== '' && h('div.rd', value)), ctl);
+export const row = (title, desc, ctl) => h('div.perm', h('div', h('div.rt', title, desc && infoTip(desc))), ctl);
+// escolha visual: cartões com prévia em vez de uma lista de botões. opts: [[valor, rótulo, prévia]]
+export const choiceCards = (opts, val, on) => {
+  const box = h('div.choices', { role: 'radiogroup' });
+  const draw = (v) => box.replaceChildren(...opts.map(([k, l, prev]) => h('button.choice' + (String(k) === String(v) ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(String(k) === String(v)), onclick: () => { on(k); draw(k); } }, h('div.ch-prev', prev), h('span.ch-lbl', icon('check', 14), l))));
+  draw(val); return box;
+};
 export const section = (t) => h('h3.sec', t);
 export const slider = (min, max, value, step, onInput, fmt = (v) => v) => {
   const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); } });

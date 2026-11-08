@@ -2,7 +2,7 @@ import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce } f
 import { S, api, tryApi, savePrefs, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
-import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel } from './ui.js';
+import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput } from './quick.js';
@@ -81,13 +81,31 @@ const swatches = (cur, onPick) => {
   mark(cur); return h('div.swatches', ...dots, own);
 };
 const card = (...k) => h('div.card2', ...k);
-const hint = (t) => h('div.hintline', t);
+const msgPrev = (compact) => h('div.mp' + (compact ? '.compact' : ''), [0, 1].map(i => h('div.mp-row', !compact && h('i.mp-av'), h('div.mp-lines', h('b', { style: { width: (compact ? 30 : 40) + i * 8 + '%' } }), h('u', { style: { width: 70 - i * 18 + '%' } })))));
+const hint = (t) => h('div.hintline', t); // explicação: vira um ⓘ no título da seção (compactHints)
+const note = (t) => h('div.hintline.keep', t); // fica sempre à vista: aviso sério ou lista vazia
+// as explicações saem do meio da tela e vão para um ⓘ ao lado do título da seção (ou da página)
+function compactHints(pane) {
+  for (const el of pane.querySelectorAll('.hintline:not(.keep)')) {
+    const box = el.parentElement, sec = box?.classList.contains('card2') ? box.previousElementSibling : el.previousElementSibling;
+    let target = sec?.matches?.('h3.sec, h2') ? sec : null;
+    if (!target && box?.firstElementChild?.matches?.('h2')) target = box.firstElementChild; // dica solta na página: no título dela
+    if (!target || target.querySelector(':scope > .itip')) continue;
+    target.append(infoTip([...el.childNodes]));
+    el.remove();
+  }
+}
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Configurações do usuário', [['account', 'Minha conta', 'senha usuário nome excluir'], ['profile', 'Perfil', 'avatar banner bio status pronomes'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
-  ['Configurações do aplicativo', [['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado'], ['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir'], ['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['profile', 'Perfil', 'avatar banner bio status pronomes'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
+  ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
+  ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
+  ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
+const NAV_ICONS = { account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
+  overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', audit: 'clock', invites: 'invite' };
 const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link']];
 
 export function openSettings(kind, ctx) {
@@ -106,16 +124,17 @@ export function openSettings(kind, ctx) {
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
-  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); nav.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
+  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
   const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
-  const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t.includes('aplicativo') ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
+  const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
   const drawNav = () => {
     const q = search.value.trim().toLowerCase();
-    nav.replaceChildren(h('div.ninner', search, ...groups.flatMap(([title, items]) => {
+    const meCard = !isServer && S.me && h('div.nme', { title: 'Editar perfil', onclick: () => show('profile') }, avatar(S.me, 40), h('div.nme-t', h('b', S.me.display_name), h('small', 'Editar perfil')), icon('edit', 16));
+    nav.replaceChildren(h('div.ninner', meCard, search, ...groups.flatMap(([title, items]) => {
       const list = items.filter(([k, l, kw]) => !q || (l + ' ' + kw).toLowerCase().includes(q));
-      return list.length ? [h('h6', title), ...list.map(([k, l]) => h('div.ni' + (k === current ? '.active' : ''), { 'data-k': k, onclick: () => show(k) }, l, k === 'lite' && liteOn() && h('span.nlite', { title: 'O modo leve está ligado neste computador' }, 'Ativo')))] : [];
+      return list.length ? [h('h6', title), ...list.map(([k, l]) => h('div.ni' + (k === current ? '.active' : ''), { 'data-k': k, onclick: () => show(k) }, icon(NAV_ICONS[sKey(k) === 'sounds_srv' ? 'soundboard' : k] || 'dot', 18), h('span.nl', l), k === 'lite' && liteOn() && h('span.nlite', { title: 'O modo leve está ligado neste computador' }, 'Ativo')))] : [];
     }), !isServer && h('div', { style: { height: '1px', background: 'var(--divider)', margin: '10px 8px' } }),
-    !isServer && h('div.ni.danger', { onclick: async () => { if (await confirmBox('Sair', 'Deseja sair da sua conta?', 'Sair')) ctx.logout(); } }, 'Sair'),
+    !isServer && h('div.ni.danger', { onclick: async () => { if (await confirmBox('Sair', 'Deseja sair da sua conta?', 'Sair')) ctx.logout(); } }, icon('logout', 18), h('span.nl', 'Sair')),
     h('div.nfoot', 'Resenha' + (desktop ? ' Desktop' : ' Web'))));
   };
   root.append(nav, content, h('button.close', { onclick: close, title: 'Fechar (Esc)' }, icon('x', 20), h('small', 'ESC')));
@@ -131,10 +150,10 @@ function accountPage(close) {
   const me = S.me;
   return h('div', h('h2', 'Minha conta'),
     card(h('div.accrow', avatar(me, 80), h('div', h('div.big', me.display_name), h('div.mut', '@' + me.username))),
-      row('Nome de usuário', '@' + me.username, h('button.btn.grey', { onclick: usernameDialog }, 'Alterar')),
-      row('Nome de exibição', me.display_name, h('button.btn.grey', { onclick: async () => { const n = await promptBox('Nome de exibição', 'Como você aparece para os outros', me.display_name, 'Salvar'); if (n) { await tryApi('PATCH', '/me', { display_name: n }); toast('Nome atualizado'); } } }, 'Editar'))),
+      vrow('Nome de usuário', '@' + me.username, h('button.btn.grey', { onclick: usernameDialog }, 'Alterar')),
+      vrow('Nome de exibição', me.display_name, h('button.btn.grey', { onclick: async () => { const n = await promptBox('Nome de exibição', 'Como você aparece para os outros', me.display_name, 'Salvar'); if (n) { await tryApi('PATCH', '/me', { display_name: n }); toast('Nome atualizado'); } } }, 'Editar'))),
     section('Senha'), card(passwordForm()),
-    section('Remoção da conta'), card(hint('Excluir apaga seu perfil, suas mensagens, seus servidores (como dono) e remove você de todos os outros. Não dá para desfazer.'), h('button.btn.red', { onclick: () => deleteDialog(close) }, 'Excluir conta')));
+    section('Remoção da conta'), card(note('Excluir apaga seu perfil, suas mensagens, seus servidores (como dono) e remove você de todos os outros. Não dá para desfazer.'), h('button.btn.red', { onclick: () => deleteDialog(close) }, 'Excluir conta')));
 }
 function passwordForm() {
   const o = h('input', { type: 'password', autocomplete: 'current-password' }), n = h('input', { type: 'password', autocomplete: 'new-password' }), n2 = h('input', { type: 'password', autocomplete: 'new-password' });
@@ -256,7 +275,7 @@ function blockedCard() {
     const list = [...S.rels.values()].filter(r => r.type === 2);
     box.replaceChildren(...(list.length ? list.map(r => { const u = S.users.get(r.user.id) || r.user; return h('div.frow.blk', { style: { cursor: 'default' } }, avatar(u, 36, { status: false }), h('div.fn', h('b', u.display_name), h('small', '@' + u.username)),
       h('button.btn.grey', { onclick: async () => { if (await tryApi('DELETE', `/relationships/${u.id}`)) { S.rels.delete(u.id); draw(); toast(`${u.display_name} desbloqueado`); } } }, 'Desbloquear')); })
-      : [hint('Você não bloqueou ninguém. Para bloquear, clique com o botão direito em alguém → Bloquear.')]));
+      : [note('Você não bloqueou ninguém. Para bloquear, clique com o botão direito em alguém → Bloquear.')]));
   };
   draw(); return box;
 }
@@ -300,12 +319,12 @@ function appearancePage() {
     section('Agentes do Valorant'), card(val, hint('Um tema para cada agente, nas cores dele.')),
     section('Seus temas'), card(mine, hint('Crie um gradiente com até 5 cores e compartilhe: o código colado no chat vira um cartão com o botão "Usar tema".')),
     section('Cor de destaque'), card(swatches(S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
-    section('Fonte'), card(h('label.f', 'Família da fonte', seg({ default: 'Padrão', rounded: 'Arredondada', serif: 'Serifada', mono: 'Monoespaçada', dyslexia: 'Legível (dislexia)' }, S.prefs.fontFamily, set('fontFamily'))),
+    section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
       h('label.f', 'Tamanho da interface', slider(80, 140, S.prefs.zoom, 5, set('zoom'), v => v + '%'))),
-    section('Mensagens'), card(row('Modo compacto', 'Mostra o autor em todas as mensagens.', toggle(S.prefs.compact, v => { S.prefs.compact = v; save(); })),
+    section('Mensagens'), card(h('label.f', 'Exibição das mensagens'), choiceCards([[0, 'Confortável', msgPrev(false)], [1, 'Compacta', msgPrev(true)]], S.prefs.compact ? 1 : 0, v => { S.prefs.compact = !!v; save(); }),
       h('label.f', { style: { marginTop: '12px' } }, 'Espaço entre grupos de mensagens', slider(0, 32, S.prefs.msgGap, 1, set('msgGap'), v => v + 'px')),
       h('label.f', 'Arredondamento dos cartões', slider(0, 20, S.prefs.radius, 1, set('radius'), v => v + 'px')),
-      h('label.f', 'Formato da hora', seg({ 0: '24 horas', 1: '12 horas (AM/PM)' }, S.prefs.hour12 ? 1 : 0, (v) => { S.prefs.hour12 = !!v; save(); applyTheme(); })),
+      h('label.f', 'Formato da hora'), choiceCards([[0, '24 horas', h('span.hr-prev', '21:30')], [1, '12 horas', h('span.hr-prev', '9:30 PM')]], S.prefs.hour12 ? 1 : 0, (v) => { S.prefs.hour12 = !!v; save(); applyTheme(); }),
       row('Mostrar imagens de links no chat', 'Pré-visualiza links que terminam em .png/.jpg/.gif.', toggle(S.prefs.embedLinks !== false, v => { S.prefs.embedLinks = v; save(); })),
       row('Cores dos cargos nos nomes', null, toggle(S.prefs.roleColors !== false, v => { S.prefs.roleColors = v; save(); }))),
     section('Animações'), card(row('Animações aprimoradas', 'Transições suaves ao trocar de canal, abrir janelas e menus e receber mensagens. "Reduzir animações" em Acessibilidade tem prioridade.', toggle(S.prefs.animations !== false, set('animations')))),
@@ -328,7 +347,7 @@ function extrasPage(ctx) {
   const vols = h('div');
   const drawVols = () => {
     const ent = Object.entries(P.userVolumes || {});
-    vols.replaceChildren(row('Volumes salvos por pessoa', ent.length ? ent.map(([id, v]) => `${nameOf(id)}: ${v}%`).join(' • ') : 'Nenhum — todos em 100%.',
+    vols.replaceChildren(vrow('Volumes salvos por pessoa', ent.length ? ent.map(([id, v]) => `${nameOf(id)}: ${v}%`).join(' • ') : 'Nenhum — todos em 100%.',
       ent.length > 0 && h('button.btn.grey', { onclick: () => { P.userVolumes = {}; P.streamVolumes = {}; save(); ctx?.voice?.peers.forEach((_, id) => ctx.voice.applyVolume(id)); drawVols(); toast('Volumes redefinidos para 100%'); } }, 'Redefinir')));
   };
   drawVols();
@@ -428,13 +447,13 @@ function voicePage(ctx, reg) {
       row('Cancelamento de eco', 'Evita retorno do som dos alto-falantes.', toggle(S.prefs.echo !== false, v => { S.prefs.echo = v; save(); restartTest(); })),
       row('Ganho automático', 'Equaliza o volume da sua voz.', toggle(S.prefs.agc !== false, v => { S.prefs.agc = v; save(); restartTest(); }))),
     section('Teste de microfone'), card(h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(false, (v) => { loopback = v; test?.setLoopback(v); })), meterWrap),
-    section('Modo de entrada'), card(seg({ vad: 'Atividade de voz', ptt: 'Push-to-talk' }, S.prefs.inputMode, v => { S.prefs.inputMode = v; save(); voice.applyMute(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint('O push-to-talk funciona com a janela do app em foco.')),
+    section('Modo de entrada'), card(choiceCards([['vad', 'Atividade de voz', h('span.im-prev', icon('waves', 28), h('small', 'Fala e já sai'))], ['ptt', 'Push-to-talk', h('span.im-prev', icon('keyboard', 28), h('small', 'Segura a tecla para falar'))]], S.prefs.inputMode || 'vad', v => { S.prefs.inputMode = v; save(); voice.applyMute(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint('O push-to-talk funciona com a janela do app em foco.')),
     section('Qualidade da voz'), card(h('label.f', 'Taxa de bits do áudio', seg(VOICE_BITRATES, S.prefs.voiceBitrate ?? 'auto', v => { S.prefs.voiceBitrate = v; save(); voice?.retuneAudio(); })), hint('Automático: voz mono a 64 kbps, que já soa perfeita; desce para 48 ou 32 kbps se a sua conexão tiver perda ou ping alto. 128 kbps ou mais só faz diferença para música e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala. O nível atual aparece no painel de voz.')),
     section('Efeitos de voz'), card(row('Ouvir efeitos de voz dos outros', 'Desligado: você ouve todo mundo com a voz normal, mesmo quem estiver usando efeito. Dá também para desligar só de uma pessoa (clique direito nela → "Ouvir sem efeito de voz").', toggle(S.prefs.hearFx !== false, v => { S.prefs.hearFx = v; save(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); }))),
     section('Câmera'), card(sel('videoinput', 'videoId', 'Câmera'), h('label.f', 'Resolução', seg({ 360: '360p', 720: '720p', 1080: '1080p' }, S.prefs.camRes, v => { S.prefs.camRes = v; save(); })), h('label.f', 'Quadros por segundo', seg({ 15: '15', 30: '30', 60: '60' }, S.prefs.camFps, v => { S.prefs.camFps = v; save(); })), camBtn, camPrev),
     section('Diagnóstico'), card(h('button.btn.grey', { onclick: async () => { const st = voice.active ? await voice.stats() : []; modal('Diagnóstico de voz', voice.active ? 'Conexões com os outros participantes' : 'Você não está em uma sala de voz', h('div', ...st.map(s => row(user(s.uid).display_name, `estado: ${s.state}`, h('b', s.rtt != null ? s.rtt + ' ms' : '—'))), !st.length && hint('Entre em uma sala de voz para ver os dados.')), [{ label: 'Fechar' }]); } }, 'Ver conexões agora'),
       h('button.btn.grey', { style: { marginLeft: '8px' }, onclick: () => { voice.active ? voice.rebuildMic().then(() => toast('Áudio reiniciado')) : toast('Entre em uma sala primeiro', true); } }, 'Reiniciar áudio')),
-    !window.isSecureContext && card(hint([h('span.hint-ic', icon('warn', 16)), 'Conexão não segura (HTTP): navegadores só liberam microfone/câmera/tela em HTTPS. Use https://…:3443 ou o aplicativo desktop.'])));
+    !window.isSecureContext && card(note([h('span.hint-ic', icon('warn', 16)), 'Conexão não segura (HTTP): navegadores só liberam microfone/câmera/tela em HTTPS. Use https://…:3443 ou o aplicativo desktop.'])));
 }
 
 // ============================ Transmissão ============================
@@ -490,7 +509,7 @@ function notificationsPage() {
     card(row('Notificações da área de trabalho', 'Avisa de menções e mensagens diretas quando a janela não está em foco.', toggle(S.prefs.desktopNotif, v => { S.prefs.desktopNotif = v; save(); if (v && 'Notification' in window) Notification.requestPermission(); })),
       row('Mostrar o texto da mensagem na notificação', 'Desligado: mostra só "Nova mensagem".', toggle(S.prefs.notifPreview !== false, v => { S.prefs.notifPreview = v; save(); })),
       hint('Sons de notificação, de chamada e de voz ficam em "Sons".')),
-    section('Por servidor'), ...(list.length ? list : [hint('Você ainda não está em nenhum servidor.')]));
+    section('Por servidor'), ...(list.length ? list : [note('Você ainda não está em nenhum servidor.')]));
 }
 
 // ============================ Atalhos ============================
@@ -521,7 +540,7 @@ function advancedPage(ctx) {
     card(row('Modo desenvolvedor', 'Mostra "Copiar ID" nos menus.', toggle(!!S.prefs.devMode, v => { S.prefs.devMode = v; save(); }))),
     desktop && [section('Aplicativo'), card(dsk)],
     section('Configurações'), card(h('div.btns', exportBtn, importBtn, resetBtn), hint('Suas preferências ficam salvas na conta e acompanham você em outros dispositivos (menos os dispositivos de áudio).')),
-    section('Informações'), card(row('Contexto seguro (HTTPS)', 'Necessário para microfone, câmera e tela.', h('b', window.isSecureContext ? 'Sim' : 'Não')), row('Servidores ICE', (S.ice || []).map(i => i.urls).join(', ') || '—', null), row('Navegador', navigator.userAgent.slice(0, 90), null)));
+    section('Informações'), card(row('Contexto seguro (HTTPS)', 'Necessário para microfone, câmera e tela.', h('b', window.isSecureContext ? 'Sim' : 'Não')), vrow('Servidores ICE', (S.ice || []).map(i => i.urls).join(', ') || '—', null), vrow('Navegador', navigator.userAgent.slice(0, 90), null)));
 }
 // relatar um problema: explica o que vai junto e abre o formulário
 function reportPage() {
@@ -550,7 +569,7 @@ function versionRow(version) {
     status.textContent = `Resenha Desktop ${version} — versão ${latest} disponível`;
     btn.className = 'btn green'; btn.textContent = silentUpdate() ? `Reiniciar e atualizar para ${latest}` : `Atualizar para ${latest}`;
   } }, 'Procurar atualização');
-  return row('Versão', status, btn);
+  return vrow('Versão', status, btn);
 }
 function appPage() {
   const box = h('div.card2', 'Carregando…');
@@ -562,7 +581,7 @@ function appPage() {
     row('Compatibilidade de vídeo', 'Por padrão o app desenha igual ao navegador. Ligue se as letras ficam borradas ou os vídeos piscam/aparecem escuros só no app (no navegador normais): o vídeo é decodificado pela CPU, em sRGB e sem a sobreposição de vídeo da placa (um pouco mais pesado). Em placas antigas também desenha o texto pela CPU. "Automático" liga sozinho em placas de vídeo antigas.' + (s.gpuName ? ` Placa: ${s.gpuName}.` : '') + ` Agora: ${s.gpuCompatActive ? 'ligada' : 'desligada'}.`,
       h('select.gpucompat', { onchange: async (e) => { await desktop.setSettings({ gpuCompat: e.target.value }); if (await confirmBox('Reiniciar a Resenha?', 'A compatibilidade de vídeo só muda depois de reiniciar o app. Se estiver numa chamada, você sai dela.', 'Reiniciar agora')) desktop.relaunch(); else toast('Vale na próxima vez que abrir o app'); } },
         [['auto', 'Automático'], ['on', 'Ligada'], ['off', 'Desligada']].map(([v, l]) => h('option', { value: v, selected: (s.gpuCompat || 'auto') === v }, l)))),
-    row('Servidor', s.server, h('button.btn.grey', { onclick: () => desktop.changeServer() }, 'Trocar servidor')),
+    vrow('Servidor', s.server, h('button.btn.grey', { onclick: () => desktop.changeServer() }, 'Trocar servidor')),
     versionRow(s.version)));
   return h('div', h('h2', 'Aplicativo (desktop)'), box);
 }
@@ -624,7 +643,7 @@ function invitesPage(gid) {
     const list = await tryApi('GET', `/guilds/${gid}/invites`) || [];
     box.replaceChildren(...list.map(i => h('div.frow', { style: { cursor: 'default' } }, h('div.fn', h('b', `${location.origin}/invite/${i.code}`), h('small', `${i.uses} uso(s) • por ${nameOf(i.creator_id, gid)}`)),
       h('button.btn.grey', { onclick: () => { navigator.clipboard?.writeText(`${location.origin}/invite/${i.code}`); toast('Copiado!'); } }, 'Copiar'), h('button.btn.red', { onclick: async () => { await tryApi('DELETE', `/invites/${i.code}`); draw(); } }, 'Revogar'))));
-    if (!list.length) box.append(hint('Nenhum convite ativo.'));
+    if (!list.length) box.append(note('Nenhum convite ativo.'));
   };
   draw();
   return h('div', h('h2', 'Convites'), h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`); draw(); } }, 'Criar convite'), box);
@@ -633,7 +652,7 @@ function rolesPage(gid) {
   const g = guild(gid), box = h('div'), editor = h('div');
   const draw = () => {
     box.replaceChildren(...g.roles.map(r => h('div.role-row', { onclick: () => edit(r) }, h('i.dot', { style: { background: r.color } }), h('span', { style: { flex: 1 } }, r.name), h('small', { style: { color: 'var(--text-muted)' } }, `${[...g.members.values()].filter(m => m.roles.includes(r.id)).length} membros`))));
-    if (!g.roles.length) box.append(hint('Nenhum cargo ainda.'));
+    if (!g.roles.length) box.append(note('Nenhum cargo ainda.'));
   };
   const edit = (r) => {
     let color = r.color, perms = r.perms; const name = h('input', { value: r.name, maxLength: 50 });

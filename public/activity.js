@@ -349,7 +349,7 @@ export function connectionsPage(reg) {
       const head = h('div.accrow', a?.avatar ? h('img.conn-av', { src: a.avatar, alt: '' }) : h('div.conn-av.ph', icon('play', 28)), h('div', h('div.big', i.name), h('div.mut', a ? (a.display_name || 'Conta vinculada') + ' · ' + (!i.configured ? 'Aguardando o servidor configurar a chave da ' + i.name : (SYNC[a.sync_state] || '')) : 'Não vinculada')));
       if (!a) return [section(i.name), h('div.card2', head,
         h('p.hintline', 'Usamos o login oficial da ' + i.name + ' (nunca pedimos sua senha). Seu perfil e os "Detalhes do jogo" precisam estar públicos para o jogo atual aparecer.'),
-        !i.configured && h('p.hintline', { style: { color: 'var(--yellow, #faa61a)' } }, 'Este servidor ainda não tem a chave da ' + i.name + ': dá para vincular, mas o jogo atual só aparece depois que o administrador configurar.'),
+        !i.configured && h('p.hintline.keep', { style: { color: 'var(--yellow, #faa61a)' } }, 'Este servidor ainda não tem a chave da ' + i.name + ': dá para vincular, mas o jogo atual só aparece depois que o administrador configurar.'),
         h('button.btn', { onclick: async () => { const r = await tryApi('POST', `/integrations/${i.id}/link`); if (r?.url) { window.open(r.url, '_blank', 'noopener'); toast('Conclua o login na janela que abriu e volte aqui.'); } } }, 'Vincular com a ' + i.name))];
       const patch = (body) => tryApi('PATCH', `/integrations/${i.id}`, body).then(r => { if (r) draw(); });
       return [section(i.name), h('div.card2', head,
@@ -371,7 +371,7 @@ function pcActivityBlock() {
   const draw = (v) => box.replaceChildren(
     h('p.hintline', 'O app desktop (Windows) reconhece o jogo aberto no seu PC — o mesmo jeito que a transmissão acha o jogo — e mostra "Jogando …" para os outros, sem precisar vincular conta. Só o nome do jogo é enviado.'),
     row('Quem pode ver meu jogo do PC', null, seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seu jogo não aparece mais para ninguém.' : 'Pronto.'); } })),
-    !window.lcDesktop?.detectGame && h('p.hintline', { style: { color: 'var(--text-muted)' } }, 'Neste aparelho a detecção não funciona (só no app desktop para Windows, versão 1.0.24 ou mais nova).'));
+    !window.lcDesktop?.detectGame && h('p.hintline.keep', { style: { color: 'var(--text-muted)' } }, 'Neste aparelho a detecção não funciona (só no app desktop para Windows, versão 1.0.24 ou mais nova).'));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
   return [section('Jogo aberto no PC'), box];
 }
