@@ -223,7 +223,9 @@ function canAccessChannel(uid, ch) {
   if (ch.guild_id) return !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, uid);
   return !!get('SELECT 1 x FROM dm_participants WHERE channel_id=? AND user_id=?', ch.id, uid);
 }
-const dmChannelObj = (ch) => ({ ...ch, recipients: all('SELECT user_id FROM dm_participants WHERE channel_id=?', ch.id).map(r => userPub(r.user_id)) });
+// last_message: prévia e ordem da lista de Mensagens (só o começo do texto)
+const lastDmMsg = (cid) => { const m = get('SELECT id, author_id, substr(content,1,140) content, created_at, attachments FROM messages WHERE channel_id=? ORDER BY id DESC LIMIT 1', cid); return m ? { id: m.id, author_id: m.author_id, content: m.content || '', created_at: m.created_at, attachment: m.attachments && m.attachments !== '[]' } : null; };
+const dmChannelObj = (ch) => ({ ...ch, recipients: all('SELECT user_id FROM dm_participants WHERE channel_id=?', ch.id).map(r => userPub(r.user_id)), last_message: lastDmMsg(ch.id) });
 const relObj = (uid) => all('SELECT * FROM relationships WHERE user_id=?', uid).map(r => ({ user: userPub(r.other_id), type: r.type }));
 
 function sharedAudience(uid) {

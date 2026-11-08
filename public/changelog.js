@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-08', title: 'Navegação nova',
+    items: [
+      { i: 'dm', t: 'Mensagens e Amigos separados', d: 'Na barra da esquerda, "Amigos" e "Mensagens" viraram duas entradas. Mensagens é uma lista simples com a última mensagem de cada conversa, busca, nova mensagem e ordenação (recentes, não lidas, nome).', try: 'messages' },
+      { i: 'pin', t: 'Conversas fixadas na barra', d: 'Clique direito em alguém → Fixar: a conversa fica no topo das Mensagens e também como atalho na barra da esquerda, acima dos servidores.' },
+      { i: 'chevl', t: 'Painel do usuário recolhível', d: 'A seta no seu painel recolhe tudo para a barra da esquerda: fica só o seu avatar com o status, o microfone, o fone e as configurações. Na chamada, o painel de voz continua à vista.' },
+      { i: 'gear', t: 'Configurações mais limpas', d: 'As explicações foram para um ⓘ ao lado de cada opção, o menu ganhou ícones e grupos novos, e fonte, exibição das mensagens, hora e modo de entrada viraram cartões com prévia.', try: 'appearance' },
+      { i: 'users', t: 'Lista de membros', d: 'Seu cartão fica fixo no topo com seu cargo e sua posição no servidor; cada cargo recolhe com um clique e dá para buscar membros pelo nome.' },
+    ],
+  },
+  {
     id: '2026-11-06', title: 'Transmissão de jogos e clipes',
     items: [
       { i: 'gamepad', t: 'Transmitir o jogo, não a tela toda', d: 'Jogo em tela cheia aparece em "Janelas" mesmo minimizado depois do alt+tab, já vem escolhido e com o selo JOGO. Antes a transmissão caía para a tela inteira.', try: 'stream' },

@@ -14,7 +14,7 @@ await sleep(1500);
 const app = spawn(electronPath, ['desktop', '--remote-debugging-port=9333', '--user-data-dir=' + process.cwd() + '/.testdata3'], { stdio: 'ignore', env: { ...process.env, LC_TEST_SERVER: BASE } });
 let edge, eb;
 const register = async (page, name) => {
-  await page.waitForSelector('#auth .card'); await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
+  await page.waitForSelector('#auth .auth-card'); await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
   await page.evaluate((n) => { const i = document.querySelectorAll('#auth input'); i[0].value = n; i[2].value = 'senha123'; i[3].value = 'senha123'; }, name);
   await page.click('#auth .btn'); await page.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
 };

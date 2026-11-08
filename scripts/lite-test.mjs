@@ -13,7 +13,7 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 try {
   const page = await browser.newPage(); await page.setViewport({ width: 1440, height: 900 });
   page.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
-  await page.goto(BASE); await page.waitForSelector('#auth .card');
+  await page.goto(BASE); await page.waitForSelector('#auth .auth-card');
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
   const ins = await page.$$('#auth input'); await ins[0].type('leve'); await ins[2].type('senha123'); await ins[3].type('senha123');

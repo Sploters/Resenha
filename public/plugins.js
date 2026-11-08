@@ -16,6 +16,7 @@ function parts(t) {
   if (t.cid === 'clips') return ['clip', 'Clipes']; // galeria de clipes do servidor
   if (t.cid === 'lfg') return ['gamepad', 'Procurar jogadores'];
   if (t.cid === 'discover') return ['compass', 'Descobrir'];
+  if (t.cid === 'messages') return ['dm', 'Mensagens'];
   const ch = D.channelById(t.cid);
   if (!ch) return [null, 'Canal removido'];
   if (ch.type === 1) return [null, '@' + D.user(D.dmPeer(ch).id).display_name];
@@ -25,7 +26,7 @@ const label = (t) => parts(t)[1];
 const labelEl = (t) => { const [ic, txt] = parts(t); return [ic && h('span.ct-ico', icon(ic, 14)), h('span.ct-txt', txt)]; };
 const title = (t) => { const ch = D.channelById(t.cid), g = t.cid === 'clips' ? D.guild(t.gid) : ch?.guild_id && D.guild(ch.guild_id); return label(t) + (g ? ' — ' + g.name : ''); };
 const here = () => ({ gid: D.S.view.gid || '@me', cid: D.S.view.cid || null });
-const alive = (t) => !t.cid || t.cid === 'lfg' || t.cid === 'discover' || (t.cid === 'clips' ? !!D.guild(t.gid) : !!D.channelById(t.cid));
+const alive = (t) => !t.cid || t.cid === 'lfg' || t.cid === 'discover' || t.cid === 'messages' || (t.cid === 'clips' ? !!D.guild(t.gid) : !!D.channelById(t.cid));
 
 function open(t) { D.go(t.gid, t.cid); }
 function addTab(t, activate = true) {

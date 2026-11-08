@@ -11,7 +11,7 @@ await sleep(1800);
 const b = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--autoplay-policy=no-user-gesture-required'] });
 try {
   const p = await b.newPage(); await p.goto(BASE);
-  await p.waitForSelector('#auth .card'); await p.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
+  await p.waitForSelector('#auth .auth-card'); await p.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
   await p.evaluate(() => { const i = document.querySelectorAll('#auth input'); i[0].value = 'tester'; i[2].value = 'senha123'; i[3].value = 'senha123'; });
   await p.click('#auth .btn'); await p.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
   // streams de teste por canvas (redesenhados continuamente para o vídeo ter quadros)

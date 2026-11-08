@@ -16,7 +16,7 @@ async function newUser(name) {
   await page.setViewport({ width: 1440, height: 900 });
   page.on('pageerror', e => { console.log('  PAGEERROR', name, e.message); fails++; });
   page.on('console', m => { if (m.type() === 'error') console.log('  console.error', name, m.text().slice(0, 200)); });
-  await page.goto(BASE); await page.waitForSelector('#auth .card');
+  await page.goto(BASE); await page.waitForSelector('#auth .auth-card');
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
   const ins = await page.$$('#auth input');

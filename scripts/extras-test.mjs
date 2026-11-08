@@ -16,7 +16,7 @@ async function newUser(name) {
   await page.setViewport({ width: 1440, height: 900 });
   page.on('pageerror', e => { console.log('  PAGEERROR', name, e.message); fails++; });
   page.on('console', m => { if (m.type() === 'error') console.log('  console.error', name, m.text().slice(0, 200)); });
-  await page.goto(BASE); await page.waitForSelector('#auth .card');
+  await page.goto(BASE); await page.waitForSelector('#auth .auth-card');
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
   const ins = await page.$$('#auth input');
@@ -285,11 +285,13 @@ try {
   await A.screenshot({ path: `${SHOTS}/x9-menu-usuario.png` });
   // fixar
   await clickText(A, '.menu .it', 'Fixar'); await sleep(600);
-  await A.evaluate(() => window.__lc.go('@me')); await sleep(500);
-  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > *')].map(e => e.textContent.trim()).filter(t => t !== 'Procurar jogadores').slice(0, 4)); // a aba Procurar jogadores fica entre Amigos e as DMs
-  ok(side[1] === 'Fixadas' && side[2].startsWith('bob') && side[3] === 'Mensagens diretas', 'Fixar põe a conversa no topo das DMs: ' + side.join(' | '));
+  await A.evaluate(() => window.__lc.go('@me', 'messages')); await sleep(500); // seção Mensagens
+  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > *')].map(e => e.textContent.trim()).slice(0, 3));
+  ok(side[0] === 'Fixadas' && side[1].startsWith('bob'), 'Fixar põe a conversa no topo das Mensagens: ' + side.join(' | '));
+  ok(await A.evaluate(() => [...document.querySelectorAll('#rail .raildm')].some(w => w.dataset.tip?.startsWith('bob'))), 'conversa fixada aparece na barra da esquerda');
   await A.screenshot({ path: `${SHOTS}/x10-dm-fixada.png` });
   ok(await A.evaluate(() => !document.querySelector('#home .tab') || ![...document.querySelectorAll('#home .tab')].some(t => t.textContent.includes('Bloqueados'))), 'aba "Bloqueados" saiu de Amigos');
+  await A.evaluate(() => window.__lc.go('@me')); await sleep(500);
   const sz = await A.evaluate(() => ({ top: document.querySelector('#home > #topbar').offsetHeight, add: document.querySelector('#home .tab.green').offsetHeight, ub: document.querySelector('#userbar').offsetHeight }));
   ok(sz.top >= 56 && sz.add >= 32 && sz.ub >= 60, `barra de amigos ${sz.top}px, botão adicionar ${sz.add}px, área do usuário ${sz.ub}px`);
   await A.screenshot({ path: `${SHOTS}/x11-amigos.png` });

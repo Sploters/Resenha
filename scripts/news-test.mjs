@@ -27,10 +27,11 @@ try {
   const A = await page(a.token);
   ok(await newsOpen(A), 'quem já usava vê a janela de Novidades ao abrir');
   const info = await A.evaluate(() => ({ items: document.querySelectorAll('.modal .newsitem').length, tries: document.querySelectorAll('.modal .newsitem .btn').length, first: document.querySelector('.modal .newsitem b')?.textContent }));
-  ok(info.items >= 8 && info.tries >= 5 && info.first === 'Efeitos de voz', 'lista as novidades com botões "Experimentar"', info);
+  const newest = (await import('node:fs')).readFileSync('public/changelog.js', 'utf8').match(/items: \[\s*\{[^}]*?t: '([^']+)'/)[1]; // primeira novidade da entrada mais nova
+  ok(info.items >= 5 && info.tries >= 1 && info.first === newest, 'lista as novidades com botões "Experimentar"', info);
   if (process.env.SHOTS) { await sleep(900); await A.screenshot({ path: `${OUT}/01-janela.png` }); }
-  await A.evaluate(() => [...document.querySelectorAll('.modal .newsitem')].find(x => /Procurar jogadores/.test(x.textContent)).querySelector('.btn').click()); await sleep(800);
-  ok(await A.evaluate(() => window.__lc.S.view.kind === 'lfg' && !document.querySelector('.modal')), '"Experimentar" fecha a janela e leva ao recurso (Procurar jogadores)');
+  await A.evaluate(() => [...document.querySelectorAll('.modal .newsitem')].find(x => /Mensagens e Amigos/.test(x.textContent)).querySelector('.btn').click()); await sleep(800);
+  ok(await A.evaluate(() => window.__lc.S.view.kind === 'messages' && !document.querySelector('.modal')), '"Experimentar" fecha a janela e leva ao recurso (Mensagens)');
   await sleep(2000); // gravar na conta
   ok((await call(a.token, 'GET', '/me/settings')).settings?.newsSeen, 'visto fica gravado na conta');
   const A2 = await page(a.token); // outro aparelho

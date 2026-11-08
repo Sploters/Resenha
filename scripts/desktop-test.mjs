@@ -21,7 +21,7 @@ try {
   await page.bringToFront(); await page.$eval('#addr', e => { e.value = 'localhost:3222'; }); await page.click('#go');
   let app2; for (let i = 0; i < 30; i++) { await sleep(400); app2 = (await browser.pages()).find(p => p.url().startsWith('http://localhost:3222')); if (app2) break; }
   ok(!!app2, 'conectou ao servidor e carregou o cliente');
-  await app2.waitForSelector('#auth .card', { timeout: 8000 });
+  await app2.waitForSelector('#auth .auth-card', { timeout: 8000 });
   ok(await app2.evaluate(() => !!window.lcDesktop?.isDesktop), 'ponte lcDesktop disponível no cliente');
   const src = await app2.evaluate(() => window.lcDesktop.getSources());
   ok(Array.isArray(src) && src.length > 0 && src[0].thumbnail.startsWith('data:image'), `fontes de captura listadas (${src.length}: ${src.slice(0, 3).map(s => s.name).join(' | ')})`);
