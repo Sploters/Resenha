@@ -661,19 +661,11 @@ function dmSortMenu(e) {
 }
 // hora curta da última mensagem: "14:05" hoje, "ontem", "12/03"
 const shortWhen = (t) => { if (!t) return ''; const d = new Date(+t), now = new Date(); if (sameDay(t, now)) return clock(t); const y = new Date(now); y.setDate(y.getDate() - 1); if (sameDay(t, y)) return 'ontem'; return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); };
-function dmPreviewText(dm) {
-  const l = S.messages.get(dm.id), lm = (l?.length && (!dm.last_message || l[l.length - 1].id >= dm.last_message.id)) ? l[l.length - 1] : dm.last_message;
-  if (!lm) return { text: 'Diga oi!', t: null };
-  const body = stripInvites(lm.content || '').replace(/<@!?(\d+)>/g, (m, id) => '@' + (S.users.get(id)?.display_name || 'alguém')).replace(/[*_~`>|]/g, '').trim() || (lm.attachment || lm.attachments?.length ? 'Anexo' : (inviteCodes(lm.content || '').length ? 'Convite' : ''));
-  return { text: (lm.author_id === S.me.id ? 'Você: ' : '') + (body || 'Mensagem'), t: lm.created_at };
-}
 function dmRow(dm, pin) {
-  const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id], pv = dmPreviewText(dm);
+  const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id];
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
-    avatar(u, 36, { ring: 'var(--bg-sec)' }),
-    h('div.dm-t', h('div.dm-l1', styleName(h('span.name', u.display_name), u.name_style), h('span.dm-when', shortWhen(pv.t))),
-      h('div.dm-l2', h('span.dm-pv', pv.text), un > 0 && h('span.pill', un))),
-    pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 18)));
+    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), un > 0 && h('span.pill', un),
+    pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 22)));
 }
 // nova mensagem: escolher um amigo (ou qualquer pessoa dos seus servidores)
 function newMessageModal() {
