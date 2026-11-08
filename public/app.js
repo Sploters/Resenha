@@ -1230,7 +1230,7 @@ function deleteMenu(e, m) {
 
 // cartão de convite de servidor no chat (no lugar do link)
 const inviteInfo = new Map();
-const fetchInvite = (code) => { if (!inviteInfo.has(code)) inviteInfo.set(code, api('GET', `/invites/${encodeURIComponent(code)}`).catch(() => null)); return inviteInfo.get(code); };
+const fetchInvite = (code) => { if (!inviteInfo.has(code)) inviteInfo.set(code, api('GET', `/invites/${encodeURIComponent(code)}?peek=1`).then(r => (r?.gone ? null : r)).catch(() => null)); return inviteInfo.get(code); };
 function inviteCard(code) {
   const card = h('div.invcard.loading', h('div.ivh', 'Convite para um servidor'), h('div.ivbody', h('div.ivicon'), h('div.ivinfo', h('b', 'Carregando…'))));
   fetchInvite(code).then(info => {

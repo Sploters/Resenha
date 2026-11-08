@@ -9,7 +9,7 @@ export const initCallInvite = (c) => { ctx = c; };
 
 const TXT = { accepted: 'aceitou', declined: 'recusou', expired: 'expirou', canceled: 'cancelado' };
 const cache = new Map(); // id -> promessa do estado (o cartão e o aviso usam o mesmo)
-const fetchInv = (id) => { if (!cache.has(id)) cache.set(id, api('GET', `/call-invites/${encodeURIComponent(id)}`).catch(() => null)); return cache.get(id); };
+const fetchInv = (id) => { if (!cache.has(id)) cache.set(id, api('GET', `/call-invites/${encodeURIComponent(id)}?peek=1`).then(r => (r?.gone ? null : r?.invite || r)).catch(() => null)); return cache.get(id); };
 
 // posso convidar esta pessoa para a minha sala? (o servidor confere de novo)
 export function canCallInvite(uid) {

@@ -1310,6 +1310,4 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 ::view-transition-old(root) { animation: mv-fade-out 120ms var(--ease-in) both; }
 ::view-transition-new(root) { animation: lc-fade 160ms var(--ease-out) both; }
 ::view-transition-group(*) { animation-duration: 220ms; animation-timing-function: var(--ease-in-out); }
-html.anim #side-list .ch.active { view-transition-name: canal-ativo; }
-html.anim #home .tabs .tab.active:not(.green) { view-transition-name: aba-ativa; }
-html.anim .ct-tab.active { view-transition-name: aba-de-canal; }
+/* (sem view-transition-name em canal/aba ativos: o navegador "arrastava" o destaque do item antigo até o clicado) */

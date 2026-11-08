@@ -580,7 +580,7 @@ app.post('/api/guilds/:id/invites', auth, wrap((req, res) => {
 }));
 app.get('/api/invites/:code', wrap((req, res) => {
   const i = get('SELECT i.*,g.name,g.icon,g.banner,g.accent FROM invites i JOIN guilds g ON g.id=i.guild_id WHERE code=?', req.params.code);
-  if (!i) return bad(res, 'Convite inválido ou expirado', 404);
+  if (!i) return req.query.peek ? res.json({ gone: true }) : bad(res, 'Convite inválido ou expirado', 404); // peek: cartão no chat (sem 404 no console)
   // online: conectados que não estão invisíveis (o cartão de convite mostra os dois números)
   const ms = all('SELECT u.id,u.status FROM members m JOIN users u ON u.id=m.user_id WHERE m.guild_id=?', i.guild_id);
   const online = ms.filter(u => conns.has(u.id) && u.status !== 'invisible').length;
@@ -642,7 +642,7 @@ app.post('/api/call-invites', auth, wrap((req, res) => {
   callOut(res, r);
 }));
 app.get('/api/call-invites', auth, wrap((req, res) => res.json(callInv.pendingFor(req.uid))));
-app.get('/api/call-invites/:id', auth, wrap((req, res) => callOut(res, callInv.read(req.params.id, req.uid))));
+app.get('/api/call-invites/:id', auth, wrap((req, res) => { const r = callInv.read(req.params.id, req.uid); if (r.error && req.query.peek) return res.json({ gone: true }); callOut(res, r); })); // peek: cartão na DM (convites ficam na memória e somem ao reiniciar)
 app.post('/api/call-invites/:id/:action(accept|decline|cancel)', auth, wrap((req, res) => callOut(res, callInv.respond(req.params.id, req.uid, req.params.action))));
 
 // Emojis personalizados

@@ -504,12 +504,52 @@ function soundboardPage() {
 
 // ============================ Notificações ============================
 function notificationsPage() {
-  const list = [...S.guilds.values()].map(g => { const cfg = ((S.prefs.notifyCfg ||= {})[g.id] ||= { level: 'all', muted: false, noEveryone: false }); return card(h('div.sbtitle', h('b', g.name), h('span', { style: { flex: 1 } }), h('label.sbmute', 'Silenciar', toggle(cfg.muted, v => { cfg.muted = v; save(); }))), seg({ all: 'Todas', mentions: 'Só @menções', none: 'Nada' }, cfg.level, v => { cfg.level = v; save(); }), row('Suprimir @everyone e @here', null, toggle(cfg.noEveryone, v => { cfg.noEveryone = v; save(); }))); });
-  return h('div', h('h2', 'Notificações'),
-    card(row('Notificações da área de trabalho', 'Avisa de menções e mensagens diretas quando a janela não está em foco.', toggle(S.prefs.desktopNotif, v => { S.prefs.desktopNotif = v; save(); if (v && 'Notification' in window) Notification.requestPermission(); })),
-      row('Mostrar o texto da mensagem na notificação', 'Desligado: mostra só "Nova mensagem".', toggle(S.prefs.notifPreview !== false, v => { S.prefs.notifPreview = v; save(); })),
-      hint('Sons de notificação, de chamada e de voz ficam em "Sons".')),
-    section('Por servidor'), ...(list.length ? list : [note('Você ainda não está em nenhum servidor.')]));
+  const root = h('div');
+  const cfgAll = (S.prefs.notifyCfg ||= {}), chLv = (cfgAll.chLevel ||= {}), chMute = (cfgAll.channels ||= {});
+  const gcfg = (g) => (cfgAll[g.id] ||= { level: 'all', muted: false, noEveryone: false });
+  const tile = (on, cls, ic, label, sub, fn, title) => h('button.ntile.big' + cls + (on ? '.on' : ''), { type: 'button', 'aria-pressed': String(on), title, onclick: fn }, ic, h('span.nt-l', label), sub && h('small', sub));
+  const levelCards = (cur, on) => choiceCards([
+    ['all', 'Todas as mensagens', h('span.nl-prev', icon('bell', 26), h('i.nl-bars', h('b'), h('b'), h('b')))],
+    ['mentions', 'Só @menções', h('span.nl-prev.at', '@')],
+    ['none', 'Nada', h('span.nl-prev.off', icon('volmute', 26))]], cur || 'all', on);
+  const draw = () => {
+    const preview = S.prefs.notifPreview !== false;
+    // canais com ajuste próprio ou silenciados
+    const custom = [...new Set([...Object.keys(chLv), ...Object.keys(chMute)])].map(id => channelById(id)).filter(Boolean);
+    const until = (id) => { const u = chMute[id]; return u === true ? 'até você reativar' : u > Date.now() ? 'até ' + new Date(u).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null; };
+    const LVL = { all: 'Todas', mentions: 'Só @menções', none: 'Nada' };
+    root.replaceChildren(h('h2', 'Notificações'),
+      section('Como você é avisado'),
+      card(h('div.np-row',
+        h('div.nc-tiles.np-tiles',
+          tile(!!S.prefs.desktopNotif, '.nt-desk', icon('screen', 26), 'Área de trabalho', S.prefs.desktopNotif ? 'Ligado' : 'Desligado', async () => {
+            if (!S.prefs.desktopNotif && 'Notification' in window && Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted') return toast('O navegador bloqueou as notificações', true);
+            S.prefs.desktopNotif = !S.prefs.desktopNotif; save(); draw();
+          }, 'Avisos do sistema para menções e mensagens diretas quando a janela não está em foco'),
+          tile(preview, '.nt-every', icon('eye', 26), 'Mostrar o texto', preview ? 'A mensagem aparece no aviso' : 'Só "Nova mensagem"', () => { S.prefs.notifPreview = !preview; save(); draw(); }, 'Mostrar o texto da mensagem dentro do aviso'),
+          tile(false, '.nt-link', icon('vol', 26), 'Sons', 'Abrir a página de sons', () => document.querySelector('#settings .ni[data-k="sounds"]')?.click(), 'Sons de mensagem, menção, chamada e voz')),
+        // prévia: como o aviso aparece
+        h('div.np-preview', { 'aria-hidden': 'true' }, h('small', 'Prévia'),
+          h('div.np-toast' + (S.prefs.desktopNotif ? '' : '.off'), h('div.np-ic', icon('dm', 18)), h('div', h('b', 'Ana Clara'), h('span', preview ? 'bora jogar hoje? 🎮' : 'Nova mensagem')))))),
+      section('Por servidor'),
+      ...(S.guilds.size ? [...S.guilds.values()].map(g => {
+        const c = gcfg(g), set = (fn) => { fn(); save(); draw(); };
+        return card(h('div.np-srv',
+          h('div.np-srv-h', g.icon ? h('img.np-gi', { src: g.icon, alt: '' }) : h('div.np-gi', g.name.slice(0, 2).toUpperCase()), h('b', g.name)),
+          levelCards(c.level, (v) => set(() => { c.level = v; })),
+          h('div.nc-tiles.np-tiles',
+            tile(!c.noEveryone, '.nt-every', h('span.nt-chips', h('i', '@everyone'), h('i', '@here')), null, null, () => set(() => { c.noEveryone = !c.noEveryone; }), c.noEveryone ? 'Avisos de @everyone e @here desligados' : 'Receber avisos de @everyone e @here'),
+            tile(!!c.muted, '.nt-mute', icon(c.muted ? 'volmute' : 'bell', 24), c.muted ? 'Servidor silenciado' : 'Silenciar servidor', null, () => set(() => { c.muted = !c.muted; }), 'Silenciar o servidor inteiro'))));
+      }) : [note('Você ainda não está em nenhum servidor.')]),
+      custom.length > 0 && section('Canais e conversas com ajuste próprio'),
+      custom.length > 0 && card(h('div.np-chs', custom.map(ch => {
+        const g = ch.guild_id && guild(ch.guild_id), u = until(ch.id), name = ch.type === 1 ? '@' + (user(ch.recipients?.find(r => r.id !== S.me.id)?.id)?.display_name || 'conversa') : '#' + ch.name;
+        return h('div.np-ch', h('div.np-ch-t', h('b', name), h('small', [g?.name, chLv[ch.id] && LVL[chLv[ch.id]], u && 'silenciado ' + u].filter(Boolean).join(' · '))),
+          h('button.btn.grey', { onclick: () => { delete chLv[ch.id]; delete chMute[ch.id]; save(); draw(); } }, 'Voltar ao padrão'));
+      }))));
+  };
+  draw();
+  return root;
 }
 
 // ============================ Atalhos ============================
