@@ -263,3 +263,20 @@ button.mgroup .mg-n::before { content: '— '; }
 .nc-all:hover { background: var(--bg-mod-hover); color: var(--text); }
 .nc-all .icon { fill: currentColor; flex: none; }
 .nc-tiles > .ntile:last-child:nth-child(odd) { grid-column: span 2; flex-direction: row; min-height: 48px; gap: 8px; }
+
+/* ---------- lista de membros: seu cartão no rodapé ---------- */
+.mem-foot { flex: none; padding: 8px; border-top: 1px solid var(--divider); background: var(--bg-sec); }
+.mem-top { border-bottom: 0; padding-bottom: 4px; }
+
+/* ---------- data em pílula, fixa no topo enquanto rola ---------- */
+#msgs .daysep { position: sticky; top: 8px; z-index: 3; justify-content: center; margin: 14px 0 6px; pointer-events: none; }
+#msgs .daysep::before, #msgs .daysep::after { display: none; }
+#msgs .daysep span { padding: 4px 10px; border-radius: 8px; background: var(--bg-mod-sel); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+
+/* ---------- painel de perfil na conversa ---------- */
+#dmpanel { width: 300px; flex: none; overflow-y: auto; background: var(--bg-sec); border-left: 1px solid var(--divider); padding: 12px; }
+#dmpanel .dmp-card { position: static; width: 100%; box-shadow: none; animation: none; }
+.dmp-acts { display: flex; gap: 8px; margin-top: 12px; }
+.dmp-acts .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+@media (max-width: 1100px) { #dmpanel { display: none; } }
+@media (max-width: 640px) { #userbar.pb-body .me { display: none; } #userbar.pb-body { justify-content: space-around; } }

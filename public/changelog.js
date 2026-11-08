@@ -8,11 +8,12 @@ export const NEWS = [
   {
     id: '2026-11-08', title: 'Navegação nova',
     items: [
-      { i: 'dm', t: 'Mensagens e Amigos separados', d: 'Na barra da esquerda, "Amigos" e "Mensagens" viraram duas entradas. Mensagens é uma lista simples com a última mensagem de cada conversa, busca, nova mensagem e ordenação (recentes, não lidas, nome).', try: 'messages' },
-      { i: 'pin', t: 'Conversas fixadas na barra', d: 'Clique direito em alguém → Fixar: a conversa fica no topo das Mensagens e também como atalho na barra da esquerda, acima dos servidores.' },
-      { i: 'chevl', t: 'Painel do usuário recolhível', d: 'A seta no seu painel recolhe tudo para a barra da esquerda: fica só o seu avatar com o status, o microfone, o fone e as configurações. Na chamada, o painel de voz continua à vista.' },
-      { i: 'gear', t: 'Configurações mais limpas', d: 'As explicações foram para um ⓘ ao lado de cada opção, o menu ganhou ícones e grupos novos, e fonte, exibição das mensagens, hora e modo de entrada viraram cartões com prévia.', try: 'appearance' },
-      { i: 'users', t: 'Lista de membros', d: 'Seu cartão fica fixo no topo com seu cargo e sua posição no servidor; cada cargo recolhe com um clique e dá para buscar membros pelo nome.' },
+      { i: 'dm', t: 'Mensagens e Amigos', d: 'Um ícone só na barra da esquerda, com as abas Mensagens | Amigos no topo da lista. Mensagens mostra a última mensagem de cada conversa e tem ordenar, buscar e nova mensagem; as conversas fixadas também ficam como atalho na barra.', try: 'messages' },
+      { i: 'search', t: 'Busca em tudo', d: 'A lupa no topo da barra (ou Ctrl+Shift+F) procura em todas as DMs e servidores de uma vez, com ordem Novas/Antigas/Relevantes e resultados agrupados por servidor e conversa.' },
+      { i: 'pin', t: 'Barra de perfil com alfinete', d: 'Seu avatar fica no pé da barra, com o status e um ponto vermelho quando o microfone ou o som está desligado. A barra com microfone, fone e configurações sai dele: com o alfinete azul fica sempre aberta; solta, abre ao passar o mouse. Clique direito no microfone ou no fone troca os dispositivos.' },
+      { i: 'bell', t: 'Notificações num cartão', d: 'O sino do canal e o do servidor abrem um cartão com Todas / Só @menções / Nada, @everyone e @here, silenciar e avisos na área de trabalho.' },
+      { i: 'users', t: 'Servidor e membros', d: 'Atalhos embaixo do nome do servidor (notificações, convidar, marcar como lido, buscar, configurações). Na lista de membros, os cargos recolhem, dá para buscar e seu cartão fica fixo embaixo com sua posição no servidor.' },
+      { i: 'gear', t: 'Configurações mais limpas', d: 'As explicações foram para um ⓘ ao lado de cada opção, o menu ganhou ícones e grupos, e fonte, mensagens, hora e modo de entrada viraram cartões com prévia.', try: 'appearance' },
     ],
   },
   {

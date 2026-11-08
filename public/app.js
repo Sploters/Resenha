@@ -1054,11 +1054,13 @@ function renderMain() {
       vc && h('div#vc-layout-slot'),
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'phone')),
+        dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn', { title: 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('bell')),
         h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('pin')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
-        search]);
+        search,
+        dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('sidebar'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord
   main.replaceChildren(...[!vc && top,
     h('div#content',
@@ -1066,9 +1068,25 @@ function renderMain() {
       chatOpen && h('div#chat' + (vc ? '.side' : ''),
         vc && h('div.vchead', h('span.vcico', icon('dm', 20)), h('span.vctitle', { title: ch.name }, chName(ch)), h('button.ibtn', { title: 'Fechar chat', onclick: () => toggleVcChat(ch) }, icon('x'))),
         inCall && h('div#stage.dmstage'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
-      !dm && !vc && S.membersOpen && h('div#members'))].filter(Boolean));
+      !dm && !vc && S.membersOpen && h('div#members'),
+      dm && S.prefs.dmPanel !== false && h('div#dmpanel'))].filter(Boolean));
+  if (dm && S.prefs.dmPanel !== false) renderDmPanel(peer.id);
   if (chatOpen) { stickToBottom($('#msgs')); loadChannel(ch.id); }
   renderMembers(); if (vc || inCall) renderVoiceUI();
+}
+// painel à direita da conversa: o cartão de perfil da pessoa (com servidores em comum e ações)
+async function renderDmPanel(uid) {
+  const box = $('#dmpanel'); if (!box) return;
+  const draw = (u) => box.replaceChildren(h('div.popout.static.dmp-card', profileCard(u, { extra: [u.mutual_guilds?.length > 0 && [h('h4', 'Servidores em comum'), h('p', u.mutual_guilds.map(x => x.name).join(', '))],
+    h('div.dmp-acts', h('button.btn.grey', { onclick: () => callUser(uid) }, icon('phone', 16), 'Ligar'), h('button.btn.grey', { onclick: () => openUserProfile(uid) }, 'Perfil completo'))] })));
+  draw(user(uid));
+  const full = await api('GET', `/users/${uid}`).catch(() => null);
+  if (full && $('#dmpanel') === box) { S.users.set(uid, { ...S.users.get(uid), ...full }); draw(full); }
+}
+// vídeo na DM: entra na chamada (se preciso) e liga a câmera
+async function videoCall(cid) {
+  if (voice.channelId === cid) return voiceAct(() => voice.toggleCam());
+  voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; return; } if (!voice.cam) voiceAct(() => voice.toggleCam()); });
 }
 // chat da sala de voz: aberto/fechado fica salvo; ao abrir marca como lido
 const vcChatHidden = (ch) => ch?.type === 2 && S.prefs.vcChat === false;
@@ -1687,8 +1705,8 @@ function renderMembers() {
     ...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
     q && !shown.length && h('div.mem-none', 'Ninguém com esse nome'));
   const top = box.querySelector('.mem-top') || h('div.mem-top');
-  top.replaceChildren(...[meCard, h('label.mem-search', icon('search', 14), box._q)].filter(Boolean));
-  box.replaceChildren(top, list);
+  top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
+  box.replaceChildren(top, list, meCard && h('div.mem-foot', meCard)); // seu cartão fica fixo embaixo, como no design
   list.scrollTop = keepScroll;
 }
 
