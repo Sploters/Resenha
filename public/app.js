@@ -217,6 +217,7 @@ function onEvent(t, d) {
       if (d.channel_id && d.channel_id === voice.channelId) { if (d.user_id === S.me.id && before !== d.channel_id) scanOutdated(); else warnOutdated(d); }
       if (d.user_id !== S.me.id && (prevVs?.fx || null) !== (d.fx || null)) voice?.setPeerFx(d.user_id);
       if (S.view.kind === 'home') { setTimeout(renderActiveNow); setTimeout(refreshFeedView); }
+      if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
       if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) voice.leave();
       if (d.user_id !== S.me.id) {
@@ -1441,23 +1442,71 @@ function renderTyping() {
 }
 
 // ---------- lista de membros ----------
+// lista de membros: seu cartão fixo no topo (cargo + posição na hierarquia), busca, grupos recolhíveis (salvos por servidor)
+const memCol = JSON.parse(localStorage.getItem('lc_memcol') || '{}'); // { gid: { grupo: true (recolhido) | false (aberto) } }
+const memQ = { gid: null, q: '' };
 function renderMembers() {
   if (deferRender(renderMembers)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
+  if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; }
+  const keepScroll = box.querySelector('.mem-list')?.scrollTop || 0;
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
-  const off = ms.filter(x => x.u.status === 'offline'), on = ms.filter(x => x.u.status !== 'offline');
   const topRole = (m) => g.roles.filter(r => m.roles.includes(r.id)).sort((a, b) => b.position - a.position)[0];
+  const nm = (x) => x.m.nickname || x.u.display_name;
+  const by = (a, b) => nm(a).localeCompare(nm(b));
+  // hierarquia: dono primeiro, depois pelo cargo mais alto, depois por nome
+  const rank = (x) => (g.owner_id === x.u.id ? 1e9 : (topRole(x.m)?.position ?? -1));
+  const hier = [...ms].sort((a, b) => rank(b) - rank(a) || by(a, b));
+  const meX = ms.find(x => x.u.id === S.me.id), myPos = hier.findIndex(x => x.u.id === S.me.id) + 1;
+  const q = memQ.q.trim().toLowerCase();
+  const shown = q ? ms.filter(x => (nm(x) + ' ' + x.u.username + ' ' + (x.u.display_name || '')).toLowerCase().includes(q)) : ms;
+  const off = shown.filter(x => x.u.status === 'offline'), on = shown.filter(x => x.u.status !== 'offline');
   const groups = new Map();
   for (const x of on) { const r = topRole(x.m); const k = r ? r.id : 'online'; (groups.get(k) || groups.set(k, []).get(k)).push(x); }
-  const order = [...g.roles.filter(r => groups.has(r.id)).map(r => [r.id, r.name]), ['online', 'Online']];
-  const row = ({ m, u }, offline) => h('div.mem' + (offline ? '.off' : ''), { onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
-    avatar(u, 32, { ring: 'var(--bg-sec)' }),
-    h('div', { style: { minWidth: 0 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', m.nickname || u.display_name), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12))), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)));
-  const by = (a, b) => (a.m.nickname || a.u.display_name).localeCompare(b.m.nickname || b.u.display_name);
-  box.replaceChildren(
-    ...order.flatMap(([k, name]) => groups.has(k) ? [h('div.mgroup', `${name} — ${groups.get(k).length}`), ...groups.get(k).sort(by).map(x => row(x))] : []),
-    ...(off.length ? [h('div.mgroup', `Offline — ${off.length}`)] : []), ...off.sort(by).map(x => row(x, true)));
+  if (off.length) groups.set('offline', off);
+  const order = [...g.roles.filter(r => groups.has(r.id)).map(r => [r.id, r.name, r.color]), ['online', 'Online'], ['offline', 'Offline']].filter(([k]) => groups.has(k));
+  const col = (memCol[g.id] ||= {});
+  const isCol = (k) => !q && (col[k] ?? (k === 'offline' && ms.length > 30)); // buscando: tudo aberto; offline começa recolhido em servidor grande
+  const toggle = (k) => { col[k] = !isCol(k); localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); };
+  const inVoice = (uid) => { const v = S.voice.get(uid); return v && channelById(v.channel_id)?.guild_id === g.id ? channelById(v.channel_id) : null; };
+  const row = ({ m, u }, offline) => {
+    const vc = !offline && inVoice(u.id);
+    return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
+      avatar(u, 32, { ring: 'var(--bg-sec)' }),
+      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12))), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
+      vc && h('span.mem-vc', { title: 'Em chamada: ' + chName(vc) }, icon('voice', 14)));
+  };
+  const head = (k, name, color, list) => {
+    const c = isCol(k);
+    return h('button.mgroup' + (c ? '.col' : ''), { type: 'button', 'aria-expanded': String(!c), title: c ? 'Mostrar' : 'Recolher', onclick: () => toggle(k) },
+      icon('caret', 12), color ? h('i.mg-dot', { style: { background: color } }) : null, h('span.mg-name', name), h('span.mg-n', list.length),
+      c && h('span.mg-faces', list.slice(0, 4).map(x => avatar(x.u, 18, { ring: 'var(--bg-sec)' }))));
+  };
+  // seu cartão: sempre visível, independentemente do cargo; clicar leva você até a sua linha na lista
+  const r = meX && topRole(meX.m);
+  const jumpMe = () => {
+    const k = meX.u.status === 'offline' ? 'offline' : (r ? r.id : 'online');
+    if (memQ.q) { memQ.q = ''; if (box._q) box._q.value = ''; }
+    if (isCol(k)) { col[k] = false; localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); }
+    requestAnimationFrame(() => { const el = box.querySelector('.mem.me'); if (!el) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
+  };
+  const meCard = meX && h('div.mem-mecard', { title: 'Mostrar você na lista', onclick: jumpMe },
+    avatar(meX.u, 36, { ring: 'var(--bg-tert, var(--bg-sec))' }),
+    h('div.mm-txt', h('div.mm-name', { style: { color: roleColor(g.id, S.me.id) || '' } }, nm(meX)),
+      h('div.mm-role', g.owner_id === S.me.id ? [icon('crown', 12), 'Dono'] : r ? [h('i.mg-dot', { style: { background: r.color || 'var(--text-muted)' } }), r.name] : 'Sem cargo')),
+    h('div.mm-pos', { title: `Você é o ${myPos}º de ${ms.length} na hierarquia do servidor` }, h('b', myPos + 'º'), h('small', 'de ' + ms.length)));
+  if (!box._q) {
+    box._q = h('input.mem-q', { type: 'search', placeholder: 'Buscar membros', 'aria-label': 'Buscar membros', oninput: debounce(() => { memQ.q = box._q.value; renderMembers(); }, 100), onkeydown: (e) => { if (e.key === 'Escape' && box._q.value) { e.stopPropagation(); box._q.value = ''; memQ.q = ''; renderMembers(); } } });
+  }
+  if (box._q.value !== memQ.q) box._q.value = memQ.q;
+  const list = h('div.mem-list',
+    ...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
+    q && !shown.length && h('div.mem-none', 'Ninguém com esse nome'));
+  const top = box.querySelector('.mem-top') || h('div.mem-top');
+  top.replaceChildren(...[meCard, h('label.mem-search', icon('search', 14), box._q)].filter(Boolean));
+  box.replaceChildren(top, list);
+  list.scrollTop = keepScroll;
 }
 
 // =============== Início / amigos ===============
