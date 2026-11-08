@@ -507,7 +507,7 @@ function guildMenu(e, g) {
   menu(e, [
     { label: 'Convidar pessoas', fn: () => inviteModal(g) },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
-    { label: 'Configurações de notificação…', fn: () => notifModal(g) },
+    { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
     { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
     '-',
     can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
@@ -597,9 +597,19 @@ function renderSide() {
       h('div.ch.lfgrow-side' + (S.view.kind === 'discover' ? '.active' : ''), { onclick: () => go('@me', 'discover'), title: 'Notícias, promoções, lançamentos e torneios de jogos' }, icon('compass'), h('span.name', 'Descobrir')));
   } else {
     const g = guild(S.view.gid);
-    head = h('div#side-head' + (g.banner ? '.banner' : ''), { style: g.banner ? { backgroundImage: `linear-gradient(transparent 40%, rgba(0,0,0,.65)), url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } : (g.accent ? { borderBottom: `3px solid ${g.accent}` } : null), }, // nome + seta abrem o menu do servidor; o botão ao lado convida
-      h('div.gd', { title: 'Ações do servidor', onclick: () => { const r = head.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); } }, h('span', g.name), icon('chevdown', 16)),
-      h('button.gd-inv', { title: 'Convidar para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20)));
+    const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
+    const act = (ic, title, fn, cls = '') => h('button.srv-act' + cls, { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 22));
+    const gmuted = !!S.prefs.notifyCfg?.[g.id]?.muted;
+    head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
+      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
+      h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
+        h('button.sh-btn', { type: 'button', title: 'Mais opções', 'aria-label': 'Mais opções do servidor', onclick: (e) => menuAt(e.currentTarget) }, icon('more', 20))),
+      h('div.srv-acts',
+        act(gmuted ? 'volmute' : 'bell', 'Notificações do servidor', (e) => notifCard(e, { g }), gmuted ? '.off' : ''),
+        act('invite', 'Convidar pessoas', () => inviteModal(g)),
+        act('check', 'Marcar tudo como lido', () => { g.channels.forEach(c => ack(c.id)); toast('Tudo lido em ' + g.name); }),
+        act('search', 'Buscar neste servidor', () => { GS.scope = g.id; if (!S.searchOpen) toggleGlobalSearch(); else { runGlobalSearch(); setTimeout(() => $('#gs-q')?.focus()); } }),
+        can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && act('gear', 'Configurações do servidor', () => openSettings('server', { gid: g.id, voice, logout, go }))));
     const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
@@ -706,13 +716,6 @@ function channelMenu(e, g, c) {
     can(g.id, PERM.MANAGE_CHANNELS) && '-',
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Excluir canal', danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
   ]);
-}
-function notifModal(g) {
-  const cfg = ((S.prefs.notifyCfg ||= {})[g.id] ||= { level: 'all', muted: false, noEveryone: false });
-  const body = h('div', h('label.f', 'Notificações do servidor', seg({ all: 'Todas as mensagens', mentions: 'Apenas @menções', none: 'Nada' }, cfg.level, v => { cfg.level = v; savePrefs(); renderSide(); })),
-    h('label.f', 'Silenciar servidor', seg({ 0: 'Não', 1: 'Sim' }, cfg.muted ? 1 : 0, v => { cfg.muted = !!v; savePrefs(); renderSide(); })),
-    h('label.f', 'Suprimir @everyone e @here', seg({ 0: 'Não', 1: 'Sim' }, cfg.noEveryone ? 1 : 0, v => { cfg.noEveryone = !!v; savePrefs(); })));
-  modal('Notificações — ' + g.name, 'Afeta contadores, sons e avisos deste servidor.', body, [{ label: 'Concluir' }]);
 }
 function channelSettings(g, c) {
   const name = h('input', { value: c.name, maxLength: 100 }), topic = h('input', { value: c.topic || '', maxLength: 1024 });
@@ -1368,26 +1371,47 @@ const anchorRight = (pop, btn, gap) => { const r = btn.getBoundingClientRect(); 
 let topWasOpen = false;
 window.addEventListener('mousedown', (e) => { topWasOpen = (!!$('.pinspop') && !!e.target.closest?.('.pins-btn')) || (!!$('.notifmenu') && !!e.target.closest?.('.notif-btn')) || (!!$('.inboxpop') && !!e.target.closest?.('.inbox-btn')); }, true);
 // menu de notificações do canal: silenciar por um tempo e nível de aviso (padrão do servidor, tudo, só @menções, nada)
-function notifMenu(e, ch) {
+function notifMenu(e, ch) { notifCard(e, { ch }); }
+// cartão de notificações: nível (todas / só @menções / nada), blocos para @everyone/@here, silenciar e avisos na área
+// de trabalho, e o atalho para todas as configurações. Serve para um canal, uma DM ou o servidor inteiro ({ g })
+function notifCard(e, { ch, g: srv }) {
   const btn = e.currentTarget;
   if (topWasOpen) { topWasOpen = false; return closeFloating(); }
   const cfg = (S.prefs.notifyCfg ||= {}), lv = (cfg.chLevel ||= {}), mutes = (cfg.channels ||= {});
-  const g = ch.guild_id ? cfg[ch.guild_id] : null, LV = { all: 'Todas as mensagens', mentions: 'Apenas @menções', none: 'Nada' };
-  const done = () => { savePrefs(); renderSide(); };
-  const setLv = (k) => { k ? (lv[ch.id] = k) : delete lv[ch.id]; done(); };
-  const muteFor = (min) => { mutes[ch.id] = min ? Date.now() + min * 60e3 : true; done(); toast('Canal silenciado'); };
-  const until = mutes[ch.id], muted = channelMuted(ch.id);
-  const r = btn.getBoundingClientRect();
-  menu({ preventDefault() {}, clientX: r.right - 240, clientY: r.bottom + 8 }, [
-    muted ? { label: 'Reativar canal', hint: until === true ? 'Silenciado até você reativar' : 'Silenciado até ' + clock(until), fn: () => { delete mutes[ch.id]; done(); } }
-      : { label: 'Silenciar canal', sub: [[15, 'Por 15 minutos'], [60, 'Por 1 hora'], [180, 'Por 3 horas'], [480, 'Por 8 horas'], [1440, 'Por 24 horas'], [0, 'Até eu reativar']].map(([m, l]) => ({ label: l, fn: () => muteFor(m) })) },
-    '-',
-    { label: ch.guild_id ? 'Usar padrão do servidor' : 'Usar padrão', hint: LV[g?.level || 'all'], radio: !lv[ch.id], fn: () => setLv(null) },
-    { label: LV.all, radio: lv[ch.id] === 'all', fn: () => setLv('all') },
-    { label: h('span', 'Apenas ', h('b', '@menções')), radio: lv[ch.id] === 'mentions', fn: () => setLv('mentions') },
-    { label: LV.none, radio: lv[ch.id] === 'none', fn: () => setLv('none') },
-  ]);
-  const el = [...document.querySelectorAll('#layer .menu')].pop(); el?.classList.add('notifmenu');
+  const gid = srv ? srv.id : ch?.guild_id, gc = gid ? (cfg[gid] ||= { level: 'all', muted: false, noEveryone: false }) : null;
+  const done = () => { savePrefs(); renderSide(); renderRail(); draw(); };
+  const box = h('div.ncard');
+  const LV = [['all', 'Todas as mensagens'], ['mentions', h('span', 'Só ', h('b', '@menções'))], ['none', 'Nada']];
+  const draw = () => {
+    const cur = srv ? gc.level || 'all' : lv[ch.id] || gc?.level || 'all', inherited = !srv && !lv[ch.id] && !!gid;
+    const muted = srv ? !!gc.muted : channelMuted(ch.id), until = srv ? null : mutes[ch.id];
+    const setLv = (k) => { if (srv) gc.level = k; else lv[ch.id] = k; done(); };
+    const tile = (on, cls, ic, label, sub, fn, title) => h('button.ntile' + cls + (on ? '.on' : ''), { type: 'button', 'aria-pressed': String(on), title, onclick: fn }, ic, h('span.nt-l', label), sub && h('small', sub));
+    const muteTile = tile(muted, '.nt-mute', icon(muted ? 'volmute' : 'bell', 22), muted ? 'Silenciado' : 'Silenciar', muted && until && until !== true ? 'até ' + clock(until) : null, (ev) => {
+      if (muted) { if (srv) gc.muted = false; else delete mutes[ch.id]; return done(); }
+      if (srv) { gc.muted = true; return done(); }
+      const r = ev.currentTarget.getBoundingClientRect();
+      menu({ preventDefault() { }, clientX: r.left, clientY: r.bottom + 4 }, [[15, 'Por 15 minutos'], [60, 'Por 1 hora'], [180, 'Por 3 horas'], [480, 'Por 8 horas'], [1440, 'Por 24 horas'], [0, 'Até eu reativar']].map(([m, l]) => ({ label: l, fn: () => { mutes[ch.id] = m ? Date.now() + m * 60e3 : true; done(); } })));
+    }, srv ? 'Silenciar o servidor inteiro' : 'Silenciar este canal por um tempo');
+    box.replaceChildren(
+      h('div.nc-title', srv ? 'Notificações de ' + srv.name : ch.type === 1 ? 'Notificações desta conversa' : 'Notificações de #' + chName(ch)),
+      h('div.nc-radios', { role: 'radiogroup' }, LV.map(([k, l]) => h('button.nc-radio' + (cur === k ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(cur === k), onclick: () => setLv(k) }, h('span.nc-rl', l), h('i.nc-dot')))),
+      !srv && gid && (inherited ? h('div.nc-note', 'Seguindo o padrão do servidor') : h('button.nc-note.link', { type: 'button', onclick: () => { delete lv[ch.id]; done(); } }, 'Voltar ao padrão do servidor')),
+      h('div.nc-tiles',
+        gc && tile(!gc.noEveryone, '.nt-every', h('span.nt-chips', h('i', '@everyone'), h('i', '@here')), null, null, () => { gc.noEveryone = !gc.noEveryone; done(); }, gc.noEveryone ? 'Avisos de @everyone e @here desligados neste servidor' : 'Receber avisos de @everyone e @here'),
+        muteTile,
+        tile(!!S.prefs.desktopNotif, '.nt-desk', icon('screen', 22), 'Área de trabalho', null, async () => {
+          if (!S.prefs.desktopNotif && 'Notification' in window && Notification.permission !== 'granted') { if (await Notification.requestPermission() !== 'granted') return toast('O navegador bloqueou as notificações', true); }
+          S.prefs.desktopNotif = !S.prefs.desktopNotif; done();
+        }, 'Avisos do sistema para mensagens e menções (vale para tudo)')),
+      h('div.nc-sep'),
+      h('button.nc-all', { type: 'button', onclick: () => { closeFloating(); openSettings('notifications', ctxSettings()); } }, h('span', 'Todas as configurações de notificação'), icon('external', 20)));
+  };
+  draw();
+  const pop = popout(btn, box); pop.classList.add('notifmenu', 'ncardpop');
+  const r = btn.getBoundingClientRect(), w = pop.getBoundingClientRect().width;
+  if (btn.closest('#topbar')) { pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop.style.top = (r.bottom + 8) + 'px'; }
+  else { pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px'; pop.style.top = (r.bottom + 8) + 'px'; }
 }
 // popup "Mensagens fixadas" abaixo do botão
 async function showPins(e) {
