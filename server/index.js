@@ -733,26 +733,53 @@ function parseSearch(q) {
   }
   return out;
 }
-app.get('/api/search', auth, wrap((req, res) => {
-  const q = clean(req.query.q, 200); if (!q) return res.json([]);
+// filtros da busca (texto, de:, tem:, em:) num conjunto de canais; null = nada a procurar
+// scope: { guild } (um servidor), { channel } (uma DM sua), { all: true } (suas DMs + todos os seus servidores) ou {} (suas DMs)
+function searchWhere(uid, q, scope) {
   const p = parseSearch(q), where = ['m.type = 0'], args = [];
-  const gid = req.query.guild ? String(req.query.guild) : null;
+  const gid = scope.guild || null;
   if (gid) {
-    if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, req.uid)) return res.json([]);
+    if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid)) return null;
     where.push('c.guild_id = ?'); args.push(gid);
-  } else { where.push('m.channel_id IN (SELECT channel_id FROM dm_participants WHERE user_id=?)'); args.push(req.uid); }
+  } else if (scope.channel) {
+    if (!get('SELECT 1 x FROM dm_participants WHERE channel_id=? AND user_id=?', scope.channel, uid)) return null;
+    where.push('m.channel_id = ?'); args.push(scope.channel);
+  } else if (scope.all) {
+    where.push('(m.channel_id IN (SELECT channel_id FROM dm_participants WHERE user_id=?) OR c.guild_id IN (SELECT guild_id FROM members WHERE user_id=?))'); args.push(uid, uid);
+  } else { where.push('m.channel_id IN (SELECT channel_id FROM dm_participants WHERE user_id=?)'); args.push(uid); }
   const fts = p.terms.map(t => t.replace(/[^\p{L}\p{N}_.-]+/gu, ' ').trim()).filter(Boolean).flatMap(t => t.split(/\s+/)).map(t => `"${t}"*`).join(' ');
   if (fts) { where.push('m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)'); args.push(fts); }
-  else if (p.terms.length) return res.json([]); // só pontuação
+  else if (p.terms.length) return null; // só pontuação
   for (const name of p.from) {
     where.push('m.author_id IN (SELECT id FROM users WHERE lower(username)=? OR lower(display_name)=?' + (gid ? ' UNION SELECT user_id FROM members WHERE guild_id=? AND lower(nickname)=?' : '') + ')');
     args.push(name, name); if (gid) args.push(gid, name);
   }
-  for (const k of p.has) { if (!HAS[k]) return res.json([]); where.push('(' + HAS[k] + ')'); }
+  for (const k of p.has) { if (!HAS[k]) return null; where.push('(' + HAS[k] + ')'); }
   for (const name of p.in) { where.push('lower(c.name) = ?'); args.push(name); }
-  if (!fts && !p.from.length && !p.has.length && !p.in.length) return res.json([]);
-  const rows = all(`SELECT m.* FROM messages m JOIN channels c ON c.id=m.channel_id WHERE ${where.join(' AND ')} ORDER BY m.id DESC LIMIT 50`, ...args);
+  if (!fts && !p.from.length && !p.has.length && !p.in.length) return null;
+  return { where: where.join(' AND '), args, fts };
+}
+const searchScope = (req) => (req.query.guild ? { guild: String(req.query.guild) } : req.query.channel ? { channel: String(req.query.channel) } : req.query.all ? { all: true } : {});
+// ordem: new (mais novas), old (mais antigas) ou relevant (melhor pontuação do índice de busca)
+app.get('/api/search', auth, wrap((req, res) => {
+  const q = clean(req.query.q, 200); if (!q) return res.json([]);
+  const w = searchWhere(req.uid, q, searchScope(req)); if (!w) return res.json([]);
+  const sort = String(req.query.sort || 'new');
+  const rows = sort === 'relevant' && w.fts
+    ? all(`SELECT m.* FROM messages m JOIN channels c ON c.id=m.channel_id JOIN messages_fts f ON f.rowid=m.rowid WHERE ${w.where} AND messages_fts MATCH ? ORDER BY bm25(messages_fts), m.id DESC LIMIT 50`, ...w.args, w.fts)
+    : all(`SELECT m.* FROM messages m JOIN channels c ON c.id=m.channel_id WHERE ${w.where} ORDER BY m.id ${sort === 'old' ? 'ASC' : 'DESC'} LIMIT 50`, ...w.args);
   res.json(rows.map(messageObj));
+}));
+// busca em tudo, agrupada: um item por servidor (quantas mensagens, em quantos canais) e um por conversa
+app.get('/api/search/groups', auth, wrap((req, res) => {
+  const q = clean(req.query.q, 200); if (!q) return res.json([]);
+  const scope = String(req.query.scope || 'all');
+  const w = searchWhere(req.uid, q, scope === 'dms' ? {} : scope === 'all' ? { all: true } : { guild: scope }); if (!w) return res.json([]);
+  const sort = String(req.query.sort || 'new');
+  const rows = all(`SELECT c.guild_id g, CASE WHEN c.guild_id IS NULL THEN m.channel_id END dm, COUNT(*) n, COUNT(DISTINCT m.channel_id) chs, MAX(m.created_at) last, MIN(m.created_at) first
+    FROM messages m JOIN channels c ON c.id=m.channel_id WHERE ${w.where} GROUP BY COALESCE(c.guild_id, m.channel_id)
+    ORDER BY ${sort === 'old' ? 'first ASC' : sort === 'relevant' ? 'n DESC, last DESC' : 'last DESC'} LIMIT 50`, ...w.args);
+  res.json(rows.map(r => ({ guild_id: r.g || null, channel_id: r.dm || null, count: r.n, channels: r.chs, last: r.last, first: r.first })));
 }));
 // Caixa de entrada: menções, respostas e @everyone dirigidos a mim, de todos os servidores e DMs
 app.get('/api/inbox', auth, wrap((req, res) => {

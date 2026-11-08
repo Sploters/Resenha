@@ -139,7 +139,7 @@ try {
   await A.evaluate(() => document.querySelector('.micpop .qrow .switch').click()); await sleep(300);
   ok(await A.evaluate(() => (window.__lc.S.prefs.echo !== false)) !== echo0, 'eco ligado/desligado pelo painel do microfone');
   await away(); await sleep(200);
-  await A.evaluate(() => document.querySelectorAll('#userbar .ibtn.caret')[0].click()); await sleep(500);
+  await A.evaluate(() => document.querySelector('#userbar .pb-mic').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await sleep(500);
   await A.evaluate(() => document.querySelector('.dmpop .dm-two').click()); await sleep(400);
   await A.screenshot({ path: `${SHOTS}/08-quick-input.png` });
   const nDev = await A.evaluate(() => document.querySelectorAll('.dsub .dm-item').length);
@@ -147,7 +147,7 @@ try {
   await A.evaluate(() => document.querySelectorAll('.dsub .dm-item')[1]?.click()); await sleep(1500);
   ok(await A.evaluate(() => !!window.__lc.S.prefs.inputId) && !(await A.evaluate(() => window.__lc.voice.error)), 'troca de dispositivo de entrada ao vivo');
   await away(); await sleep(200);
-  await A.evaluate(() => document.querySelectorAll('#userbar .ibtn.caret')[1].click()); await sleep(400);
+  await A.evaluate(() => document.querySelector('#userbar .pb-deaf').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await sleep(400);
   ok(await A.evaluate(() => !!document.querySelector('.dmpop .dm-range')), 'menu do fone com volume de saída');
   await A.screenshot({ path: `${SHOTS}/09-quick-output.png` });
   await away(); await sleep(200);

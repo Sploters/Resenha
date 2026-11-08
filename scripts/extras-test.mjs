@@ -188,7 +188,7 @@ try {
   await A.mouse.click(vb.x + 40, vb.y + vb.height / 2, { button: 'right' }); await sleep(200);
   ok(!!await A.$('.menu .mnode .volctl'), 'também no clique direito da lista lateral');
   await A.keyboard.press('Escape');
-  await A.evaluate(() => document.querySelectorAll('#userbar .ibtn.caret')[1]?.click()); await sleep(300);
+  await A.evaluate(() => document.querySelector('#userbar .pb-deaf')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await sleep(300);
   // o menu do fone (estilo Discord) tem só dispositivo e volume geral; o volume de cada pessoa fica no clique direito (verificado acima)
   ok(await A.evaluate(() => !!document.querySelector('.dmpop .dm-range') && !document.querySelector('.dmpop .volctl')), 'menu de saída tem volume geral; volume por pessoa só no clique direito');
   await A.screenshot({ path: `${SHOTS}/x6-saida.png` });
@@ -286,7 +286,7 @@ try {
   // fixar
   await clickText(A, '.menu .it', 'Fixar'); await sleep(600);
   await A.evaluate(() => window.__lc.go('@me', 'messages')); await sleep(500); // seção Mensagens
-  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > *')].map(e => e.textContent.trim()).slice(0, 3));
+  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > :not(.dm-tools)')].map(e => e.textContent.trim()).slice(0, 3));
   ok(side[0] === 'Fixadas' && side[1].startsWith('bob'), 'Fixar põe a conversa no topo das Mensagens: ' + side.join(' | '));
   ok(await A.evaluate(() => [...document.querySelectorAll('#rail .raildm')].some(w => w.dataset.tip?.startsWith('bob'))), 'conversa fixada aparece na barra da esquerda');
   await A.screenshot({ path: `${SHOTS}/x10-dm-fixada.png` });
