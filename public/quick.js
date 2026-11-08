@@ -1,4 +1,5 @@
 // Painéis rápidos: dispositivos de áudio, cancelamento de eco/ruído e status — sem abrir as configurações.
+import { pulse } from './motion.js';
 import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { openNews } from './changelog.js';
 import { styleName } from './themes.js';
@@ -166,7 +167,7 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
       h('div.mehead', banner, h('div.meav', { title: 'Ver perfil completo', onclick: () => { closeFly(); closeFloating(); openFullProfile?.(); } }, avatar(me, 80, { ring: 'var(--bg-float)' })), csBox),
       h('div.mebody',
         h('div.mename', styleName(h('span', me.display_name), me.name_style),
-          h('button.mecopy', { title: 'Copiar nome de usuário', onclick: () => { navigator.clipboard?.writeText(me.username); toast('Nome de usuário copiado'); } }, icon('copyname', 16))),
+          h('button.mecopy', { title: 'Copiar nome de usuário', onclick: (e) => { navigator.clipboard?.writeText(me.username); toast('Nome de usuário copiado'); pulse(e.currentTarget); } }, icon('copyname', 16))),
         h('div.meun', me.username),
         h('div.megroup',
           item(icon('edit', 16), 'Editar perfil', () => { closeFloating(); openSettings?.('profile'); }),

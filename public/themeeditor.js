@@ -115,7 +115,7 @@ export function openThemeEditor(src, { onExit } = {}) {
     panel.remove(); document.removeEventListener('keydown', esc, true);
     settings?.classList.remove('hidden'); onExit?.();
   };
-  const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.backdrop')) { e.stopPropagation(); exit(); } };
+  const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.backdrop:not(.leaving)')) { e.stopPropagation(); exit(); } };
   document.addEventListener('keydown', esc, true);
 
   const sec = (title, ...k) => h('section', h('h5', title), ...k);

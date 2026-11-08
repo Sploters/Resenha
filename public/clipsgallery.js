@@ -3,6 +3,7 @@
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
 import { h, icon, fsVideo, whenGone, thumbUrl, skeleton } from './util.js';
 import { openTrimmer } from './cliptrim.js';
+import { stagger, pulse } from './motion.js';
 import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
 
 let ctx = {}; // injetado por app.js: go(gid, cid), jumpTo(mid)
@@ -31,6 +32,7 @@ async function load(reset) {
   st.clips = reset ? r.clips : [...st.clips, ...r.clips]; st.total = r.total; st.more = r.clips.length === 30;
   if (reset) st.toTop = true; // filtro/busca nova: começa do topo; "Carregar mais" mantém onde estava
   draw();
+  if (reset) stagger(st.root?.querySelector('.cgrid'), 30, 9); // 1ª página em cascata
   if (st.focus) showFocus();
 }
 // leva até o clipe pedido: carrega mais páginas se ele ainda não apareceu, rola até ele e destaca por alguns segundos
@@ -98,6 +100,7 @@ async function rename(c) {
 async function toggleFav(c) {
   const r = await tryApi(c.fav ? 'DELETE' : 'PUT', `/clips/${c.id}/fav`); if (!r) return;
   if (st.filter === 'fav' && !r.fav) { st.clips = st.clips.filter(x => x.id !== c.id); draw(); } else upsert(r);
+  if (r.fav) pulse(st.root?.querySelector(`.clipcard[data-id="${CSS.escape(String(c.id))}"] .ibtn.on`)); // confirmação: favoritado
 }
 async function remove(c) {
   if (!await confirmBox('Apagar clipe', `"${c.title}" sai da galeria e do chat da sala, e o vídeo é apagado do servidor.`, 'Apagar')) return;

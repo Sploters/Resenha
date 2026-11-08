@@ -1238,3 +1238,78 @@ html.anim #clipsview .clipcard.focus { animation: clipFocus 1s ease-out 2; }
 .updov .uo-steps { margin: 0 0 16px; padding-left: 22px; text-align: left; display: grid; gap: 8px; color: var(--text); font-size: 14px; line-height: 1.4; }
 .updov .uo-steps b { color: var(--header); }
 .updov .uo-btns { gap: 8px; }
+
+/* ================= Sistema de movimento (public/motion.js) =================
+   entrar: ease-out · mover: ease-in-out · sair: ease-in e 20% mais curto · menus 150 ms, popups/janelas 200 ms
+   popups começam em 95% e crescem de onde foram abertos (e voltam para lá) · sem quique no dia a dia */
+:root {
+  --ease-out: cubic-bezier(.23, 1, .32, 1);        /* entra rápido e assenta suave */
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);     /* coisas que mudam de lugar */
+  --ease-in: cubic-bezier(.55, 0, 1, .45);         /* saídas */
+  --t-menu: 150ms; --t-pop: 200ms; --t-modal: 220ms;
+}
+@keyframes mv-in { from { opacity: 0; transform: scale(.95); } }
+@keyframes mv-out { to { opacity: 0; transform: scale(.95); } }
+@keyframes mv-fade-out { to { opacity: 0; } }
+@keyframes mv-rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes mv-toast-out { to { opacity: 0; transform: translate(-50%, 6px) scale(.97); } }
+
+/* entradas: tudo com ease-out, sem passar do ponto (antes: cubic-bezier com 1.1–1.3, o "quique") */
+html.anim .menu { animation: mv-in var(--t-menu) var(--ease-out); }
+html.anim .popout, html.anim .emoji-picker { animation: mv-in var(--t-pop) var(--ease-out); }
+html.anim .backdrop { animation: lc-fade var(--t-modal) var(--ease-out); }
+html.anim .backdrop > .modal { animation: mv-in var(--t-modal) var(--ease-out); }
+html.anim #toast { animation: lc-up .24s var(--ease-out); }
+html.anim .appupd, html.anim .updov .uo-card, html.anim #home .tab .tab-badge, html.anim .gamecard, html.anim .streamcard { animation: mv-in var(--t-pop) var(--ease-out); }
+html.anim #auth .auth-card { animation: authIn .3s var(--ease-out); }
+html.anim #auth .auth-qrbox.scanned .avatar { animation: mv-in .25s var(--ease-out); }
+
+/* saídas: 20% mais curtas, ease-in, voltando para a origem (o gatilho); sem cliques enquanto saem */
+html.anim .leaving { pointer-events: none !important; }
+html.anim .menu.leaving { animation: mv-out calc(var(--t-menu) * .8) var(--ease-in) forwards !important; }
+html.anim .popout.leaving, html.anim .emoji-picker.leaving { animation: mv-out calc(var(--t-pop) * .8) var(--ease-in) forwards !important; }
+html.anim .backdrop.leaving { animation: mv-fade-out calc(var(--t-modal) * .8) var(--ease-in) forwards !important; }
+html.anim .backdrop.leaving > .modal { animation: mv-out calc(var(--t-modal) * .8) var(--ease-in) forwards !important; }
+html.anim #toast.leaving { animation: mv-toast-out .16s var(--ease-in) forwards !important; }
+
+/* apertar: 97% na hora (sem tweening enquanto segura) e volta com ease-out ao soltar */
+html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .hl-item, .gc-btn, .auth-qrnew, .dm-find) {
+  transition: background .12s, color .12s, border-color .12s, opacity .12s, transform .18s var(--ease-out); }
+html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .hl-item, .gc-btn, .auth-qrnew, .dm-find):active:not(:disabled) { transform: scale(.97); transition-duration: 0s; }
+html.anim .rail-item:active { transform: scale(.97); transition-duration: 0s; }
+
+/* interruptor: a bolinha anda com ease-in-out e estica 12% enquanto aperta (de olho no lado para onde vai) */
+html.anim .switch::after { transition: left .2s var(--ease-in-out), width .14s var(--ease-out), background .15s; }
+html.anim .switch { transition: background .2s var(--ease-in-out); }
+html.anim .switch:active::after { width: 20px; }
+html.anim .switch.on:active::after { left: 17px; }
+
+/* listas em cascata (motion.js stagger): 30 ms entre linhas */
+html.anim .stagger > * { animation: mv-rise .26s var(--ease-out) backwards; animation-delay: calc(var(--i, 12) * var(--step, 30ms)); }
+/* detalhes que assentam em sequência: perfil, cartões e janelas mostram o topo primeiro e o resto logo depois */
+html.anim .popout .pcard > *, html.anim .backdrop > .modal > .mb > * { animation: mv-rise .24s var(--ease-out) backwards; }
+html.anim .popout .pcard > :nth-child(2), html.anim .backdrop > .modal > .mb > :nth-child(2) { animation-delay: 30ms; }
+html.anim .popout .pcard > :nth-child(3), html.anim .backdrop > .modal > .mb > :nth-child(3) { animation-delay: 60ms; }
+html.anim .popout .pcard > :nth-child(n+4), html.anim .backdrop > .modal > .mb > :nth-child(n+4) { animation-delay: 90ms; }
+
+/* confirmação: pulso verde (motion.js pulse) */
+@keyframes mv-pulse { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green, #23a55a) 55%, transparent); } to { box-shadow: 0 0 0 10px transparent; } }
+html.anim .ok-pulse { animation: mv-pulse .5s var(--ease-out); }
+
+/* ícone trocado (mutar/desmutar…): o novo entra com fade + desfoque (motion.js swapIcon) */
+@keyframes mv-icon { from { opacity: 0; filter: blur(3px); transform: scale(.7); } }
+html.anim .icon-swap > svg, html.anim .icon-swap > .icon { animation: mv-icon .22s var(--ease-out); }
+
+/* spoiler revelado por máscara, da esquerda para a direita */
+@keyframes mv-reveal { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
+html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, transparent 55%); mask-image: linear-gradient(90deg, #000 45%, transparent 55%);
+  -webkit-mask-size: 220% 100%; mask-size: 220% 100%; animation: mv-reveal .35s var(--ease-out) forwards; }
+
+/* troca de tela (motion.js viewTransition): a velha sai mais rápido enquanto a nova entra; o destaque do canal e a
+   aba ativa "deslizam" para o novo lugar (mesmo nome = mesmo elemento, como o layoutId) */
+::view-transition-old(root) { animation: mv-fade-out 120ms var(--ease-in) both; }
+::view-transition-new(root) { animation: lc-fade 160ms var(--ease-out) both; }
+::view-transition-group(*) { animation-duration: 220ms; animation-timing-function: var(--ease-in-out); }
+html.anim #side-list .ch.active { view-transition-name: canal-ativo; }
+html.anim #home .tabs .tab.active:not(.green) { view-transition-name: aba-ativa; }
+html.anim .ct-tab.active { view-transition-name: aba-de-canal; }

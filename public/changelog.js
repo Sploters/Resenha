@@ -58,7 +58,7 @@ export function markSeen() { if (S.prefs.newsSeen !== latest()) { S.prefs.newsSe
 // chamado depois que as preferências da conta chegam: mostra uma vez se há novidade que a pessoa ainda não viu
 export function maybeShowNews() {
   const last = latest(); if (!last || S.prefs.newsSeen === last) return;
-  setTimeout(() => { if (S.prefs.newsSeen !== last && !document.querySelector('.backdrop')) openNews(last); }, 1200); // depois de a tela montar
+  setTimeout(() => { if (S.prefs.newsSeen !== last && !document.querySelector('.backdrop:not(.leaving)')) openNews(last); }, 1200); // depois de a tela montar
 }
 
 // página em Configurações

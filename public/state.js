@@ -1,4 +1,5 @@
 import { h, icon, EMOJIS, setHour12 } from './util.js';
+import { originAt, originFrom, leave } from './motion.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
 
@@ -56,7 +57,7 @@ export function applyTheme() {
   r.dataset.theme = grad ? grad.base : (SOLID_THEMES[S.prefs.theme] ? S.prefs.theme : 'dark'); paintTheme(r, grad); r.style.fontSize = S.prefs.zoom + '%';
   const a = S.prefs.accent || '#5865f2';
   r.style.setProperty('--brand', a); r.style.setProperty('--brand-hover', `color-mix(in srgb, ${a} 80%, black)`);
-  r.classList.toggle('reduce-motion', !!S.prefs.reduceMotion); r.classList.toggle('anim', S.prefs.animations !== false && !S.prefs.reduceMotion);
+  r.classList.toggle('reduce-motion', !!S.prefs.reduceMotion); r.classList.toggle('anim', S.prefs.animations !== false && !S.prefs.reduceMotion && !matchMedia('(prefers-reduced-motion: reduce)').matches); // também o "reduzir movimento" do sistema
   r.classList.toggle('high-contrast', !!S.prefs.highContrast); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
@@ -138,10 +139,10 @@ const layer = () => document.getElementById('layer');
 export function toast(msg, err) {
   document.getElementById('toast')?.remove();
   const t = h('div#toast' + (err ? '.err' : ''), msg); document.body.append(t);
-  setTimeout(() => t.remove(), 3500);
+  setTimeout(() => leave(t, 160), 3500);
 }
 export function modal(title, sub, body, buttons = [], opts = {}) {
-  const close = () => bd.remove();
+  const close = () => leave(bd, 160); // a janela encolhe e some (mais rápido que a entrada)
   const bd = h('div.backdrop', { onmousedown: (e) => { if (e.target === bd && !opts.sticky) close(); } },
     h('div.modal', opts.width ? { style: { width: opts.width } } : null,
       h('div.mh', h('h2', title), sub && h('p', sub)),
@@ -161,7 +162,7 @@ export function promptBox(title, label, value = '', okLabel = 'Salvar') {
     inp.select();
   });
 }
-export function closeFloating() { layer().querySelectorAll('.menu,.popout:not(.static),.emoji-picker').forEach(e => e.remove()); }
+export function closeFloating() { layer().querySelectorAll('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)').forEach(e => leave(e, e.classList.contains('menu') ? 120 : 160)); } // voltam para onde foram abertos
 document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static),.emoji-picker')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFloating(); }); // o visualizador de imagens trata o próprio Esc
 // (sem fechar no blur: o menu continua aberto ao dar alt+tab)
@@ -171,6 +172,7 @@ function place(el, x, y) {
   const r = el.getBoundingClientRect();
   el.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
   el.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  originAt(el, x, y); // cresce a partir do clique
 }
 export function menu(e, items) {
   e.preventDefault(); closeFloating();
@@ -180,7 +182,7 @@ export function menu(e, items) {
     if (i.node) return h('div.mnode', i.node);
     const cbx = i.checked !== undefined ? h('span.cbx' + (i.checked ? '.on' : ''), i.checked && icon('check', 16)) : null;
     const row = h('div.it' + (i.danger ? '.danger' : ''), i.hint ? h('div.itl', h('span', i.label), h('small', i.hint)) : i.label, cbx, i.radio !== undefined && h('span.radio' + (i.radio ? '.on' : '')), i.sub && h('span', { style: { marginLeft: 'auto', opacity: .7 } }, '›'));
-    const closeDeeper = () => layer().querySelectorAll('.menu').forEach(m => { if (+m.dataset.depth > depth) m.remove(); });
+    const closeDeeper = () => layer().querySelectorAll('.menu:not(.leaving)').forEach(m => { if (+m.dataset.depth > depth) leave(m, 100); });
     if (i.sub) {
       const open = () => { closeDeeper(); const r = row.getBoundingClientRect(), sub = build(i.sub, depth + 1); place(sub, r.right + 2, r.top - 6); const w = sub.getBoundingClientRect(); if (w.right > innerWidth - 8) sub.style.left = Math.max(8, r.left - w.width - 2) + 'px'; };
       row.onmouseenter = open; row.onclick = open;
@@ -199,6 +201,7 @@ export function popout(anchor, node, side = 'right') {
   const x = side === 'left' ? r.left - w.width - 8 : r.right + 8;
   el.style.left = Math.max(8, Math.min(x, innerWidth - w.width - 8)) + 'px';
   el.style.top = Math.max(8, Math.min(r.top, innerHeight - w.height - 8)) + 'px';
+  originFrom(el, anchor); // cresce a partir do botão que abriu
   return el;
 }
 export function emojiPicker(anchor, onPick, opts = {}) {

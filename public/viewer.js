@@ -146,7 +146,7 @@ export function openViewer(src, { list, name, onClose } = {}) {
 
   const keys = (e) => {
     if (!lb.isConnected) return document.removeEventListener('keydown', keys, true);
-    if (document.querySelector('.menu')) return;
+    if (document.querySelector('.menu:not(.leaving)')) return;
     const k = e.key;
     if (k === 'Escape') close();
     else if (k === 'ArrowLeft') go(-1);

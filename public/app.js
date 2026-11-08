@@ -42,6 +42,7 @@ import { toggleTranslation, isTranslated, translationBlock, translateOutgoing, d
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
 import { rumReady } from './rum.js';
+import { viewTransition, stagger, swapIcon } from './motion.js';
 // tela de entrar: só para quem não está logado
 const renderAuth = (...a) => import('./auth.js').then(m => m.renderAuth(...a));
 const approveQr = (...a) => import('./auth.js').then(m => m.approveQr(...a));
@@ -327,7 +328,7 @@ function go(gid, cid) {
 const chNameKey = () => ['chCaps', 'chDashes', 'chNoEmoji', 'chNamesVoice', 'chNameWords'].map(k => S.prefs[k]).join('|');
 let lastChNames = chNameKey();
 document.addEventListener('settings-closed', () => { if (!ready || chNameKey() === lastChNames) return; lastChNames = chNameKey(); renderSide(); if (S.view.cid) renderMain(); });
-window.addEventListener('hashchange', () => { hidePreview(); if (ready) { applyRoute(); if (voice) updatePip(pipCtx); } });
+window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 function applyRoute(first) {
   let [, gid, cid] = location.hash.match(/^#\/([^/]+)(?:\/(.+))?$/) || [];
   gid ||= '@me';
@@ -348,7 +349,7 @@ function applyRoute(first) {
   S.replyTo = null; S.editing = null; clearPending(); closeFloating();
   $('#app').classList.remove('nav-open');
   syncWatching(null); renderRail(); renderSide(); renderMain();
-  for (const sel of ['#msgs', '#stage', '#members', '#side .list']) { const e = $(sel); if (e) { e.classList.remove('sw'); void e.offsetWidth; e.classList.add('sw'); } }
+  if (!S.inVT) for (const sel of ['#msgs', '#stage', '#members', '#side .list']) { const e = $(sel); if (e) { e.classList.remove('sw'); void e.offsetWidth; e.classList.add('sw'); } } // com a transição de tela, ela já anima
 }
 
 // =============== Shell ===============
@@ -631,9 +632,9 @@ function userbar() {
   return h('div#userbar',
     h('div.me', { onclick: (e) => openStatusPanel(e.currentTarget, { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout }), oncontextmenu: (e) => statusMenu(e), title: 'Status e perfil' }, avatar(me, 38, { ring: 'var(--bg-user)' }),
       h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', me.custom_status || STATUS_TXT[me.status]))),
-    h('div.ubtn', h('button.ibtn' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: redução de ruído)', onclick: () => voiceToggle('mute'), oncontextmenu: noiseMenu }, icon(voice?.muted ? 'micoff' : 'mic')),
+    h('div.ubtn', swapIcon(h('button.ibtn' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: redução de ruído)', onclick: () => voiceToggle('mute'), oncontextmenu: noiseMenu }, icon(voice?.muted ? 'micoff' : 'mic')), 'ua-mic', !!voice?.muted),
       h('button.ibtn.caret', { title: 'Dispositivo de entrada, ruído e eco', onclick: (e) => openAudioPanel(e.currentTarget, voice, 'in', { openSettings: (k) => openSettings(k, ctx()) }) }, icon('caret', 14))),
-    h('div.ubtn', h('button.ibtn' + (voice?.deafened ? '.on' : ''), { title: voice?.deafened ? 'Ativar áudio' : 'Ensurdecer', onclick: () => voiceToggle('deaf') }, icon(voice?.deafened ? 'headoff' : 'headset')),
+    h('div.ubtn', swapIcon(h('button.ibtn' + (voice?.deafened ? '.on' : ''), { title: voice?.deafened ? 'Ativar áudio' : 'Ensurdecer', onclick: () => voiceToggle('deaf') }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
       h('button.ibtn.caret', { title: 'Dispositivo de saída e volumes', onclick: (e) => openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }) }, icon('caret', 14))),
     h('button.ibtn', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')));
 }
@@ -1293,6 +1294,7 @@ async function showInbox(e) {
       if (!before) body.replaceChildren(wrap);
       more.remove();
       wrap.append(...ibMsgs(list, (m) => { const g = guild(m.guild_id); return h('div.ib-why' + (m.unread ? '.new' : ''), h('b', nameOf(m.author_id, m.guild_id)), ' ' + (KIND_TXT[m.kind] || ''), h('span', g ? ` • #${m.channel_name} • ${g.name}` : ' • Mensagem direta')); }));
+      if (!before) stagger(wrap, 30, 8); // 1ª página em cascata
       if (!wrap.children.length) body.replaceChildren(empty('Nada por aqui', 'Menções e respostas a você aparecem nesta aba.'));
       else if (list.length === 30) { more.onclick = () => busy(more, load(list.at(-1).id)); wrap.append(more); }
     };
@@ -1504,13 +1506,14 @@ function renderHome(main) {
   };
   main.replaceChildren(h('div#home',
     h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), icon('users', 24), h('span', 'Amigos'), h('div', { style: { width: '1px', height: '24px', background: 'var(--divider)', margin: '0 8px' } }),
-      h('div.tabs', tabs.map(([k, l]) => h('div.tab' + (tab === k ? '.active' : ''), { onclick: () => { S.view.tab = k; renderHome(main); } }, l)),
-        h('div.tab.green' + (tab === 'add' ? '.active' : ''), { onclick: () => { S.view.tab = 'add'; renderHome(main); } }, icon('plus', 18), 'Adicionar amigo',
+      h('div.tabs', tabs.map(([k, l]) => h('div.tab' + (tab === k ? '.active' : ''), { onclick: () => { if (S.view.tab === k) return; S.view.tab = k; S.staggerNext = true; viewTransition(() => renderHome(main)); } }, l)),
+        h('div.tab.green' + (tab === 'add' ? '.active' : ''), { onclick: () => { if (S.view.tab === 'add') return; S.view.tab = 'add'; viewTransition(() => renderHome(main)); } }, icon('plus', 18), 'Adicionar amigo',
           reqs > 0 && h('span.tab-badge', { title: `${reqs} pedido${reqs > 1 ? 's' : ''} de amizade` }, reqs > 99 ? '99+' : reqs))),
       // janela estreita: o painel "Ativo agora" não cabe ao lado e abre como gaveta por este botão
       h('button.ibtn.an-toggle', { title: 'Ativo agora', onclick: () => $('#home').classList.toggle('an-open') }, icon('gamepad', 22))),
     h('div#homebody', pane, h('aside#active-now'), h('div.an-scrim', { onclick: () => $('#home').classList.remove('an-open') }))));
   S.redrawHome = draw; draw(); renderActiveNow();
+  if (S.staggerNext) { S.staggerNext = false; stagger(pane); } // só ao chegar na tela/trocar de aba (não nos redesenhos por eventos)
 }
 
 // =============== Voz: palco ===============
@@ -1747,7 +1750,7 @@ function renderVoiceUI(speakOnly) {
   if (layout === 'grid' || layout === 'side') focusTile = null;
   else if (['spot', 'sidebar', 'cinema'].includes(layout) && tiles.length > 1 && !focusTile) focusTile = screens[0] || tiles[0]; // sem destaque escolhido: a primeira transmissão
   const abtn = (ic, title, on, fn) => h('button.roundbtn' + (on ? '.active' : ''), { title, onclick: fn }, icon(ic, 24));
-  const btn = (ic, title, on, fn, cls = '') => h('button.roundbtn' + (on ? '.off' : '') + cls, { title, onclick: fn, oncontextmenu: cls.startsWith('.mic') ? noiseMenu : null }, icon(ic, 24));
+  const btn = (ic, title, on, fn, cls = '') => swapIcon(h('button.roundbtn' + (on ? '.off' : '') + cls, { title, onclick: fn, oncontextmenu: cls.startsWith('.mic') ? noiseMenu : null }, icon(ic, 24)), 'bar-' + ic.replace(/(off|set)$/, ''), !!on); // ícone novo entra com fade + desfoque
   const bar = h('div.bar', inRoom ? [
     // centro = sala e transmissão; microfone, fone, câmera, efeitos, soundboard e música ficam no painel da esquerda
     // (em tela estreita o painel some: aí eles voltam a aparecer aqui, .solo-narrow)

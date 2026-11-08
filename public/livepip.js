@@ -59,14 +59,34 @@ const clamp = () => {
   pos.y = Math.max(8, Math.min(pos.y ?? innerHeight - hh - 24, innerHeight - hh - 8));
   pip.style.transform = `translate(${pos.x}px,${pos.y}px)`;
 };
+// volta para dentro da tela por uma curva (ponto do meio deslocado para o lado), assentando com ease-out
+function arcTo(from, to) {
+  const dx = to.x - from.x, dy = to.y - from.y, dist = Math.hypot(dx, dy), k = Math.min(.18, 30 / Math.max(1, dist)) * dist;
+  const mid = { x: from.x + dx / 2 - (dy / (dist || 1)) * k, y: from.y + dy / 2 + (dx / (dist || 1)) * k };
+  const t = (p) => `translate(${p.x}px,${p.y}px)`;
+  pip.style.transform = t(to);
+  try { pip.animate([{ transform: t(from) }, { transform: t(mid), offset: .5 }, { transform: t(to) }], { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' }); } catch { }
+}
 function build() {
   pip = h('div.livepip');
   pip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.closest('button,.lp-resize')) return;
     const sx = e.clientX - (pos.x ?? 0), sy = e.clientY - (pos.y ?? 0);
     pip.classList.add('drag'); pip.setPointerCapture(e.pointerId);
-    const mv = (m) => { pos.x = m.clientX - sx; pos.y = m.clientY - sy; clamp(); };
-    const up = () => { pip.classList.remove('drag'); pip.removeEventListener('pointermove', mv); pip.removeEventListener('pointerup', up); };
+    // passar da borda: a janela vai, mas cada vez mais presa (elástico); ao soltar volta para dentro em arco
+    let shown = null;
+    const mv = (m) => {
+      pos.x = m.clientX - sx; pos.y = m.clientY - sy; const rx = pos.x, ry = pos.y; clamp();
+      if (!document.documentElement.classList.contains('anim')) return;
+      const band = (d) => Math.sign(d) * 90 * (1 - 1 / (Math.abs(d) / 160 + 1)); // até ~90 px além da borda, com resistência
+      shown = { x: pos.x + band(rx - pos.x), y: pos.y + band(ry - pos.y) };
+      pip.style.transform = `translate(${shown.x}px,${shown.y}px)`;
+    };
+    const up = () => {
+      pip.classList.remove('drag'); pip.removeEventListener('pointermove', mv); pip.removeEventListener('pointerup', up);
+      if (shown && (Math.abs(shown.x - pos.x) > 1 || Math.abs(shown.y - pos.y) > 1)) arcTo(shown, { x: pos.x, y: pos.y });
+      shown = null;
+    };
     pip.addEventListener('pointermove', mv); pip.addEventListener('pointerup', up);
   });
   document.body.append(pip);

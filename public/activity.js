@@ -7,6 +7,7 @@ import { chName } from './chnames.js';
 import { styleName } from './themes.js';
 import { S, api, tryApi, toast, confirmBox, guild, channelById, modal } from './state.js';
 import { openClip } from './clipsgallery.js';
+import { stagger } from './motion.js';
 import { toggle, row, section, seg } from './ui.js';
 
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
@@ -318,6 +319,7 @@ export function activityPanel(box) {
     body.replaceChildren(forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), h('section.an-hist', h('div.an-cap', 'Destaques da semana'), ...hist));
   };
   S.redrawFeed = draw; draw();
+  stagger(body.querySelector('.an-now')); // cartões entram em cascata ao montar o painel (não nos redesenhos)
   loadFeed().then(() => { if (body.isConnected) draw(); });
   clearInterval(S.feedClock); S.feedClock = setInterval(() => { if (!body.isConnected) return clearInterval(S.feedClock); draw(); }, 30000);
 }
