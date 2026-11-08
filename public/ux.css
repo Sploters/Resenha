@@ -331,11 +331,7 @@ button.mgroup .mg-n::before { content: '— '; }
 .raildm .rd-st { width: 14px; height: 14px; right: 8px; bottom: -4px; border-width: 4px; }
 .raildm.active .rd-st, .raildm:hover .rd-st { border-color: var(--bg-tert); }
 
-/* configurações → perfil: a prévia ocupa toda a altura da grade */
-.pgrid { align-items: stretch; }
-.pgrid > .col:last-child { display: flex; flex-direction: column; }
-.pgrid > .col:last-child > .preview { flex: 1; display: flex; flex-direction: column; }
-.pgrid > .col:last-child > .preview > .popout.static { flex: 1; display: flex; flex-direction: column; max-width: none; }
-.pgrid > .col:last-child > .preview > .popout.static > .pcard { flex: 1 0 auto; display: flex; flex-direction: column; }
-.pgrid > .col:last-child > .preview > .popout.static > .pcard > .pb { flex: 1 0 auto; }
+/* configurações → perfil: a prévia ocupa a largura da coluna dela e fica fixa enquanto as opções rolam */
+.pgrid > .col:last-child { align-self: start; position: sticky; top: 16px; }
+.pgrid > .col:last-child > .preview > .popout.static { max-width: none; width: 100%; }
 .dmp-acts .btn { white-space: nowrap; font-size: 13px; padding: 0 10px; min-height: 34px; }
