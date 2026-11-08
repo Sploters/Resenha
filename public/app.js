@@ -384,13 +384,12 @@ function renderRail() {
   const meView = S.view.gid === '@me';
   rail.replaceChildren(
     wrap(S.searchOpen ? '.active' : '', 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
-    wrap(meView && S.view.kind !== 'discover' && !S.searchOpen ? '.active' : '', 'Mensagens e amigos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap(meView && !S.searchOpen ? '.active' : '', 'Mensagens e amigos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
       return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name,
         h('div.rail-item', { onclick: () => { closeGlobalSearch(); go('@me', dm.id); }, oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)]); }),
     h('div.sep'),
-    wrap(S.view.kind === 'discover' ? '.active' : '', 'Descobrir', h('div.rail-item.rail-tool', { onclick: () => { closeGlobalSearch(); go('@me', 'discover'); }, style: { fontSize: '0' } }, icon('grid4', 26))),
     ...[...S.guilds.values()].map(g => {
       const rooms = voiceRooms(g);
       const w = wrap((S.view.gid === g.id ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
