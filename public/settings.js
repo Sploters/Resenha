@@ -98,7 +98,7 @@ function compactHints(pane) {
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['profile', 'Perfil', 'avatar banner bio status pronomes'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
@@ -124,12 +124,12 @@ export function openSettings(kind, ctx) {
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
-  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
+  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
   const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
   const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
   const drawNav = () => {
     const q = search.value.trim().toLowerCase();
-    const meCard = !isServer && S.me && h('div.nme', { title: 'Editar perfil', onclick: () => show('profile') }, avatar(S.me, 40), h('div.nme-t', h('b', S.me.display_name), h('small', 'Editar perfil')), icon('edit', 16));
+    const meCard = !isServer && S.me && (!search.value.trim() || /perf|avatar|banner|bio|pronom|status/i.test(search.value)) && h('div.nme' + (current === 'profile' ? '.active' : ''), { 'data-k': 'profile', title: 'Editar perfil', onclick: () => show('profile') }, avatar(S.me, 40), h('div.nme-t', h('b', S.me.display_name), h('small', 'Editar perfil')), icon('edit', 16));
     nav.replaceChildren(h('div.ninner', meCard, search, ...groups.flatMap(([title, items]) => {
       const list = items.filter(([k, l, kw]) => !q || (l + ' ' + kw).toLowerCase().includes(q));
       return list.length ? [h('h6', title), ...list.map(([k, l]) => h('div.ni' + (k === current ? '.active' : ''), { 'data-k': k, onclick: () => show(k) }, icon(NAV_ICONS[sKey(k) === 'sounds_srv' ? 'soundboard' : k] || 'dot', 18), h('span.nl', l), k === 'lite' && liteOn() && h('span.nlite', { title: 'O modo leve está ligado neste computador' }, 'Ativo')))] : [];
