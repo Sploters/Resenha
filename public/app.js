@@ -597,18 +597,10 @@ function renderSide() {
   } else {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
-    const act = (ic, title, fn, cls = '') => h('button.srv-act' + cls, { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 22));
-    const gmuted = !!S.prefs.notifyCfg?.[g.id]?.muted;
     head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
       g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
-        h('button.sh-btn', { type: 'button', title: 'Mais opções', 'aria-label': 'Mais opções do servidor', onclick: (e) => menuAt(e.currentTarget) }, icon('more', 20))),
-      h('div.srv-acts',
-        act(gmuted ? 'volmute' : 'bell', 'Notificações do servidor', (e) => notifCard(e, { g }), gmuted ? '.off' : ''),
-        act('invite', 'Convidar pessoas', () => inviteModal(g)),
-        act('check', 'Marcar tudo como lido', () => { g.channels.forEach(c => ack(c.id)); toast('Tudo lido em ' + g.name); }),
-        act('search', 'Buscar neste servidor', () => { GS.scope = g.id; if (!S.searchOpen) toggleGlobalSearch(); else { runGlobalSearch(); setTimeout(() => $('#gs-q')?.focus()); } }),
-        can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && act('gear', 'Configurações do servidor', () => openSettings('server', { gid: g.id, voice, logout, go }))));
+        h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))));
     const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
