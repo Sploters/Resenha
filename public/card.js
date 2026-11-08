@@ -1,4 +1,4 @@
-import { h, icon, avatar, framePos } from './util.js';
+import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { lightbox, S } from './state.js';
 import { gameIcon, gameBanner, gameModal } from './activity.js';
 import { isLightPair, styleName } from './themes.js';
@@ -18,7 +18,7 @@ export function profileCard(u, { nickname, roles = [], since, extra, accent, onI
   const tp = u.theme_primary, ta = u.theme_accent, themed = !!(tp && ta);
   const color = themed ? tp : accent || u.banner_color || u.color || '#5865f2'; // com tema, o banner sem imagem segue a cor principal
   const banner = h('div.banner', { style: { background: color, position: 'relative', overflow: 'hidden' }, ...(u.banner && !onEditBanner ? { title: onImage ? 'Ver perfil completo' : 'Ver banner', onclick: () => (onImage ? onImage() : lightbox(u.banner)) } : {}) });
-  if (u.banner) banner.append(framePos(h('img', { src: u.banner, alt: '', draggable: false, style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }), u.banner_pos));
+  if (u.banner) banner.append(framePos(h('img', { src: imgUrl(u.banner, 960), alt: '', draggable: false, style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }), u.banner_pos));
   if (onEditBanner) { banner.classList.add('editable'); banner.title = 'Editar banner'; banner.append(h('div.avedit', icon('edit', 22))); banner.onclick = (e) => { e.stopPropagation(); onEditBanner(e); }; } // edição do perfil: lápis com menu, igual ao avatar
   else banner.classList.toggle(onImage ? 'clickable' : 'zoomable', !!u.banner); // com onImage o clique abre o perfil completo, não o zoom
   const av = avatar(u, 80, { ring: themed ? tp : 'var(--bg-float)' });

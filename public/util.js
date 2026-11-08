@@ -19,6 +19,8 @@ function busyHandler(el, fn) {
 export function h(tag, props, ...kids) {
   const m = tag.match(/^([a-z0-9]*)((?:[.#][\w-]+)*)$/i);
   const el = document.createElement(m[1] || 'div');
+  // imagens: carregam quando chegam perto da tela e decodificam fora da thread principal (dá para passar loading: 'eager')
+  if (el.tagName === 'IMG') { el.loading = 'lazy'; el.decoding = 'async'; }
   for (const p of (m[2].match(/[.#][\w-]+/g) || [])) p[0] === '.' ? el.classList.add(p.slice(1)) : (el.id = p.slice(1));
   if (props && (typeof props !== 'object' || props instanceof Node || Array.isArray(props))) { kids.unshift(props); props = null; }
   for (const [k, v] of Object.entries(props || {})) {
@@ -181,9 +183,16 @@ export function framePos(img, s, round = false) {
     : `inset(${f(p.y * k)} ${f((100 - p.x) * k)} ${f((100 - p.y) * k)} ${f(p.x * k)})`;
   return img;
 }
+// foto enviada (/files/<id>.png|jpg|webp/...) no tamanho em que aparece: versão WebP menor gerada pelo servidor
+// (server/thumbs.js; o dobro em telas de alta densidade). Outros endereços (GIF, externos) ficam como estão.
+const IMG_FILE = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp))\//i;
+export function imgUrl(url, size) {
+  const m = IMG_FILE.exec(String(url || '')); if (!m) return url;
+  return `/thumbs/${m[1]}?s=${Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)))}`;
+}
 export function avatar(u, size = 40, opts = {}) {
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.color || '#5865f2' } });
-  if (u?.avatar) el.append(framePos(h('img', { src: u.avatar, alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
+  if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); // tamanho de verdade (com o zoom do enquadramento) else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { style: { borderColor: opts.ring || '' } }));
   return el;
 }
@@ -261,7 +270,7 @@ const vfmt = (s) => { s = isFinite(s) ? Math.max(0, Math.floor(s)) : 0; const hh
 const vPref = { get: (k, d) => { try { const x = localStorage.getItem('lc_v_' + k); return x == null ? d : JSON.parse(x); } catch { return d; } }, set: (k, x) => { try { localStorage.setItem('lc_v_' + k, JSON.stringify(x)); } catch { } } };
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export function fsVideo(attrs = {}, cls = '') {
-  const v = h('video', { playsInline: true, disablePictureInPicture: true, ...attrs });
+  const v = h('video', { playsInline: true, disablePictureInPicture: true, preload: 'metadata', ...attrs }); // só a duração e o 1º quadro até dar play
   v.setAttribute('controlslist', 'nofullscreen noremoteplayback');
   v.volume = vPref.get('vol', 1); v.muted = !!attrs.muted || vPref.get('muted', false);
   const box = h('div.fsvid' + cls, { tabIndex: 0 }, v);
@@ -363,3 +372,21 @@ export function whenGone(el, fn) {
 
 // miniatura de um vídeo enviado (/files/<id>.webm/...): imagem pequena gerada pelo servidor (server/thumbs.js)
 export const thumbUrl = (url) => { const m = /^\/files\/([a-f0-9]{24}\.(?:webm|mp4))\//.exec(String(url || '')); return m ? `/thumbs/${m[1]}` : null; };
+
+// ---------- skeletons de carregamento ----------
+// formas cinza com um brilho passando, no lugar de "Carregando…": a tela já mostra o formato do que vai chegar.
+// Larguras variam (determinísticas) para não parecer uma grade repetida. role=status + aria-busy para leitores de tela.
+const W = [62, 38, 80, 54, 70, 45, 88, 33];
+export function skeleton(kind = 'rows', n = 6) {
+  const bar = (w, cls = '') => h('i.sk-bar' + cls, { style: { width: w + '%' } });
+  let items;
+  if (kind === 'msgs') items = Array.from({ length: n }, (_, i) => h('div.sk-msg', h('i.sk-av'), h('div.sk-lines', bar(18 + (i % 3) * 6, '.sk-name'), bar(W[i % 8]), i % 3 === 1 && bar(W[(i + 3) % 8]))));
+  else if (kind === 'cards') items = Array.from({ length: n }, (_, i) => h('div.sk-card', h('i.sk-thumb'), bar(W[i % 8]), bar(W[(i + 2) % 8] / 2)));
+  else items = Array.from({ length: n }, (_, i) => h('div.sk-row', h('i.sk-av.sm'), h('div.sk-lines', bar(W[i % 8]), i % 2 === 0 && bar(W[(i + 5) % 8] / 1.6, '.sk-sub'))));
+  return h('div.skeleton.sk-' + kind, { role: 'status', 'aria-busy': 'true', 'aria-label': 'Carregando' }, items);
+}
+// tela inteira carregando (telas abertas sob demanda): título de verdade + cartões cinza
+export const screenSkeleton = (title) => h('div.sk-screen', h('div#topbar', h('span', title)), h('div.sk-screen-body', skeleton('cards', 6)));
+
+// espera a pessoa parar de digitar (filtros de listas grandes): roda fn só depois de ms sem novas chamadas
+export function debounce(fn, ms = 150) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }

@@ -52,7 +52,8 @@ ok((await ga.wait('STREAM_VIEWERS', d => d.viewers.length === 0)).viewers.length
 gb.send('STREAM_WATCH', { target: ra.user.id, watching: true }); await ga.wait('STREAM_VIEWERS', d => d.viewers.length === 1);
 ga.send('VOICE_STATE', { screen: false });
 ok((await gb.wait('STREAM_VIEWERS', d => d.viewers.length === 0)).streamer_id === ra.user.id, 'parar a transmissão zera os espectadores');
-ga.send('VOICE_STATE', { screen: true }); await gb.wait('VOICE_STATE', d => d.user_id === ra.user.id && d.screen);
+// espera a confirmação da própria alice (o servidor já processou); a fila do bob pode ter um VOICE_STATE antigo com screen
+ga.send('VOICE_STATE', { screen: true }); await ga.wait('VOICE_STATE', d => d.user_id === ra.user.id && d.screen);
 gb.send('STREAM_WATCH', { target: ra.user.id, watching: true }); await ga.wait('STREAM_VIEWERS', d => d.viewers.length === 1);
 gb.send('VOICE_LEAVE', {});
 ok((await ga.wait('STREAM_VIEWERS', d => d.viewers.length === 0)).viewers.length === 0, 'sair da sala remove o espectador');

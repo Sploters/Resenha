@@ -4,7 +4,7 @@ import { openFxPicker, fxBadge } from './fxui.js';
 import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, inviteText, parsePos, framePos, initials, busy } from './util.js';
+import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
 import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound } from './sounds.js';
@@ -23,11 +23,14 @@ import { syncThrottle } from './lite.js';
 import { initRemote, onRemoteEvent, tileButton as remoteTileButton, controlling as remoteControlling } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
-import { renderDiscover } from './discover.js';
+const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel } from './ui.js';
-import { openSettings, openFullProfile } from './settings.js';
+// telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
+const lazySettings = () => import('./settings.js');
+const openSettings = (...a) => { lazySettings().then(m => m.openSettings(...a)); };
+const openFullProfile = (...a) => { lazySettings().then(m => m.openFullProfile(...a)); };
 import { saveCustomTheme } from './themeeditor.js';
 import { isLightPair, THEME_CODE_RE, decodeTheme, gradientCss, styleName, stripThemeCodes, themeText, encodeTheme, GRADIENT_THEMES, themeDef } from './themes.js';
 import { profileCard, STATUS_TXT } from './card.js';
@@ -38,7 +41,11 @@ import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, act
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing, draftMenu } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
-import { renderAuth, qrCodeInUrl, approveQr } from './auth.js';
+import { rumReady } from './rum.js';
+// tela de entrar: só para quem não está logado
+const renderAuth = (...a) => import('./auth.js').then(m => m.renderAuth(...a));
+const approveQr = (...a) => import('./auth.js').then(m => m.approveQr(...a));
+const qrCodeInUrl = () => { const m = /^\/qr\/([\w-]{20,64})\/?$/.exec(location.pathname); return m ? m[1] : null; };
 import { initAppUpdate, installAppUpdate, myDesktopVersion, refreshDesktopVersion, latestDesktop, isOlder } from './appupdate.js';
 applyTheme();
 
@@ -47,10 +54,22 @@ const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 initMusic(gwSend);
 
+// Redesenhos pedidos por eventos do servidor (alguém mudou de status, entrou na sala…) viram um só por quadro: quando o
+// servidor reinicia e todo mundo reconecta, eram centenas de redesenhos da lista lateral e de membros seguidos.
+// Fora de eventos (cliques, navegação) o redesenho continua na hora.
+let inEvent = false;
+const queuedRenders = new Set();
+const deferRender = (fn) => {
+  if (!inEvent) return false;
+  if (!queuedRenders.has(fn)) { queuedRenders.add(fn); requestAnimationFrame(() => { queuedRenders.delete(fn); fn(); }); }
+  return true;
+};
+
 // =============== Autenticação ===============
 // tela de entrar / criar conta (public/auth.js); o celular que abriu /qr/<código> aprova o login de outro aparelho
 const qrCode = qrCodeInUrl();
 function showAuth(mode = 'login') {
+  document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot');
   $('#app').classList.add('hidden');
   const a = $('#auth'); a.classList.remove('hidden');
   renderAuth(a, mode, { invited: !!pendingInvite, qrPending: !!qrCode, onToken: (token) => { S.token = token; localStorage.setItem('lc_token', token); a.classList.add('hidden'); a.replaceChildren(); connect(); } });
@@ -84,7 +103,7 @@ function outdatedModal(d) {
 function connect() {
   clearTimeout(connect.t);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}`);
-  ws.onmessage = (e) => { const { t, d } = JSON.parse(e.data); try { onEvent(t, d); } catch (err) { console.error(t, err); } };
+  ws.onmessage = (e) => { const { t, d } = JSON.parse(e.data); inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
   ws.onopen = () => {
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
@@ -103,7 +122,7 @@ function ingestGuild(g) {
   const old = S.guilds.get(g.id);
   g.members = new Map(g.members.map(m => [m.user_id, m]));
   g.channels.sort((a, b) => a.position - b.position);
-  for (const u of g.users) S.users.set(u.id, u);
+  for (const u of g.users || []) S.users.set(u.id, u);
   // limpa estados de voz antigos desta guilda
   for (const [uid, v] of S.voice) if (old?.channels.some(c => c.id === v.channel_id)) S.voice.delete(uid);
   for (const v of g.voice_states || []) S.voice.set(v.user_id, v);
@@ -118,6 +137,7 @@ function onEvent(t, d) {
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
       if (S.remote) onRemoteEvent('REMOTE_STATE', { ...S.remote, state: 'ended', reason: 'left' }); // reconectou: o servidor já encerrou a sessão
+      for (const u of d.users || []) S.users.set(u.id, u); // pessoas dos servidores, cada uma uma vez
       d.guilds.forEach(ingestGuild);
       for (const v of d.dm_voice || []) S.voice.set(v.user_id, v);
       for (const dm of d.dms) { S.dms.set(dm.id, dm); dm.recipients.forEach(u => S.users.set(u.id, u)); }
@@ -133,7 +153,7 @@ function onEvent(t, d) {
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
       voice.ice = S.ice;
       if (!ready) buildShell(); ready = true;
-      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden');
+      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active);
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
@@ -155,7 +175,7 @@ function onEvent(t, d) {
       S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
       for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
       for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
-      renderSide(); renderMembers(); refreshAuthors(d.id); if (S.view.kind === 'home') renderMain();
+      renderSide(); renderMembers(); refreshAuthors(d.id); if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
       break;
     }
     case 'GUILD_CREATE': ingestGuild(d); renderRail(); if (!S.view.gid || S.view.gid === 'new') go(d.id); else { renderSide(); } break;
@@ -268,6 +288,7 @@ function onMessage(m) {
   const t = S.typing.get(m.channel_id); if (t) { t.delete(m.author_id); renderTyping(); previewTyping(); }
   previewMessage(m);
   if (S.view.cid === m.channel_id && m.author_id !== S.me.id) $('#vc-chat-btn:not(.sel)')?.classList.add('unread'); // chat da sala fechado
+  ghostFor(m);
   if (S.view.cid === m.channel_id && list && !gap) appendMessage(m);
   if (mine) return;
   const ch = channelById(m.channel_id), isDM = ch?.type === 1, pol = notifPolicy(ch);
@@ -346,6 +367,7 @@ function buildShell() {
 function guildUnread(g) { return g.channels.some(c => S.unread[c.id]); }
 function guildMentions(g) { return g.channels.reduce((n, c) => n + (S.mentions[c.id] || 0), 0); }
 function renderRail() {
+  if (deferRender(renderRail)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const rail = $('#rail'); if (!rail) return;
   document.getElementById('vcard')?.remove();
   const dmMentions = [...S.dms.keys()].reduce((n, id) => n + (S.mentions[id] || 0), 0);
@@ -358,7 +380,7 @@ function renderRail() {
     ...[...S.guilds.values()].map(g => {
       const rooms = voiceRooms(g);
       const w = wrap((S.view.gid === g.id ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
-        h('div.rail-item', { onclick: () => go(g.id), oncontextmenu: (e) => guildMenu(e, g) }, g.icon ? h('img', { src: g.icon, alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
+        h('div.rail-item', { onclick: () => go(g.id), oncontextmenu: (e) => guildMenu(e, g) }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
         badge(guildMentions(g)) || (rooms.length ? h('div.vbadge', { title: '' }, icon('voice', 12)) : null));
       if (rooms.length) { w.onmouseenter = () => voiceCard(w, g); w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
       return w;
@@ -421,7 +443,7 @@ async function inviteModal(g) {
   const land = g.channels.filter(c => c.type === 0).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
   const friends = [...S.rels.values()].filter(x => x.type === 1).map(x => S.users.get(x.user.id) || x.user).filter(u => !g.members?.has(u.id))
     .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
-  const sent = new Set(), list = h('div.inv-list'), q = h('input', { placeholder: 'Buscar amigos', oninput: () => draw() });
+  const sent = new Set(), list = h('div.inv-list'), q = h('input', { placeholder: 'Buscar amigos', oninput: debounce(() => draw(), 120) });
   let open = true;
   const sec = h('div.inv-sec', { onclick: () => { open = !open; sec.classList.toggle('closed', !open); list.classList.toggle('hidden', !open); } }, h('span', 'Convidar para o servidor'), icon('chevdown', 18));
   const send = async (u, btn) => {
@@ -461,6 +483,7 @@ function channelModal(g, type, parent) {
 // ---------- barra lateral ----------
 const chIcon = (c) => icon(c.type === 2 ? 'voice' : 'hash', 20);
 function renderSide() {
+  if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
   const keepScroll = $('#side-list')?.scrollTop || 0;
   let head, list;
@@ -662,7 +685,7 @@ async function openUserProfile(uid, gid) {
   const onKey = (e) => { if (e.key === 'Escape' && bd.style.display !== 'none') close(); };
   const close = () => { bd.remove(); removeEventListener('keydown', onKey); };
   const banner = h('div.upbanner', { style: { background: color } });
-  if (u.banner) banner.append(framePos(h('img', { src: u.banner, alt: '', draggable: false }), u.banner_pos));
+  if (u.banner) banner.append(framePos(h('img', { src: imgUrl(u.banner, 960), alt: '', draggable: false }), u.banner_pos));
   const av = avatar(u, 120, { ring: themed ? 'var(--ring)' : 'var(--bg-float)' });
   if (u.avatar) { av.classList.add('zoomable'); av.title = 'Ver foto de perfil'; av.onclick = () => { bd.style.display = 'none'; lightbox(u.avatar, { onClose: () => { bd.style.display = ''; } }); }; }
   const sent = () => h('button.btn.grey', { disabled: true }, 'Pedido enviado');
@@ -745,7 +768,7 @@ function inviteToServer(uid) {
   const row = (g) => {
     const inside = g.members?.has(uid);
     return h('button.gpick' + (inside ? '.in' : ''), { disabled: inside, title: inside ? 'Já está neste servidor' : `Convidar para ${g.name}`, onclick: () => send(g) },
-      g.icon ? h('img', { src: g.icon, alt: '' }) : h('span.gi', initialsOf(g.name)), h('b', g.name), h('small', inside ? 'Já é membro' : 'Convidar'));
+      g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : h('span.gi', initialsOf(g.name)), h('b', g.name), h('small', inside ? 'Já é membro' : 'Convidar'));
   };
   const dlg = modal(`Convidar ${user(uid).display_name}`, 'Escolha o servidor. O convite vai por mensagem direta.', h('div.gplist', gs.map(row)), [{ label: 'Cancelar', cls: 'link' }]);
 }
@@ -844,6 +867,7 @@ function renderCallBar() { // mostra/oculta o palco de chamada nas DMs
   const ch = channelById(S.view.cid); if (!ch) return;
   if (ch.type === 1 && callActive(ch.id) !== !!$('#stage')) renderMain(); else renderVoiceUI();
 }
+const renderHomeIfHome = () => { if (S.view.kind === 'home') renderMain(); };
 function renderMain() {
   const main = $('#main'); if (!main) return;
   const v = S.view;
@@ -905,7 +929,7 @@ async function loadChannel(cid) {
   const box = $('#msgs');
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
   if (!S.messages.has(cid)) {
-    box.replaceChildren(h('div.empty', 'Carregando…'));
+    box.replaceChildren(skeleton('msgs', 9));
     const list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!list) return;
     list.forEach(m => S.users.set(m.author.id, { ...S.users.get(m.author.id), ...m.author }));
     S.messages.set(cid, list); S.loaded.set(cid, list.length < 50);
@@ -1101,7 +1125,7 @@ function appendAttachments(el, m, canDel) {
   } }, icon('trash', 16));
   const imgs = atts.filter(a => isImg(a.f));
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) =>
-    h('div.mtile', h('img', { src: f.url, alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
+    h('div.mtile', h('img', { src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
   if (m.clip) el.append(clipMsgCard(m)); // clipe: cartão leve no lugar do player (o vídeo fica na galeria)
   for (const { f } of atts.filter(a => !isImg(a.f) && !(m.clip && a.f.url === m.clip.url))) { const a = attachEl(f); a.classList.add('mtile'); el.append(a); } // áudio/arquivo: excluir fica na barra da mensagem
 }
@@ -1241,7 +1265,7 @@ async function showInbox(e) {
   const empty = (t, p) => h('div.ib-empty', h('div.ib-art', icon('inbox', 36)), h('b', t), h('p', p));
   const chBox = ({ ch, u }) => {
     const g = ch.guild_id ? guild(ch.guild_id) : null, dm = ch.type === 1, peer = dm && dmPeer(ch), cat = ch.parent_id && channelById(ch.parent_id);
-    const list = h('div.ib-list', h('div.ib-loading', 'Carregando…'));
+    const list = h('div.ib-list', skeleton('rows', 4));
     const box = h('div.ib-box');
     const open = () => { closeFloating(); go(g ? g.id : '@me', ch.id); };
     box.append(h('div.ib-head',
@@ -1261,7 +1285,7 @@ async function showInbox(e) {
       body.replaceChildren(...(chs.length ? chs.map(chBox) : [empty('Tudo em dia!', 'Você não tem mensagens não lidas.')]));
       return;
     }
-    body.replaceChildren(h('div.ib-loading', 'Carregando…'));
+    body.replaceChildren(skeleton('msgs', 4));
     const more = h('button.ib-all', 'Carregar mais'), wrap = h('div.ib-list');
     const load = async (before) => {
       const list = await tryApi('GET', '/inbox' + (before ? '?before=' + before : '')); if (!list) return;
@@ -1347,6 +1371,23 @@ async function sendGif(ch, url) {
   S.replyTo = null; renderReplyBar();
   try { await api('POST', `/channels/${ch.id}/messages`, body); } catch (e) { toast(e.message, true); }
 }
+// mensagem otimista: mostrada antes da resposta do servidor (no celular/VPN a ida e volta leva 150-300 ms). Fica só na
+// tela (não entra em S.messages); sai quando a MESSAGE_CREATE minha com o mesmo texto chega, quando o envio responde
+// ou quando falha. Comandos (/…) ficam de fora: o servidor pode transformar o texto.
+const ghosts = []; // { cid, content, el }
+function optimistic(cid, body) {
+  const box = $('#msgs'), list = S.messages.get(cid);
+  if (!box || S.view.cid !== cid || !list || /^\//.test(body.content || '')) return null;
+  const prev = list[list.length - 1], m = { id: 'tmp-' + Date.now(), channel_id: cid, author_id: S.me.id, author: S.me, content: body.content, created_at: Date.now(),
+    attachments: body.attachments || [], reactions: [], reply_to: body.reply_to || null };
+  const el = msgEl(m, prev && prev.author_id === S.me.id && sameDay(prev.created_at, m.created_at) ? prev : null);
+  el.classList.add('sending'); el.removeAttribute('data-mid'); el.querySelector('.toolbar')?.remove();
+  box.append(el); box.stick = true; box.scrollTop = box.scrollHeight;
+  const g = { cid, content: body.content, el }; ghosts.push(g); return g;
+}
+function dropGhost(g) { if (!g) return; g.el.remove(); const i = ghosts.indexOf(g); if (i >= 0) ghosts.splice(i, 1); }
+// a minha mensagem chegou pelo servidor: tira a "enviando" correspondente antes de mostrar a definitiva
+function ghostFor(m) { if (m.author_id !== S.me.id) return; const g = ghosts.find(x => x.cid === m.channel_id && x.content === m.content); if (g) dropGhost(g); }
 async function sendMsg(ta, ch) {
   let content = ta.value; const atts = S.pending.filter(p => p.state === 'ok');
   if (S.pending.some(p => p.state === 'up')) return toast('Aguarde o envio dos anexos…');
@@ -1358,9 +1399,10 @@ async function sendMsg(ta, ch) {
   ta.value = ''; $('.ac')?.remove();
   const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type }) => ({ url, name, size, type })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
-  try { await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); }
+  const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
+  try { await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); dropGhost(ghost); }
   catch (e) { // falhou: devolve o texto e os anexos (antes os anexos sumiam)
-    toast(e.message, true); ta.value = typed;
+    dropGhost(ghost); toast(e.message, true); ta.value = typed;
     if (S.view.cid === ch.id) { S.pending = [...sent, ...S.pending]; renderPendingPrev(); } else freePending(sent);
   }
 }
@@ -1397,6 +1439,7 @@ function renderTyping() {
 
 // ---------- lista de membros ----------
 function renderMembers() {
+  if (deferRender(renderMembers)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
@@ -1426,7 +1469,7 @@ function renderHome(main) {
   if (S.view.tab === 'blocked' || S.view.tab === 'pending' || S.view.tab === 'activity') S.view.tab = 'online'; // bloqueados: Privacidade e segurança; pendentes: "Todos"; a atividade virou o painel "Ativo agora"
   const tab = S.view.tab, rels = [...S.rels.values()], reqs = rels.filter(r => r.type === 3).length;
   const tabs = [['online', 'Online'], ['all', 'Todos']];
-  const q = h('input.fsearch', { placeholder: 'Buscar', oninput: () => draw() });
+  const q = h('input.fsearch', { placeholder: 'Buscar', oninput: debounce(() => draw(), 120) });
   const ORD = { online: 0, idle: 1, dnd: 2, invisible: 3, offline: 4 };
   const pane = h('div.pane');
   const draw = () => {

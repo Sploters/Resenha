@@ -67,12 +67,33 @@ export function applyTheme() {
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));
 export const emojiUrl = (id) => allEmojis().find(e => e.id === id)?.url;
 
+// Chamadas à API.
+// - GET igual em andamento: quem pede de novo recebe a mesma resposta (uma ida ao servidor só; cada um ganha a sua cópia).
+// - Perfis (/users/:id) ficam guardados por 10 s (passar o mouse em vários lugares não repete o pedido); qualquer
+//   alteração (POST/PUT/PATCH/DELETE) limpa o guardado.
+// - O tempo de cada chamada fica em S.apiSlow (as lentas) para o relatório de velocidade (rum.js).
+const inflight = new Map(), short = new Map(), SHORT_MS = 10e3, SHORT = /^\/users\/\d+$/;
+S.apiSlow = [];
 export async function api(method, path, body) {
+  if (method === 'GET') {
+    const hit = short.get(path); if (hit && Date.now() - hit.at < SHORT_MS) return structuredClone(hit.data);
+    if (inflight.has(path)) return structuredClone(await inflight.get(path));
+    const p = request(method, path, body).finally(() => inflight.delete(path));
+    inflight.set(path, p);
+    const data = await p; if (SHORT.test(path)) short.set(path, { at: Date.now(), data: structuredClone(data) });
+    return data;
+  }
+  short.clear();
+  return request(method, path, body);
+}
+async function request(method, path, body) {
   const opt = { method, headers: { Authorization: 'Bearer ' + (S.token || '') } };
   if (body instanceof Blob) { opt.body = body; opt.headers['Content-Type'] = body.type || 'application/octet-stream'; }
   else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
+  const t0 = performance.now();
   const r = await fetch('/api' + path, opt);
   const data = await r.json().catch(() => ({}));
+  const ms = performance.now() - t0; if (ms > 300 && S.apiSlow.length < 40) S.apiSlow.push({ r: method + ' /api' + path, ms: Math.round(ms) });
   if (!r.ok) { const e = new Error(data.error || 'Erro ' + r.status); e.status = r.status; throw e; }
   return data;
 }

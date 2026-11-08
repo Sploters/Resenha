@@ -2,7 +2,7 @@
 // marcantes da semana) e página de contas vinculadas.
 // A decisão de QUEM pode ver cada atividade é do servidor; aqui só se exibe o que ele enviou.
 import { canCallInvite, sendCallInvite, pendingInvites, acceptInvite, declineInvite } from './callinvite.js';
-import { h, icon, avatar, clock } from './util.js';
+import { h, icon, avatar, clock, skeleton } from './util.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
 import { S, api, tryApi, toast, confirmBox, guild, channelById, modal } from './state.js';
@@ -312,7 +312,7 @@ export function activityPanel(box) {
     // destaques agrupados por dia
     const hl = feed?.highlights || [], groups = [];
     for (const x of hl) { const k = dayHead(x.at); let g = groups.find(y => y.k === k); if (!g) groups.push(g = { k, items: [] }); g.items.push(x); }
-    const hist = !feed ? [h('div.an-empty.small', 'Carregando…')]
+    const hist = !feed ? [skeleton('rows', 4)]
       : hl.length ? groups.map(g => hlDay(g.k, g.items, draw))
         : [h('div.an-empty.small', h('p', 'Nada marcante ainda esta semana. Partidas longas, jogos novos, sequências e clipes dos seus amigos aparecem aqui.'))];
     body.replaceChildren(forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), h('section.an-hist', h('div.an-cap', 'Destaques da semana'), ...hist));

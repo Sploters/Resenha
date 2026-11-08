@@ -272,3 +272,36 @@ button.ibtn.busy, button.gstar.busy, button.adel.busy { opacity: .55; transition
 #topbar { cursor: default; user-select: none; }
 #topbar button, #topbar .tab, #topbar [role="button"], #topbar a { cursor: pointer; }
 #topbar input, #topbar textarea { cursor: text; user-select: text; }
+/* ---- skeletons de carregamento (util.js skeleton) ---- */
+@keyframes skShine { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.skeleton { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.skeleton i, #boot i, #boot b, #boot em, #boot u, #boot s { display: block; background: var(--bg-mod-hover, rgba(255,255,255,.06)); border-radius: 6px; }
+html.anim .skeleton i, html.anim #boot i, html.anim #boot em, html.anim #boot u {
+  background-image: linear-gradient(90deg, transparent 0, rgba(255,255,255,.05) 40%, transparent 80%); background-size: 200% 100%; background-repeat: no-repeat; animation: skShine 1.4s ease-in-out infinite; }
+.sk-msg, .sk-row { display: flex; gap: 14px; align-items: flex-start; }
+.sk-av { width: 40px; height: 40px; flex: none; border-radius: 50% !important; } .sk-av.sm { width: 32px; height: 32px; }
+.sk-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; min-width: 0; }
+.sk-bar { height: 12px; } .sk-bar.sk-name { height: 14px; opacity: .8; } .sk-bar.sk-sub { height: 10px; opacity: .7; }
+.skeleton.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.sk-card { display: flex; flex-direction: column; gap: 8px; } .sk-thumb { aspect-ratio: 16 / 9; border-radius: 8px !important; }
+.sk-screen { display: flex; flex-direction: column; height: 100%; } .sk-screen-body { flex: 1; overflow: hidden; padding: 8px 4px; }
+/* esqueleto do app inteiro antes do JavaScript (index.html) */
+#boot { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg-tert, #1e1f22); }
+html.boot #boot { display: flex; }
+#boot .bt-rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; }
+#boot .bt-rail i { width: 48px; height: 48px; border-radius: 50%; }
+#boot .bt-side { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-top-left-radius: 12px; margin-top: 8px; }
+#boot .bt-side b { height: 34px; margin-bottom: 8px; } #boot .bt-side i { height: 26px; width: 80%; } #boot .bt-side i:nth-child(odd) { width: 62%; }
+#boot .bt-main { flex: 1; min-width: 0; background: var(--bg-pri, #313338); display: flex; flex-direction: column; margin-top: 8px; }
+#boot .bt-main > b { height: 48px; border-radius: 0; background: transparent; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+#boot .bt-msgs { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 18px; padding: 16px; }
+#boot p { display: flex; gap: 14px; margin: 0; } #boot p i { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+#boot p span { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; } #boot em { height: 14px; width: 18%; } #boot u { height: 12px; width: 55%; }
+#boot p:nth-child(2) u { width: 72%; } #boot p:nth-child(3) u { width: 38%; }
+#boot s { height: 44px; margin: 0 16px 24px; border-radius: 8px; }
+@media (max-width: 640px) { #boot .bt-side, #boot .bt-rail { display: none; } }
+/* listas longas: o navegador não desenha as linhas fora da tela (efeito de virtualização, sem mudar a lista) */
+.mem, .frow, .clipcard, #active-now .hl-item, .lfgcard, .dcard { content-visibility: auto; contain-intrinsic-size: auto 48px; }
+.clipcard, .dcard, .lfgcard { contain-intrinsic-size: auto 260px; }
+/* mensagem enviada aparecendo antes da confirmação do servidor */
+.msg.sending { opacity: .55; } .msg.sending .body { color: var(--text-muted); }

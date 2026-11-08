@@ -1,6 +1,6 @@
 // Prévia de canal: mostra as últimas mensagens ao passar o mouse (ou Shift + mouse / clique do meio) num canal da lista,
 // sem abrir o canal nem marcá-lo como lido.
-import { h, icon, avatar, md, stamp, inviteText } from './util.js';
+import { h, icon, avatar, md, stamp, inviteText, skeleton } from './util.js';
 import { S, api, user, nameOf, roleColor, channelById, dmPeer, emojiUrl } from './state.js';
 import { styleName, themeText } from './themes.js';
 import { chName } from './chnames.js';
@@ -63,7 +63,7 @@ async function show(el, c) {
   hide();
   const n = P().chPreviewCount ?? 20, gid = c.guild_id;
   const dm = c.type === 1, peer = dm && dmPeer(c);
-  const list = h('div.plist', h('div.ploading', 'Carregando…'));
+  const list = h('div.plist', skeleton('msgs', 4));
   const typing = h('div.ptyping');
   box = h('div#chprev', { onmouseenter: () => clearTimeout(hideT), onmouseleave: () => { if (trigger() !== 'middle') hideSoon(); } },
     h('div.phd', dm ? h('span.hash', '@') : icon(c.type === 2 ? 'voice' : 'hash', 18), h('b', dm ? user(peer.id).display_name : chName(c)),

@@ -1,4 +1,4 @@
-// Miniaturas de vídeos (clipes e vídeos enviados no chat): uma imagem pequena gerada uma vez pelo ffmpeg e guardada ao
+// Miniaturas de vídeos (clipes e vídeos enviados no chat) e versões menores das fotos em WebP (ver IMAGE abaixo): uma imagem pequena gerada uma vez pelo ffmpeg e guardada ao
 // lado do vídeo (<arquivo>.thumb.jpg). O chat e a galeria mostram a miniatura; o vídeo só baixa quando alguém dá play.
 // GET /thumbs/<24 hex>.(webm|mp4): gera na primeira vez (fila de 1 em 1, para não pesar o servidor) e depois serve do disco.
 import fs from 'node:fs';
@@ -7,6 +7,10 @@ import { spawn } from 'node:child_process';
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const VIDEO = /^[a-f0-9]{24}\.(webm|mp4)$/;
+// fotos (anexos, perfis, ícones de servidor): versões menores em WebP no tamanho em que a tela mostra. GIF fica de fora
+// (perderia a animação). GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp>?s=<lado>
+const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp)$/i;
+const SIZES = [64, 128, 256, 480, 960, 1600];
 
 export function createThumbs(dir) {
   const UPLOAD_DIR = path.resolve(dir);
@@ -34,6 +38,7 @@ export function createThumbs(dir) {
   }
   function route(req, res) {
     const f = path.basename(String(req.params.f || ''));
+    if (IMAGE.test(f)) return imageRoute(req, res, f);
     if (!VIDEO.test(f)) return res.sendStatus(404);
     ensure(f).then(ok => {
       if (!ok) return res.sendStatus(404);
@@ -76,6 +81,39 @@ export function createThumbs(dir) {
       res.type('image/jpeg'); res.sendFile(stripOf(f));
     }, () => res.sendStatus(500));
   }
-  const remove = (f) => { fs.unlink(thumbOf(path.basename(f)), () => { }); fs.unlink(stripOf(path.basename(f)), () => { }); };
+  // ---- fotos em WebP ----
+  // Gera uma vez por tamanho (<arquivo>.w<lado>.webp, ao lado do original), numa fila própria de até 2 por vez (fotos levam
+  // dezenas de ms; não esperam miniaturas de vídeo). Se a versão menor não ficar menor que o original (ícone já pequeno),
+  // ou se o ffmpeg falhar, a rota manda para o original: a imagem sempre aparece.
+  const imgOf = (f, sz) => path.join(UPLOAD_DIR, `${f}.w${sz}.webp`);
+  const imgPending = new Map(); let imgRunning = 0; const imgQueue = [];
+  const imgSlot = (job) => new Promise((res) => { const go = () => { imgRunning++; job().then(res, () => res(false)).finally(() => { imgRunning--; imgQueue.shift()?.(); }); }; imgRunning < 2 ? go() : imgQueue.push(go); });
+  function ensureImg(f, sz) {
+    const out = imgOf(f, sz), key = f + ':' + sz;
+    if (fs.existsSync(out)) return Promise.resolve(fs.statSync(out).size > 0);
+    const src = path.join(UPLOAD_DIR, f); if (!fs.existsSync(src)) return Promise.resolve(false);
+    if (!imgPending.has(key)) imgPending.set(key, imgSlot(async () => {
+      const tmp = out + '.tmp.webp';
+      const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-frames:v', '1',
+        '-vf', `scale='min(${sz},iw)':'min(${sz},ih)':force_original_aspect_ratio=decrease`, '-c:v', 'libwebp', '-quality', '78', '-compression_level', '4', tmp]);
+      if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } return false; }
+      if (fs.statSync(tmp).size >= fs.statSync(src).size) { fs.unlinkSync(tmp); fs.writeFileSync(out, ''); return false; } // não compensa: marca e usa o original
+      fs.renameSync(tmp, out); return true;
+    }).finally(() => imgPending.delete(key)));
+    return imgPending.get(key);
+  }
+  function imageRoute(req, res, f) {
+    const want = +req.query.s || 480, sz = SIZES.find(x => x >= want) || SIZES.at(-1);
+    const original = () => res.redirect(301, `/files/${f}/imagem${path.extname(f)}`);
+    ensureImg(f, sz).then(ok => {
+      if (!ok) return original();
+      res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'public, max-age=31536000, immutable' });
+      res.type('image/webp'); res.sendFile(imgOf(f, sz));
+    }, original);
+  }
+  const remove = (f) => {
+    f = path.basename(f); fs.unlink(thumbOf(f), () => { }); fs.unlink(stripOf(f), () => { });
+    for (const sz of SIZES) fs.unlink(imgOf(f, sz), () => { });
+  };
   return { route, ensure, remove, stripRoute };
 }

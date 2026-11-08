@@ -1,7 +1,7 @@
 // Galeria de clipes do servidor: todos os clipes salvos nas salas de voz, num só lugar.
 // Abas Todos / Meus / Favoritos, busca, prévia que só carrega quando aparece na tela, player com anterior/próximo,
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
-import { h, icon, fsVideo, whenGone, thumbUrl } from './util.js';
+import { h, icon, fsVideo, whenGone, thumbUrl, skeleton } from './util.js';
 import { openTrimmer } from './cliptrim.js';
 import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
 
@@ -22,6 +22,7 @@ const fileName = (c) => c.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + (c
 
 async function load(reset) {
   if (st.loading) return; st.loading = true;
+  if (reset && !st.clips.length) draw(); // mostra os cartões cinza (antes aparecia "Nenhum clipe ainda" enquanto carregava)
   const before = reset ? '' : st.clips.at(-1)?.id || '';
   const qs = new URLSearchParams({ filter: st.filter, ...(st.q ? { q: st.q } : {}), ...(before ? { before } : {}) });
   const gid = st.gid, r = await tryApi('GET', `/guilds/${gid}/clips?${qs}`);
@@ -169,7 +170,7 @@ function draw() {
   const g = guild(st.gid);
   const tabs = [['all', 'Todos'], ['mine', 'Meus'], ['fav', 'Favoritos']].map(([k, l]) => h('button.ctab' + (st.filter === k ? '.on' : ''), { onclick: () => { if (st.filter === k) return; st.filter = k; st.clips = []; draw(); load(true); } }, l));
   const search = h('input.csearch', { name: 'clip-search', type: 'search', 'aria-label': 'Buscar clipes', placeholder: 'Buscar por nome ou pessoa', value: st.q, oninput: (e) => { clearTimeout(st.t); st.t = setTimeout(() => { st.q = e.target.value.trim(); load(true); }, 250); } });
-  const grid = h('div.cgrid', st.clips.map(card));
+  const grid = st.loading && !st.clips.length ? skeleton('cards', 6) : h('div.cgrid', st.clips.map(card)); // carregando: cartões cinza
   const empty = !st.clips.length && !st.loading && h('div.cempty', h('div.ceart', icon('clip', 40)),
     h('b', st.q ? 'Nenhum clipe encontrado' : st.filter === 'fav' ? 'Nenhum favorito ainda' : st.filter === 'mine' ? 'Você ainda não tem clipes' : 'Nenhum clipe ainda'),
     h('p', st.q ? 'Tente outro nome.' : st.filter === 'fav' ? 'Clique na estrela de um clipe para guardá-lo aqui.' : 'Numa sala de voz, assista uma transmissão e use o botão de clipes (ou Ctrl+Alt+C) para salvar os últimos segundos. Eles aparecem aqui para todo o servidor.'));

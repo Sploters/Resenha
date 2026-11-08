@@ -1,5 +1,5 @@
 // Soundboard: sons pessoais (sincronizados na conta) + sons dos servidores, tocados para toda a sala de voz.
-import { h, icon, avatar, initials, whenGone, soundEmoji } from './util.js';
+import { h, icon, avatar, initials, whenGone, soundEmoji, debounce } from './util.js';
 import { S, api, tryApi, toast, savePrefs, modal, promptBox, popout, closeFloating, guild, can, PERM, confirmBox, menu, emojiPicker } from './state.js';
 import { toggle, slider, comboFromEvent, comboLabel, captureKey } from './ui.js';
 
@@ -110,7 +110,7 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
   const closed = () => (S.prefs.sbClosed ||= {}); // seções recolhidas
   let q = '', cur = null, lock = 0;
   const body = h('div.sbpick'), rail = h('div.sbrail'), list = h('div.sblist');
-  const search = h('input', { placeholder: 'Encontre o som perfeito', oninput: () => { q = search.value.trim().toLowerCase(); draw(); } });
+  const search = h('input', { placeholder: 'Encontre o som perfeito', oninput: debounce(() => { q = search.value.trim().toLowerCase(); draw(); }, 120) });
   let pop = null;
   // popup de volume (como o do Discord): menu flutuante ao lado do botão, por cima do painel
   const volMenu = () => {

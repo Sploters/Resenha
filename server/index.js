@@ -20,6 +20,7 @@ import { mountDesktopUpdate } from './desktopupdate.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
+import { mountPerf } from './perf.js';
 import { mountLfg } from './lfg.js';
 import { mountDiscover } from './discover.js';
 import { translate, translateEnabled, engineName } from './translate.js';
@@ -129,17 +130,23 @@ function voiceStatesFor(gid) {
   }
   return out;
 }
-function guildFull(gid) {
+// servidor completo (abertura e GUILD_CREATE): membros, cargos e pessoas em 3 consultas no total, não 3 por membro.
+// users: false = sem a lista de pessoas (o READY manda cada pessoa uma vez só, mesmo que esteja em vários servidores).
+function guildFull(gid, { users = true } = {}) {
   const g = get('SELECT * FROM guilds WHERE id=?', gid);
   if (!g) return null;
-  const members = guildMemberIds(gid);
+  const rolesOf = new Map();
+  for (const r of all('SELECT user_id, role_id FROM member_roles WHERE guild_id=?', gid)) { let l = rolesOf.get(r.user_id); if (!l) rolesOf.set(r.user_id, l = []); l.push(r.role_id); }
+  const now = Date.now();
+  const members = all('SELECT user_id, nickname, joined_at, timeout_until FROM members WHERE guild_id=?', gid).map(m => ({ user_id: m.user_id, nickname: m.nickname, joined_at: m.joined_at,
+    timeout_until: m.timeout_until > now ? m.timeout_until : null, roles: rolesOf.get(m.user_id) || [] }));
   return { ...g,
     roles: all('SELECT * FROM roles WHERE guild_id=? ORDER BY position DESC', gid),
     channels: all('SELECT * FROM channels WHERE guild_id=? ORDER BY position, created_at', gid),
-    members: members.map(u => memberObj(gid, u)),
+    members,
     emojis: all('SELECT id,name,url FROM emojis WHERE guild_id=?', gid),
     sounds: all('SELECT id,name,emoji,url,volume FROM sounds WHERE guild_id=? ORDER BY created_at', gid),
-    users: members.map(userPub),
+    users: users ? all('SELECT u.* FROM users u JOIN members m ON m.user_id=u.id WHERE m.guild_id=?', gid).map(pubUser) : [],
     voice_states: voiceStatesFor(gid) };
 }
 
@@ -213,6 +220,8 @@ const wrap = (fn) => (req, res) => { try { fn(req, res); } catch (e) { console.e
 const wrapA = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).catch((e) => { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); });
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
+// compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
+mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid });
 // endereço de arquivo enviado (/files/..., sem aspas, barras invertidas nem espaços: esses valores
 // vão parar em url("...") no CSS e em atributos; com aspas dava para fechar o url() e injetar CSS)
 const isFileUrl = (v) => typeof v === 'string' && /^\/files\/[^\s"\\<>]{1,700}$/.test(v);
@@ -1015,7 +1024,7 @@ app.post('/api/channels/:id/ack', auth, wrap((req, res) => {
 // DMs & relationships
 // DM entre duas pessoas (cria se não existir) e avisa as duas
 function ensureDm(a, b) {
-  let ch = get(`SELECT c.* FROM channels c WHERE c.type=1 AND EXISTS(SELECT 1 FROM dm_participants WHERE channel_id=c.id AND user_id=?) AND EXISTS(SELECT 1 FROM dm_participants WHERE channel_id=c.id AND user_id=?)`, a, b);
+  let ch = get(`SELECT c.* FROM dm_participants pa JOIN dm_participants pb ON pb.channel_id=pa.channel_id AND pb.user_id=? JOIN channels c ON c.id=pa.channel_id AND c.type=1 WHERE pa.user_id=? LIMIT 1`, b, a); // pelas DMs de uma das pessoas (índice), sem varrer todos os canais
   if (!ch) {
     const id = newId();
     run('INSERT INTO channels(id,type,name,created_at) VALUES(?,1,NULL,?)', id, Date.now());
@@ -1317,7 +1326,10 @@ app.get(/^\/(?!api|files|gateway).*/, (req, res) => res.sendFile(path.join(__dir
 // ---------- Gateway (WebSocket) ----------
 const server = http.createServer(app);
 const HTTPS_PORT = Number(process.env.HTTPS_PORT || 3443);
-const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+// mensagens do WebSocket comprimidas a partir de 1 KB (a abertura, READY, tinha ~600 KB sem compressão num servidor com
+// 250 pessoas); janela menor para gastar pouca memória por conexão
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20,
+  perMessageDeflate: process.env.WS_DEFLATE === '0' ? false : { threshold: 1024, concurrencyLimit: 4, serverMaxWindowBits: 13, zlibDeflateOptions: { level: 4, memLevel: 7 } } });
 const onUpgrade = (req, socket, head) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname !== '/gateway') return socket.destroy();
@@ -1333,18 +1345,19 @@ const iceServers = () => {
   return s;
 };
 function buildReady(uid) {
-  const guilds = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildFull(r.guild_id));
+  const guilds = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildFull(r.guild_id, { users: false }));
+  // cada pessoa uma vez só (antes ia repetida em cada servidor em comum: 250 pessoas em 5 servidores = 1.250 perfis)
+  const users = all('SELECT DISTINCT u.* FROM users u JOIN members m ON m.user_id=u.id WHERE m.guild_id IN (SELECT guild_id FROM members WHERE user_id=?)', uid).map(pubUser);
   const dms = all('SELECT c.* FROM channels c JOIN dm_participants p ON p.channel_id=c.id WHERE p.user_id=? AND c.type=1', uid).map(dmChannelObj);
   const chIds = [...guilds.flatMap(g => g.channels.filter(c => c.type === 0 || c.type === 2).map(c => c.id)), ...dms.map(d => d.id)];
   const dmVoice = [];
   for (const d of dms) for (const [uid, s] of voice.get(d.id) || []) dmVoice.push(vsObj(d.id, uid, s));
+  // não lidas de todos os canais numa consulta só (antes: 2 consultas por canal)
   const unread = {};
-  for (const id of chIds) {
-    const rs = get('SELECT last_id FROM read_states WHERE user_id=? AND channel_id=?', uid, id);
-    const n = get('SELECT COUNT(*) n, MAX(id) l FROM messages WHERE channel_id=? AND id>? AND author_id<>?', id, rs?.last_id || '0', uid);
-    if (n.n) unread[id] = { count: n.n, last_id: n.l };
-  }
-  return { user: pubUser(getUser(uid)), guilds, dms, relationships: relObj(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers() };
+  for (const r of all(`SELECT m.channel_id c, COUNT(*) n, MAX(m.id) l FROM json_each(?) j
+      JOIN messages m ON m.channel_id=j.value AND m.id > COALESCE((SELECT last_id FROM read_states WHERE user_id=? AND channel_id=j.value), '0') AND m.author_id<>?
+      GROUP BY m.channel_id`, JSON.stringify(chIds), uid, uid)) unread[r.c] = { count: r.n, last_id: r.l };
+  return { user: pubUser(getUser(uid)), users, guilds, dms, relationships: relObj(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers() };
 }
 
 // espectadores de transmissões: "canal:transmissor" -> Set de quem está assistindo

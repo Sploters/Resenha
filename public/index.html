@@ -19,6 +19,13 @@
 <link rel="stylesheet" href="/features.css">
 </head>
 <body>
+<!-- esqueleto do app enquanto o JavaScript carrega (só para quem já está logado); some quando o app fica pronto -->
+<script>try { if (localStorage.getItem('lc_token')) document.documentElement.classList.add('boot') } catch (e) { }</script>
+<div id="boot" aria-hidden="true">
+  <div class="bt-rail"><i></i><i></i><i></i><i></i></div>
+  <div class="bt-side"><b></b><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="bt-main"><b></b><div class="bt-msgs"><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p></div><s></s></div>
+</div>
 <div id="auth" class="hidden"></div>
 <div id="app" class="hidden"></div>
 <div id="layer"></div>

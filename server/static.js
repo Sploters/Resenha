@@ -12,6 +12,8 @@ import zlib from 'node:zlib';
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json; charset=utf-8' };
 const COMPRESS = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '.wasm', '.txt', '.map', '.webmanifest']);
 const IMPORT_RE = /(\bfrom\s*|\bimport\s*)(['"])\.\/([\w.-]+\.js)\2/g;
+// import('./x.js') dinâmico (tela aberta sob demanda): também ganha ?v, mas NÃO entra no modulepreload da abertura
+const DYN_RE = /(\bimport\(\s*)(['"])\.\/([\w.-]+\.js)\2/g;
 
 export function mountStatic(app, dir) {
   const root = path.resolve(dir);
@@ -20,7 +22,8 @@ export function mountStatic(app, dir) {
   const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(fs.readFileSync(path.join(root, f)));
   const V = hash.digest('hex').slice(0, 10);
   const mods = new Set(top.filter(f => f.endsWith('.js')));
-  const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m));
+  const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m))
+    .replace(DYN_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m));
   // módulos que o app.js puxa (direta ou indiretamente) — vão no modulepreload
   const graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const m of fs.readFileSync(path.join(root, f), 'utf8').matchAll(IMPORT_RE)) walk(m[3]); };
   walk('app.js');

@@ -150,3 +150,27 @@ CREATE TABLE IF NOT EXISTS lfg_profiles(user_id TEXT NOT NULL REFERENCES users(i
 // próprio PC da pessoa mandou (ninguém troca o ícone do jogo dos outros); os que ninguém usa há 90 dias são apagados
 db.exec(`CREATE TABLE IF NOT EXISTS game_icons(hash TEXT PRIMARY KEY, png BLOB NOT NULL, created_at INTEGER, used_at INTEGER)`);
 db.exec(`CREATE TABLE IF NOT EXISTS gif_favs(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, url TEXT NOT NULL, preview TEXT, w INTEGER DEFAULT 0, h INTEGER DEFAULT 0, title TEXT DEFAULT '', created_at INTEGER, PRIMARY KEY(user_id, url));`);
+// índices das consultas do dia a dia que varriam a tabela inteira (achados com EXPLAIN QUERY PLAN em cada consulta do servidor):
+// montar cada servidor na abertura (cargos, canais, emojis, sons, membros), conversas privadas, sessões e convites; e
+// os filhos das exclusões em cascata (apagar canal/cargo/clipe não varre as tabelas filhas)
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_roles_guild ON roles(guild_id, position);
+CREATE INDEX IF NOT EXISTS idx_channels_guild ON channels(guild_id, position);
+CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_id);
+CREATE INDEX IF NOT EXISTS idx_emojis_guild ON emojis(guild_id);
+CREATE INDEX IF NOT EXISTS idx_sounds_guild ON sounds(guild_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_members_user ON members(user_id);
+CREATE INDEX IF NOT EXISTS idx_member_roles_role ON member_roles(role_id);
+CREATE INDEX IF NOT EXISTS idx_dmp_user ON dm_participants(user_id, channel_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_invites_guild ON invites(guild_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_guilds_owner ON guilds(owner_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_other ON relationships(other_id);
+CREATE INDEX IF NOT EXISTS idx_msg_author ON messages(author_id);
+CREATE INDEX IF NOT EXISTS idx_clips_author ON clips(author_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_clip_favs_clip ON clip_favs(clip_id);
+CREATE INDEX IF NOT EXISTS idx_activities_game ON activities(user_id, game_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_polls_open ON polls(ends_at) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_game_icons_used ON game_icons(used_at);
+`);
+db.exec('PRAGMA optimize'); // o SQLite atualiza as estatísticas que usa para escolher os índices

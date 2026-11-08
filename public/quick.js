@@ -1,5 +1,5 @@
 // Painéis rápidos: dispositivos de áudio, cancelamento de eco/ruído e status — sem abrir as configurações.
-import { h, icon, avatar, framePos } from './util.js';
+import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { openNews } from './changelog.js';
 import { styleName } from './themes.js';
 import { S, api, tryApi, toast, savePrefs, popout, closeFloating, user, nameOf } from './state.js';
@@ -152,7 +152,7 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
   const draw = () => {
     const me = S.me, themed = !!(me.theme_primary && me.theme_accent), color = themed ? me.theme_primary : me.banner_color || me.color || '#5865f2';
     const banner = h('div.mebanner', { style: { background: themed ? `linear-gradient(160deg, ${me.theme_primary}, ${me.theme_accent})` : color } });
-    if (me.banner) banner.append(framePos(h('img', { src: me.banner, alt: '', draggable: false }), me.banner_pos));
+    if (me.banner) banner.append(framePos(h('img', { src: imgUrl(me.banner, 960), alt: '', draggable: false }), me.banner_pos));
     const cur = STATUS.find(x => x[0] === me.status) || STATUS[0];
     const csInput = h('input', { value: me.custom_status || '', maxLength: 100, placeholder: 'Qual é o seu status?' });
     const saveCs = async () => { if (await tryApi('PATCH', '/me', { custom_status: csInput.value.trim() })) { editing = false; draw(); } };
