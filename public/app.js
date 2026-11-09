@@ -7,7 +7,7 @@ import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isG
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
 import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
-import { playSound } from './sounds.js';
+import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic } from './music.js';
 import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
@@ -153,6 +153,8 @@ function onEvent(t, d) {
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; }); }
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
       voice.ice = S.ice;
+      // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
+      if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       if (!ready) buildShell(); ready = true;
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active);
@@ -218,12 +220,13 @@ function onEvent(t, d) {
       if (d.user_id !== S.me.id && (prevVs?.fx || null) !== (d.fx || null)) voice?.setPeerFx(d.user_id);
       if (S.view.kind === 'home') { setTimeout(renderActiveNow); setTimeout(refreshFeedView); }
       if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
+      if (d.user_id === S.me.id && d.channel_id !== before) resetPresenceSounds(); // saí ou troquei de sala: sons pendentes da sala antiga não tocam mais
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
       if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) voice.leave();
       if (d.user_id !== S.me.id) {
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
-        if (mineCh && d.channel_id === mineCh && before !== mineCh) playSound('join');
-        else if (mineCh && !d.channel_id && d.prev_channel_id === mineCh) playSound('leave');
+        if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
+        else if (mineCh && before === mineCh && d.channel_id !== mineCh) presenceSound(d.user_id, 'leave'); // saiu, caiu ou foi para outra sala
         else if (mineCh && d.channel_id === mineCh && before === mineCh) { // mudou algo dentro da minha sala
           if (d.screen && !prevState?.screen) playSound('streamStart');
           else if (!d.screen && prevState?.screen) playSound('streamStop');

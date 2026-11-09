@@ -72,3 +72,30 @@ export function playSound(name, { force = false } = {}) {
   } catch { /* som é opcional */ }
 }
 export { savePrefs };
+
+// Entrar/sair de outras pessoas na minha sala, sem spam quando a conexão de alguém oscila:
+// - caiu e voltou rápido (saída seguida de entrada em até LEAVE_DELAY): nenhum som;
+// - entrou e saiu em seguida antes do som de entrada tocar: nenhum som;
+// - muitas idas e vindas da mesma pessoa (FLAP_MAX eventos em FLAP_WINDOW): silencia até ela estabilizar;
+// - várias pessoas ao mesmo tempo: no máximo um som a cada GAP_MS.
+const LEAVE_DELAY = 2500, JOIN_DELAY = 350, FLAP_WINDOW = 60000, FLAP_MAX = 2, GAP_MS = 400;
+const presence = new Map(); // uid -> { timer, kind, hist: [ts] }
+let lastPresenceAt = 0;
+export function presenceSound(uid, kind) {
+  const now = Date.now();
+  let p = presence.get(uid); if (!p) presence.set(uid, p = { timer: null, kind: null, hist: [] });
+  p.hist = p.hist.filter(t => now - t < FLAP_WINDOW); p.hist.push(now);
+  if (p.timer) { // evento oposto ainda não tocou: um anula o outro
+    const opposite = p.kind !== kind; clearTimeout(p.timer); p.timer = null; p.kind = null;
+    if (opposite) return;
+  }
+  if (p.hist.length > FLAP_MAX * 2) return; // instável: fica quieto enquanto oscila
+  p.kind = kind;
+  p.timer = setTimeout(() => {
+    p.timer = null; p.kind = null;
+    if (p.hist.length > FLAP_MAX * 2) return;
+    const t = Date.now(); if (t - lastPresenceAt < GAP_MS) return;
+    lastPresenceAt = t; playSound(kind);
+  }, kind === 'leave' ? LEAVE_DELAY : JOIN_DELAY);
+}
+export function resetPresenceSounds() { for (const p of presence.values()) clearTimeout(p.timer); presence.clear(); }

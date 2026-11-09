@@ -304,9 +304,9 @@ body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima
   #app:has(#chtabs) #rail { padding-top: var(--ct-h); }
   /* como no Discord: o painel lateral tem o canto de cima arredondado e uma borda fina, encaixado no fundo escuro do menu.
      A linha de baixo das abas só passa por cima do chat; em cima da lista quem desenha a linha é a borda do painel. */
-  #app:has(#chtabs) #side { margin-top: calc(var(--ct-h) - 1px); border-top: 1px solid var(--divider); border-left: 1px solid var(--divider); border-top-left-radius: 12px; }
+  #app:has(#chtabs) #side { margin-top: calc(var(--ct-h) - 1px); border-top: 1px solid var(--divider); border-left: 1px solid var(--divider); border-top-left-radius: 18px; }
   #app.hide-side:has(#chtabs) #side { border: 0; }
-  #app:has(#chtabs) #side-head { border-top-left-radius: 11px; } /* fundo do hover e banner do servidor acompanham o canto */
+  #app:has(#chtabs) #side-head { border-top-left-radius: 17px; } /* fundo do hover e banner do servidor acompanham o canto */
   /* a primeira aba começa na mesma linha do #side-head (logo depois da borda de 1 px do painel) */
   #main > #chtabs { padding-left: 1px; }
   #main > #chtabs { border-bottom-color: transparent; } /* sem linha embaixo das abas */
@@ -471,7 +471,7 @@ html.anim .uppanel > * { animation: lc-rise .24s ease-out backwards; }
 html.anim .uppanel > :nth-child(2) { animation-delay: .03s; } html.anim .uppanel > :nth-child(3) { animation-delay: .06s; } html.anim .uppanel > :nth-child(n+4) { animation-delay: .09s; }
 html.anim .uptabs button { transition: color .18s, border-color .22s; }
 html.anim .uprow { transition: background .15s; }
-html.anim .upclose { transition: background .15s, transform .15s; } html.anim .upclose:hover { transform: rotate(90deg); }
+html.anim .upclose { transition: background .15s; }
 html.anim .upav .avatar, html.anim .pcard .pa .avatar { transition: filter .2s, transform .2s; } html.anim .upav .avatar.zoomable:hover { transform: scale(1.03); }
 html.anim .upnote { transition: background .18s; }
 html.anim #lightbox.viewer { animation: lc-fade .2s ease-out; }

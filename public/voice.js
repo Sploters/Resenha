@@ -140,7 +140,14 @@ export class Voice {
     this.onUpdate();
   }
 
-  async join(channelId) {
+  // depois de a conexão com o servidor cair: volta para a mesma sala, em silêncio e mantendo mudo/ensurdecido
+  rejoin() {
+    const cid = this.channelId; if (!cid) return;
+    const { muted, deafened } = this;
+    this.leave({ silent: true }); this.muted = muted; this.deafened = deafened;
+    return this.join(cid, { silent: true });
+  }
+  async join(channelId, { silent = false } = {}) {
     if (this.channelId === channelId) return;
     if (this.channelId) this.leave();
     this.error = null;
@@ -153,11 +160,11 @@ export class Voice {
     this.channelId = channelId; this.joinedAt = Date.now();
     this.timer = setInterval(() => this.poll(), 100);
     this.send('VOICE_JOIN', { channel_id: channelId });
-    this.sendState(); this.onUpdate(); playSound('selfJoin');
+    this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
   }
-  leave() {
+  leave({ silent = false } = {}) {
     if (!this.channelId) return;
-    playSound('selfLeave');
+    if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
     this.send('VOICE_LEAVE', {});
