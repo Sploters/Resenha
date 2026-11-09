@@ -261,15 +261,21 @@ button.mgroup .mg-n::before { content: '— '; }
 #msgs .daysep::before, #msgs .daysep::after { display: none; }
 #msgs .daysep span { padding: 4px 10px; border-radius: 8px; background: var(--bg-mod-sel); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
 
-/* ---------- painel de perfil na conversa ---------- */
-#dmpanel { width: 320px; flex: none; overflow-y: auto; background: var(--bg-sec); border-left: 1px solid var(--divider); padding: 0; display: flex; flex-direction: column; }
-/* o cartão de perfil ocupa o painel inteiro (largura e altura) */
-#dmpanel .dmp-card { position: static; flex: 1 0 auto; width: 100%; max-width: none; min-height: 100%; margin: 0; border-radius: 0; box-shadow: none; animation: none; display: flex; flex-direction: column; }
-#dmpanel .dmp-card > .pcard { flex: 1 0 auto; display: flex; flex-direction: column; border-radius: 0; }
-#dmpanel .dmp-card > .pcard > .pb { flex: 1 0 auto; }
+/* ---------- painel de perfil na conversa: cartão arredondado, em comum abaixo do nome, "Ver perfil completo" no rodapé ---------- */
+#dmpanel { width: 320px; flex: none; overflow: hidden; background: var(--bg-pri); border-left: 1px solid var(--divider); padding: 8px; display: flex; flex-direction: column; }
+#dmpanel .dmp-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: var(--bg-float); border: 1px solid var(--divider); box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+#dmpanel .dmp-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+#dmpanel .dmp-card { position: static; width: 100%; max-width: none; margin: 0; border-radius: 0; box-shadow: none; animation: none; background: none; }
+#dmpanel .dmp-card > .pcard { border-radius: 0; background: none; }
 #dmpanel .dmp-card > .pcard .banner { border-radius: 0; }
-.dmp-acts { display: flex; gap: 8px; margin-top: 12px; }
-.dmp-acts .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+#dmpanel .dmp-foot { flex: none; display: flex; justify-content: center; padding: 12px; border-top: 1px solid var(--divider); }
+#dmpanel .dmp-full { width: 100%; min-height: 38px; border-radius: 10px; font-weight: 600; }
+.dmp-mutual { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 10px; }
+.dmp-mut { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dmp-mut:hover { color: var(--header); text-decoration: underline; }
+.dmp-stack { display: inline-flex; }
+.dmp-stack .avatar { width: 18px !important; height: 18px !important; min-width: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-float); }
+.dmp-stack .avatar + .avatar { margin-left: -6px; }
 @media (max-width: 1100px) { #dmpanel { display: none; } }
 @media (max-width: 640px) { #userbar.pb-body .me { display: none; } #userbar.pb-body { justify-content: space-around; } }
 

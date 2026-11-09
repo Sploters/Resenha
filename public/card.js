@@ -14,7 +14,7 @@ function playing(uid) {
 export const STATUS_TXT = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', invisible: 'Invisível', offline: 'Offline' };
 
 // Cartão de perfil (usado no popout e na prévia da tela de perfil)
-export function profileCard(u, { nickname, roles = [], since, extra, accent, onImage, onEditAvatar, onEditBanner } = {}) {
+export function profileCard(u, { nickname, roles = [], since, extra, top, accent, onImage, onEditAvatar, onEditBanner } = {}) { // top: logo abaixo do nome/status
   const tp = u.theme_primary, ta = u.theme_accent, themed = !!(tp && ta);
   const color = themed ? tp : accent || u.banner_color || u.color || '#5865f2'; // com tema, o banner sem imagem segue a cor principal
   const banner = h('div.banner', { style: { background: color, position: 'relative', overflow: 'hidden' }, ...(u.banner && !onEditBanner ? { title: onImage ? 'Ver perfil completo' : 'Ver banner', onclick: () => (onImage ? onImage() : lightbox(u.banner)) } : {}) });
@@ -33,6 +33,7 @@ export function profileCard(u, { nickname, roles = [], since, extra, accent, onI
       h('div.un', u.username + (u.status && u.status !== 'offline' ? ' • ' + STATUS_TXT[u.status] : '')),
       (u.custom_status || emoji) && h('p.cstat', emoji && h('span', emoji + ' '), u.custom_status),
       playing(u.id),
+      top,
       h('hr'),
       u.bio && [h('h4', 'Sobre mim'), h('p', { style: { whiteSpace: 'pre-wrap' } }, u.bio)],
       h('h4', 'Na Resenha desde'), h('p', new Date(+u.created_at || Date.now()).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' })),

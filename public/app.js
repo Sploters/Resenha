@@ -835,7 +835,7 @@ async function profile(anchor, uid, gid) {
   popout(anchor, node, anchor.closest('#members') || anchor.closest('.msg') ? 'left' : 'right');
 }
 // perfil completo de outra pessoa (clicar na foto/banner do cartão): banner e dados à esquerda, atividade e itens em comum à direita
-async function openUserProfile(uid, gid) {
+async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum
   const u = await tryApi('GET', `/users/${uid}`); if (!u) return;
   S.users.set(uid, { ...S.users.get(uid), ...u });
   const m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
@@ -897,7 +897,7 @@ async function openUserProfile(uid, gid) {
   if (themed) { card.style.setProperty('--tp', tp); card.style.setProperty('--ta', ta); }
   bd.append(card); (document.getElementById('layer') || document.body).append(bd);
   addEventListener('keydown', onKey);
-  show(0); requestAnimationFrame(grow);
+  show(tab); requestAnimationFrame(grow);
 }
 // ---------- ações do menu do usuário ----------
 const pinnedDMs = () => (S.prefs.pinnedDMs ||= []);
@@ -1073,8 +1073,19 @@ function renderMain() {
 // painel à direita da conversa: o cartão de perfil da pessoa (com servidores em comum e ações)
 async function renderDmPanel(uid) {
   const box = $('#dmpanel'); if (!box) return;
-  const draw = (u) => box.replaceChildren(h('div.popout.static.dmp-card', profileCard(u, { extra: [u.mutual_guilds?.length > 0 && [h('h4', 'Servidores em comum'), h('p', u.mutual_guilds.map(x => x.name).join(', '))],
-    h('div.dmp-acts', h('button.btn.grey', { onclick: () => callUser(uid) }, icon('phone', 16), 'Ligar'), h('button.btn.grey', { onclick: () => openUserProfile(uid) }, 'Perfil completo'))] })));
+  // cartão com cantos arredondados; amigos/servidores em comum logo abaixo do nome (abrem o perfil completo na aba certa)
+  // e "Ver perfil completo" fixo no rodapé (ligar fica no topo da conversa)
+  const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios} em comum`;
+  const draw = (u) => {
+    const friends = u.mutual_friends || [], guilds = u.mutual_guilds || [];
+    const mutual = (friends.length > 0 || guilds.length > 0) && h('div.dmp-mutual',
+      friends.length > 0 && h('button.dmp-mut', { type: 'button', title: 'Ver amigos em comum', onclick: () => openUserProfile(uid, null, 1) },
+        h('span.dmp-stack', friends.slice(0, 3).map(f => avatar(f, 18, { status: false }))), plural(friends.length, 'amigo', 'amigos')),
+      guilds.length > 0 && h('button.dmp-mut', { type: 'button', title: 'Ver servidores em comum', onclick: () => openUserProfile(uid, null, 2) }, plural(guilds.length, 'servidor', 'servidores')));
+    box.replaceChildren(h('div.dmp-wrap',
+      h('div.dmp-scroll', h('div.popout.static.dmp-card', profileCard(u, { top: mutual, onImage: () => openUserProfile(uid) }))),
+      h('div.dmp-foot', h('button.btn.grey.dmp-full', { type: 'button', onclick: () => openUserProfile(uid) }, 'Ver perfil completo'))));
+  };
   draw(user(uid));
   const full = await api('GET', `/users/${uid}`).catch(() => null);
   if (full && $('#dmpanel') === box) { S.users.set(uid, { ...S.users.get(uid), ...full }); draw(full); }
