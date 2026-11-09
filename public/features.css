@@ -82,8 +82,8 @@ html.anim .btn:active, html.anim .roundbtn:active { transform: scale(.95); }
 
 /* ---- esconder lista de canais ---- */
 #hide-side.sel { color: #fff; }
-#app.hide-side #side { width: 0; overflow: hidden; } #app.hide-side #user-area { display: none; }
-@media (max-width: 640px) { #app.hide-side #side { width: 200px; overflow: visible; } #app.hide-side #user-area { display: block; } }
+#app.hide-side #side { width: 0; } #app.hide-side #side > :not(#user-area) { display: none; } /* lista oculta: o avatar do perfil (pb-av) continua no pé da barra dos servidores (ux.css) */
+@media (max-width: 640px) { #app.hide-side #side { width: 200px; overflow: visible; } #app.hide-side #side > :not(#user-area) { display: revert; } #app.hide-side #user-area { display: block; } }
 
 /* ---- tempo de chamada no painel de voz ---- */
 .vp-time { font-size: 12px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }

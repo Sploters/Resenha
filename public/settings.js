@@ -326,7 +326,8 @@ function appearancePage() {
       h('label.f', 'Arredondamento dos cartões', slider(0, 20, S.prefs.radius, 1, set('radius'), v => v + 'px')),
       h('label.f', 'Formato da hora'), choiceCards([[0, '24 horas', h('span.hr-prev', '21:30')], [1, '12 horas', h('span.hr-prev', '9:30 PM')]], S.prefs.hour12 ? 1 : 0, (v) => { S.prefs.hour12 = !!v; save(); applyTheme(); }),
       row('Mostrar imagens de links no chat', 'Pré-visualiza links que terminam em .png/.jpg/.gif.', toggle(S.prefs.embedLinks !== false, v => { S.prefs.embedLinks = v; save(); })),
-      row('Cores dos cargos nos nomes', null, toggle(S.prefs.roleColors !== false, v => { S.prefs.roleColors = v; save(); }))),
+      row('Cores dos cargos nos nomes', null, toggle(S.prefs.roleColors !== false, v => { S.prefs.roleColors = v; save(); })),
+      row('Enviar imagens no tamanho original', 'Desligado: as fotos são comprimidas antes de enviar (WebP, até 2560 px), ficando bem mais leves para enviar e abrir. GIFs nunca são alterados.', toggle(!!S.prefs.imgOriginal, v => { S.prefs.imgOriginal = v; save(); }))),
     section('Animações'), card(row('Animações aprimoradas', 'Transições suaves ao trocar de canal, abrir janelas e menus e receber mensagens. "Reduzir animações" em Acessibilidade tem prioridade.', toggle(S.prefs.animations !== false, set('animations')))),
     section('Avatares e banners animados'), card(h('label.f', 'Avatares e banners em GIF/WebP', seg({ always: 'Sempre', speak: 'Na chamada, só quando fala', never: 'Nunca (desligar todas)' }, S.prefs.animMode || 'always', (v) => { S.prefs.animMode = v; save(); refreshFreeze(); }))),
     section('Tradução'), card(

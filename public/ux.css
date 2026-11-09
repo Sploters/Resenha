@@ -535,3 +535,26 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 /* ---------- campos do topo da lista (busca em tudo etc.): sem o contorno branco de foco do navegador;
    a linha azul embaixo do #side-head já mostra que o campo está ativo ---------- */
 #side-head input, #side-head input:focus, #side-head input:focus-visible { outline: none !important; box-shadow: none; }
+
+/* ---------- lista de canais oculta: o avatar do perfil fica no pé da barra dos servidores; a barra com microfone, fone e
+   configurações sai dele ao passar o mouse/clicar (mesmo com o alfinete, para não cobrir a conversa o tempo todo) ---------- */
+@media (min-width: 641px) {
+  #app.hide-side #user-area { right: auto; width: 320px; }
+  #app.hide-side #user-area > .ua-vp { display: none; }
+  #app.hide-side .pbar.pinned:not(:hover):not(.open):not(:focus-within) #userbar.pb-body { display: none !important; }
+  #app.hide-side .pbar.pinned:not(:hover):not(.open):not(:focus-within) .pb-av { background: transparent; box-shadow: none; }
+}
+
+/* ---------- compositor: emoji, GIF, mensagem de voz e traduzir num botão só ---------- */
+.popout.cx-popout { width: auto; padding: 6px; border-radius: 14px; }
+.cx-pop { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 248px; }
+.cx-opt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 72px; padding: 6px; border: 0; border-radius: 10px; background: var(--bg-tert); color: var(--interactive); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, color .12s; }
+.cx-opt:hover, .cx-opt:focus-visible { background: var(--bg-mod-hover); color: var(--header); outline: none; }
+.cx-opt .icon { fill: currentColor; }
+.cx-opt .cx-gif { font-size: 12px; font-weight: 800; letter-spacing: .02em; border: 2px solid currentColor; border-radius: 5px; padding: 1px 5px; line-height: 1.2; }
+
+/* ---------- ir para a primeira mensagem: canto inferior direito, logo acima do campo de digitar ---------- */
+#totop-btn { position: absolute; right: 28px; bottom: 100%; margin-bottom: 8px; z-index: 6; width: 40px; height: 40px; border: 1px solid var(--divider); border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--bg-float, var(--bg-sec)); color: var(--interactive); box-shadow: 0 4px 12px rgba(0,0,0,.3); cursor: pointer; transition: opacity .15s, transform .15s, color .12s; }
+#totop-btn:hover { color: var(--header); background: var(--bg-mod-hover); }
+#totop-btn .icon { fill: currentColor; }
+#totop-btn.hidden { display: flex !important; opacity: 0; transform: translateY(6px); pointer-events: none; }

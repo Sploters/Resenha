@@ -50,7 +50,7 @@ try {
   const A = await page(a.tok), B = await page(b.tok);
   const ch = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 0), g.id);
   for (const P of [A, B]) { await P.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, ch.id); await sleep(500); }
-  await A.click('#composer .gifbtn'); await A.waitForSelector('.gifpicker .gcard img', { timeout: 8000 });
+  await A.click('#composer .extras-btn'); await A.click('.cx-pop .cx-opt:nth-child(2)'); await A.waitForSelector('.gifpicker .gcard img', { timeout: 8000 });
   await sleep(800);
   const pk = await A.evaluate(() => ({ tabs: [...document.querySelectorAll('.gifpicker .gtabs button')].map(b => b.textContent), cards: document.querySelectorAll('.gifpicker .gcard').length, foot: document.querySelector('.gifpicker .gfoot').textContent }));
   ok(pk.tabs.join('|') === 'Em alta|Favoritos|Do grupo' && pk.cards === 24 && /KLIPY/.test(pk.foot), 'seletor abre em "Em alta" com a grade e o crédito do serviço', pk);
@@ -68,7 +68,7 @@ try {
   const fb = await call(b.tok, 'GET', '/gifs/favs');
   ok(fb.gifs?.length === 1 && fb.gifs[0].url === msg.src, 'estrela na mensagem guarda nos favoritos de quem clicou');
   ok((await call(a.tok, 'GET', '/gifs/favs')).gifs.length === 0, 'favoritos são de cada pessoa');
-  await B.click('#composer .gifbtn'); await B.waitForSelector('.gifpicker .gtabs button', { timeout: 8000 });
+  await B.click('#composer .extras-btn'); await B.click('.cx-pop .cx-opt:nth-child(2)'); await B.waitForSelector('.gifpicker .gtabs button', { timeout: 8000 });
   await B.evaluate(() => [...document.querySelectorAll('.gifpicker .gtabs button')].find(x => x.textContent === 'Favoritos').click()); await sleep(800);
   ok(await B.evaluate(() => document.querySelectorAll('.gifpicker .gcard').length) === 1, 'aba Favoritos mostra o GIF');
   await B.evaluate(() => [...document.querySelectorAll('.gifpicker .gtabs button')].find(x => x.textContent === 'Do grupo').click()); await sleep(800);

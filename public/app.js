@@ -1042,7 +1042,6 @@ function renderMain() {
   const ch = channelById(v.cid);
   if (!ch) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('h2', 'Sem canais'), h('p', 'Este servidor ainda não tem canais.')));
   const dm = ch.type === 1, vc = ch.type === 2, peer = dm && dmPeer(ch);
-  const search = h('input.search', { placeholder: 'Buscar', title: 'Filtros: de:nome  tem:imagem|arquivo|link|video  em:canal', onkeydown: (e) => { if (e.key === 'Enter') doSearch(search.value); if (e.key === 'Escape') { search.value = ''; closeResults(); } } });
   const inCall = dm && callActive(ch.id), chatOpen = !vcChatHidden(ch);
   const top = h('div#topbar',
       h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
@@ -1054,11 +1053,9 @@ function renderMain() {
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'phone')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
-        h('button.ibtn', { title: 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('bell')),
         h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('pin')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
-        search,
         dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('sidebar'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord
   main.replaceChildren(...[!vc && top,
@@ -1537,13 +1534,33 @@ function composer(ch, label) {
     else if (e.key === 'Escape') { if (ac) ac.remove(); else if (S.replyTo) { S.replyTo = null; renderReplyBar(); } }
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
+  // emoji, GIF, mensagem de voz e traduzir num botão só: abre um painel com as quatro opções
+  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'Emoji, GIF, mensagem de voz e tradução', 'aria-label': 'Emoji, GIF, mensagem de voz e tradução', 'aria-haspopup': 'true' }, icon('smile', 24));
+  const insertEmoji = (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); };
+  extrasBtn.onclick = () => {
+    const at = () => { const r = extrasBtn.getBoundingClientRect(); return { preventDefault() { }, clientX: r.left - 120, clientY: r.top - 140 }; };
+    const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', onclick: () => { closeFloating(); fn(); } }, ic, h('span', label));
+    const body = h('div.cx-pop', { role: 'menu' },
+      opt(icon('smile', 24), 'Emoji', () => emojiPicker(extrasBtn, insertEmoji)),
+      opt(h('span.cx-gif', 'GIF'), 'GIF', () => gifPicker(extrasBtn, (url) => sendGif(ch, url))),
+      opt(icon('mic', 22), 'Gravar voz', () => recordVoiceMessage(ch, extrasBtn.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } })),
+      opt(icon('translate', 22), 'Traduzir', () => draftMenu(at(), ta)));
+    const el = popout(extrasBtn, body, 'up'); el.classList.add('cx-popout');
+    const r = extrasBtn.getBoundingClientRect(), b = el.getBoundingClientRect();
+    el.style.top = Math.max(8, r.top - b.height - 10) + 'px'; el.style.left = Math.max(8, Math.min(r.right - b.width, innerWidth - b.width - 8)) + 'px';
+  };
   const wrap = h('div#composer-wrap', h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
     h('div#composer', h('button.ibtn', { title: 'Enviar arquivo ou compartilhar tema', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
-      h('button.ibtn', { title: 'Traduzir o que você escreveu (ou use $en, $es… no início)', onclick: (e) => draftMenu(e, ta) }, icon('translate', 22)),
-      h('button.ibtn', { title: 'Gravar mensagem de voz', onclick: (e) => recordVoiceMessage(ch, e.currentTarget.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } }) }, icon('mic', 22)),
-      h('button.ibtn.gifbtn', { title: 'GIFs', onclick: (e) => gifPicker(e.currentTarget, (url) => sendGif(ch, url)) }, h('span', 'GIF')),
-      h('button.ibtn', { title: 'Emoji', onclick: (e) => emojiPicker(e.currentTarget, (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); }) }, icon('smile', 24))));
-  setTimeout(() => { renderReplyBar(); renderPendingPrev(); ta.focus(); }, 0);
+      extrasBtn));
+  // ir para a primeira mensagem: canto de baixo, logo acima do campo; só aparece depois de rolar para cima
+  const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
+  wrap.append(topBtn);
+  setTimeout(() => {
+    renderReplyBar(); renderPendingPrev(); ta.focus();
+    const box = $('#msgs'); if (!box) return;
+    const upd = () => topBtn.classList.toggle('hidden', box.scrollHeight - box.clientHeight < 200 || box.scrollTop < 120 || !!$('#detached-bar'));
+    box.addEventListener('scroll', upd, { passive: true }); upd();
+  }, 0);
   return wrap;
 }
 function renderReplyBar() {
@@ -1554,9 +1571,28 @@ function renderReplyBar() {
 // prévia das imagens anexadas é um blob: URL; precisa ser liberada quando o anexo sai da lista (senão o arquivo fica na memória)
 const freePending = (list) => { for (const p of list) if (p.preview) { URL.revokeObjectURL(p.preview); p.preview = null; } };
 function clearPending() { freePending(S.pending); S.pending = []; }
+// fotos ficam bem mais leves antes de enviar: WebP de boa qualidade com no máximo 2560 px no lado maior (o chat e o
+// visualizador nunca mostram mais que isso). GIF (animação), SVG e arquivos já pequenos ficam como estão; se a versão
+// comprimida não ficar menor, vai o original. Configurações → Aparência → "Enviar imagens no tamanho original" desliga.
+const IMG_MAX = 2560, IMG_Q = .86, IMG_SKIP_BYTES = 200 * 1024;
+async function compressImage(file) {
+  if (S.prefs.imgOriginal || !/^image\/(png|jpeg|webp|bmp)$/.test(file.type)) return file;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const k = Math.min(1, IMG_MAX / Math.max(bmp.width, bmp.height));
+    if (k === 1 && file.size < IMG_SKIP_BYTES) { bmp.close?.(); return file; }
+    const w = Math.max(1, Math.round(bmp.width * k)), hh = Math.max(1, Math.round(bmp.height * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = hh;
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, w, hh); bmp.close?.();
+    const blob = await new Promise(r => c.toBlob(r, 'image/webp', IMG_Q));
+    if (!blob || blob.type !== 'image/webp' || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp', lastModified: file.lastModified });
+  } catch { return file; }
+}
 async function addFile(file) {
   const item = { name: file.name, size: file.size, file, state: 'up' }; S.pending.push(item); renderPendingPrev();
   try {
+    file = await compressImage(file); Object.assign(item, { name: file.name, size: file.size, file });
     const r = await api('POST', `/upload?name=${encodeURIComponent(file.name)}`, file);
     Object.assign(item, r, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
   } catch (e) { toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
