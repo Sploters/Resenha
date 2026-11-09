@@ -531,3 +531,7 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 .nz-compact .choice .ch-lbl { font-size: 12px; gap: 4px; justify-content: center; white-space: nowrap; }
 .nz-compact .choice .ch-lbl .icon { display: none; }
 .nz-compact .nz-l b { font-weight: 600; }
+
+/* ---------- campos do topo da lista (busca em tudo etc.): sem o contorno branco de foco do navegador;
+   a linha azul embaixo do #side-head já mostra que o campo está ativo ---------- */
+#side-head input, #side-head input:focus, #side-head input:focus-visible { outline: none !important; box-shadow: none; }
