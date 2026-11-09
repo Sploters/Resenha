@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-09-2', title: 'Arquivos, aparelhos e comunidade',
+    items: [
+      { i: 'file', t: 'Aba Arquivos', d: 'Cada servidor tem a entrada "Arquivos" (abaixo de Clipes) e cada canal ou DM tem o botão de arquivo no topo: fotos, vídeos, áudios, documentos, outros arquivos e links numa grade por mês, com filtros de quem enviou, período, canal e nome. O limite por arquivo subiu para 500 MB.' },
+      { i: 'phone', t: 'PC e celular em sincronia', d: 'Leu no PC? A conversa deixa de aparecer como não lida no celular e a notificação some na hora. Enquanto você usa um aparelho, os outros ficam em silêncio. Configurações e buscas recentes passam de um aparelho para o outro sem recarregar.' },
+      { i: 'shield', t: 'Proteção da comunidade', d: 'Clique direito numa mensagem → "Marcar como spam" ou "Denunciar como ofensiva" (ela some para você). Se várias pessoas marcarem alguém em poucos minutos, o envio dela fica limitado até a moderação analisar, sem banir ninguém por robô. Moderadores: menu do servidor → Reputação.' },
+    ],
+  },
+  {
     id: '2026-11-09', title: 'Vídeos e espaço',
     items: [
       { i: 'play', t: 'Player com gestos no celular', d: 'Dois toques no lado direito ou esquerdo do vídeo avançam ou voltam 10 s (cada toque a mais soma 10 s). Dois toques no meio abrem a tela cheia, e segurar o dedo acelera para 2× enquanto segurar.' },

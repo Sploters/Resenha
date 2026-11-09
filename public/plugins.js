@@ -14,6 +14,7 @@ const save = () => store(st);
 function parts(t) {
   if (t.gid === '@me' && !t.cid) return ['users', 'Amigos'];
   if (t.cid === 'clips') return ['clip', 'Clipes']; // galeria de clipes do servidor
+  if (t.cid === 'files') return ['file', 'Arquivos']; // aba Arquivos (servidor ou DM)
   if (t.cid === 'lfg') return ['gamepad', 'Procurar jogadores'];
   if (t.cid === 'discover') return ['compass', 'Descobrir'];
   if (t.cid === 'messages') return ['dm', 'Mensagens'];
@@ -24,9 +25,9 @@ function parts(t) {
 }
 const label = (t) => parts(t)[1];
 const labelEl = (t) => { const [ic, txt] = parts(t); return [ic && h('span.ct-ico', icon(ic, 14)), h('span.ct-txt', txt)]; };
-const title = (t) => { const ch = D.channelById(t.cid), g = t.cid === 'clips' ? D.guild(t.gid) : ch?.guild_id && D.guild(ch.guild_id); return label(t) + (g ? ' — ' + g.name : ''); };
+const title = (t) => { const ch = D.channelById(t.cid), g = t.cid === 'clips' || t.cid === 'files' ? D.guild(t.gid) : ch?.guild_id && D.guild(ch.guild_id); return label(t) + (g ? ' — ' + g.name : ''); };
 const here = () => ({ gid: D.S.view.gid || '@me', cid: D.S.view.cid || null });
-const alive = (t) => !t.cid || t.cid === 'lfg' || t.cid === 'discover' || t.cid === 'messages' || (t.cid === 'clips' ? !!D.guild(t.gid) : !!D.channelById(t.cid));
+const alive = (t) => !t.cid || t.cid === 'lfg' || t.cid === 'discover' || t.cid === 'messages' || (t.cid === 'clips' || t.cid === 'files' ? (t.gid === '@me' || !!D.guild(t.gid)) : !!D.channelById(t.cid));
 
 function open(t) { D.go(t.gid, t.cid); }
 function addTab(t, activate = true) {

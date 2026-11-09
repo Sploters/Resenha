@@ -18,6 +18,8 @@ import { mountStatic } from './static.js';
 import { createThumbs } from './thumbs.js';
 import { mountStorage } from './storage.js';
 import { mountUploads } from './uploads.js';
+import { mountMedia } from './media.js';
+import { createReputation } from './reputation.js';
 import { mountDesktopUpdate } from './desktopupdate.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
@@ -31,7 +33,8 @@ import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLe
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const MAX_UPLOAD = Number(process.env.MAX_UPLOAD_MB || 100) * 1024 * 1024;
+// limite por arquivo: 500 MB por padrão (o envio vai em partes retomáveis; vídeo maior é comprimido no aparelho)
+const MAX_UPLOAD = Number(process.env.MAX_UPLOAD_MB || 500) * 1024 * 1024;
 const OPEN_REGISTRATION = process.env.OPEN_REGISTRATION !== '0';
 // avatares padrão (public/avatars): um é sorteado para cada conta nova
 const DEFAULT_AVATARS = (() => { try { return fs.readdirSync(path.join(__dirname, '..', 'public', 'avatars')).filter(f => /\.(png|jpe?g|webp|gif)$/i.test(f)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(f => '/avatars/' + f); } catch { return []; } })();
@@ -138,6 +141,7 @@ const timedOut = (gid, uid) => !!gid && (get('SELECT timeout_until t FROM member
 function audit(gid, actor, action, target = null, details = '') {
   run('INSERT INTO audit_log(id,guild_id,actor_id,action,target_id,details,created_at) VALUES(?,?,?,?,?,?,?)', newId(), gid, actor, action, target, String(details).slice(0, 500), Date.now());
 }
+const reputation = createReputation({ db, all, get, run, newId, can, P, dispatch, guildMemberIds, memberObj, audit });
 // limite de mensagens: rajada de 5, recarrega 1 a cada 0,8 s
 const buckets = new Map();
 function rateOk(uid) {
@@ -152,6 +156,7 @@ function memberObj(gid, uid) {
   const m = get('SELECT * FROM members WHERE guild_id=? AND user_id=?', gid, uid);
   if (!m) return null;
   return { user_id: uid, nickname: m.nickname, joined_at: m.joined_at, timeout_until: m.timeout_until > Date.now() ? m.timeout_until : null,
+    softmute_until: m.softmute_until > Date.now() ? m.softmute_until : null,
     roles: all('SELECT role_id FROM member_roles WHERE guild_id=? AND user_id=?', gid, uid).map(r => r.role_id) };
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
@@ -182,8 +187,8 @@ function guildFull(gid, { users = true } = {}) {
   const rolesOf = new Map();
   for (const r of all('SELECT user_id, role_id FROM member_roles WHERE guild_id=?', gid)) { let l = rolesOf.get(r.user_id); if (!l) rolesOf.set(r.user_id, l = []); l.push(r.role_id); }
   const now = Date.now();
-  const members = all('SELECT user_id, nickname, joined_at, timeout_until FROM members WHERE guild_id=?', gid).map(m => ({ user_id: m.user_id, nickname: m.nickname, joined_at: m.joined_at,
-    timeout_until: m.timeout_until > now ? m.timeout_until : null, roles: rolesOf.get(m.user_id) || [] }));
+  const members = all('SELECT user_id, nickname, joined_at, timeout_until, softmute_until FROM members WHERE guild_id=?', gid).map(m => ({ user_id: m.user_id, nickname: m.nickname, joined_at: m.joined_at,
+    timeout_until: m.timeout_until > now ? m.timeout_until : null, softmute_until: m.softmute_until > now ? m.softmute_until : null, roles: rolesOf.get(m.user_id) || [] }));
   return { ...g,
     roles: all('SELECT * FROM roles WHERE guild_id=? ORDER BY position DESC', gid),
     channels: all('SELECT * FROM channels WHERE guild_id=? ORDER BY position, created_at', gid),
@@ -367,6 +372,7 @@ app.put('/api/me/settings', auth, wrap((req, res) => {
   if (req.body.settings !== undefined) {
     const s = JSON.stringify(req.body.settings || {}); if (s.length > 100000) return bad(res, 'Configurações muito grandes');
     run('UPDATE users SET settings=? WHERE id=?', s, req.uid);
+    dispatch([req.uid], 'SETTINGS_UPDATE', { settings: req.body.settings || {}, tab: req.get('x-lc-tab') || null }); // os outros aparelhos aplicam na hora
   }
   if (['all', 'none'].includes(req.body.friend_policy)) run('UPDATE users SET friend_policy=? WHERE id=?', req.body.friend_policy, req.uid);
   res.json({});
@@ -811,6 +817,8 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   if (ch.type === 4) return bad(res, 'Canal não aceita mensagens');
   if (timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
   if (!rateOk(req.uid)) return bad(res, 'Você está enviando mensagens rápido demais', 429);
+  { const wait = reputation.slowWait(ch.guild_id, req.uid); // soft-mute da reputação: 1 mensagem a cada N segundos
+    if (wait) return res.status(429).json({ error: `Envio limitado pela comunidade: espere ${wait >= 60 ? Math.ceil(wait / 60) + ' min' : wait + ' s'} para a próxima mensagem`, retry_after: wait, softmute: true }); }
   const content = String(req.body.content ?? '').slice(0, 4000);
   const atts = (Array.isArray(req.body.attachments) ? req.body.attachments : []).slice(0, 10)
     .filter(a => a && isFileUrl(a.url))
@@ -838,7 +846,8 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
   const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mentionedIds(content, ch) };
   dispatch(channelAudience(ch), 'MESSAGE_CREATE', msg);
-  res.json(msg);
+  dispatch([req.uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: true, tab: req.get('x-lc-tab') || null }); // respondeu num aparelho: lido em todos
+  res.json(ch.guild_id && reputation.slowWait(ch.guild_id, req.uid) ? { ...msg, slow_wait: reputation.slowWait(ch.guild_id, req.uid) } : msg);
 }));
 app.patch('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
@@ -1100,11 +1109,22 @@ function reaction(req, res, add) {
 }
 app.put('/api/channels/:id/messages/:mid/reactions/:emoji', auth, wrap((req, res) => reaction(req, res, true)));
 app.delete('/api/channels/:id/messages/:mid/reactions/:emoji', auth, wrap((req, res) => reaction(req, res, false)));
+// lido: grava e avisa NA HORA os outros aparelhos da mesma conta (READ_STATE): o celular tira a não lida, apaga o
+// número do ícone e fecha a notificação daquela conversa — sem "notificação fantasma" do que já foi lido no PC.
+// message_id (opcional): lido até ali (nunca volta para trás); sem ele, até a última mensagem do canal.
+function markRead(uid, ch, upTo, tab) {
+  const last = get('SELECT MAX(id) m FROM messages WHERE channel_id=?', ch.id).m; if (!last) return null;
+  let id = upTo && upTo < last ? upTo : last;
+  const cur = get('SELECT last_id l FROM read_states WHERE user_id=? AND channel_id=?', uid, ch.id)?.l;
+  if (cur && cur >= id) id = cur;
+  else run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', uid, ch.id, id);
+  dispatch([uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: id === last, tab: tab || null });
+  return id;
+}
 app.post('/api/channels/:id/ack', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
-  const last = get('SELECT MAX(id) m FROM messages WHERE channel_id=?', ch.id).m;
-  if (last) run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ch.id, last);
-  res.json({});
+  const id = markRead(req.uid, ch, req.body?.message_id ? String(req.body.message_id) : null, req.get('x-lc-tab'));
+  res.json({ last_id: id });
 }));
 
 // DMs & relationships
@@ -1177,7 +1197,7 @@ app.post('/api/relationships', auth, wrap((req, res) => {
 app.put('/api/relationships/:id', auth, wrap((req, res) => { // aceitar / bloquear
   const o = req.params.id;
   if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado', 404);
-  if (req.body.type === 2) { setRel(req.uid, o, 2); setRel(o, req.uid, null); }
+  if (req.body.type === 2) { setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
   else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); }
   else return bad(res, 'Sem pedido pendente');
   res.json({});
@@ -1267,6 +1287,10 @@ migrateOldClips();
 // envio retomável em pedaços (server/uploads.js): arquivo grande que continua de onde parou se a conexão cair
 mountUploads(app, { auth, wrap, bad, clean, uploadDir: UPLOAD_DIR, maxUpload: MAX_UPLOAD, finalize: finalizeUpload });
 // gerenciador de armazenamento (server/storage.js): uso por pessoa/servidor/instalação, apagar mídias antigas e expiração
+// aba Arquivos (server/media.js): mídias, documentos e links de um servidor ou DM numa grade, com filtros
+mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
+// reputação (server/reputation.js): marcações de spam/ofensa de várias pessoas viram um soft-mute até a moderação analisar
+reputation.mount(app, { auth, wrap, bad, channelFor });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
 
@@ -1525,6 +1549,12 @@ function dropStaleVoice(uid, ws) {
   setTimeout(() => { old.probing = false; if (!old.alive) old.terminate(); }, 5000); // terminate -> 'close' -> sai da sala
 }
 
+// aparelhos da conta em uso agora: cada conexão sabe se OUTRA está ativa (e de que tipo) — quem está no PC lendo não
+// recebe a notificação no celular; quando o PC sai do foco, o celular volta a avisar na hora
+function pushDevices(uid) {
+  const list = [...(conns.get(uid) || [])].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt }));
+  dispatch([uid], 'DEVICES', { active: list });
+}
 wss.on('connection', (ws) => {
   const uid = ws.uid;
   const first = !conns.has(uid);
@@ -1534,6 +1564,7 @@ wss.on('connection', (ws) => {
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastPresence(uid); activity.poke(); }
+  if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
 
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
@@ -1541,6 +1572,12 @@ wss.on('connection', (ws) => {
     try {
       switch (msg.t) {
         case 'PING': send(ws, 'PONG', { n: d.n }); break; // medida de latência do cliente
+        case 'ACTIVE': { // este aparelho está em uso (janela em foco e mexendo) ou não: os outros seguram as notificações
+          const on = !!d.active, kind = ['desktop', 'mobile', 'web'].includes(d.kind) ? d.kind : 'web';
+          if (ws.active === on && ws.devKind === kind) break;
+          ws.active = on; ws.devKind = kind; ws.activeAt = Date.now(); pushDevices(uid);
+          break;
+        }
         case 'CLIENT_INFO': { // versão do app desktop desta conexão (null = navegador)
           ws.app = typeof d.desktop === 'string' && VER_RE.test(d.desktop) ? d.desktop : null;
           const c = currentVoice(uid), st = c && voice.get(c).get(uid);
@@ -1704,6 +1741,7 @@ wss.on('connection', (ws) => {
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);
     if (set && !set.size) { conns.delete(uid); broadcastPresence(uid); }
+    else if (ws.active) pushDevices(uid);
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou
   });
 });

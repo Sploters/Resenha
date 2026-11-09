@@ -1,7 +1,7 @@
 // Moderação: castigo (timeout), banimento e registro de auditoria
-import { h, avatar, stamp, busy } from './util.js';
-import { tryApi, toast, modal, nameOf, user, guild, member } from './state.js';
-import { seg } from './ui.js';
+import { h, icon, avatar, stamp, busy } from './util.js';
+import { S, tryApi, toast, modal, nameOf, user, guild, member, can, PERM, channelById } from './state.js';
+import { seg, toggle, row, section } from './ui.js';
 
 const DURATIONS = { 60: '60 s', 300: '5 min', 600: '10 min', 3600: '1 hora', 86400: '1 dia', 604800: '1 semana' };
 export const timedOutUntil = (gid, uid) => { const t = member(gid, uid)?.timeout_until; return t && t > Date.now() ? t : null; };
@@ -58,8 +58,9 @@ export function auditPage(gid) {
       const tgt = USER_TARGET.test(e.action) ? h('b', nm(e.target_id)) : null;
       let det = e.details || '';
       if (e.action === 'member_timeout' && /^\d{4}-/.test(det)) det = 'até ' + new Date(det.slice(0, 24)).toLocaleString('pt-BR') + det.slice(24);
-      box.append(h('div.frow', { style: { cursor: 'default' } }, avatar(names.get(e.actor_id) || user(e.actor_id), 32, { status: false }),
-        h('div.fn', h('span', h('b', nm(e.actor_id)), ' ', ACTIONS[e.action] || e.action, tgt && ' ', tgt, det && !tgt ? ' ' : '', det && !tgt ? h('b', det) : null),
+      const sys = !e.actor_id; // ação automática (reputação): sem pessoa
+      box.append(h('div.frow', { style: { cursor: 'default' } }, sys ? h('div.rep-sys', icon('shield', 20)) : avatar(names.get(e.actor_id) || user(e.actor_id), 32, { status: false }),
+        h('div.fn', h('span', h('b', sys ? 'Reputação (automático)' : nm(e.actor_id)), ' ', ACTIONS[e.action] || e.action, tgt && ' ', tgt, det && !tgt ? ' ' : '', det && !tgt ? h('b', det) : null),
           h('small', stamp(e.created_at) + (det && tgt ? ' • ' + det : '')))));
     }
     more.style.display = r.entries.length === 100 ? '' : 'none';
@@ -68,4 +69,63 @@ export function auditPage(gid) {
   };
   load();
   return h('div', h('h2', 'Registro de auditoria'), hint('Ações de moderação e de administração feitas neste servidor.'), box, more);
+}
+
+// ---------- Reputação (moderação comunitária) ----------
+// Casos abertos: quem foi limitado automaticamente porque várias pessoas marcaram as mensagens, com as mensagens marcadas.
+// O moderador decide: "Falso alarme" (libera e quem marcou perde peso), "Confirmar" (libera o limite e registra que era
+// mesmo; normalmente seguido de castigo/banimento, nos botões ao lado). Quem gerencia o servidor ajusta a regra.
+const KIND_LABEL = { spam: 'spam', toxic: 'ofensiva', block: 'bloqueio' };
+export const isRepMod = (gid) => can(gid, PERM.MODERATE) || can(gid, PERM.MANAGE_MESSAGES);
+export function repPage(gid, { onJump } = {}) {
+  const box = h('div'), cfgBox = h('div');
+  const until = (t) => (t ? 'limite até ' + new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' (se ninguém analisar)' : '');
+  const STATE = { cleared: 'Falso alarme', confirmed: 'Confirmado', expired: 'Expirou sem análise' };
+  const caseEl = (c, open) => h('div.rep-case' + (open ? '.open' : ''),
+    h('div.rep-head', avatar(user(c.user_id), 36, { status: false }),
+      h('div.fn', h('b', nameOf(c.user_id, gid)), h('small', `${c.flaggers} ${c.flaggers === 1 ? 'pessoa marcou' : 'pessoas marcaram'} · ${stamp(c.created_at)}${open ? ' · ' + until(c.softmute_until) : ' · ' + (STATE[c.state] || c.state) + (c.resolved_by ? ' por ' + nameOf(c.resolved_by, gid) : '')}`)),
+      open && h('div.rep-act',
+        h('button.btn.grey.sm', { title: 'Ninguém fez nada de errado: tira o limite e quem marcou passa a pesar menos', onclick: (e) => busy(e.currentTarget, resolve(c, 'clear')) }, 'Falso alarme'),
+        h('button.btn.sm', { title: 'Era mesmo: tira o limite e registra (use castigo ou banimento se precisar)', onclick: (e) => busy(e.currentTarget, resolve(c, 'confirm')) }, 'Confirmar'),
+        can(gid, PERM.MODERATE) && h('button.btn.red.sm', { onclick: () => timeoutDialog(gid, c.user_id) }, 'Castigo…'),
+        can(gid, PERM.BAN) && h('button.btn.red.sm', { onclick: () => banDialog(gid, c.user_id, draw) }, 'Banir…'))),
+    c.messages?.length > 0 && h('div.rep-msgs', c.messages.map(m => h('button.rep-msg', { type: 'button', title: 'Ir para a mensagem', onclick: () => onJump?.(m) },
+      h('span.rep-k', m.kinds.map(k => KIND_LABEL[k] || k).join(', ') + ` · ${m.n}`), h('span.rep-t', m.content || '(anexo)'), h('small', '#' + (channelById(m.channel_id)?.name || 'canal') + ' · ' + stamp(m.created_at))))));
+  const resolve = async (c, action) => { const r = await tryApi('POST', `/guilds/${gid}/reputation/${c.user_id}/resolve`, { action }); if (r) { toast(action === 'clear' ? 'Limite retirado (falso alarme)' : 'Caso confirmado e limite retirado'); draw(); } };
+  const drawCfg = (st) => {
+    if (!can(gid, PERM.MANAGE_GUILD)) return cfgBox.replaceChildren(hint(st.on ? `Ligado: ${st.threshold} pessoas em 10 min → 1 mensagem a cada ${st.slow >= 60 ? st.slow / 60 + ' min' : st.slow + ' s'}.` : 'Desligado neste servidor.'));
+    const save = async (patch) => { const r = await tryApi('PATCH', `/guilds/${gid}/reputation`, patch); if (r) { drawCfg(r); toast('Regra salva'); } };
+    cfgBox.replaceChildren(
+      row('Limitar automaticamente', 'Quando várias pessoas diferentes marcam mensagens de alguém como spam ou ofensivas (ou o bloqueiam logo depois de ele falar) em 10 minutos, a pessoa passa a enviar só 1 mensagem a cada intervalo, até a moderação analisar. Donos e moderadores nunca são limitados; contas que entraram há menos de 10 minutos não contam.', toggle(st.on, (v) => save({ on: v }))),
+      st.on && row('Quantas pessoas', 'Pessoas diferentes que precisam marcar (cada uma conta uma vez).', seg([[2, '2'], [3, '3'], [4, '4'], [5, '5'], [8, '8']], st.threshold, (v) => save({ threshold: v }))),
+      st.on && row('Enquanto limitado', 'Intervalo mínimo entre as mensagens de quem foi limitado. O limite some sozinho em 24 h se ninguém analisar.', seg([[60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min']], st.slow, (v) => save({ slow: v }))));
+  };
+  const draw = async () => {
+    const r = await tryApi('GET', `/guilds/${gid}/reputation`); if (!r) return;
+    drawCfg(r.settings);
+    box.replaceChildren(section('Casos abertos'), ...(r.open.length ? r.open.map(c => caseEl(c, true)) : [hint('Nenhum caso aberto. Quando alguém for limitado pela comunidade, aparece aqui (e os moderadores recebem um aviso).')]),
+      r.closed.length > 0 && section('Analisados'), ...r.closed.slice(0, 20).map(c => caseEl(c, false)));
+  };
+  draw();
+  const root = h('div.rep-page', h('h2', 'Reputação'), hint('Proteção instantânea contra spam e trolls sem banir ninguém por robô: a comunidade sinaliza, o app limita o envio por um tempo e a moderação decide.'), cfgBox, box);
+  root._refresh = draw;
+  return root;
+}
+export function repModal(gid, onJump) {
+  let m; const page = repPage(gid, { onJump: (msg) => { m?.close(); onJump?.(msg); } });
+  m = modal('Reputação', guild(gid)?.name || '', page, [{ label: 'Fechar', cls: 'grey' }], { width: '640px' });
+  return m;
+}
+// marcar uma mensagem (menu da mensagem): esconde para mim na hora e conta como sinal para a reputação do autor
+const FKEY = 'lc_flagged';
+export const flaggedMap = (() => { try { return new Map(JSON.parse(localStorage.getItem(FKEY) || '[]')); } catch { return new Map(); } })();
+const saveFlagged = () => { try { localStorage.setItem(FKEY, JSON.stringify([...flaggedMap].slice(-300))); } catch { } };
+export async function flagMessage(m, kind, after) {
+  const r = await tryApi('POST', `/channels/${m.channel_id}/messages/${m.id}/flag`, { kind }); if (!r) return;
+  flaggedMap.set(m.id, kind); saveFlagged(); after?.();
+  toast(kind === 'spam' ? 'Marcada como spam e escondida para você. Obrigado por avisar.' : 'Denúncia registrada e mensagem escondida para você. A moderação vai ver.');
+}
+export async function unflagMessage(m, after) {
+  await tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}/flag`);
+  flaggedMap.delete(m.id); saveFlagged(); after?.();
 }

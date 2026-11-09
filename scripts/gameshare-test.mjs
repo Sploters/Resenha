@@ -4,7 +4,7 @@
 // - ao transmitir: a janela minimizada é pedida pelo id (antes caía para a tela inteira), o áudio do PC inteiro é trocado pelo
 //   PCM do programa nativo (tom de 440 Hz em pedaços de tamanho torto) e o tom chega de verdade na trilha
 // - clipe: áudio do jogo + microfone de quem transmite (2 fontes), também no clipe de quem assiste
-// - F8 salva o clipe e mostra o aviso (na página, ou pelo app desktop quando a janela está em segundo plano)
+// - F8 salva o clipe e mostra o aviso discreto "Clipe salvo · 30s" (na página, ou pelo app desktop quando a janela está em segundo plano)
 // Uso: BROWSER=/caminho/do/chrome node scripts/gameshare-test.mjs
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -118,7 +118,7 @@ try {
   // F8 com a página em foco: aviso na própria página
   await A.bringToFront(); await A.keyboard.press('F8'); await sleep(400);
   const flash1 = await A.evaluate(() => ({ el: !!document.querySelector('.clipflash:not(.bad)'), text: document.querySelector('.clipflash b')?.textContent, sub: document.querySelector('.clipflash small')?.textContent }));
-  ok(flash1.el && flash1.text === 'Clipe capturado', 'F8: animação "Clipe capturado" aparece para quem apertou', flash1);
+  ok(flash1.el && flash1.text === 'Clipe salvo' && flash1.sub === '30s', 'F8: aviso "Clipe salvo · 30s" aparece para quem apertou', flash1);
   await A.screenshot({ path: '.testshots/gameshare-flash.png' });
   ok(!(await B.evaluate(() => !!document.querySelector('.clipflash'))), 'a outra pessoa não vê o aviso');
   await sleep(4000);
@@ -133,7 +133,7 @@ try {
   // app em segundo plano (jogando): o aviso vai para o app desktop, por cima do jogo
   await A.evaluate(() => { document.hasFocus = () => false; window.__hotkey('clip'); }); await sleep(400);
   const fl = await A.evaluate(() => window.__t.flashes);
-  ok(fl.length === 1 && fl[0].ok && fl[0].title === 'Clipe capturado', 'em segundo plano: o app desktop mostra o aviso por cima do jogo', fl);
+  ok(fl.length === 1 && fl[0].ok && fl[0].title === 'Clipe salvo', 'em segundo plano: o app desktop mostra o aviso por cima do jogo', fl);
   // nada gravando: aviso de erro
   await B.evaluate(() => { window.__lc.S.prefs.clipsOn = false; return window.__lc.import('clips.js').then(m => m.stopAllBuffers()); });
   await B.bringToFront(); await B.keyboard.press('F8'); await sleep(300);

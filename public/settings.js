@@ -6,7 +6,7 @@ import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAcc
 import { playSound, SOUND_DEFS, soundCfg } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput } from './quick.js';
-import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage } from './mod.js';
+import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
 import { SOLID_THEMES, GRADIENT_THEMES, gradientCss, decodeTheme, PROFILE_THEMES, parseColorPair, isLightPair, NAME_FONTS, NAME_EFFECTS, TWO_COLOR_EFFECTS, styleName } from './themes.js';
 import { openThemeEditor, shareTheme } from './themeeditor.js';
@@ -106,8 +106,8 @@ const USER_GROUPS = [
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
 const NAV_ICONS = { storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
-  overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', audit: 'clock', invites: 'invite' };
-const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
+  overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', reputation: 'shield', audit: 'clock', invites: 'invite' };
+const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
 
 export function openSettings(kind, ctx) {
   const prev = document.getElementById('settings'); if (prev) (prev._close ? prev._close() : prev.remove()); // abrir de novo: fecha direito a anterior (solta os ouvintes)
@@ -121,7 +121,7 @@ export function openSettings(kind, ctx) {
   const R = {
     account: () => accountPage(close), profile: () => profilePage(), privacy: (r) => privacyPage(r), connections: (r) => connectionsPage(r), appearance: () => appearancePage(), accessibility: () => accessibilityPage(),
     voice: (r) => voicePage(ctx, r), stream: () => streamPage(), sounds: () => soundsPage(), soundboard: () => soundboardPage(), notifications: () => notificationsPage(), keys: () => keysPage(), extras: () => extrasPage(ctx), advanced: () => advancedPage(ctx), storage: () => (isServer ? serverStoragePage(gid) : storagePage()), news: () => newsPage(), report: () => reportPage(), app: () => appPage(), lite: () => litePage(ctx),
-    overview: () => overviewPage(gid), channels: () => channelsPage(gid), roles: () => rolesPage(gid), emojis: () => emojisPage(gid), sounds_srv: () => serverSoundsPage(gid), members: () => membersPage(gid), bans: () => bansPage(gid), audit: () => auditPage(gid), invites: () => invitesPage(gid),
+    overview: () => overviewPage(gid), channels: () => channelsPage(gid), roles: () => rolesPage(gid), emojis: () => emojisPage(gid), sounds_srv: () => serverSoundsPage(gid), members: () => membersPage(gid), bans: () => bansPage(gid), reputation: () => repPage(gid), audit: () => auditPage(gid), invites: () => invitesPage(gid),
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
@@ -562,6 +562,7 @@ function notificationsPage() {
             S.prefs.desktopNotif = !S.prefs.desktopNotif; save(); draw();
           }, 'Avisos do sistema para menções e mensagens diretas quando a janela não está em foco'),
           tile(preview, '.nt-every', icon('eye', 26), 'Mostrar o texto', preview ? 'A mensagem aparece no aviso' : 'Só "Nova mensagem"', () => { S.prefs.notifPreview = !preview; save(); draw(); }, 'Mostrar o texto da mensagem dentro do aviso'),
+          tile(S.prefs.quietElsewhere !== false, '.nt-else', icon('phone', 26), 'Só onde estou', S.prefs.quietElsewhere !== false ? 'Silencia aqui se outro aparelho estiver em uso' : 'Avisa em todos os aparelhos', () => { S.prefs.quietElsewhere = S.prefs.quietElsewhere === false; save(); draw(); }, 'Com o PC em uso, o celular (e as outras janelas) não tocam nem mostram aviso; o que você lê num aparelho some das notificações dos outros na hora'),
           tile(false, '.nt-link', icon('vol', 26), 'Sons', 'Abrir a página de sons', () => document.querySelector('#settings .ni[data-k="sounds"]')?.click(), 'Sons de mensagem, menção, chamada e voz')),
         // prévia: como o aviso aparece
         h('div.np-preview', { 'aria-hidden': 'true' }, h('small', 'Prévia'),

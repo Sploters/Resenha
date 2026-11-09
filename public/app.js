@@ -7,7 +7,7 @@ import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isG
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
+import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic } from './music.js';
@@ -26,6 +26,7 @@ import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
+import { initFiles, renderFiles, filesPreset, onFilesMessage } from './files.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel } from './ui.js';
@@ -36,7 +37,7 @@ const openFullProfile = (...a) => { lazySettings().then(m => m.openFullProfile(.
 import { saveCustomTheme } from './themeeditor.js';
 import { isLightPair, THEME_CODE_RE, decodeTheme, gradientCss, styleName, stripThemeCodes, themeText, encodeTheme, GRADIENT_THEMES, themeDef } from './themes.js';
 import { profileCard, STATUS_TXT } from './card.js';
-import { timeoutDialog, removeTimeout, banDialog, timedOutUntil } from './mod.js';
+import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon } from './activity.js';
@@ -103,8 +104,7 @@ function outdatedModal(d) {
 }
 
 // =============== Gateway ===============
-// id desta aba/janela (sobrevive ao F5): o servidor reconhece a conexão antiga da mesma aba e a tira da sala de voz na hora
-const tabId = (() => { try { let t = sessionStorage.getItem('lc_tab'); if (!t) sessionStorage.setItem('lc_tab', t = Math.random().toString(36).slice(2, 12)); return t; } catch { return Math.random().toString(36).slice(2, 12); } })();
+// (tabId, o id desta aba/janela, vem de state.js: vai no gateway e no cabeçalho X-LC-Tab das chamadas à API)
 // conexão "travada" (a internet caiu sem o navegador perceber): 2 pings seguidos sem resposta = reconecta (e volta para a sala)
 let wsMiss = 0;
 setInterval(async () => {
@@ -123,6 +123,7 @@ function connect() {
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
     const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent });
+    lastActive = null; reportActive(); // conta para os outros aparelhos se este está em uso
     refreshDesktopVersion().then(v => { if (v !== sent) gwSend('CLIENT_INFO', { desktop: v }); });
   };
   ws.onclose = async () => {
@@ -148,7 +149,7 @@ function ingestGuild(g) {
 function onEvent(t, d) {
   switch (t) {
     case 'READY': {
-      S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.desktopMin = d.desktop_min || null;
+      S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
       if (S.remote) onRemoteEvent('REMOTE_STATE', { ...S.remote, state: 'ended', reason: 'left' }); // reconectou: o servidor já encerrou a sessão
@@ -220,7 +221,7 @@ function onEvent(t, d) {
     case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(u => S.users.set(u.id, u)); renderSide(); renderRail(); break; }
     case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); S.users.set(d.user.id, d.user); renderMembers(); } break; }
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
-    case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); } break; }
+    case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until, softmute_until: d.softmute_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); if (d.user_id === S.me.id && S.view.gid === d.guild_id) renderSoftmute(); } break; }
     case 'ROLE_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.roles.findIndex(r => r.id === d.role.id); if (i >= 0) g.roles[i] = d.role; else g.roles.push(d.role); g.roles.sort((a, b) => b.position - a.position); renderMembers(); } break; }
     case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
     case 'RELATIONSHIP': {
@@ -288,6 +289,10 @@ function onEvent(t, d) {
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
     }
     case 'MESSAGE_CREATE': onMessage(d); break;
+    case 'READ_STATE': onReadState(d); break; // lido em outro aparelho (ou nesta conta por outra aba)
+    case 'SETTINGS_UPDATE': onSettingsSync(d); break;
+    case 'DEVICES': S.devices = (d.active || []).filter(x => x.tab !== tabId); break;
+    case 'REP_CASE': onRepCase(d); break;
     case 'MESSAGE_UPDATE': {
       const list = S.messages.get(d.channel_id); const i = list?.findIndex(m => m.id === d.id);
       if (i >= 0) { list[i] = d; if (S.view.cid === d.channel_id) { const el = $(`[data-mid="${d.id}"]`); if (el) { const prev = list[i - 1]; el.replaceWith(msgEl(d, prev)); } } }
@@ -309,7 +314,7 @@ function onMessage(m) {
   S.users.set(m.author.id, { ...S.users.get(m.author.id), ...m.author });
   const mine = m.author_id === S.me.id, viewing = S.view.cid === m.channel_id && document.hasFocus() && !vcChatHidden(channelById(m.channel_id));
   const t = S.typing.get(m.channel_id); if (t) { t.delete(m.author_id); renderTyping(); previewTyping(); }
-  previewMessage(m);
+  previewMessage(m); onFilesMessage(m);
   if (S.view.cid === m.channel_id && m.author_id !== S.me.id) $('#vc-chat-btn:not(.sel)')?.classList.add('unread'); // chat da sala fechado
   ghostFor(m);
   if (S.view.cid === m.channel_id && list && !gap) appendMessage(m);
@@ -321,11 +326,14 @@ function onMessage(m) {
   const isMention = isDM ? !pol.muted && pol.level !== 'none' : ((m.mentions || []).includes(S.me.id) && (direct || !pol.noEveryone)); // DM silenciada ainda conta como não lida, mas sem som nem aviso
   const counts = isDM || (isMention && pol.level !== 'none') || (!pol.muted && pol.level === 'all');
   if (!viewing) {
-    if (counts) { const u = S.unread[m.channel_id] ||= { count: 0 }; u.count++; }
+    if (counts) { const u = S.unread[m.channel_id] ||= { count: 0 }; u.count++; u.last_id = m.id; }
+    // outro aparelho da conta em uso e este parado: conta como não lida, mas sem som nem aviso aqui (state.js quietHere)
+    const quiet = quietHere();
     if (isMention && pol.level !== 'none') {
       S.mentions[m.channel_id] = (S.mentions[m.channel_id] || 0) + 1;
-      playSound('mention'); notify(isDM ? m.author.display_name : `${m.author.display_name} (#${ch?.name})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (inviteText(themeText(text)) || 'Anexo'), () => go(ch.guild_id || '@me', ch.id));
-    } else if (counts && !isDM) playSound('message');
+      if (!quiet) playSound('mention');
+      notify(isDM ? m.author.display_name : `${m.author.display_name} (#${ch?.name})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (inviteText(themeText(text)) || 'Anexo'), () => go(ch.guild_id || '@me', ch.id), m.channel_id);
+    } else if (counts && !isDM && !quiet) playSound('message');
     renderRail(); renderSide(); updateTitle();
   } else ack(m.channel_id);
 }
@@ -336,9 +344,62 @@ function updateTitle() {
   for (const btn of document.querySelectorAll('.inbox-btn')) { btn.querySelector('.ibadge')?.remove(); const b = inboxBadge(); if (b) btn.append(b); }
 }
 function ack(cid) {
+  closeNotifs(cid);
   if (!S.unread[cid] && !S.mentions[cid]) return;
   delete S.unread[cid]; delete S.mentions[cid]; api('POST', `/channels/${cid}/ack`).catch(() => { });
   renderRail(); renderSide(); updateTitle();
+}
+// ---- sincronização entre aparelhos ----
+// lido em outro aparelho: tira a não lida e a menção, fecha a notificação daquela conversa e atualiza o número do ícone
+// na hora (antes o celular só sabia no próximo READY, e as notificações do que já foi lido no PC continuavam lá)
+function onReadState(d) {
+  if (d.tab && d.tab === tabId) return; // eco do meu próprio "lido"
+  closeNotifs(d.channel_id);
+  const u = S.unread[d.channel_id];
+  if (!u && !S.mentions[d.channel_id]) return;
+  if (!d.latest && u?.last_id && u.last_id > d.last_id) return; // chegou mensagem nova depois do ponto lido lá
+  delete S.unread[d.channel_id]; delete S.mentions[d.channel_id];
+  renderRail(); renderSide(); updateTitle();
+}
+// configurações mudadas em outro aparelho: aplica aqui sem recarregar (menos as que são só desta máquina)
+function onSettingsSync(d) {
+  if (!d.settings || (d.tab && d.tab === tabId)) return;
+  const keep = { inputId: S.prefs.inputId, outputId: S.prefs.outputId, videoId: S.prefs.videoId, clipsOn: S.prefs.clipsOn, lightMode: S.prefs.lightMode, lightPrev: S.prefs.lightPrev, liteAuto: S.prefs.liteAuto, liteAutoGame: S.prefs.liteAutoGame };
+  const local = { ...S.prefs };
+  Object.assign(S.prefs, d.settings, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k];
+  relite(d.settings, local);
+  try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch { }
+  applyTheme(); renderRail(); renderSide(); renderMembers();
+  if (S.searchOpen && !GS.q) renderSide();
+}
+// este aparelho está em uso? (janela em foco, visível e com mexida nos últimos 2 min) — o servidor repassa aos outros
+let lastActive = null, lastInput = Date.now();
+const devKind = () => (desktop ? 'desktop' : matchMedia('(pointer: coarse)').matches ? 'mobile' : 'web');
+function reportActive() {
+  const on = document.hasFocus() && !document.hidden && Date.now() - lastInput < 120e3;
+  if (on === lastActive || ws?.readyState !== 1) return;
+  lastActive = on; gwSend('ACTIVE', { active: on, kind: devKind() });
+}
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) window.addEventListener(ev, () => { lastInput = Date.now(); if (!lastActive) reportActive(); }, { passive: true, capture: true });
+window.addEventListener('focus', reportActive); window.addEventListener('blur', () => setTimeout(reportActive, 50));
+document.addEventListener('visibilitychange', reportActive);
+setInterval(reportActive, 15e3);
+// ---- reputação: limite de envio aplicado pela comunidade ----
+const softmuteUntil = (gid) => { const t = gid && member(gid, S.me.id)?.softmute_until; return t && t > Date.now() ? t : 0; };
+function renderSoftmute() {
+  const bar = $('#softmute-bar'); if (!bar) return;
+  const ch = channelById(S.view.cid), on = !!softmuteUntil(ch?.guild_id);
+  bar.classList.toggle('hidden', !on); if (!on) return bar.replaceChildren();
+  const wait = S.slowUntil?.[ch.guild_id] > Date.now() ? Math.ceil((S.slowUntil[ch.guild_id] - Date.now()) / 1000) : 0;
+  bar.replaceChildren(icon('shield', 16), h('span', h('b', 'Envio limitado pela comunidade. '),
+    'Várias pessoas marcaram suas mensagens recentes; até a moderação analisar, você envia 1 mensagem a cada pouco tempo.',
+    wait ? h('b.sm-wait', ` Próxima em ${wait >= 60 ? Math.floor(wait / 60) + ':' + String(wait % 60).padStart(2, '0') : wait + ' s'}.`) : null));
+  clearTimeout(renderSoftmute.t); if (wait) renderSoftmute.t = setTimeout(renderSoftmute, 1000);
+}
+function onRepCase(d) {
+  if (d.resolved) return;
+  const g = guild(d.guild_id); if (!g) return;
+  toast(`${nameOf(d.user_id, d.guild_id)} foi limitado(a) em ${g.name}: ${d.flaggers} pessoas marcaram as mensagens. Menu do servidor → Reputação para analisar.`);
 }
 window.addEventListener('focus', () => S.view.cid && !vcChatHidden(channelById(S.view.cid)) && ack(S.view.cid));
 
@@ -366,9 +427,11 @@ function applyRoute(first) {
     if (cid === 'messages') S.view = { kind: 'messages', gid: '@me', cid: 'messages', tab: S.view.tab }; // seção Mensagens sem conversa aberta
     if (cid === 'lfg') S.view = { kind: 'lfg', gid: '@me', cid: 'lfg', tab: S.view.tab }; // aba Procurar jogadores (não é uma DM)
     if (cid === 'discover') S.view = { kind: 'discover', gid: '@me', cid: 'discover', tab: S.view.tab }; // aba Descobrir: notícias, promoções, lançamentos
+    { const fm = /^(\d+)\/files$/.exec(cid || ''); if (fm && S.dms.has(fm[1])) S.view = { kind: 'files', gid: '@me', cid: 'files', dm: fm[1], tab: S.view.tab }; } // Arquivos de uma DM
   } else {
     const g = guild(gid);
     if (!g) { location.hash = '#/@me'; return; }
+    if (cid === 'files') { S.view = { kind: 'files', gid, cid: 'files' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'clips') { S.view = { kind: 'clips', gid, cid: 'clips' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     const chans = g.channels.filter(c => c.type !== 4);
     let ch = chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
@@ -484,7 +547,14 @@ async function runGlobalSearch() {
   if (seq !== GS.seq) return; // chegou uma busca mais nova
   GS.groups = (r || []).filter(g => g.guild_id ? guild(g.guild_id) : S.dms.has(g.channel_id)); GS.loading = false; renderSide();
 }
+// buscas recentes: ficam na conta (S.prefs, sincroniza com os outros aparelhos na hora) — a busca feita no PC aparece no celular
+function rememberSearch(q) {
+  q = String(q || '').trim(); if (q.length < 2) return;
+  const list = (S.prefs.recentSearches || []).filter(x => x.toLowerCase() !== q.toLowerCase());
+  S.prefs.recentSearches = [q, ...list].slice(0, 8); savePrefs();
+}
 async function openGsGroup(g) {
+  rememberSearch(GS.q);
   const k = gsKey(g); if (GS.open === k) { GS.open = null; return renderSide(); }
   GS.open = k; renderSide();
   if (GS.msgs[k]) return;
@@ -500,7 +570,7 @@ function gsMark(text) {
 }
 function globalSearchPanel() {
   const input = h('input#gs-q', { type: 'search', placeholder: 'Buscar em tudo', value: GS.q, 'aria-label': 'Buscar em todas as conversas e servidores',
-    oninput: debounce((e) => { GS.q = e.target.value; runGlobalSearch(); }, 300), onkeydown: (e) => { if (e.key === 'Escape') { e.preventDefault(); closeGlobalSearch(); } } });
+    oninput: debounce((e) => { GS.q = e.target.value; runGlobalSearch(); }, 300), onkeydown: (e) => { if (e.key === 'Escape') { e.preventDefault(); closeGlobalSearch(); } else if (e.key === 'Enter') rememberSearch(e.target.value); } });
   const head = h('div#side-head.gs-head', icon('search', 22), input, h('button.sh-btn', { type: 'button', title: 'Fechar a busca', 'aria-label': 'Fechar a busca', onclick: () => closeGlobalSearch() }, icon('x', 18)));
   const scopeLabel = GS.scope === 'all' ? 'DMs e servidores' : GS.scope === 'dms' ? 'Mensagens diretas' : (guild(GS.scope)?.name || 'Servidor');
   const scopeMenu = (e) => { const it = (k, l) => ({ label: (GS.scope === k ? '✓ ' : '') + l, fn: () => { GS.scope = k; runGlobalSearch(); } });
@@ -522,14 +592,18 @@ function globalSearchPanel() {
   const hits = (gHits.length + pHits.length > 0) && [h('div.cat', { style: { cursor: 'default' } }, 'Ir para'),
     ...gHits.map(g => h('button.gs-group', { type: 'button', onclick: () => { closeGlobalSearch(); go(g.id); } }, h('div.gs-ic', g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : initialsOf(g.name)), h('span.gs-t', h('b', gsMark(g.name)), h('small', 'Servidor')))),
     ...pHits.map(u => h('button.gs-group', { type: 'button', onclick: () => { closeGlobalSearch(); openDM(u.id); } }, avatar(u, 40), h('span.gs-t', h('b', gsMark(u.display_name)), h('small', 'Mensagem direta'))))];
-  const body = !t ? h('div.dm-empty', h('p', 'Procure mensagens em todas as suas conversas e servidores.'), h('small', 'Filtros: de:nome · tem:imagem, arquivo, link ou video · em:canal'))
+  const recent = S.prefs.recentSearches || [];
+  const recentBox = recent.length > 0 && h('div.gs-recent', h('div.cat', { style: { cursor: 'default' } }, h('span', 'Buscas recentes'),
+    h('button.gs-clear', { type: 'button', title: 'Limpar as buscas recentes (em todos os aparelhos)', onclick: () => { S.prefs.recentSearches = []; savePrefs(); renderSide(); } }, 'Limpar')),
+    recent.map(q => h('button.gs-rq', { type: 'button', onclick: () => { GS.q = q; const i = $('#gs-q'); if (i) i.value = q; runGlobalSearch(); } }, icon('clock', 16), h('span', q))));
+  const body = !t ? [recentBox, h('div.dm-empty', h('p', 'Procure mensagens em todas as suas conversas e servidores.'), h('small', 'Filtros: de:nome · tem:imagem, arquivo, link ou video · em:canal'))]
     : GS.loading && !GS.groups ? skeleton('rows', 4)
     : [hits, GS.groups?.length ? [h('div.cat', { style: { cursor: 'default' } }, 'Mensagens'), ...GS.groups.flatMap(groupRow)] : !GS.loading && h('div.dm-empty', 'Nenhuma mensagem encontrada')];
   return { head, list: h('div#side-list.gs-list', filters, body) };
 }
 function gsMsg(m, inGuild) {
   const ch = channelById(m.channel_id), txt = stripInvites(m.content || '').replace(/<@!?(\d+)>/g, (x, id) => '@' + (S.users.get(id)?.display_name || 'alguém')).replace(/[*_~`>|]/g, '') || (m.attachments?.length ? 'Anexo' : '');
-  return h('button.gs-msg', { type: 'button', onclick: () => { go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } },
+  return h('button.gs-msg', { type: 'button', onclick: () => { rememberSearch(GS.q); go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } },
     avatar(user(m.author_id), 24, { status: false }),
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
 }
@@ -567,6 +641,7 @@ async function joinInvite(code) {
   } catch (e) { toast(e.message, true); return false; }
 }
 
+const openRep = (gid) => repModal(gid, (m) => { go(gid, m.channel_id); setTimeout(() => jumpTo(m.id), 600); });
 function guildMenu(e, g) {
   const owner = g.owner_id === S.me.id;
   menu(e, [
@@ -576,6 +651,7 @@ function guildMenu(e, g) {
     { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
     '-',
     can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
+    isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar canal', fn: () => channelModal(g, 0) },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar categoria', fn: () => channelModal(g, 4) },
     '-',
@@ -683,7 +759,8 @@ function renderSide() {
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
     // galeria de clipes do servidor: primeira linha da lista
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
-    list = h('div#side-list', clipsRow, kids(null).map(chRow), cats.map(catRow));
+    const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
+    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map(catRow));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   const pinned = uaPinned();
@@ -1117,6 +1194,7 @@ function renderMain() {
   const v = S.view;
   if (v.kind === 'home') return renderHome(main);
   if (v.kind === 'clips') return renderClips(main, v.gid);
+  if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
   if (v.kind === 'messages') return main.replaceChildren(h('div#topbar.msgs-top', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('dm', 24)), h('span', 'Mensagens')), messagesHome());
@@ -1136,6 +1214,7 @@ function renderMain() {
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
         h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('toppin')),
+        h('button.ibtn.files-btn', { title: dm ? 'Mídia, arquivos e links desta conversa' : 'Mídia, arquivos e links deste canal', 'aria-label': 'Arquivos', onclick: () => { if (dm) location.hash = `#/@me/${ch.id}/files`; else { filesPreset({ channel: ch.id }); go(ch.guild_id, 'files'); } } }, icon('file')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
         dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('dmprofile'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord
@@ -1260,6 +1339,9 @@ function msgEl(m, prev) {
   const mentioned = m.mentions?.includes(S.me.id) || (m.content || '').includes(`<@${S.me.id}>`);
   if (m.type === 1) return h('div.msg.system', { 'data-mid': m.id }, h('span.arrow', icon('arrowr', 18)), h('span', h('b', { style: { color: col || 'var(--header)' } }, nameOf(m.author_id, gid)), ' ' + m.content), h('span.ts', stamp(m.created_at)),
     h('button.btn.grey.wave', { onclick: () => tryApi('POST', `/channels/${m.channel_id}/messages`, { content: `👋 Bem-vindo(a), <@${m.author_id}>!` }) }, icon('smile', 18), 'Dar boas-vindas'));
+  if (flaggedMap.has(m.id) && !m._show) return h('div.msg.flagged', { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) }, icon('shield', 16),
+    h('span', `Você marcou esta mensagem de ${nameOf(m.author_id, gid)} como ${flaggedMap.get(m.id) === 'spam' ? 'spam' : 'ofensiva'}. `),
+    h('button.btn.link.sm', { onclick: () => { m._show = true; refreshMsg(m); } }, 'Mostrar'));
   const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) });
   if (!grouped) el.append(h('div.av', { onclick: (e) => profile(e.currentTarget, m.author_id, gid) }, avatar(a, 40, { status: false })));
   else el.append(h('div.time-s', clock(m.created_at)));
@@ -1479,6 +1561,10 @@ function msgMenu(e, m) {
     mine && !m.poll && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
     S.prefs.devMode && { label: 'Copiar ID da mensagem', fn: () => navigator.clipboard?.writeText(m.id) },
+    // reputação: sinal da comunidade (esconde para mim; várias pessoas em pouco tempo limitam o envio do autor)
+    gid && !mine && m.type !== 1 && '-',
+    ...(!gid || mine || m.type === 1 ? [] : flaggedMap.has(m.id) ? [{ label: 'Desfazer marcação', fn: () => unflagMessage(m, () => { delete m._show; refreshMsg(m); }) }]
+      : [{ label: 'Marcar como spam', fn: () => flagMessage(m, 'spam', () => refreshMsg(m)) }, { label: 'Denunciar como ofensiva', danger: true, fn: () => flagMessage(m, 'toxic', () => refreshMsg(m)) }]),
     (mine || mod) && '-',
     (mine || mod) && { label: 'Apagar mensagem', danger: true, fn: async () => { if (await confirmBox('Apagar mensagem', 'Tem certeza?', 'Apagar')) tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}`); } },
   ]);
@@ -1699,14 +1785,14 @@ function composer(ch, label) {
   extrasBtn.addEventListener('mouseenter', () => { if (cxOpen() || !document.querySelector('#layer :is(.popout, .emoji-picker, .menu):not(.leaving)')) cxShow(); });
   extrasBtn.addEventListener('mouseleave', () => { if (cxOpen()) cxLater(); });
   extrasBtn.onclick = () => (!cxOpen() ? cxShow() : Date.now() - cxAt > 700 && cxHide()); // clique logo depois de abrir pelo mouse (ou toque) mantém aberto
-  const wrap = h('div#composer-wrap', h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
+  const wrap = h('div#composer-wrap', h('div#softmute-bar.hidden', { role: 'status' }), h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
     h('div#composer', h('button.ibtn', { title: 'Enviar arquivo ou compartilhar tema', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
       extrasBtn));
   // ir para a primeira mensagem: canto de baixo, logo acima do campo; só aparece depois de rolar para cima
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
   wrap.append(topBtn);
   setTimeout(() => {
-    renderReplyBar(); renderPendingPrev(); ta.focus();
+    renderReplyBar(); renderPendingPrev(); renderSoftmute(); ta.focus();
     const box = $('#msgs'); if (!box) return;
     const upd = () => topBtn.classList.toggle('hidden', box.scrollHeight - box.clientHeight < 200 || box.scrollTop < 120 || !!$('#detached-bar'));
     box.addEventListener('scroll', upd, { passive: true }); upd();
@@ -1802,9 +1888,13 @@ async function sendMsg(ta, ch) {
   const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type }) => ({ url, name, size, type })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
-  try { await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); dropGhost(ghost); }
+  try {
+    const r = await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); dropGhost(ghost);
+    if (r?.slow_wait && ch.guild_id) { (S.slowUntil ||= {})[ch.guild_id] = Date.now() + r.slow_wait * 1000; renderSoftmute(); } // limitado: mostra quando pode mandar a próxima
+  }
   catch (e) { // falhou: devolve o texto e os anexos (antes os anexos sumiam)
     dropGhost(ghost); toast(e.message, true); ta.value = typed;
+    if (e.data?.softmute && ch.guild_id) { (S.slowUntil ||= {})[ch.guild_id] = Date.now() + e.data.retry_after * 1000; renderSoftmute(); }
     if (S.view.cid === ch.id) { S.pending = [...sent, ...S.pending]; renderPendingPrev(); } else freePending(sent);
   }
 }
@@ -2574,6 +2664,7 @@ function setupDesktop() {
 initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
 initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
+initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });

@@ -87,15 +87,18 @@ export async function api(method, path, body) {
   short.clear();
   return request(method, path, body);
 }
+// id desta aba/janela (sobrevive ao F5): o servidor reconhece a conexão antiga da mesma aba (sai da sala de voz na hora)
+// e manda os avisos de "lido"/configurações só para os OUTROS aparelhos saberem de onde veio a mudança
+export const tabId = (() => { try { let t = sessionStorage.getItem('lc_tab'); if (!t) sessionStorage.setItem('lc_tab', t = Math.random().toString(36).slice(2, 12)); return t; } catch { return Math.random().toString(36).slice(2, 12); } })();
 async function request(method, path, body) {
-  const opt = { method, headers: { Authorization: 'Bearer ' + (S.token || '') } };
+  const opt = { method, headers: { Authorization: 'Bearer ' + (S.token || ''), 'X-LC-Tab': tabId } };
   if (body instanceof Blob) { opt.body = body; opt.headers['Content-Type'] = body.type || 'application/octet-stream'; }
   else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
   const t0 = performance.now();
   const r = await fetch('/api' + path, opt);
   const data = await r.json().catch(() => ({}));
   const ms = performance.now() - t0; if (ms > 300 && S.apiSlow.length < 40) S.apiSlow.push({ r: method + ' /api' + path, ms: Math.round(ms) });
-  if (!r.ok) { const e = new Error(data.error || 'Erro ' + r.status); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(data.error || 'Erro ' + r.status); e.status = r.status; e.data = data; throw e; }
   return data;
 }
 export const tryApi = async (...a) => { try { return await api(...a); } catch (e) { toast(e.message, true); return null; } };
@@ -236,10 +239,26 @@ export function beep() {
     o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + .25);
   } catch { }
 }
-export function notify(title, body, onclick) {
+// ---------- aparelhos da conta (sincronização entre PC e celular) ----------
+// `S.devices`: as OUTRAS conexões da conta em uso agora (vem do servidor, evento DEVICES). Com outro aparelho em uso e
+// este parado, as notificações e sons daqui ficam em silêncio (as não lidas continuam contando) — quem está lendo no PC
+// não leva o celular vibrando junto. Desliga em Notificações → "Silenciar quando estiver em outro aparelho".
+export const elsewhere = () => (S.devices || []).some(d => d.tab !== tabId);
+export const quietHere = () => S.prefs.quietElsewhere !== false && elsewhere() && !(document.hasFocus() && !document.hidden);
+// notificações abertas por conversa: lida em qualquer aparelho (READ_STATE), as daqui fecham na hora
+const openNotifs = new Map(); // tag (id do canal) -> Set<Notification>
+export function notify(title, body, onclick, tag) {
   if (!S.prefs.desktopNotif || !('Notification' in window) || Notification.permission !== 'granted') return;
-  const n = new Notification(title, { body: body.slice(0, 140) });
+  if (quietHere()) return;
+  const n = new Notification(title, { body: body.slice(0, 140), ...(tag ? { tag: 'lc-' + tag } : {}) });
   n.onclick = () => { window.focus(); onclick?.(); n.close(); };
+  if (tag) { const set = openNotifs.get(tag) || openNotifs.set(tag, new Set()).get(tag); set.add(n); n.onclose = () => { set.delete(n); if (!set.size) openNotifs.delete(tag); }; }
+  return n;
+}
+export function closeNotifs(tag) {
+  for (const n of openNotifs.get(tag) || []) { try { n.close(); } catch { } }
+  openNotifs.delete(tag);
+  navigator.serviceWorker?.getRegistration?.().then(r => r?.getNotifications?.({ tag: 'lc-' + tag })).then(l => l?.forEach(n => n.close())).catch(() => { });
 }
 export { h, icon };
 
