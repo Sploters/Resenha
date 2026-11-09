@@ -5,6 +5,7 @@ import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
+import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
 import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
@@ -1739,19 +1740,31 @@ async function compressImage(file) {
   } catch { return file; }
 }
 async function addFile(file) {
-  const item = { name: file.name, size: file.size, file, state: 'up' }; S.pending.push(item); renderPendingPrev();
+  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }; S.pending.push(item); renderPendingPrev();
+  const pct = (stage) => (f) => { const p = Math.floor(f * 100); if (p !== item.pct || item.stage !== stage) { item.pct = p; item.stage = stage; renderPendingPrev(); } };
   try {
     file = await compressImage(file); Object.assign(item, { name: file.name, size: file.size, file });
-    const r = await api('POST', `/upload?name=${encodeURIComponent(file.name)}`, file);
+    // vídeo acima do limite do servidor: comprime aqui antes (upload.js), em vez do "arquivo muito grande"
+    const max = await maxUpload();
+    if (file.size > max) {
+      if (!isVideo(file)) throw new Error(`arquivo muito grande (limite de ${Math.round(max / 1048576)} MB)`);
+      const before = file.size;
+      try { file = await compressVideo(file, max, pct('compress')); } catch (e) { throw new Error(`vídeo maior que o limite de ${Math.round(max / 1048576)} MB e não deu para comprimir: ${e.message}`); }
+      if (item.ctrl.signal.aborted) return;
+      Object.assign(item, { name: file.name, size: file.size, file });
+      toast(`Vídeo comprimido: ${bytes(before)} → ${bytes(file.size)}`);
+    }
+    const r = await uploadFile(file, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
     Object.assign(item, r, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
-  } catch (e) { toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
+  } catch (e) { if (!item.ctrl.signal.aborted) toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
   renderPendingPrev();
 }
+const upLabel = (p) => p.wait ? 'Sem conexão — continua quando voltar' : p.stage === 'compress' ? `Comprimindo… ${p.pct || 0}%` : p.stage === 'up' && p.pct < 100 && p.size > 8388608 ? `Enviando… ${p.pct || 0}%` : 'Enviando…';
 function renderPendingPrev() {
   const box = $('#attach-prev'); if (!box) return;
   box.classList.toggle('hidden', !S.pending.length);
-  box.replaceChildren(...S.pending.map(p => h('div.prev-item', p.preview ? h('img', { src: p.preview }) : icon('file', 40), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div', 'Enviando…'),
-    h('button.x', { onclick: () => { freePending([p]); S.pending = S.pending.filter(x => x !== p); renderPendingPrev(); } }, icon('x', 14)))));
+  box.replaceChildren(...S.pending.map(p => h('div.prev-item', p.preview ? h('img', { src: p.preview }) : icon('file', 40), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
+    h('button.x', { onclick: () => { p.ctrl?.abort(); freePending([p]); S.pending = S.pending.filter(x => x !== p); renderPendingPrev(); } }, icon('x', 14)))));
 }
 const renderPending = () => { };
 // GIF escolhido no seletor: vai como o próprio link (respeita a resposta em andamento)

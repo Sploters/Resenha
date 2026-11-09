@@ -17,6 +17,7 @@ import { createRemote } from './remote.js';
 import { mountStatic } from './static.js';
 import { createThumbs } from './thumbs.js';
 import { mountStorage } from './storage.js';
+import { mountUploads } from './uploads.js';
 import { mountDesktopUpdate } from './desktopupdate.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
@@ -1206,6 +1207,15 @@ app.post('/api/translate', auth, wrap(async (req, res) => {
   catch (e) { bad(res, e.message, 502); }
 }));
 
+// arquivo já gravado em uploads/: vídeo com o índice no começo (toca na hora) e .mov do iPhone vira .mp4 (server/thumbs.js faststart)
+async function finalizeUpload(fname, name, size, type) {
+  let f = fname, n = name;
+  try {
+    const r = await thumbs.faststart(fname);
+    if (r !== fname) { f = r; n = name.replace(/\.[^.]*$/, '') + '.mp4'; type = 'video/mp4'; size = fs.statSync(path.join(UPLOAD_DIR, f)).size; }
+  } catch { }
+  return { url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type };
+}
 // Uploads (corpo bruto)
 app.post('/api/upload', auth, (req, res) => {
   const name = clean(req.query.name, 200).replace(/[\\/\0]/g, '_') || 'arquivo';
@@ -1226,12 +1236,8 @@ app.post('/api/upload', auth, (req, res) => {
   req.pipe(out);
   out.on('finish', async () => {
     if (aborted) return;
-    let f = fname, n = name, type = clean(req.headers['content-type'], 100);
-    try { // vídeo: índice no começo (toca na hora) e .mov do iPhone vira .mp4 (server/thumbs.js faststart)
-      const r = await thumbs.faststart(fname);
-      if (r !== fname) { f = r; n = name.replace(/\.[^.]*$/, '') + '.mp4'; type = 'video/mp4'; size = fs.statSync(path.join(UPLOAD_DIR, f)).size; }
-    } catch { }
-    if (!res.headersSent) res.json({ url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type });
+    const r = await finalizeUpload(fname, name, size, clean(req.headers['content-type'], 100));
+    if (!res.headersSent) res.json(r);
   });
   out.on('error', () => { if (!res.headersSent) bad(res, 'Falha no upload', 500); });
 });
@@ -1258,6 +1264,8 @@ function migrateOldClips() {
   return n;
 }
 migrateOldClips();
+// envio retomável em pedaços (server/uploads.js): arquivo grande que continua de onde parou se a conexão cair
+mountUploads(app, { auth, wrap, bad, clean, uploadDir: UPLOAD_DIR, maxUpload: MAX_UPLOAD, finalize: finalizeUpload });
 // gerenciador de armazenamento (server/storage.js): uso por pessoa/servidor/instalação, apagar mídias antigas e expiração
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
@@ -1413,7 +1421,7 @@ app.patch('/api/activity/pc', auth, wrap((req, res) => {
   if (before !== v) activity.onPcVisibility(req.uid, before, v);
   res.json({ visibility: v });
 }));
-app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS }));
+app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
 if (process.env.STATIC_OFF !== '1') mountStatic(app, path.join(__dirname, '..', 'public')); // comprimido, versionado e com modulepreload (server/static.js)
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));

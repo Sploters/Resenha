@@ -1416,3 +1416,8 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .tile.screen .hpill .hp-i.bad { color: #ffb4b6; } .tile.screen .hpill .hp-i.warn { color: #ffe1a1; }
 .tile.screen .snote { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; background: rgba(0,0,0,.6); color: #fff; text-align: center; pointer-events: none; backdrop-filter: blur(2px); }
 .tile.screen .snote svg { fill: currentColor; opacity: .85; } .tile.screen .snote b { font-size: 15px; } .tile.screen .snote span { font-size: 13px; opacity: .85; }
+
+/* ---------- envio: progresso, compressão e espera de conexão (upload.js) ---------- */
+#attach-prev .up-st { position: relative; font-size: 12px; color: var(--text-muted); padding-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#attach-prev .up-st.wait { color: var(--yellow, #f0b232); }
+#attach-prev .up-st .up-bar { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 2px; background: var(--brand, #5865f2); transition: width .3s; }
