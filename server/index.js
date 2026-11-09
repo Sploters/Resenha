@@ -16,6 +16,7 @@ import { createCallInvites } from './callinvites.js';
 import { createRemote } from './remote.js';
 import { mountStatic } from './static.js';
 import { createThumbs } from './thumbs.js';
+import { mountStorage } from './storage.js';
 import { mountDesktopUpdate } from './desktopupdate.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
@@ -1257,6 +1258,9 @@ function migrateOldClips() {
   return n;
 }
 migrateOldClips();
+// gerenciador de armazenamento (server/storage.js): uso por pessoa/servidor/instalação, apagar mídias antigas e expiração
+mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
+  isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
 
 app.get('/thumbs/:f', (req, res) => thumbs.route(req, res)); // miniatura de vídeo (server/thumbs.js)
 app.get('/thumbs/:f/strip', wrapA(async (req, res) => { // faixa da linha do tempo do editor de corte

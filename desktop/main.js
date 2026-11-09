@@ -26,7 +26,7 @@ app.setAppUserModelId('br.resenha.app');
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 
 const cfgPath = () => path.join(app.getPath('userData'), 'config.json');
-const defaults = { server: '', autoStart: false, startMinimized: false, closeToTray: true, globalHotkeys: true, hotkeyMute: 'CommandOrControl+Shift+M', hotkeyDeafen: 'CommandOrControl+Shift+D', hotkeyClip: 'F8', hardwareAcceleration: true, gpuCompat: 'auto', bounds: { width: 1360, height: 860 } };
+const defaults = { server: '', autoStart: false, startMinimized: false, closeToTray: true, globalHotkeys: true, hotkeyMute: 'CommandOrControl+Shift+M', hotkeyDeafen: 'CommandOrControl+Shift+D', hotkeyClip: 'F8', hardwareAcceleration: true, gpuCompat: 'auto', cacheLimitMB: 1024, bounds: { width: 1360, height: 860 } };
 let cfg = { ...defaults };
 try { cfg = { ...defaults, ...JSON.parse(fs.readFileSync(cfgPath(), 'utf8')) }; } catch { /* primeira execução */ }
 const saveCfg = () => { try { fs.mkdirSync(path.dirname(cfgPath()), { recursive: true }); fs.writeFileSync(cfgPath(), JSON.stringify(cfg, null, 2)); } catch (e) { console.error(e); } };
@@ -55,6 +55,9 @@ const winBuild = process.platform === 'win32' ? +require('node:os').release().sp
 const wgcBorder = process.platform === 'win32' && winBuild < 20348;
 if (wgcBorder) offFeatures.add('AllowWgcScreenCapturer');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+// teto do cache de disco (imagens, vídeos, miniaturas): o Chromium apaga os mais antigos sozinho ao passar disso.
+// Configurações → Armazenamento (0 = sem teto, o padrão do Chromium)
+if (+cfg.cacheLimitMB > 0) app.commandLine.appendSwitch('disk-cache-size', String(Math.round(+cfg.cacheLimitMB * 1048576)));
 // PC com duas placas (vídeo integrado do processador + placa dedicada): usa a dedicada. Se o app rodasse na integrada
 // com o monitor ligado na dedicada, cada quadro teria que passar de uma placa para a outra (piscadas, cores erradas)
 app.commandLine.appendSwitch('force_high_performance_gpu');
@@ -308,12 +311,21 @@ ipcMain.handle('set-settings', (_e, patch) => {
   for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
   if ('hardwareAcceleration' in patch) cfg.hardwareAcceleration = !!patch.hardwareAcceleration;
   if (['auto', 'on', 'off'].includes(patch.gpuCompat)) cfg.gpuCompat = patch.gpuCompat;
+  if ('cacheLimitMB' in patch) cfg.cacheLimitMB = Math.max(0, Math.min(65536, Math.round(+patch.cacheLimitMB || 0)));
   if ('hotkeyMute' in patch || 'hotkeyDeafen' in patch || 'hotkeyClip' in patch) registerHotkeys();
   if ('autoStart' in patch) app.setLoginItemSettings({ openAtLogin: cfg.autoStart, args: ['--hidden'] });
   if ('globalHotkeys' in patch) registerHotkeys();
   saveCfg(); return true;
 });
-ipcMain.handle('clear-cache', async () => { await session.defaultSession.clearCache(); return true; });
+// limpa o que é só cache (mídias, scripts compilados, shaders, cache do app instalável); login e configurações ficam
+ipcMain.handle('clear-cache', async () => {
+  const ses = session.defaultSession;
+  await ses.clearCache();
+  await ses.clearStorageData({ storages: ['cachestorage', 'shadercache'] }).catch(() => { });
+  await ses.clearCodeCaches?.({}).catch(() => { });
+  return true;
+});
+ipcMain.handle('cache-info', async () => ({ http: await session.defaultSession.getCacheSize(), limitMB: +cfg.cacheLimitMB || 0 }));
 ipcMain.handle('relaunch', () => {
   quitting = true;
   if (update?.file && !updating && !portable) { updating = true; runInstaller(update.file, true); app.exit(0); return true; } // reabre já atualizado

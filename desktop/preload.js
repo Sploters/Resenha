@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (p) => ipcRenderer.invoke('set-settings', p),
   clearCache: () => ipcRenderer.invoke('clear-cache'),
+  cacheInfo: () => ipcRenderer.invoke('cache-info'), // { http: bytes, limitMB } (Configurações → Armazenamento)
   relaunch: () => ipcRenderer.invoke('relaunch'),
   changeServer: () => ipcRenderer.invoke('change-server'),
   testServer: (input) => ipcRenderer.invoke('test-server', input),
