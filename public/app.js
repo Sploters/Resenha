@@ -811,6 +811,7 @@ function joinVoice(cid) {
 // aberta; solto: abre ao passar o mouse ou clicar no avatar
 const uaPinned = () => S.prefs.uaPinned ?? !S.prefs.uaCollapsed;
 function setUaPinned(v) { S.prefs.uaPinned = v; delete S.prefs.uaCollapsed; savePrefs(); renderSide(); }
+let pbHoldUntil = 0, pbHoldT = 0;
 function userbar() {
   const me = S.me, ctx = () => ({ voice, logout, go }), pinned = uaPinned();
   const status = () => openStatusPanel($('#userbar .me') || $('.pb-av'), { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout });
@@ -826,7 +827,10 @@ function userbar() {
     swapIcon(h('button.ibtn.pb-deaf' + (voice?.deafened ? '.on' : ''), { title: (voice?.deafened ? 'Ativar áudio' : 'Ensurdecer') + ' (clique direito: saída e volumes)', onclick: () => voiceToggle('deaf'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
     h('button.ibtn', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
     h('button.ibtn.pb-pin' + (pinned ? '.on' : ''), { title: pinned ? 'Soltar a barra (abre só ao passar o mouse)' : 'Fixar a barra aberta', 'aria-pressed': String(pinned), onclick: () => setUaPinned(!pinned) }, icon('pin', 20)));
-  const bar = h('div.pbar' + (pinned ? '.pinned' : ''), av, body);
+  const bar = h('div.pbar' + (pinned ? '.pinned' : '') + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
+  // a barra solta continua aberta 0,5 s depois que o mouse sai (dá para voltar sem ela sumir); sobrevive a redesenhos
+  bar.addEventListener('mouseenter', () => { clearTimeout(pbHoldT); pbHoldUntil = Infinity; bar.classList.add('hov'); });
+  bar.addEventListener('mouseleave', () => { clearTimeout(pbHoldT); pbHoldUntil = Date.now() + 500; pbHoldT = setTimeout(() => { pbHoldUntil = 0; document.querySelectorAll('.pbar.hov').forEach(b => b.classList.remove('hov')); }, 500); });
   return bar;
 }
 function voiceToggle(k) { k === 'mute' ? voice.toggleMute() : voice.toggleDeaf(); }
@@ -1626,11 +1630,11 @@ function composer(ch, label) {
   // GIF, emoji e gravar voz num botão só: abre uma fileira com os três ícones (o nome aparece ao passar o mouse)
   const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', 'data-keepfloat': '', title: 'GIF, emoji e mensagem de voz', 'aria-label': 'GIF, emoji e mensagem de voz', 'aria-haspopup': 'true' }, icon('extras', 26));
   const insertEmoji = (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); };
-  // abre ao passar o mouse (ou clicar) e fecha ~1,2 s depois que o mouse sai do botão e do painel
+  // abre ao passar o mouse (ou clicar) e fecha 0,5 s depois que o mouse sai do botão e do painel
   let cxEl = null, cxTimer = 0, cxAt = 0;
   const cxOpen = () => !!cxEl && cxEl.isConnected;
   const cxHide = () => { clearTimeout(cxTimer); if (cxOpen()) cxEl.remove(); cxEl = null; };
-  const cxLater = () => { clearTimeout(cxTimer); cxTimer = setTimeout(cxHide, 1200); };
+  const cxLater = () => { clearTimeout(cxTimer); cxTimer = setTimeout(cxHide, 500); };
   const cxShow = () => {
     clearTimeout(cxTimer); if (cxOpen()) return;
     const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', title: label, 'aria-label': label, onclick: () => { cxHide(); closeFloating(); fn(); } }, icon(ic, 24));

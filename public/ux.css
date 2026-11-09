@@ -141,9 +141,9 @@ button.mgroup .mg-n::before { content: '— '; }
 #userbar.pb-body { display: none !important; flex: 1 1 auto; min-width: 0; height: auto !important; position: relative; margin-left: 8px; padding: 0 6px 0 8px !important; gap: 2px !important; align-items: center; border-radius: 18px; background: var(--bg-user); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
 /* ponte entre o avatar e a barra (o "pescoço" do design) */
 .pb-body::before { content: ''; position: absolute; left: -9px; top: 16px; bottom: 16px; width: 10px; background: var(--bg-user); }
-.pbar.pinned .pb-av, .pbar:hover .pb-av, .pbar.open .pb-av, .pbar:focus-within .pb-av { background: var(--bg-user); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
-.pbar.pinned #userbar.pb-body, .pbar:hover #userbar.pb-body, .pbar.open #userbar.pb-body, .pbar:focus-within #userbar.pb-body { display: flex !important; }
-.pbar.pinned .pb-av .pb-st, .pbar:hover .pb-av .pb-st, .pbar.open .pb-av .pb-st, .pbar.pinned .pb-av .pb-off, .pbar:hover .pb-av .pb-off, .pbar.open .pb-av .pb-off { border-color: var(--bg-user); }
+.pbar.pinned .pb-av, .pbar:hover .pb-av, .pbar.hov .pb-av, .pbar.open .pb-av, .pbar:focus-within .pb-av { background: var(--bg-user); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+.pbar.pinned #userbar.pb-body, .pbar:hover #userbar.pb-body, .pbar.hov #userbar.pb-body, .pbar.open #userbar.pb-body, .pbar:focus-within #userbar.pb-body { display: flex !important; }
+.pbar.pinned .pb-av .pb-st, .pbar:hover .pb-av .pb-st, .pbar.hov .pb-av .pb-st, .pbar.open .pb-av .pb-st, .pbar.pinned .pb-av .pb-off, .pbar:hover .pb-av .pb-off, .pbar.open .pb-av .pb-off { border-color: var(--bg-user); }
 .pbar:not(.pinned) .pb-av:hover .avatar { box-shadow: 0 0 0 2px var(--brand); }
 .pb-body .me { flex: 1; min-width: 0; }
 .pb-body .ibtn { width: 34px !important; height: 36px; }
@@ -547,8 +547,8 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 @media (min-width: 641px) {
   #app.hide-side #user-area { right: auto; width: 320px; }
   #app.hide-side #user-area > .ua-vp { display: none; }
-  #app.hide-side .pbar.pinned:not(:hover):not(.open):not(:focus-within) #userbar.pb-body { display: none !important; }
-  #app.hide-side .pbar.pinned:not(:hover):not(.open):not(:focus-within) .pb-av { background: transparent; box-shadow: none; }
+  #app.hide-side .pbar.pinned:not(:hover):not(.hov):not(.open):not(:focus-within) #userbar.pb-body { display: none !important; }
+  #app.hide-side .pbar.pinned:not(:hover):not(.hov):not(.open):not(:focus-within) .pb-av { background: transparent; box-shadow: none; }
 }
 
 /* ---------- compositor: GIF, emoji e gravar voz num botão só (três ícones do mesmo tamanho, sem texto) ---------- */
