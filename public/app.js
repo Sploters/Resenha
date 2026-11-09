@@ -406,8 +406,8 @@ function renderRail() {
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
   const meView = S.view.gid === '@me';
   rail.replaceChildren(
-    wrap(S.searchOpen ? '.active' : '', 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
-    wrap(meView && !S.searchOpen ? '.active' : '', 'Mensagens e amigos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly' + (meView && !S.searchOpen ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => gsFlyClick(), style: { fontSize: '0' } }, icon('search', 26))),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
       return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name,
@@ -430,8 +430,52 @@ function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de M
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
 const GS = { q: '', scope: 'all', sort: 'new', groups: null, loading: false, open: null, msgs: {}, seq: 0 };
-function toggleGlobalSearch() { S.searchOpen = !S.searchOpen; renderRail(); renderSide(); if (S.searchOpen) setTimeout(() => $('#gs-q')?.focus()); }
-function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; renderRail(); renderSide(); }
+function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; RF.gsHov = false; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderSide(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
+function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; RF.gsHov = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderSide(); }
+// ---------- lista de canais oculta: Mensagens/Amigos e Buscar em tudo abrem ao passar o mouse ----------
+// Mensagens e amigos: sai do ícone uma fileira com as duas abas. Buscar em tudo: o painel de busca aparece flutuando por
+// cima da conversa. Os dois fecham 0,5 s depois que o mouse sai (a busca fica aberta se você clicou nela ou digitou algo)
+const sideHidden = () => !!$('#app.hide-side') && matchMedia('(min-width: 641px)').matches;
+const RF = { me: null, meT: 0, meAt: 0, gsT: 0, gsHov: false };
+const meFlyOpen = () => !!RF.me && RF.me.isConnected && !RF.me.classList.contains('leaving');
+function meFlyHide() { clearTimeout(RF.meT); if (meFlyOpen()) RF.me.remove(); RF.me = null; }
+function meFlyShow(anchor) {
+  clearTimeout(RF.meT); if (meFlyOpen()) return;
+  const tab = S.view.gid !== '@me' || S.searchOpen ? null : S.view.kind === 'home' ? 'friends' : S.view.kind === 'messages' || S.view.kind === 'dm' ? 'messages' : null;
+  const opt = (k, ic, label, fn) => h('button.rf-opt' + (tab === k ? '.on' : ''), { type: 'button', role: 'menuitem', 'aria-current': tab === k ? 'page' : null, onclick: () => { meFlyHide(); closeGlobalSearch(); fn(); } }, icon(ic, 20), h('span', label));
+  const el = RF.me = popout(anchor, h('div.rf-pop', { role: 'menu' }, opt('messages', 'dm', 'Mensagens', openMessages), opt('friends', 'users', 'Amigos', () => go('@me'))));
+  el.classList.add('rf-popout'); RF.meAt = Date.now();
+  el.addEventListener('mouseenter', () => clearTimeout(RF.meT)); el.addEventListener('mouseleave', meFlyLater);
+  const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();
+  el.style.top = Math.max(8, Math.min(r.top + r.height / 2 - b.height / 2, innerHeight - b.height - 8)) + 'px';
+}
+function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500); }
+// busca aberta pelo mouse: fecha sozinha, a menos que você tenha clicado nela ou digitado algo
+function gsFlyEnter() { clearTimeout(RF.gsT); if (!S.searchOpen) { toggleGlobalSearch(false); RF.gsHov = true; } }
+function gsFlyLater() {
+  clearTimeout(RF.gsT);
+  RF.gsT = setTimeout(() => { if (RF.gsHov && S.searchOpen && !GS.q.trim() && !$('#side')?.matches(':focus-within')) closeGlobalSearch(); }, 500);
+}
+function gsFlyClick() {
+  if (sideHidden() && RF.gsHov) { RF.gsHov = false; clearTimeout(RF.gsT); $('#gs-q')?.focus(); return; } // aberta pelo mouse: o clique fixa e vai para o campo
+  toggleGlobalSearch();
+}
+{
+  const flyOf = (e) => sideHidden() && e.target.closest?.('#rail [data-fly]')?.dataset.fly;
+  document.addEventListener('mouseover', (e) => {
+    const k = flyOf(e);
+    if (k === 'me') { if (!document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(e.target.closest('[data-fly]')); }
+    else if (k === 'gs' || (S.searchOpen && sideHidden() && e.target.closest?.('#side'))) gsFlyEnter();
+  });
+  document.addEventListener('mouseout', (e) => {
+    const k = flyOf(e), to = e.relatedTarget;
+    if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { if (meFlyOpen()) meFlyLater(); }
+    else if ((k === 'gs' || (sideHidden() && e.target.closest?.('#side'))) && !to?.closest?.('[data-fly="gs"], #side')) gsFlyLater();
+  });
+  // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
+  document.addEventListener('mousedown', (e) => { if (S.searchOpen && sideHidden() && !e.target.closest('#side, #rail [data-fly="gs"], #layer')) closeGlobalSearch(); });
+  document.addEventListener('click', (e) => { if (S.searchOpen && sideHidden() && e.target.closest('#side .gs-msg, #side .gs-group:not([aria-expanded])')) setTimeout(closeGlobalSearch); });
+}
 const gsKey = (g) => g.guild_id ? 'g:' + g.guild_id : 'd:' + g.channel_id;
 async function runGlobalSearch() {
   const q = GS.q.trim(), seq = ++GS.seq; GS.open = null; GS.msgs = {};
@@ -491,7 +535,7 @@ function gsMsg(m, inGuild) {
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
 }
 // ícone de mensagens da barra: volta para a aba usada por último (Mensagens ou Amigos)
-function openMeSection() { closeGlobalSearch(); if (localStorage.getItem('lc_metab') === 'friends') go('@me'); else openMessages(); }
+function openMeSection() { meFlyHide(); closeGlobalSearch(); if (localStorage.getItem('lc_metab') === 'friends') go('@me'); else openMessages(); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
 const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
