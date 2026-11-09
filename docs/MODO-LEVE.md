@@ -48,3 +48,20 @@ As falhas antigas de `ui-test.mjs` e `extras-test.mjs` eram testes desatualizado
 Sem notificações nem painel de métricas, só dois sinais visíveis enquanto o modo leve estiver ligado neste computador:
 - **Configurações:** selo verde "Ativo" ao lado de "Modo leve" no menu lateral (atualiza na hora ao ligar/desligar, pelo evento `lite-changed`).
 - **Cartão do usuário** (clique no seu nome na barra de baixo): linha com uma folha, "Modo leve ativo — neste computador"; clicar abre a página Modo leve.
+
+
+## Automático com o jogo aberto (2026-11-09)
+- Chave **"Ligar sozinho quando um jogo abrir"** (só no app desktop; `liteAuto`, padrão ligado, local à máquina).
+- O laço do "Jogando…" (`startGameDetect`, a cada 20 s) chama `gameChanged(jogo)` mesmo com a atividade escondida dos outros.
+- Jogo aberto e modo leve desligado: liga **sem** `noiseMode` e `screen` (a call e a live continuam iguais) e grava
+  `liteAutoGame`. Jogo fechado em duas leituras seguidas (uma pode ser alt+tab): desliga, se foi o automático que ligou.
+- Ligar ou desligar à mão apaga `liteAutoGame`: o automático não desfaz a escolha da pessoa. Desligar à mão com o jogo
+  aberto não religa até aquele jogo fechar.
+- `liteAuto` e `liteAutoGame` estão em `DEVICE_KEYS`.
+
+## Consumo agora
+Painel na mesma página. No app desktop: `app.getAppMetrics()` (IPC `app-metrics`) agrupado em Interface, Placa de vídeo,
+Janela e sistema, Áudio, Captura e Rede; a CPU é dividida pelo número de núcleos (o Chromium mede por núcleo). No navegador:
+só a memória JS da página. Embaixo, o que está ligado agora e costuma pesar (ruído por IA em chamada, transmissões
+assistidas, buffer de clipes, transmitir, câmera, animações, GIFs). Atualiza a cada 2 s só com a página aberta.
+Teste: `scripts/autolite-test.mjs`.

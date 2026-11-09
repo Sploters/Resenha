@@ -1391,3 +1391,16 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .stgpage .stg-ok { display: inline-flex; align-items: center; gap: 6px; color: var(--green, #23a55a); font-weight: 600; } .stgpage .stg-ok svg { fill: currentColor; }
 .stgpage .btn { display: inline-flex; align-items: center; gap: 6px; } .stgpage .btn svg { fill: currentColor; }
 @media (max-width: 560px) { .stgpage .stg-place { grid-template-columns: minmax(0, 1fr) auto; } .stgpage .stg-pbar { grid-column: 1 / -1; grid-row: 2; } }
+
+/* ---------- Modo leve → Consumo agora (lite.js usagePanel) ---------- */
+.usage .us-total { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-end; padding: 4px 2px 12px; }
+.usage .us-total > div { display: flex; flex-direction: column; } .usage .us-total b { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; } .usage .us-total span { color: var(--text-muted); font-size: 12.5px; }
+.usage .us-total .us-note { flex: 1; min-width: 200px; color: var(--text-muted); font-size: 13px; }
+.usage .us-rows { display: flex; flex-direction: column; gap: 6px; }
+.usage .us-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1fr) 64px 48px; gap: 10px; align-items: center; font-size: 13.5px; }
+.usage .us-row b, .usage .us-row small { text-align: right; font-variant-numeric: tabular-nums; } .usage .us-row small { color: var(--text-muted); }
+.usage .us-bar { height: 6px; border-radius: 3px; background: var(--bg-ter, rgba(127,127,127,.18)); overflow: hidden; } .usage .us-bar i { display: block; height: 100%; background: var(--brand, #5865f2); }
+.usage .us-heavy { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--divider, rgba(127,127,127,.2)); display: flex; flex-direction: column; gap: 8px; }
+.usage .us-h { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; } .usage .us-h svg { fill: var(--yellow, #f0b232); flex: none; margin-top: 2px; }
+.usage .us-h div { display: flex; flex-direction: column; } .usage .us-h span { color: var(--text-muted); }
+@media (max-width: 520px) { .usage .us-row { grid-template-columns: minmax(0, 1fr) 64px 48px; } .usage .us-bar { display: none; } }

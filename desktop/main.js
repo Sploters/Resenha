@@ -325,6 +325,8 @@ ipcMain.handle('clear-cache', async () => {
   await ses.clearCodeCaches?.({}).catch(() => { });
   return true;
 });
+// consumo agora (Configurações → Modo leve): CPU e memória de cada processo do app, agrupados pelo que fazem
+ipcMain.handle('app-metrics', () => app.getAppMetrics().map(m => ({ type: m.type, service: m.serviceName || m.name || '', cpu: m.cpu?.percentCPUUsage || 0, mem: (m.memory?.workingSetSize || 0) * 1024 })));
 ipcMain.handle('cache-info', async () => ({ http: await session.defaultSession.getCacheSize(), limitMB: +cfg.cacheLimitMB || 0 }));
 ipcMain.handle('relaunch', () => {
   quitting = true;

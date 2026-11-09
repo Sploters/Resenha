@@ -10,6 +10,7 @@ export const NEWS = [
     items: [
       { i: 'play', t: 'Player com gestos no celular', d: 'Dois toques no lado direito ou esquerdo do vídeo avançam ou voltam 10 s (cada toque a mais soma 10 s). Dois toques no meio abrem a tela cheia, e segurar o dedo acelera para 2× enquanto segurar.' },
       { i: 'video', t: 'Vídeos que começam na hora', d: 'Vídeos enviados agora tocam sem esperar baixar tudo, e os .mov do iPhone tocam direto no chat.' },
+      { i: 'bolt', t: 'Modo leve automático no jogo', d: 'No app desktop, o modo leve liga sozinho quando um jogo abre e desliga quando ele fecha. A redução de ruído e a qualidade da transmissão não mudam. Em Modo leve também aparece quanto a Resenha está usando de processador e memória agora, e o que está pesando.', try: 'lite' },
       { i: 'file', t: 'Armazenamento', d: 'Configurações → Armazenamento mostra quanto suas mídias ocupam neste aparelho e no servidor, por conversa e por tipo. Dá para limpar o cache sem sair da conta, pôr um limite de tamanho no app desktop e apagar de uma vez as mídias com mais de 30 dias. Quem gerencia um servidor pode fazer as mídias antigas expirarem sozinhas.', try: 'storage' },
       { i: 'expand', t: 'Shorts, TikTok e Reels no chat', d: 'Links do YouTube (inclusive Shorts), TikTok e Instagram tocam ali mesmo. Os vídeos em pé ganham o botão "Tela vertical": abre em tela cheia e é só deslizar (ou ↑ ↓) para o próximo.' },
     ],

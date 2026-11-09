@@ -20,7 +20,7 @@ import { refreshFreeze } from './freeze.js';
 import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
-import { syncThrottle } from './lite.js';
+import { syncThrottle, gameChanged, liteAutoOn } from './lite.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
@@ -818,6 +818,7 @@ const newsActions = {
   messages: () => openMessages(),
   appearance: () => openSettings('appearance', ctxSettings()),
   storage: () => openSettings('storage', ctxSettings()),
+  lite: () => openSettings('lite', ctxSettings()),
   stream: () => openSettings('stream', ctxSettings()),
   poll: () => { const ch = channelById(S.view.cid); if (ch && $('#composer')) pollModal(ch); else toast('Abra um chat e use o + do campo de mensagem → "Criar enquete".'); },
   settings: () => openSettings('news', ctxSettings()),
@@ -2496,8 +2497,11 @@ function startGameDetect() {
   if (!desktop?.detectGame || gameTimer) return;
   api('GET', '/activity/pc').then(r => { S.pcActivity = r.visibility; }).catch(() => { });
   const tick = async () => {
-    if (S.pcActivity === 'off' || ws?.readyState !== 1) return;
+    const share = S.pcActivity !== 'off' && ws?.readyState === 1;
+    if (!share && !liteAutoOn()) return;
     const g = await desktop.detectGame().catch(() => null), id = g?.id || null;
+    gameChanged(g, voice); // modo leve automático enquanto o jogo está aberto (lite.js)
+    if (!share) return;
     // o ícone (PNG ~10 KB) só vai quando o jogo muda ou a conexão é nova; nas outras vezes o servidor usa o que já tem
     if (g || sentGame !== null) gwSend('ACTIVITY_LOCAL', { game: g ? { id: g.id, title: g.title, steam: g.steam || null, ...(id !== sentGame && g.icon ? { icon: g.icon } : {}) } : null });
     sentGame = id;
