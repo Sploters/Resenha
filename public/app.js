@@ -38,7 +38,7 @@ import { timeoutDialog, removeTimeout, banDialog, timedOutUntil } from './mod.js
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon } from './activity.js';
-import { toggleTranslation, isTranslated, translationBlock, translateOutgoing, draftMenu } from './translate.js';
+import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
 import { rumReady } from './rum.js';
@@ -1534,20 +1534,18 @@ function composer(ch, label) {
     else if (e.key === 'Escape') { if (ac) ac.remove(); else if (S.replyTo) { S.replyTo = null; renderReplyBar(); } }
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
-  // emoji, GIF, mensagem de voz e traduzir num botão só: abre um painel com as quatro opções
-  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'Emoji, GIF, mensagem de voz e tradução', 'aria-label': 'Emoji, GIF, mensagem de voz e tradução', 'aria-haspopup': 'true' }, icon('extras', 26));
+  // GIF, emoji e gravar voz num botão só: abre uma fileira com os três ícones (o nome aparece ao passar o mouse)
+  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'GIF, emoji e mensagem de voz', 'aria-label': 'GIF, emoji e mensagem de voz', 'aria-haspopup': 'true' }, icon('extras', 26));
   const insertEmoji = (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); };
   extrasBtn.onclick = () => {
-    const at = () => { const r = extrasBtn.getBoundingClientRect(); return { preventDefault() { }, clientX: r.left - 120, clientY: r.top - 140 }; };
-    const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', onclick: () => { closeFloating(); fn(); } }, ic, h('span', label));
+    const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', title: label, 'aria-label': label, onclick: () => { closeFloating(); fn(); } }, icon(ic, 24));
     const body = h('div.cx-pop', { role: 'menu' },
-      opt(icon('smile', 24), 'Emoji', () => emojiPicker(extrasBtn, insertEmoji)),
-      opt(h('span.cx-gif', 'GIF'), 'GIF', () => gifPicker(extrasBtn, (url) => sendGif(ch, url))),
-      opt(icon('mic', 22), 'Gravar voz', () => recordVoiceMessage(ch, extrasBtn.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } })),
-      opt(icon('translate', 22), 'Traduzir', () => draftMenu(at(), ta)));
+      opt('cxgif', 'GIF', () => gifPicker(extrasBtn, (url) => sendGif(ch, url))),
+      opt('cxemoji', 'Emoji', () => emojiPicker(extrasBtn, insertEmoji)),
+      opt('cxmic', 'Gravar mensagem de voz', () => recordVoiceMessage(ch, extrasBtn.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } })));
     const el = popout(extrasBtn, body, 'up'); el.classList.add('cx-popout');
     const r = extrasBtn.getBoundingClientRect(), b = el.getBoundingClientRect();
-    el.style.top = Math.max(8, r.top - b.height - 10) + 'px'; el.style.left = Math.max(8, Math.min(r.right - b.width, innerWidth - b.width - 8)) + 'px';
+    el.style.top = Math.max(8, r.top - b.height - 8) + 'px'; el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - b.width / 2, innerWidth - b.width - 8)) + 'px';
   };
   const wrap = h('div#composer-wrap', h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
     h('div#composer', h('button.ibtn', { title: 'Enviar arquivo ou compartilhar tema', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
