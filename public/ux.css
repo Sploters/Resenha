@@ -549,6 +549,10 @@ h3.sec.snd-sec .icon { fill: currentColor; }
   #app.hide-side #user-area > .ua-vp { display: none; }
   #app.hide-side .pbar.pinned:not(:hover):not(.hov):not(.open):not(:focus-within) #userbar.pb-body { display: none !important; }
   #app.hide-side .pbar.pinned:not(:hover):not(.hov):not(.open):not(:focus-within) .pb-av { background: transparent; box-shadow: none; }
+  /* só a bolinha do avatar: ao passar o mouse sai uma barra curta com microfone, fone e configurações (sem nome, status
+     nem alfinete); continua aberta 0,5 s depois que o mouse sai, como a barra solta */
+  #app.hide-side #userbar.pb-body { flex: none; padding: 0 6px !important; }
+  #app.hide-side #userbar.pb-body .me, #app.hide-side #userbar.pb-body .pb-pin { display: none; }
 }
 
 /* ---------- compositor: GIF, emoji e gravar voz num botão só (três ícones do mesmo tamanho, sem texto) ---------- */

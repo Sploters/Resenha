@@ -814,7 +814,7 @@ function setUaPinned(v) { S.prefs.uaPinned = v; delete S.prefs.uaCollapsed; save
 let pbHoldUntil = 0, pbHoldT = 0;
 function userbar() {
   const me = S.me, ctx = () => ({ voice, logout, go }), pinned = uaPinned();
-  const status = () => openStatusPanel($('#userbar .me') || $('.pb-av'), { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout });
+  const status = () => openStatusPanel((!$('#app.hide-side') && $('#userbar .me')) || $('.pb-av'), { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout });
   const off = voice?.muted || voice?.deafened;
   const av = h('button.pb-av', { type: 'button', 'aria-label': pinned ? 'Status e perfil' : 'Abrir a barra do perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
     onclick: () => { if (pinned || bar.classList.contains('open')) return status(); bar.classList.add('open'); setTimeout(() => document.addEventListener('pointerdown', function out(e) { if (!bar.contains(e.target)) { bar.classList.remove('open'); document.removeEventListener('pointerdown', out, true); } }, true)); },
@@ -825,7 +825,7 @@ function userbar() {
       h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', me.custom_status || STATUS_TXT[me.status]))),
     swapIcon(h('button.ibtn.pb-mic' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: microfone, ruído e eco)', onclick: () => voiceToggle('mute'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'in', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.muted ? 'micoff' : 'mic')), 'ua-mic', !!voice?.muted),
     swapIcon(h('button.ibtn.pb-deaf' + (voice?.deafened ? '.on' : ''), { title: (voice?.deafened ? 'Ativar áudio' : 'Ensurdecer') + ' (clique direito: saída e volumes)', onclick: () => voiceToggle('deaf'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
-    h('button.ibtn', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
+    h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
     h('button.ibtn.pb-pin' + (pinned ? '.on' : ''), { title: pinned ? 'Soltar a barra (abre só ao passar o mouse)' : 'Fixar a barra aberta', 'aria-pressed': String(pinned), onclick: () => setUaPinned(!pinned) }, icon('pin', 20)));
   const bar = h('div.pbar' + (pinned ? '.pinned' : '') + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
   // a barra solta continua aberta 0,5 s depois que o mouse sai (dá para voltar sem ela sumir); sobrevive a redesenhos
