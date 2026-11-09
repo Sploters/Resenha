@@ -1223,7 +1223,15 @@ app.post('/api/upload', auth, (req, res) => {
   // e um arquivo pela metade em uploads/ para sempre)
   req.on('close', () => { if (!req.complete) abort(); });
   req.pipe(out);
-  out.on('finish', () => { if (!aborted) res.json({ url: `/files/${fname}/${encodeURIComponent(name)}`, name, size, type: clean(req.headers['content-type'], 100) }); });
+  out.on('finish', async () => {
+    if (aborted) return;
+    let f = fname, n = name, type = clean(req.headers['content-type'], 100);
+    try { // vídeo: índice no começo (toca na hora) e .mov do iPhone vira .mp4 (server/thumbs.js faststart)
+      const r = await thumbs.faststart(fname);
+      if (r !== fname) { f = r; n = name.replace(/\.[^.]*$/, '') + '.mp4'; type = 'video/mp4'; size = fs.statSync(path.join(UPLOAD_DIR, f)).size; }
+    } catch { }
+    if (!res.headersSent) res.json({ url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type });
+  });
   out.on('error', () => { if (!res.headersSent) bad(res, 'Falha no upload', 500); });
 });
 const SAFE_INLINE = /^(image\/(png|jpe?g|gif|webp|avif|bmp)|video\/(mp4|webm|ogg)|audio\/(mpeg|ogg|wav|webm|mp4)|text\/plain|application\/pdf)$/;

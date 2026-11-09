@@ -953,6 +953,17 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .fsvid:fullscreen .vc-btn { width: 42px; height: 42px; } .fsvid:fullscreen .vc-btn svg { width: 24px; height: 24px; }
 .fsvid:fullscreen .vc-time { font-size: 14px; }
 @media (max-width: 420px) { .fsvid .vc-speed { display: none; } }
+/* toque: dois toques num lado pulam 10 s (meia-lua com o total), segurar = 2× */
+.fsvid video { touch-action: manipulation; -webkit-touch-callout: none; }
+.fsvid .vc-seek { position: absolute; top: 0; bottom: 0; width: 38%; z-index: 2; display: flex; align-items: center; justify-content: center; color: #fff; font: 700 15px/1 var(--font, inherit); text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; opacity: 0; }
+.fsvid .vc-seek.l { left: 0; border-radius: 0 50% 50% 0 / 0 50% 50% 0; background: linear-gradient(to right, rgba(255,255,255,.16), rgba(255,255,255,.05)); }
+.fsvid .vc-seek.r { right: 0; border-radius: 50% 0 0 50% / 50% 0 0 50%; background: linear-gradient(to left, rgba(255,255,255,.16), rgba(255,255,255,.05)); }
+.fsvid .vc-seek.go { animation: vc-seek .8s ease-out; }
+@keyframes vc-seek { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
+.fsvid .vc-hold { position: absolute; top: 12px; left: 50%; z-index: 3; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font: 700 13px/1 var(--font, inherit); pointer-events: none; display: none; }
+.fsvid.held .vc-hold { display: block; }
+.fsvid .vc-shorts { display: none; }
+.fsvid.vert .vc-shorts { display: flex; }
 
 /* ---------- teste da transmissão nativa (120 FPS) ---------- */
 .ntest .ntintro { color: var(--text-muted); margin: 0 0 12px; font-size: 14px; }
@@ -1311,3 +1322,40 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 ::view-transition-new(root) { animation: lc-fade 160ms var(--ease-out) both; }
 ::view-transition-group(*) { animation-duration: 220ms; animation-timing-function: var(--ease-in-out); }
 /* (sem view-transition-name em canal/aba ativos: o navegador "arrastava" o destaque do item antigo até o clicado) */
+
+/* ---------- vídeos de redes sociais no chat (media.js) ---------- */
+.sembed { position: relative; margin-top: 6px; width: min(400px, 100%); aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; color: #fff; }
+.sembed.vert { width: min(240px, 60vw); aspect-ratio: 9 / 16; }
+.sembed .se-cover { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(160deg, #26272b, #111214); }
+.sembed.se-tiktok .se-cover { background: linear-gradient(160deg, #25f4ee33, #111214 45%, #fe2c5533); }
+.sembed.se-instagram .se-cover { background: linear-gradient(160deg, #f58529aa, #dd2a7b88 45%, #515bd4aa); }
+.sembed .se-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sembed .se-cover iframe { width: 100%; height: 100%; border: 0; display: block; }
+.sembed .se-play { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(2px); transition: transform .15s, background .15s; }
+.sembed .se-play svg { fill: currentColor; margin-left: 3px; }
+.sembed .se-play:hover { transform: scale(1.06); background: rgba(0,0,0,.75); }
+.sembed .se-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 4px; padding: 8px 8px 18px; background: linear-gradient(rgba(0,0,0,.6), transparent); pointer-events: none; }
+.sembed .se-name { flex: 1; font-size: 12.5px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.sembed .se-btn { pointer-events: auto; width: 30px; height: 30px; border: 0; border-radius: 8px; background: rgba(0,0,0,.45); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.sembed .se-btn:hover { background: rgba(0,0,0,.7); } .sembed .se-btn svg { fill: currentColor; }
+.sembed.on .se-play, .sembed.on .se-top { display: none; }
+
+/* ---------- visualizador vertical (media.js openShorts) ---------- */
+#shorts { position: fixed; inset: 0; z-index: 130; background: #000; color: #fff; }
+#shorts .sh-track { position: absolute; inset: 0; overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+#shorts .sh-track::-webkit-scrollbar { display: none; }
+#shorts .sh-slide { height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; }
+#shorts .sh-media { position: relative; height: 100%; aspect-ratio: 9 / 16; max-width: 100%; background: #111; }
+#shorts .sh-media iframe { width: 100%; height: 100%; border: 0; display: block; }
+#shorts .sh-media .fsvid { display: block; width: 100%; height: 100%; border-radius: 0; }
+#shorts .sh-media .fsvid video { width: 100%; height: 100%; max-width: none; object-fit: contain; }
+#shorts .sh-media .vc-shorts { display: none; }
+#shorts .sh-site { position: absolute; left: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: 12.5px; font-weight: 600; text-decoration: none; }
+#shorts .sh-site svg { fill: currentColor; }
+#shorts .sh-bar { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+#shorts .sh-count { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px #000; }
+#shorts .sh-btn { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+#shorts .sh-btn:hover { background: rgba(255,255,255,.24); } #shorts .sh-btn svg { fill: currentColor; }
+#shorts .sh-bar .sh-btn:nth-of-type(1) svg { transform: rotate(180deg); }
+#shorts .sh-btn:focus-visible { outline: 2px solid var(--brand, #5865f2); outline-offset: 2px; }
+@media (max-width: 600px) { #shorts .sh-bar { right: 8px; top: auto; bottom: 18px; transform: none; } #shorts .sh-bar .sh-btn:nth-of-type(1), #shorts .sh-bar .sh-btn:nth-of-type(2) { display: none; } #shorts .sh-bar .sh-btn { position: fixed; top: 12px; right: 12px; } #shorts .sh-count { position: fixed; top: 24px; left: 14px; } }

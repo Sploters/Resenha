@@ -17,9 +17,9 @@ export function createThumbs(dir) {
   const thumbOf = (f) => path.join(UPLOAD_DIR, f + '.thumb.jpg');
   const pending = new Map(); // arquivo -> Promise<boolean>
   let chain = Promise.resolve();
-  const run = (args) => new Promise((res) => {
+  const run = (args, ms = 20000) => new Promise((res) => {
     let p; try { p = spawn(FFMPEG, args, { stdio: 'ignore' }); } catch { return res(false); }
-    const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch { } res(false); }, 20000);
+    const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch { } res(false); }, ms);
     p.on('error', () => { clearTimeout(t); res(false); }); p.on('exit', (c) => { clearTimeout(t); res(c === 0); });
   });
   // quadro de ~1 s (o 1º costuma ser preto); vídeo curto demais: o primeiro quadro
@@ -111,9 +111,41 @@ export function createThumbs(dir) {
       res.type('image/webp'); res.sendFile(imgOf(f, sz));
     }, original);
   }
+  // ---- vídeo enviado que começa a tocar na hora ----
+  // MP4 de celular/câmera costuma vir com o índice (moov) no FIM do arquivo: o navegador precisa baixar quase tudo antes de
+  // dar o primeiro quadro (vídeo longo "demorava para carregar"). Aqui o índice vai para o começo, sem recodificar (cópia
+  // dos dados, ~1 s para 100 MB). .mov/.m4v (iPhone) viram .mp4 do mesmo jeito, para tocar no chat em vez de virar
+  // "arquivo". Roda antes de responder ao upload (o /files é imutável: ninguém chega a ver a versão antiga). Se o ffmpeg
+  // falhar ou não existir, fica o arquivo original.
+  const moovFirst = (fp) => { // percorre as caixas de topo do MP4 até achar moov (bom) ou mdat (índice no fim)
+    let fd; try {
+      fd = fs.openSync(fp, 'r'); const size = fs.fstatSync(fd).size, b = Buffer.alloc(16); let pos = 0;
+      for (let i = 0; i < 64 && pos + 8 <= size; i++) {
+        fs.readSync(fd, b, 0, 16, pos);
+        let len = b.readUInt32BE(0); const type = b.toString('latin1', 4, 8);
+        if (len === 1) len = Number(b.readBigUInt64BE(8)); else if (len === 0) len = size - pos;
+        if (type === 'moov') return true; if (type === 'mdat') return false;
+        if (len < 8) return true; pos += len; // arquivo estranho: deixa como está
+      }
+      return true;
+    } catch { return true; } finally { if (fd != null) try { fs.closeSync(fd); } catch { } }
+  };
+  function faststart(f) {
+    const ext = path.extname(f).toLowerCase(); if (!/^\.(mp4|m4v|mov)$/.test(ext)) return Promise.resolve(f);
+    const src = path.join(UPLOAD_DIR, f), conv = ext !== '.mp4';
+    if (!conv && moovFirst(src)) return Promise.resolve(f);
+    const outName = conv ? f.slice(0, -ext.length) + '.mp4' : f, out = path.join(UPLOAD_DIR, outName), tmp = out + '.fs.tmp.mp4';
+    // só vídeo + áudio (as faixas de dados/metadados do iPhone quebram o mp4)
+    const args = ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', tmp];
+    return (chain = chain.then(() => run(args, 90000))).then(ok => {
+      if (!ok || !fs.existsSync(tmp) || !fs.statSync(tmp).size) { try { fs.unlinkSync(tmp); } catch { } return f; }
+      fs.renameSync(tmp, out); if (conv) try { fs.unlinkSync(src); } catch { }
+      return outName;
+    }, () => f);
+  }
   const remove = (f) => {
     f = path.basename(f); fs.unlink(thumbOf(f), () => { }); fs.unlink(stripOf(f), () => { });
     for (const sz of SIZES) fs.unlink(imgOf(f, sz), () => { });
   };
-  return { route, ensure, remove, stripRoute };
+  return { route, ensure, remove, stripRoute, faststart, moovFirst };
 }

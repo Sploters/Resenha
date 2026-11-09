@@ -357,11 +357,45 @@ export function fsVideo(attrs = {}, cls = '') {
   box.addEventListener('pointerleave', () => { if (!v.paused) box.classList.remove('awake'); });
   const pulse = (ico) => { flash.replaceChildren(icon(ico, 30)); flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go'); };
 
+  // ---- toque (celular/tablet), como nos apps de vídeo: 1 toque mostra os controles (com eles à mostra, toca/pausa);
+  // 2 toques no terço esquerdo/direito voltam/avançam 10 s e cada toque seguido soma mais 10 s (−20 s, +30 s…);
+  // 2 toques no meio = tela cheia; segurar o dedo toca em 2× enquanto segurar. O mouse continua como antes. ----
+  let lastPT = 'mouse', tapT = 0, lastTap = 0, lastSide = 9, seekEnd = 0, seekAcc = 0, seekDir = 0, holdT = 0, held = false, holdRate = 1, wasAwake = false;
+  const seekL = h('div.vc-seek.l'), seekR = h('div.vc-seek.r'), holdTag = h('div.vc-hold', '2×');
+  box.append(seekL, seekR, holdTag);
+  const sideOf = (e) => { const r = v.getBoundingClientRect(), x = (e.clientX - r.left) / (r.width || 1); return x < 0.35 ? -1 : x > 0.65 ? 1 : 0; };
+  const seekBy = (dir) => {
+    const d = v.duration; if (!isFinite(d) || !d) return;
+    if (dir !== seekDir) seekAcc = 0; seekDir = dir; seekAcc += 10;
+    v.currentTime = Math.max(0, Math.min(d, v.currentTime + dir * 10));
+    const el = dir < 0 ? seekL : seekR; (dir < 0 ? seekR : seekL).classList.remove('go');
+    el.textContent = (dir < 0 ? '−' : '+') + seekAcc + ' s'; el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
+    clearTimeout(seekEnd); seekEnd = setTimeout(() => { seekAcc = 0; seekDir = 0; }, 800);
+  };
+  const endHold = () => { clearTimeout(holdT); if (held) { v.playbackRate = holdRate; box.classList.remove('held'); } };
+  v.addEventListener('pointerdown', (e) => {
+    lastPT = e.pointerType; if (e.pointerType !== 'touch') return;
+    wasAwake = box.classList.contains('awake'); held = false; clearTimeout(holdT);
+    holdT = setTimeout(() => { if (v.paused) return; held = true; holdRate = v.playbackRate; v.playbackRate = 2; box.classList.add('held'); }, 450);
+  });
+  v.addEventListener('pointercancel', () => { endHold(); held = false; }); // começou a rolar a página: não é toque
+  v.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'touch') return;
+    endHold(); if (held) { held = false; return; }
+    const now = e.timeStamp, s = sideOf(e);
+    if (s && seekAcc && s === seekDir) { clearTimeout(tapT); lastTap = now; seekBy(s); return; } // sequência de toques: soma
+    if (now - lastTap < 300 && s === lastSide) { clearTimeout(tapT); lastTap = 0; if (s) seekBy(s); else toggleFs(); return; }
+    lastTap = now; lastSide = s; clearTimeout(tapT);
+    tapT = setTimeout(() => { if (wasAwake || v.paused) { pulse(v.paused ? 'play' : 'pause'); playPause(); } }, 300);
+  });
+  v.addEventListener('contextmenu', (e) => { if (lastPT === 'touch') e.preventDefault(); }); // segurar = 2×, não o menu
+
   // ---- clique / duplo clique / teclado ----
   let clickT = 0;
-  v.addEventListener('click', () => { clearTimeout(clickT); clickT = setTimeout(() => { pulse(v.paused ? 'play' : 'pause'); playPause(); }, 180); });
+  v.addEventListener('click', () => { if (lastPT === 'touch') return; clearTimeout(clickT); clickT = setTimeout(() => { pulse(v.paused ? 'play' : 'pause'); playPause(); }, 180); });
   big.addEventListener('click', (e) => { e.stopPropagation(); playPause(); });
-  v.addEventListener('dblclick', (e) => { e.preventDefault(); clearTimeout(clickT); toggleFs(); });
+  v.addEventListener('dblclick', (e) => { e.preventDefault(); if (lastPT === 'touch') return; clearTimeout(clickT); toggleFs(); });
+  v.addEventListener('loadedmetadata', () => box.classList.toggle('vert', v.videoHeight > v.videoWidth * 1.1)); // vídeo em pé (celular)
   box.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
     const k = e.key.toLowerCase(), d = v.duration || 0; let ok = true;

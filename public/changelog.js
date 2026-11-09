@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-09', title: 'Vídeos e espaço',
+    items: [
+      { i: 'play', t: 'Player com gestos no celular', d: 'Dois toques no lado direito ou esquerdo do vídeo avançam ou voltam 10 s (cada toque a mais soma 10 s). Dois toques no meio abrem a tela cheia, e segurar o dedo acelera para 2× enquanto segurar.' },
+      { i: 'video', t: 'Vídeos que começam na hora', d: 'Vídeos enviados agora tocam sem esperar baixar tudo, e os .mov do iPhone tocam direto no chat.' },
+      { i: 'expand', t: 'Shorts, TikTok e Reels no chat', d: 'Links do YouTube (inclusive Shorts), TikTok e Instagram tocam ali mesmo. Os vídeos em pé ganham o botão "Tela vertical": abre em tela cheia e é só deslizar (ou ↑ ↓) para o próximo.' },
+    ],
+  },
+  {
     id: '2026-11-08', title: 'Navegação nova',
     items: [
       { i: 'dm', t: 'Mensagens e Amigos', d: 'Um ícone só na barra da esquerda, com as abas Mensagens | Amigos no topo da lista. Mensagens é uma lista limpa, com ordenar, buscar e nova mensagem; as conversas fixadas também ficam como atalho na barra.', try: 'messages' },
