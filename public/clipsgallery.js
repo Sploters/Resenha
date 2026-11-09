@@ -1,7 +1,7 @@
 // Galeria de clipes do servidor: todos os clipes salvos nas salas de voz, num só lugar.
 // Abas Todos / Meus / Favoritos, busca, prévia que só carrega quando aparece na tela, player com anterior/próximo,
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
-import { h, icon, fsVideo, whenGone, thumbUrl, skeleton } from './util.js';
+import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
 import { openTrimmer } from './cliptrim.js';
 import { stagger, pulse } from './motion.js';
 import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
@@ -59,7 +59,7 @@ function card(c, i) {
       h('div.ctitle', { title: c.title }, c.title),
       h('div.cmeta', c.streamer && h('span', 'de ', h('b', who(c.streamer))), h('span', 'clipado por ', h('b', who(c.author))), h('span', ago(c.created_at))),
       h('div.cbtns', fav,
-        h('a.ibtn', { title: `Baixar (${mb(c.size)})`, href: c.url, download: fileName(c), onclick: (e) => e.stopPropagation() }, icon('dl', 18)),
+        h('a.ibtn', { title: `Baixar (${mb(c.size)})`, href: clipVideoLink(c) + '?download=1', download: fileName(c), onclick: (e) => e.stopPropagation() }, icon('dl', 18)),
         h('button.ibtn', { title: 'Mais opções', onclick: (e) => { e.stopPropagation(); moreMenu(e, c); } }, icon('more', 18)))));
 }
 
@@ -70,7 +70,9 @@ function moreMenu(e, c) {
     { label: c.fav ? 'Tirar dos favoritos' : 'Favoritar', fn: () => toggleFav(c) },
     /\.webm\//.test(c.url) && { label: 'Cortar (cria uma cópia)…', fn: () => trimCopy(c) },
     { label: 'Ir para a mensagem', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
-    { label: 'Copiar link do vídeo', fn: () => { navigator.clipboard?.writeText(location.origin + c.url); toast('Link copiado'); } },
+    { label: 'Compartilhar…', fn: () => ctx.share?.(c) },
+    { label: 'Copiar link do clipe', hint: 'Abre o clipe no Resenha; vale mesmo depois de renomear', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
+    { label: 'Copiar link do vídeo', hint: 'Arquivo direto, com o nome atual', fn: () => { navigator.clipboard?.writeText(clipVideoLink(c)); toast('Link do vídeo copiado'); } },
     canEdit(c) && '-',
     canEdit(c) && { label: 'Apagar clipe', danger: true, fn: () => remove(c) },
   ]);
@@ -120,17 +122,19 @@ function player(i, list = st.clips, opts = {}) {
   const pen = h('button.ibtn.pedit', { title: 'Renomear', onclick: () => editTitle() }, icon('edit', 16));
   const trow = h('div.ptrow', title, pen);
   const dl = h('a.btn.grey', { download: '' }, icon('dl', 16), 'Baixar');
+  const shareBtn = h('button.btn', { type: 'button', onclick: () => ctx.share?.(list[cur]) }, icon('link', 16), 'Compartilhar');
   // fora da galeria: atalho para a galeria do servidor (e para a mensagem no chat)
-  const extra = opts.standalone && [h('button.btn.grey', { onclick: () => { dlg.close(); galleryFocus(list[cur].id); ctx.go(list[cur].guild_id, 'clips'); } }, icon('clip', 16), 'Ver na galeria'),
+  const member = (c) => !!c && S.guilds.has(c.guild_id); // recebeu por link e não é do servidor: sem atalhos para a galeria/mensagem
+  const extra = opts.standalone && member(list[cur]) && [h('button.btn.grey', { onclick: () => { dlg.close(); galleryFocus(list[cur].id); ctx.go(list[cur].guild_id, 'clips'); } }, icon('clip', 16), 'Ver na galeria'),
     list[cur].message_id && h('button.btn.grey', { onclick: () => { const c = list[cur]; dlg.close(); ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } }, icon('dm', 16), 'Ir para a mensagem')];
-  const box = h('div.clipplayer', h('div.pstage', prev, vbox, next), h('div.pbar', h('div.ptxt', trow, meta), h('div.pbtns', extra, dl)));
+  const box = h('div.clipplayer', h('div.pstage', prev, vbox, next), h('div.pbar', h('div.ptxt', trow, meta), h('div.pbtns', extra, dl, shareBtn)));
   const show = (k) => {
     if (k < 0 || k >= list.length) return; cur = k; const c = list[k];
     if (trow.querySelector('input')) trow.replaceChildren(title, pen);
     v.poster = thumbUrl(c.url) || ''; v.src = c.url; v.play().catch(() => { });
     title.textContent = c.title; title.title = c.title; pen.hidden = !canEdit(c);
     meta.textContent = `${c.streamer ? 'de ' + who(c.streamer) + ' · ' : ''}clipado por ${who(c.author)} · ${ago(c.created_at)} · ${c.secs}s${c.has_audio ? '' : ' · sem áudio'}`;
-    dl.href = c.url; dl.download = fileName(c);
+    dl.href = clipVideoLink(c) + '?download=1'; dl.download = fileName(c);
     prev.disabled = k === 0; next.disabled = k === list.length - 1; prev.hidden = next.hidden = list.length < 2;
   };
   // renomear no lugar: Enter salva, Esc ou clicar fora cancela/salva
@@ -143,7 +147,7 @@ function player(i, list = st.clips, opts = {}) {
       const t = inp.value.trim();
       if (save && t && t !== c.title) {
         const r = await tryApi('PATCH', `/clips/${c.id}`, { title: t });
-        if (r) { Object.assign(c, { title: r.title }); upsert({ ...r, fav: c.fav }); if (list[cur]?.id === c.id) title.textContent = title.title = r.title; }
+        if (r) { Object.assign(c, { title: r.title }); upsert({ ...r, fav: c.fav }); if (list[cur]?.id === c.id) { title.textContent = title.title = r.title; dl.href = clipVideoLink(c) + '?download=1'; dl.download = fileName(c); } }
       }
       if (inp.isConnected) trow.replaceChildren(title, pen);
     };

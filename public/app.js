@@ -4,7 +4,7 @@ import { openFxPicker, fxBadge } from './fxui.js';
 import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
+import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
 import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
@@ -24,7 +24,7 @@ import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
-import { initClipsGallery, renderClips, onClipEvent, galleryFocus } from './clipsgallery.js';
+import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
@@ -255,7 +255,7 @@ function onEvent(t, d) {
     case 'CALL_INVITE': onCallInvite(d); break;
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': onLfgEvent(t, d); break;
-    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); break;
+    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') updateClipEmbeds(t, d); break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null }; boardState(d.boards);
@@ -347,7 +347,11 @@ const chNameKey = () => ['chCaps', 'chDashes', 'chNoEmoji', 'chNamesVoice', 'chN
 let lastChNames = chNameKey();
 document.addEventListener('settings-closed', () => { if (!ready || chNameKey() === lastChNames) return; lastChNames = chNameKey(); renderSide(); if (S.view.cid) renderMain(); });
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
+let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 function applyRoute(first) {
+  const clipId = /^#\/clip\/(\d+)/.exec(location.hash)?.[1];
+  if (clipId) { history.replaceState(null, '', routeBack); openClip(clipId); if (!first && S.view.gid) return; }
+  routeBack = location.hash || '#/@me';
   let [, gid, cid] = location.hash.match(/^#\/([^/]+)(?:\/(.+))?$/) || [];
   gid ||= '@me';
   if (gid === '@me') {
@@ -374,6 +378,10 @@ function applyRoute(first) {
 
 // =============== Shell ===============
 function buildShell() {
+  document.addEventListener('click', (e) => { // link de clipe: abre o clipe no app (não numa janela nova)
+    const a = e.target.closest?.('a[href*="/#/clip/"]'); const id = a && /\/#\/clip\/(\d+)/.exec(a.getAttribute('href'))?.[1]; if (!id) return;
+    e.preventDefault(); e.stopImmediatePropagation(); openClip(id);
+  }, true);
   document.addEventListener('click', (e) => { // confirmar antes de abrir links externos (opcional)
     const a = e.target.closest?.('.msg .body a[href]'); if (!a || !S.prefs.confirmLinks) return;
     e.preventDefault(); confirmBox('Abrir link externo?', a.href, 'Abrir').then(ok => ok && window.open(a.href, '_blank', 'noopener'));
@@ -1217,6 +1225,7 @@ function msgEl(m, prev) {
     const body = h('div.body'), shared = THEME_CODE_RE.test(m.content) && decodeTheme(m.content), invites = inviteCodes(m.content), calls = callCodes(m.content);
     let shown = shared ? stripThemeCodes(m.content) : m.content; // o código do tema não aparece, só o bloco
     if (invites.length || calls.length) shown = stripInvites(shown); // o link do convite também vira só o cartão
+    const clipIds = m.clip ? [] : clipLinkIds(shown); if (clipIds.length) shown = stripClipLinks(shown); // link de clipe: só o cartão
     if (m.poll) shown = ''; // enquete: o cartão mostra a pergunta
     if (m.clip) shown = ''; // clipe: o cartão mostra o título
     const gifOnly = !m.poll && !shared && isGifMessage(shown); if (gifOnly) shown = ''; // só um GIF: mostra a imagem, sem o link
@@ -1226,6 +1235,7 @@ function msgEl(m, prev) {
     if (shared) body.append(themeCard(shared));
     for (const code of invites) body.append(inviteCard(code));
     for (const id of calls) body.append(callCard(id));
+    for (const id of clipIds) body.append(clipEmbed(id));
     if (m.poll) body.append(pollCard(m));
     if (gifOnly && S.prefs.embedLinks !== false) body.append(gifEl(m.content.trim(), (u) => lightbox(u))); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));
     if (S.prefs.embedLinks !== false) for (const url of (shown.match(/https?:\/\/\S+/g) || []).filter(isImageUrl).slice(0, 3)) body.append(h('div.attach', h('img', { src: url, loading: 'lazy', referrerPolicy: 'no-referrer', onclick: () => lightbox(url) })));
@@ -1344,13 +1354,57 @@ function appendAttachments(el, m, canDel) {
   for (const { f } of atts.filter(a => !isImg(a.f) && !(m.clip && a.f.url === m.clip.url))) { const a = attachEl(f); a.classList.add('mtile'); el.append(a); } // áudio/arquivo: excluir fica na barra da mensagem
 }
 // cartão do clipe no chat: miniatura pequena + título; o vídeo só carrega ao clicar em assistir
-function clipMsgCard(m) {
-  const c = m.clip, ch = channelById(m.channel_id), gid = ch?.guild_id;
+function clipMsgCard(m, full) {
+  const c = m.clip, ch = channelById(m.channel_id), gid = full ? (full.guild_id && S.guilds.has(full.guild_id) ? full.guild_id : null) : ch?.guild_id;
   const who = c.streamer_id ? nameOf(c.streamer_id, gid) || user(c.streamer_id).display_name : null;
   const thumb = h('div.cmthumb', { title: 'Assistir aqui', onclick: () => { thumb.replaceWith(fsVideo({ src: c.url, autoplay: true, preload: 'auto', poster: thumbUrl(c.url) || undefined }, '.cmvideo')); } },
     thumbUrl(c.url) && h('img', { src: thumbUrl(c.url), loading: 'lazy', alt: '', onerror: (e) => e.target.remove() }), h('span.cmplay', icon('play', 22)), c.secs ? h('span.cmdur', c.secs + 's') : null);
   return h('div.clipmsg', thumb, h('div.cminfo', h('b', c.title), h('small', [who && `transmissão de ${who}`, !c.has_audio && 'sem áudio'].filter(Boolean).join(' · ') || 'clipe'),
     gid && h('button.btn.link.sm', { onclick: () => { galleryFocus(c.id); go(gid, 'clips'); } }, icon('clip', 14), 'Ver na galeria')));
+}
+// cartão de um clipe compartilhado por link: busca o clipe pelo id (nome e vídeo sempre atuais, mesmo depois de renomear)
+const clipCache = new Map(); // id -> Promise<clipe | null>
+const fetchClip = (id) => { if (!clipCache.has(id)) clipCache.set(id, api('GET', `/clips/${encodeURIComponent(id)}`).catch(() => null)); return clipCache.get(id); };
+function clipEmbed(id) {
+  const box = h('div.clipmsg.clipembed.loading', { 'data-clip': id }, h('div.cmthumb'), h('div.cminfo', h('b', 'Carregando clipe…')));
+  fetchClip(id).then(c => paintClipEmbed(box, c));
+  return box;
+}
+function paintClipEmbed(box, c) {
+  box.classList.remove('loading');
+  if (!c) return box.replaceChildren(h('div.cmthumb.cmgone', icon('clip', 22)), h('div.cminfo', h('b', 'Clipe indisponível'), h('small', 'Foi apagado ou você não tem acesso.')));
+  const fake = { clip: { id: c.id, title: c.title, secs: c.secs, url: c.url, has_audio: c.has_audio, streamer_id: c.streamer?.id || null }, channel_id: c.channel_id };
+  const card = clipMsgCard(fake, c);
+  box.replaceChildren(...card.childNodes);
+}
+function updateClipEmbeds(t, d) {
+  const id = String(d.id); clipCache.set(id, Promise.resolve(t === 'CLIP_DELETE' ? null : d));
+  document.querySelectorAll(`.clipembed[data-clip="${CSS.escape(id)}"]`).forEach(b => paintClipEmbed(b, t === 'CLIP_DELETE' ? null : d));
+}
+// compartilhar um clipe: manda o link numa conversa ou canal (com um comentário opcional); quem recebe vê o cartão e assiste,
+// mesmo sem estar no servidor do clipe
+function shareClipModal(c) {
+  const q = h('input', { type: 'search', placeholder: 'Buscar conversa ou canal', 'aria-label': 'Buscar conversa ou canal' });
+  const note = h('input', { placeholder: 'Comentário (opcional)', maxLength: 300, 'aria-label': 'Comentário' });
+  const list = h('div.share-list');
+  const dms = [...S.dms.values()].filter(d => dmPeer(d)).sort((a, b) => lastTime(b) - lastTime(a)).map(d => ({ id: d.id, label: user(dmPeer(d).id).display_name, sub: 'Mensagem direta', av: avatar(user(dmPeer(d).id), 32) }));
+  const chans = [...S.guilds.values()].flatMap(g => g.channels.filter(ch => ch.type === 0).map(ch => ({ id: ch.id, label: '#' + chName(ch), sub: g.name, av: h('span.share-ic', icon('hash', 18)) })));
+  const sent = new Set();
+  const draw = () => {
+    const t = q.value.trim().toLowerCase();
+    const rows = [...dms, ...chans].filter(r => !t || (r.label + ' ' + r.sub).toLowerCase().includes(t)).slice(0, 50);
+    list.replaceChildren(...rows.map(r => h('div.share-row', r.av, h('div.share-txt', h('b', r.label), h('small', r.sub)),
+      h('button.btn' + (sent.has(r.id) ? '.grey' : ''), { type: 'button', disabled: sent.has(r.id), onclick: async (e) => {
+        const btn = e.currentTarget; btn.disabled = true;
+        const content = (note.value.trim() ? note.value.trim() + '\n' : '') + clipLink(c.id);
+        const ok = await tryApi('POST', `/channels/${r.id}/messages`, { content });
+        if (ok) { sent.add(r.id); btn.textContent = 'Enviado'; btn.classList.add('grey'); } else btn.disabled = false;
+      } }, sent.has(r.id) ? 'Enviado' : 'Enviar'))), !rows.length && h('div.dm-empty', 'Nada encontrado'));
+  };
+  q.oninput = draw;
+  const copy = h('button.btn.grey', { type: 'button', onclick: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } }, icon('link', 16), 'Copiar link');
+  modal('Compartilhar clipe', `"${c.title}" — quem receber pode assistir pelo link.`, h('div.share-box', h('div.share-top', h('label.f', q), copy), list, h('label.f', note)), [{ label: 'Concluir', cls: 'green' }], { width: '480px' });
+  draw(); setTimeout(() => q.focus());
 }
 function attachEl(f) {
   const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url;
@@ -2434,7 +2488,7 @@ function setupDesktop() {
 // gancho de depuração/testes automatizados
 initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
 initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
-initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid) });
+initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });

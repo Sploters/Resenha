@@ -129,7 +129,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS clips(
   secs INTEGER DEFAULT 0, has_audio INTEGER DEFAULT 1, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_clips_guild ON clips(guild_id, id);
 CREATE INDEX IF NOT EXISTS idx_clips_message ON clips(message_id);
-CREATE TABLE IF NOT EXISTS clip_favs(user_id TEXT NOT NULL, clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE, PRIMARY KEY(user_id, clip_id));`);
+CREATE TABLE IF NOT EXISTS clip_favs(user_id TEXT NOT NULL, clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE, PRIMARY KEY(user_id, clip_id));
+-- clipe compartilhado por link numa mensagem (DM ou canal de outro servidor): quem vê a mensagem pode assistir o clipe
+CREATE TABLE IF NOT EXISTS clip_shares(message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL, PRIMARY KEY(message_id, clip_id));
+CREATE INDEX IF NOT EXISTS idx_clip_shares_clip ON clip_shares(clip_id);`);
 
 // Enquetes: uma mensagem do chat com pergunta, opções e votos (visíveis: cada opção mostra quem votou)
 db.exec(`CREATE TABLE IF NOT EXISTS polls(

@@ -831,6 +831,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ch.id, id);
   const row = get('SELECT * FROM messages WHERE id=?', id);
   saveMentions(row, ch, content);
+  recordClipShares(row, req.uid);
   const rep = row.reply_to && get('SELECT author_id FROM messages WHERE id=? AND channel_id=?', row.reply_to, ch.id);
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
   const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mentionedIds(content, ch) };
@@ -961,6 +962,13 @@ const clipObj = (c, uid) => ({ id: c.id, guild_id: c.guild_id, channel_id: c.cha
   author: userPub(c.author_id), streamer: c.streamer_id ? userPub(c.streamer_id) : null, fav: !!get('SELECT 1 x FROM clip_favs WHERE user_id=? AND clip_id=?', uid, c.id) });
 const canEditClip = (c, uid) => c.author_id === uid || (c.guild_id && can(c.guild_id, uid, P.MANAGE_MESSAGES));
 const clipAudience = (c) => { const ch = get('SELECT * FROM channels WHERE id=?', c.channel_id); return ch ? channelAudience(ch) : []; };
+const clipShareAudience = (c) => [...new Set([...clipAudience(c), ...all('SELECT DISTINCT channel_id FROM clip_shares WHERE clip_id=?', c.id).flatMap(r => { const ch = get('SELECT * FROM channels WHERE id=?', r.channel_id); return ch ? channelAudience(ch) : []; })])];
+// links de clipe numa mensagem (…/#/clip/ID): se o autor pode ver o clipe, quem vê a mensagem também passa a poder
+const CLIP_LINK_G = /\/#\/clip\/(\d{1,24})\b/g;
+function recordClipShares(row, uid) {
+  const ids = [...new Set([...String(row.content || '').matchAll(CLIP_LINK_G)].map(m => m[1]))].slice(0, 3);
+  for (const id of ids) { const c = get('SELECT * FROM clips WHERE id=?', id); if (c && clipAccess(uid, c)) run('INSERT OR IGNORE INTO clip_shares(message_id,clip_id,channel_id) VALUES(?,?,?)', row.id, c.id, row.channel_id); }
+}
 // a mensagem do clipe sumiu (apagada no chat, ou o vídeo foi removido dela): o clipe sai da galeria
 function dropClipsOfMessage(mid) {
   for (const c of all('SELECT * FROM clips WHERE message_id=?', mid)) { const to = clipAudience(c); run('DELETE FROM clips WHERE id=?', c.id); dispatch(to, 'CLIP_DELETE', { id: c.id, guild_id: c.guild_id }); }
@@ -1029,7 +1037,10 @@ app.get('/api/guilds/:id/clips', auth, wrap((req, res) => {
   const list = all(`SELECT c.* FROM clips c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 30`, ...args);
   res.json({ clips: list.map(c => clipObj(c, req.uid)), total: get('SELECT COUNT(*) n FROM clips WHERE guild_id=?', gid).n });
 }));
-const clipFor = (req, res) => { const c = get('SELECT * FROM clips WHERE id=?', req.params.id); if (!c || !canAccessChannel(req.uid, get('SELECT * FROM channels WHERE id=?', c.channel_id))) { bad(res, 'Clipe não encontrado', 404); return null; } return c; };
+// pode ver o clipe quem vê o canal de origem ou alguma mensagem onde ele foi compartilhado por link
+const clipAccess = (uid, c) => canAccessChannel(uid, get('SELECT * FROM channels WHERE id=?', c.channel_id))
+  || all('SELECT DISTINCT channel_id FROM clip_shares WHERE clip_id=?', c.id).some(r => canAccessChannel(uid, get('SELECT * FROM channels WHERE id=?', r.channel_id)));
+const clipFor = (req, res) => { const c = get('SELECT * FROM clips WHERE id=?', req.params.id); if (!c || !clipAccess(req.uid, c)) { bad(res, 'Clipe não encontrado', 404); return null; } return c; };
 app.get('/api/clips/:id', auth, wrap((req, res) => { const c = clipFor(req, res); if (c) res.json(clipObj(c, req.uid)); })); // um clipe (popup do "Ativo agora")
 app.patch('/api/clips/:id', auth, wrap((req, res) => {
   const c = clipFor(req, res); if (!c) return;
@@ -1037,7 +1048,9 @@ app.patch('/api/clips/:id', auth, wrap((req, res) => {
   const title = clean(req.body.title, 100); if (!title) return bad(res, 'Dê um nome ao clipe');
   run('UPDATE clips SET title=? WHERE id=?', title, c.id);
   const n = get('SELECT * FROM clips WHERE id=?', c.id);
-  for (const u of clipAudience(n)) dispatch([u], 'CLIP_UPDATE', clipObj(n, u));
+  for (const u of clipShareAudience(n)) dispatch([u], 'CLIP_UPDATE', clipObj(n, u));
+  const om = n.message_id && get('SELECT * FROM messages WHERE id=?', n.message_id), och = om && get('SELECT * FROM channels WHERE id=?', om.channel_id);
+  if (om && och) dispatch(channelAudience(och), 'MESSAGE_UPDATE', { ...messageObj(om), guild_id: och.guild_id }); // cartão do clipe no chat com o nome novo, sem recarregar
   res.json(clipObj(n, req.uid));
 }));
 app.put('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('INSERT OR IGNORE INTO clip_favs VALUES(?,?)', req.uid, c.id); res.json(clipObj(c, req.uid)); }));
@@ -1046,11 +1059,11 @@ app.delete('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(re
 app.delete('/api/clips/:id', auth, wrap((req, res) => {
   const c = clipFor(req, res); if (!c) return;
   if (!canEditClip(c, req.uid)) return bad(res, 'Sem permissão', 403);
-  const ch = get('SELECT * FROM channels WHERE id=?', c.channel_id), to = channelAudience(ch);
+  const ch = get('SELECT * FROM channels WHERE id=?', c.channel_id), to = channelAudience(ch), shareTo = clipShareAudience(c);
   run('DELETE FROM clips WHERE id=?', c.id);
   if (c.message_id && get('SELECT 1 x FROM messages WHERE id=?', c.message_id)) { run('DELETE FROM messages WHERE id=?', c.message_id); dispatch(to, 'MESSAGE_DELETE', { id: c.message_id, channel_id: ch.id, guild_id: ch.guild_id }); }
   if (c.author_id !== req.uid) audit(c.guild_id, req.uid, 'message_delete', c.author_id, `clipe "${c.title}"`);
-  dispatch(to, 'CLIP_DELETE', { id: c.id, guild_id: c.guild_id });
+  dispatch(shareTo, 'CLIP_DELETE', { id: c.id, guild_id: c.guild_id });
   unlinkIfUnused(c.url);
   res.json({});
 }));

@@ -262,6 +262,13 @@ const CALL_G = /(?:📞\s*)?(?:https?:\/\/[^\s/]+|(?<![\w./]))\/call\/([A-Za-z0-
 export const callCodes = (s) => [...new Set([...String(s || '').matchAll(CALL_G)].map(m => m[1]))].slice(0, 3);
 export const inviteCodes = (s) => [...new Set([...String(s || '').matchAll(INVITE_G)].map(m => m[1]))].slice(0, 3);
 export const stripInvites = (s) => String(s || '').replace(INVITE_G, '').replace(CALL_G, '').replace(/[ \t]+$/gm, '').trim();
+// link de clipe (…/#/clip/ID): aponta para o clipe, não para o arquivo, então vale mesmo depois de renomear; vira cartão no chat
+const CLIP_G = /(?:https?:\/\/[^\s/]+)?\/#\/clip\/(\d{1,24})\b/g;
+export const clipLinkIds = (s) => [...new Set([...String(s || '').matchAll(CLIP_G)].map(m => m[1]))].slice(0, 3);
+export const stripClipLinks = (s) => String(s || '').replace(CLIP_G, '').replace(/[ \t]+$/gm, '').trim();
+export const clipLink = (id) => `${location.origin}/#/clip/${id}`;
+// link direto do vídeo com o nome atual do clipe no fim (o servidor acha o arquivo pela primeira parte; o nome é o do download)
+export const clipVideoLink = (c) => location.origin + c.url.replace(/\/[^/]*$/, '/') + encodeURIComponent(String(c.title || 'clipe').replace(/[\\/:*?"<>|#%]+/g, '_').slice(0, 80) + (c.url.includes('.mp4') ? '.mp4' : '.webm'));
 export const inviteText = (s) => String(s || '').replace(INVITE_G, '📨 Convite de servidor').replace(CALL_G, '📞 Convite para a chamada');
 export const isImageUrl = (u) => /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i.test(u);
 export const onlyEmoji = (s) => /^(\s*(\p{Extended_Pictographic}|\p{Emoji_Presentation})(️|‍|\p{Emoji_Modifier})*\s*){1,27}$/u.test(s.trim()) && s.trim().length > 0;
