@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   appAudioCapable: () => ipcRenderer.invoke('app-audio-capable'),
   appAudioStart: (o) => ipcRenderer.invoke('app-audio-start', o),
   appAudioStop: () => ipcRenderer.send('app-audio-stop'),
+  onAppAudioEvent: (() => { let cb = null; ipcRenderer.on('app-audio-event', (_e, ev) => cb?.(ev)); return (f) => { cb = f; }; })(), // { t: 'waiting' | 'reattached', name }
+  sourceState: () => ipcRenderer.invoke('source-state'), // janela transmitida: { kind, exists, minimized, title }
   detectGame: () => ipcRenderer.invoke('detect-game'), // { id, title } | null (desde a 1.0.24)
   onAppAudio: (() => { let cb = null; ipcRenderer.on('app-audio-data', (_e, b) => cb?.(b)); return (f) => { cb = f; }; })(),
   setBadge: (n) => ipcRenderer.send('set-badge', n),

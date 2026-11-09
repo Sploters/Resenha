@@ -286,6 +286,9 @@ ipcMain.handle('app-audio-capable', () => appAudio.capable());
 ipcMain.handle('app-audio-start', (e, o) => appAudio.start({ pid: +o?.pid || 0, mode: o?.mode === 'exclude' ? 'exclude' : 'include' },
   (buf) => { if (!e.sender.isDestroyed()) e.sender.send('app-audio-data', buf); }));
 ipcMain.on('app-audio-stop', () => appAudio.stop());
+// vigia do áudio do jogo (reconectou / jogo fechou, esperando) e estado da janela transmitida (minimizada / fechada)
+appAudio.setEventSink((ev) => { if (win && !win.isDestroyed()) win.webContents.send('app-audio-event', ev); });
+ipcMain.handle('source-state', () => appAudio.sourceState(pickedSource).catch(() => ({ kind: 'unknown' })));
 // jogo aberto agora (mesma detecção da transmissão): vira a atividade "Jogando X" para os amigos
 ipcMain.handle('detect-game', () => appAudio.detectGame().catch(() => null));
 ipcMain.on('set-badge', (_e, n) => setBadge(n));

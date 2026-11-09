@@ -155,7 +155,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -1661,6 +1661,7 @@ wss.on('connection', (ws) => {
           const c = currentVoice(uid); if (!c) return;
           const st = voice.get(c).get(uid);
           for (const k of ['mute', 'deaf', 'video', 'screen']) if (typeof d[k] === 'boolean') st[k] = d[k];
+          st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
           if (d.fx !== undefined && Date.now() - (st.fxAt || 0) > 500) { const fx = VOICE_FX.has(d.fx) ? d.fx : null; if (fx !== (st.fx || null)) { st.fx = fx; st.fxAt = Date.now(); } }
           if (!st.screen && acts.get(c)?.boards['s:' + uid]) { delete acts.get(c).boards['s:' + uid]; roomSend(c, 'ROOM_DRAW', { channel_id: c, board: 's:' + uid, op: 'clear', user_id: uid }); }

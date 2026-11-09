@@ -116,19 +116,22 @@ async function detectGame() {
 }
 
 // ---------- captura ----------
-let proc = null;
-// o: { pid, mode: 'include' | 'exclude' }; onData(Buffer) recebe PCM float32 48 kHz estéreo. Resolve com {ok} ou {ok:false,error}.
-function start(o, onData) {
-  stop();
+// Vigia: jogos e launchers costumam fechar o processo e abrir outro (launcher → jogo, reinício depois de atualizar, troca de
+// modo). O loopback era do processo antigo e a transmissão ficava muda até a pessoa reiniciar a live. Agora, a cada 4 s:
+// processo do jogo morreu → procura uma janela do MESMO executável e religa a captura no processo novo; programa de áudio
+// caiu com o jogo vivo → reabre. Avisa a página (onEvent): 'waiting' (jogo fechado, esperando voltar) e 'reattached'.
+let proc = null, cur = null, watch = null, busy = false, emit = () => { };
+const setEventSink = (fn) => { emit = typeof fn === 'function' ? fn : () => { }; };
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// abre o programa de captura para pid; resolve {ok} / {ok:false,error}
+function spawnCap(pid, mode, onData) {
   const exe = helperPath(); if (!exe) return Promise.resolve({ ok: false, error: 'componente de áudio não encontrado' });
-  const pid = o.mode === 'exclude' ? process.pid : o.pid >>> 0; // "tudo menos a Resenha": o próprio app e os processos filhos dele
-  if (!pid) return Promise.resolve({ ok: false, error: 'programa inválido' });
   const p = spawn(exe, ['--capture'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   proc = p;
   return new Promise((resolve) => {
     let done = false, err = '';
     const finish = (r) => { if (!done) { done = true; resolve(r); } };
-    const t = setTimeout(() => { finish({ ok: false, error: 'o programa de áudio não respondeu' }); if (proc === p) stop(); }, 6000);
+    const t = setTimeout(() => { finish({ ok: false, error: 'o programa de áudio não respondeu' }); if (proc === p) kill(); }, 6000);
     p.stdout.on('data', (d) => { if (proc === p) onData(d); });
     p.stderr.on('data', (d) => {
       err += d; let i;
@@ -141,14 +144,57 @@ function start(o, onData) {
     });
     p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); });
     p.on('exit', (code) => { clearTimeout(t); finish({ ok: false, error: 'o programa de áudio fechou (código ' + code + ')' }); if (proc === p) proc = null; });
-    p.stdin.write(JSON.stringify({ pid, mode: o.mode === 'exclude' ? 'exclude' : 'include' }) + '\n');
+    p.stdin.write(JSON.stringify({ pid, mode }) + '\n');
   });
 }
-function stop() {
+function kill() {
   const p = proc; if (!p) return;
   proc = null;
   try { p.stdin.write('stop\n'); p.stdin.end(); } catch { }
   setTimeout(() => { try { p.kill(); } catch { } }, 1500);
 }
+async function tick() {
+  if (!cur || busy) return;
+  busy = true;
+  try {
+    const c = cur;
+    if (c.mode === 'exclude') { if (!proc) { const r = await spawnCap(process.pid, 'exclude', c.onData); if (cur === c && r.ok) emit({ t: 'reattached' }); } return; }
+    if (alive(c.pid)) { if (!proc) await spawnCap(c.pid, 'include', c.onData); return; } // jogo vivo: só reabre o programa de áudio se ele caiu
+    if (!c.exe) return; // não sei o executável: não dá para achar o processo novo
+    const w = (await listWindows()).find(x => x.exe && x.exe.toLowerCase() === c.exe.toLowerCase() && alive(x.pid));
+    if (cur !== c) return;
+    if (!w) { if (!c.waiting) { c.waiting = true; kill(); emit({ t: 'waiting', name: c.name }); } return; }
+    kill();
+    const r = await spawnCap(w.pid, 'include', c.onData);
+    if (cur !== c) { kill(); return; }
+    if (r.ok) { log('reconectado ao processo', w.pid, 'de', c.exe); c.pid = w.pid; c.waiting = false; emit({ t: 'reattached', name: c.name }); }
+  } catch (e) { log('vigia', e.message); } finally { busy = false; }
+}
+// o: { pid, mode: 'include' | 'exclude' }; onData(Buffer) recebe PCM float32 48 kHz estéreo. Resolve com {ok} ou {ok:false,error}.
+async function start(o, onData) {
+  stop();
+  const mode = o.mode === 'exclude' ? 'exclude' : 'include';
+  const pid = mode === 'exclude' ? process.pid : o.pid >>> 0; // "tudo menos a Resenha": o próprio app e os processos filhos dele
+  if (!pid) return { ok: false, error: 'programa inválido' };
+  const c = { pid, mode, onData, exe: null, name: '', waiting: false }; cur = c;
+  const r = await spawnCap(pid, mode, onData);
+  if (cur !== c) { kill(); return { ok: false, error: 'cancelado' }; }
+  if (!r.ok) { cur = null; return r; }
+  if (mode === 'include') listWindows().then(ws => { const w = ws.find(x => x.pid === pid); if (w && cur === c) { c.exe = w.exe; c.name = FRIENDLY[path.win32.basename(w.exe || '').replace(/\.exe$/i, '').toLowerCase()] || cleanTitle(w.title); } }).catch(() => { });
+  clearInterval(watch); watch = setInterval(tick, 4000);
+  return r;
+}
+function stop() { cur = null; clearInterval(watch); watch = null; kill(); }
 
-module.exports = { capable, listWindows, detectGame, start, stop, shutdown: stop, isGame, cleanTitle, steamAppId, gameIcon };
+// ---------- estado da janela transmitida ----------
+// janela minimizada: o Windows para de entregar quadros e quem assiste vê a imagem parada; janela fechada: nada mais vem.
+// sourceId "window:<hwnd>:0" -> { kind, exists, minimized, title }
+async function sourceState(sourceId) {
+  const m = /^window:(\d+):/.exec(String(sourceId || ''));
+  if (!m) return { kind: /^screen:/.test(String(sourceId || '')) ? 'screen' : 'unknown' };
+  if (process.platform !== 'win32' || !helperPath()) return { kind: 'window', exists: true, minimized: false };
+  const w = (await listWindows()).find(x => String(x.hwnd) === m[1]);
+  return { kind: 'window', exists: !!w, minimized: !!w?.minimized, title: w?.title || '' };
+}
+
+module.exports = { capable, listWindows, detectGame, start, stop, shutdown: stop, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };

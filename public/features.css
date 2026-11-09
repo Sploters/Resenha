@@ -1404,3 +1404,15 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .usage .us-h { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; } .usage .us-h svg { fill: var(--yellow, #f0b232); flex: none; margin-top: 2px; }
 .usage .us-h div { display: flex; flex-direction: column; } .usage .us-h span { color: var(--text-muted); }
 @media (max-width: 520px) { .usage .us-row { grid-template-columns: minmax(0, 1fr) 64px 48px; } .usage .us-bar { display: none; } }
+
+/* ---------- saúde da transmissão (app.js healthPill) e aviso para quem assiste (screen_note) ---------- */
+.tile.screen .hpill { position: absolute; left: 8px; top: 8px; z-index: 4; max-width: calc(100% - 16px); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 5px 10px; border: 0; border-radius: 12px; background: rgba(0,0,0,.62); color: #fff; font: 600 12px/1.25 var(--font, inherit); text-align: left; cursor: pointer; backdrop-filter: blur(4px); }
+.tile.screen .hpill .hp-head { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tile.screen .hpill small { font-weight: 500; opacity: .8; overflow: hidden; text-overflow: ellipsis; }
+.tile.screen .hpill .hp-dot { width: 8px; height: 8px; border-radius: 50%; background: #23a55a; flex: none; }
+.tile.screen .hpill.warn .hp-dot { background: #f0b232; } .tile.screen .hpill.bad .hp-dot { background: #f23f43; box-shadow: 0 0 0 3px rgba(242,63,67,.35); }
+.tile.screen .hpill .hp-items { display: none; flex-direction: column; gap: 4px; white-space: normal; max-width: 340px; font-weight: 500; }
+.tile.screen .hpill.open .hp-items, .tile.screen .hpill.bad .hp-items { display: flex; }
+.tile.screen .hpill .hp-i.bad { color: #ffb4b6; } .tile.screen .hpill .hp-i.warn { color: #ffe1a1; }
+.tile.screen .snote { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; background: rgba(0,0,0,.6); color: #fff; text-align: center; pointer-events: none; backdrop-filter: blur(2px); }
+.tile.screen .snote svg { fill: currentColor; opacity: .85; } .tile.screen .snote b { font-size: 15px; } .tile.screen .snote span { font-size: 13px; opacity: .85; }

@@ -165,6 +165,9 @@ function onEvent(t, d) {
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; }); }
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
+      // vigias da transmissão (voice.js watchSource / app desktop appaudio.js): avisos só para quem transmite
+      voice.onScreenNote = (n) => { if (n === 'min') toast('Sua janela transmitida foi minimizada: quem assiste vê a imagem parada até você restaurá-la.', true); else if (n === 'closed') toast('A janela que você transmitia foi fechada. Escolha outra fonte na barra da transmissão.', true); renderVoiceUI(); };
+      voice.onAppAudioEvent = (ev) => { const n = ev.name || 'O jogo'; toast(ev.t === 'waiting' ? `${n} fechou: o áudio da transmissão volta sozinho quando ele abrir de novo.` : `Áudio de ${n} reconectado na transmissão.`, ev.t === 'waiting'); renderVoiceUI(); };
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
@@ -2153,7 +2156,7 @@ function renderVoiceUI(speakOnly) {
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
             const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });
-            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); }, oncontextmenu: (e) => !mine && menu(e, [{ node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }]) }, vid, mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); }, oncontextmenu: (e) => !mine && menu(e, [{ node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
     }
     const ckey = 'c:' + uid;
@@ -2329,6 +2332,24 @@ const pipCtx = {
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
 // botões de cada transmissão, no canto do próprio quadro: a ação principal com texto (parar de assistir / parar transmissão),
 // tela cheia e o resto num menu "⋯" para não poluir
+// selo de saúde da sua transmissão (voice.screenHealth): fps real, de onde vem o áudio e o que está atrapalhando. Um elemento
+// só, reaproveitado entre as renderizações da sala, que se atualiza sozinho a cada 2 s enquanto você transmite.
+let hpEl = null, hpT = 0;
+function healthPill() {
+  if (!hpEl) {
+    hpEl = h('button.hpill', { type: 'button', onclick: (e) => { e.stopPropagation(); hpEl.classList.toggle('open'); } });
+    const draw = async () => {
+      if (!voice?.screen) { clearInterval(hpT); hpT = 0; hpEl = null; return; }
+      const x = await voice.screenHealth(); if (!x || !hpEl) return;
+      const head = h('span.hp-head', h('i.hp-dot'), x.level === 'ok' ? 'Transmissão OK' : x.level === 'warn' ? 'Transmissão limitada' : 'Problema na transmissão', h('small', [x.fps != null ? `${x.fps} fps` : null, x.audio].filter(Boolean).join(' • ')));
+      hpEl.className = 'hpill ' + x.level + (hpEl.classList.contains('open') ? ' open' : '');
+      hpEl.title = x.items.length ? x.items.map(i => i[1]).join('\n') : 'Tudo certo: imagem e áudio chegando normalmente';
+      hpEl.replaceChildren(head, x.items.length ? h('span.hp-items', x.items.map(([lv, t]) => h('span.hp-i.' + lv, t))) : null);
+    };
+    draw(); hpT = setInterval(draw, 2000);
+  }
+  return hpEl;
+}
 function streamControls({ key, uid, mine, scr, inRoom, who }) {
   const stop = (e) => { e.stopPropagation(); voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); };
   const more = (e) => {

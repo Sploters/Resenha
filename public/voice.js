@@ -341,6 +341,40 @@ export class Voice {
       if (black !== this.captureBlack) { this.captureBlack = black; this.onBlackCapture?.(black); this.onUpdate?.(); }
     }, 2000);
   }
+  // janela transmitida minimizada ou fechada (app desktop): o Windows para de entregar quadros e quem assiste via a imagem
+  // congelada sem saber por quê. A cada 3 s pergunta ao app; muda o estado da transmissão (quem assiste vê o aviso) e
+  // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema.
+  watchSource() {
+    clearInterval(this._src); this.screenNote = null;
+    const d = window.lcDesktop; if (!d?.sourceState) return;
+    let busy = false;
+    this._src = setInterval(async () => {
+      if (!this.screen) return clearInterval(this._src);
+      if (busy) return; busy = true;
+      try {
+        const st = await d.sourceState();
+        const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
+        if (note !== this.screenNote && this.screen) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
+      } catch { } finally { busy = false; }
+    }, 3000);
+  }
+  // selo de saúde da transmissão para quem transmite: { level: 'ok' | 'warn' | 'bad', fps, items: [[nível, texto]] }
+  async screenHealth() {
+    if (!this.screen) return null;
+    const o = this.screenOpts || {}, want = +o.fps || 30, items = [];
+    const st = await this.screenStats().catch(() => null), top = st?.[0];
+    const fps = this.captureFps ?? top?.fps ?? null;
+    if (this.screenNote === 'min') items.push(['bad', 'Janela minimizada: quem assiste vê a imagem parada. Restaure a janela (ou transmita a tela inteira).']);
+    if (this.screenNote === 'closed') items.push(['bad', 'A janela transmitida foi fechada. Escolha outra fonte.']);
+    if (this.captureBlack) items.push(['bad', 'A imagem está saindo preta (tela cheia exclusiva ou anti-cheat). Use "Janela sem bordas".']);
+    if (this.appAudio?.state === 'waiting') items.push(['bad', `${this.appAudio.name || 'O jogo'} fechou: o áudio volta sozinho quando ele abrir de novo.`]);
+    if (fps != null && !this.screenNote && fps < want * 0.6 && fps < 50) items.push(['warn', `${fps} de ${want} fps: ${top?.limit === 'cpu' ? 'o processador está no limite' : top?.limit === 'bandwidth' ? 'a internet está no limite' : 'a fonte está entregando menos quadros (conteúdo parado também conta)'}.`]);
+    else if (top?.limit === 'bandwidth') items.push(['warn', 'A internet está limitando a qualidade.']);
+    else if (top?.limit === 'cpu') items.push(['warn', 'O processador está limitando a qualidade.']);
+    const audio = !o.audio ? 'sem áudio' : this.appAudio ? (this.appAudio.mode === 'exclude' ? 'áudio do PC (menos a Resenha)' : `áudio de ${this.appAudio.name || 'jogo'}`) : (this.screen.getAudioTracks().length ? 'áudio do sistema' : 'sem áudio');
+    const level = items.some(i => i[0] === 'bad') ? 'bad' : items.length ? 'warn' : 'ok';
+    return { level, fps, want, audio, items };
+  }
   // fps REAL de captura: quadros que o capturador entregou ao pipeline (media-source.frames do remetente), contados a cada segundo
   // e suavizados em ~3 s. Independe do fps pedido: mostra o que o capturador (Chromium) de fato produz.
   meterCapture() {
@@ -719,7 +753,7 @@ export class Voice {
   toggleMute() { const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
   toggleDeaf() { this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
   afterAudioChange() { this.applyMute(); for (const uid of this.peers.keys()) this.applyVolume(uid); this.sendState(); this.onUpdate(); }
-  sendState() { if (!this.channelId) return; this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, fx: this.fx || null }); }
+  sendState() { if (!this.channelId) return; this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
 
   async toggleCam() {
     if (this.cam) return this.stopLocal('cam');
@@ -746,7 +780,7 @@ export class Voice {
     if (!this.screen) return; // parou enquanto preparava o áudio
     const nat = await this.wantNative(opts);
     if (nat) { this.native = { pending: true }; this.previewOnly(vt, true); }
-    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack();
+    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource();
     if (nat) this.startNative().catch(() => { });
   }
 
@@ -763,13 +797,15 @@ export class Voice {
       node = new AudioWorkletNode(ctx, 'lc-pcm', { numberOfInputs: 0, outputChannelCount: [2] });
       const dest = ctx.createMediaStreamDestination(); node.connect(dest);
       d.onAppAudio((b) => node.port.postMessage(b));
+      // vigia do app desktop: o jogo reiniciou com outro processo (religado) ou fechou (esperando voltar)
+      d.onAppAudioEvent?.((ev) => { if (!this.appAudio) return; this.appAudio.state = ev.t === 'waiting' ? 'waiting' : 'ok'; this.onAppAudioEvent?.(ev); this.onUpdate(); });
       const r = await d.appAudioStart({ pid: a.pid, mode: a.mode });
       if (!r?.ok) throw new Error(r?.error || 'falhou');
       if (!this.screen) throw new Error('transmissão encerrada');
       const t = dest.stream.getAudioTracks()[0];
       for (const old of this.screen.getAudioTracks()) { this.screen.removeTrack(old); old.stop(); } // o loopback do PC inteiro sai
       this.screen.addTrack(t);
-      this.appAudio = { node, dest, track: t, mode: a.mode, name: a.name || '' };
+      this.appAudio = { node, dest, track: t, mode: a.mode, name: a.name || '', state: 'ok' };
       return true;
     } catch (e) {
       d.onAppAudio?.(null); d.appAudioStop?.(); node?.disconnect();
@@ -780,7 +816,7 @@ export class Voice {
   stopAppAudio() {
     const a = this.appAudio; if (!a) return;
     this.appAudio = null;
-    window.lcDesktop?.onAppAudio?.(null); window.lcDesktop?.appAudioStop?.();
+    window.lcDesktop?.onAppAudio?.(null); window.lcDesktop?.onAppAudioEvent?.(null); window.lcDesktop?.appAudioStop?.();
     a.node.disconnect(); a.track.stop();
   }
 
@@ -882,7 +918,7 @@ export class Voice {
     const s = this[kind]; if (!s) return;
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { this.stopNative(); this.stopAppAudio(); clearInterval(this._sw); clearInterval(this._bk); this.captureFps = null; this.captureBlack = false; }
+    if (kind === 'screen') { this.stopNative(); this.stopAppAudio(); clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();
