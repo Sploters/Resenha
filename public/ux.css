@@ -563,3 +563,5 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 #totop-btn:hover { color: var(--header); background: var(--bg-mod-hover); }
 #totop-btn .icon { fill: currentColor; }
 #totop-btn.hidden { display: flex !important; opacity: 0; transform: translateY(6px); pointer-events: none; }
+/* painel de perfil da DM: título "Na Resenha desde" (e os demais títulos do cartão) menor */
+#dmpanel .pcard .pb h4 { font-size: 10px; letter-spacing: .03em; margin-bottom: 3px; }
