@@ -516,6 +516,6 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 /* barra de baixo: enquanto transmite, o botão de tela vira "Parar transmissão" com texto (não se confunde com sair da chamada) */
 #stage .bar .roundbtn.stopshare { width: auto; padding: 0 18px 0 14px; gap: 8px; border-radius: 28px; background: #da373c !important; color: #fff; font-weight: 600; font-size: 15px; white-space: nowrap; }
 #stage .bar .roundbtn.stopshare:hover { background: #a12828 !important; }
-/* pergunta ao sair da chamada transmitindo */
-.menu .leaveq { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; max-width: 240px; }
-.menu .leaveq b { color: var(--header); font-size: 14px; } .menu .leaveq span { color: var(--text-muted); font-size: 13px; }
+/* painel "Voz conectada": o botão de tela vira "Parar transmissão" (vermelho) enquanto transmite */
+#voice-panel .row button.stopshare { background: #da373c !important; color: #fff; }
+#voice-panel .row button.stopshare:hover { background: #a12828 !important; }

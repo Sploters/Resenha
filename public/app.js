@@ -716,11 +716,11 @@ function voicePanel() {
   return h('div#voice-panel',
     h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', voice.joinedAt && h('span.vtimer.vp-time', { 'data-start': voice.joinedAt, title: 'Tempo na chamada' }, fmtDur(Date.now() - voice.joinedAt)), abrEl()),
       h('span.vp-btns', h('button.ibtn', { title: 'Testar microfone, ruído e eco', onclick: (e) => openMicPanel(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('waves', 20)),
-        h('button.ibtn', { title: 'Sair da chamada', onclick: (e) => leaveCall(e) }, icon('phoneoff', 20)))),
+        h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
-      h('button' + (voice.screen ? '.on' : ''), { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
+      voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       fxButton(20, false),
       h('button', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 20)),
       h('button', { title: 'Música (bot) — indisponível', disabled: true, style: { opacity: .4, cursor: 'not-allowed' } }, icon('music', 20))));
@@ -1999,7 +1999,7 @@ function renderVoiceUI(speakOnly) {
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow', { title: 'Música (bot) — indisponível', disabled: true, style: { opacity: .4, cursor: 'not-allowed' } }, icon('music', 24)),
-    btn('phoneoff', 'Sair da chamada', false, (e) => leaveCall(e), '.red'),
+    btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
   ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
@@ -2133,15 +2133,6 @@ const pipCtx = {
 };
 // parar de compartilhar a tela (sem sair da chamada)
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
-// sair da chamada: quem está transmitindo costuma clicar aqui achando que é "parar transmissão", então pergunta antes
-function leaveCall(e) {
-  if (!voice.screen) return voice.leave();
-  const r = e?.currentTarget?.getBoundingClientRect?.();
-  menu(r ? { preventDefault() { }, clientX: r.left, clientY: r.top - 110 } : e, [
-    { node: h('div.leaveq', h('b', 'Você está transmitindo a tela'), h('span', 'Quer só parar a transmissão ou sair da chamada?')) },
-    { label: 'Só parar a transmissão', fn: stopSharing },
-    { label: 'Sair da chamada', danger: true, fn: () => voice.leave() }]);
-}
 // botões de cada transmissão, no canto do próprio quadro: a ação principal com texto (parar de assistir / parar transmissão),
 // tela cheia e o resto num menu "⋯" para não poluir
 function streamControls({ key, uid, mine, scr, inRoom, who }) {
