@@ -553,14 +553,16 @@ h3.sec.snd-sec .icon { fill: currentColor; }
      nem alfinete); continua aberta 0,5 s depois que o mouse sai, como a barra solta */
   #app.hide-side #userbar.pb-body { flex: none; padding: 0 6px !important; }
   #app.hide-side #userbar.pb-body .me, #app.hide-side #userbar.pb-body .pb-pin { display: none; }
-  /* Mensagens e amigos / Buscar em tudo: no lugar da dica com o nome, abrem ao passar o mouse (app.js: meFlyShow, gsFlyEnter) */
-  #app.hide-side .rail-wrap.rail-fly[data-tip]:hover::after { display: none; }
+  /* Buscar em tudo abre ao passar o mouse (no lugar da dica com o nome); Mensagens e amigos mostra a dica enquanto espera
+     os 1,2 s e a esconde quando a fileira com as abas abre (app.js: meFlyShow, gsFlyEnter) */
+  #app.hide-side .rail-wrap.rail-fly:has([data-fly="gs"])[data-tip]:hover::after { display: none; }
   /* busca em tudo: o painel aparece flutuando por cima da conversa, colado na barra dos servidores */
   #app.hide-side.gs-open #side { position: absolute; top: 0; bottom: 0; left: 72px; z-index: 35; width: 300px; border-radius: 0 18px 18px 0; box-shadow: 8px 0 24px rgba(0,0,0,.35); animation: gs-fly .14s ease-out; }
   #app.hide-side.gs-open:has(#chtabs) #side { border: 1px solid var(--divider); border-left: 0; }
 }
 @keyframes gs-fly { from { opacity: 0; transform: translateX(-8px); } }
-/* Mensagens e amigos com a lista oculta: as duas abas numa fileira que sai do ícone */
+/* Mensagens e amigos (clique direito ou mouse parado 1,2 s): as duas abas numa fileira que sai do ícone */
+body:has(#layer .rf-popout:not(.leaving)) .rail-wrap.rail-fly:has([data-fly="me"])[data-tip]:hover::after { display: none; }
 .popout.rf-popout { width: auto; padding: 6px; border-radius: 14px; }
 .rf-pop { display: flex; gap: 4px; }
 .rf-opt { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--interactive); font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background .12s, color .12s; }

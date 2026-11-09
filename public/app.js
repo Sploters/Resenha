@@ -406,7 +406,7 @@ function renderRail() {
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
   const meView = S.view.gid === '@me';
   rail.replaceChildren(
-    wrap('.rail-fly' + (meView && !S.searchOpen ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly' + (meView && !S.searchOpen ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), oncontextmenu: (e) => { e.preventDefault(); clearTimeout(RF.meWait); RF.meWait = 0; meFlyShow(e.currentTarget); }, style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => gsFlyClick(), style: { fontSize: '0' } }, icon('search', 26))),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
@@ -432,11 +432,12 @@ function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de M
 const GS = { q: '', scope: 'all', sort: 'new', groups: null, loading: false, open: null, msgs: {}, seq: 0 };
 function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; RF.gsHov = false; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderSide(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
 function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; RF.gsHov = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderSide(); }
-// ---------- lista de canais oculta: Mensagens/Amigos e Buscar em tudo abrem ao passar o mouse ----------
-// Mensagens e amigos: sai do ícone uma fileira com as duas abas. Buscar em tudo: o painel de busca aparece flutuando por
-// cima da conversa. Os dois fecham 0,5 s depois que o mouse sai (a busca fica aberta se você clicou nela ou digitou algo)
+// ---------- Mensagens/Amigos e Buscar em tudo com a lista de canais oculta ----------
+// Mensagens e amigos: clique direito (sempre) ou o mouse parado em cima por 1,2 s (lista oculta) abre uma fileira com as
+// duas abas. Buscar em tudo: com a lista oculta, passar o mouse abre o painel de busca flutuando por cima da conversa.
+// Os dois fecham 0,5 s depois que o mouse sai (a busca fica aberta se você clicou nela ou digitou algo)
 const sideHidden = () => !!$('#app.hide-side') && matchMedia('(min-width: 641px)').matches;
-const RF = { me: null, meT: 0, meAt: 0, gsT: 0, gsHov: false };
+const RF = { me: null, meT: 0, meAt: 0, meWait: 0, gsT: 0, gsHov: false };
 const meFlyOpen = () => !!RF.me && RF.me.isConnected && !RF.me.classList.contains('leaving');
 function meFlyHide() { clearTimeout(RF.meT); if (meFlyOpen()) RF.me.remove(); RF.me = null; }
 function meFlyShow(anchor) {
@@ -464,12 +465,17 @@ function gsFlyClick() {
   const flyOf = (e) => sideHidden() && e.target.closest?.('#rail [data-fly]')?.dataset.fly;
   document.addEventListener('mouseover', (e) => {
     const k = flyOf(e);
-    if (k === 'me') { if (!document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(e.target.closest('[data-fly]')); }
+    if (k === 'me') {
+      clearTimeout(RF.meT); // voltou para o ícone antes de a fileira fechar
+      if (meFlyOpen() || RF.meWait) return; // o mouse andando por dentro do ícone não reinicia a espera
+      const anchor = e.target.closest('[data-fly]');
+      RF.meWait = setTimeout(() => { RF.meWait = 0; if (anchor.isConnected && anchor.matches(':hover') && !document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(anchor); }, 1200);
+    }
     else if (k === 'gs' || (S.searchOpen && sideHidden() && e.target.closest?.('#side'))) gsFlyEnter();
   });
   document.addEventListener('mouseout', (e) => {
     const k = flyOf(e), to = e.relatedTarget;
-    if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { if (meFlyOpen()) meFlyLater(); }
+    if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { clearTimeout(RF.meWait); RF.meWait = 0; if (meFlyOpen()) meFlyLater(); }
     else if ((k === 'gs' || (sideHidden() && e.target.closest?.('#side'))) && !to?.closest?.('[data-fly="gs"], #side')) gsFlyLater();
   });
   // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
