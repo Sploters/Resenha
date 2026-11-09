@@ -309,7 +309,7 @@ function onMessage(m) {
   ghostFor(m);
   if (S.view.cid === m.channel_id && list && !gap) appendMessage(m);
   const dmc = S.dms.get(m.channel_id);
-  if (dmc) { dmc.last_message = { id: m.id, author_id: m.author_id, content: (m.content || '').slice(0, 140), created_at: m.created_at, attachment: !!m.attachments?.length }; if (inMessages()) renderSide(); }
+  if (dmc) { dmc.last_message = { id: m.id, author_id: m.author_id, content: (m.content || '').slice(0, 140), created_at: m.created_at, attachment: !!m.attachments?.length }; if (inMessages()) renderSide(); if (S.view.kind === 'messages') renderMain(); }
   if (mine) return;
   const ch = channelById(m.channel_id), isDM = ch?.type === 1, pol = notifPolicy(ch);
   const text = m.content || '', direct = text.includes(`<@${S.me.id}>`);
@@ -417,7 +417,7 @@ function renderRail() {
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
 }
-function openMessages() { const last = localStorage.getItem('lc_lastdm'); go('@me', last && S.dms.has(last) ? last : 'messages'); }
+function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de Mensagens (conversas recentes); a conversa se escolhe nela ou na lista
 // ---------- busca em tudo (lupa no topo da barra) ----------
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
@@ -672,6 +672,30 @@ function dmRow(dm, pin) {
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
     avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), un > 0 && h('span.pill', un),
     pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 22)));
+}
+// tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
+// cartões (foto, nome, prévia da última mensagem, hora e não lidas) para escolher com um clique
+function messagesHome() {
+  const dms = [...S.dms.values()].filter(d => dmPeer(d)).sort((a, b) => (lastTime(b) - lastTime(a)) || (lastActivity(b) > lastActivity(a) ? 1 : -1));
+  const newBtn = h('button.btn', { type: 'button', onclick: () => newMessageModal() }, icon('plus', 16), 'Nova mensagem');
+  if (!dms.length) return h('div.empty.msgs-empty', { style: { margin: 'auto' } }, icon('dm', 56), h('h2', 'Suas mensagens'), h('p', 'Converse em particular com seus amigos.'), newBtn);
+  const preview = (dm) => {
+    const lm = dm.last_message; if (!lm) return 'Nenhuma mensagem ainda';
+    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = (lm.content || '').replace(/\s+/g, ' ').trim();
+    return who + (txt || (lm.attachment ? 'Anexo' : '…'));
+  };
+  const card = (dm) => {
+    const u = user(dmPeer(dm).id), un = S.mentions[dm.id], unread = !!S.unread[dm.id];
+    return h('button.mh-card' + (unread ? '.unread' : ''), { type: 'button', onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id), title: `Abrir conversa com ${u.display_name}` },
+      avatar(u, 44, { ring: 'var(--bg-float)' }),
+      h('span.mh-txt', h('span.mh-top', styleName(h('b', u.display_name), u.name_style), h('small', shortWhen(lastTime(dm)))), h('span.mh-prev', preview(dm))),
+      un > 0 && h('span.pill', un));
+  };
+  return h('div.msgs-home',
+    h('div.mh-head', h('div', h('h2', 'Suas mensagens'), h('p', 'Escolha uma conversa para continuar ou comece uma nova.')), newBtn),
+    h('h4.mh-sec', 'Conversas recentes'),
+    h('div.mh-grid', dms.slice(0, 12).map(card)),
+    dms.length > 12 && h('p.mh-more', `Mais ${dms.length - 12} ${dms.length - 12 === 1 ? 'conversa' : 'conversas'} na lista ao lado.`));
 }
 // nova mensagem: escolher um amigo (ou qualquer pessoa dos seus servidores)
 function newMessageModal() {
@@ -1038,7 +1062,7 @@ function renderMain() {
   if (v.kind === 'clips') return renderClips(main, v.gid);
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
-  if (v.kind === 'messages') return main.replaceChildren(h('div#topbar.msgs-top', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('dm', 24)), h('span', 'Mensagens')), h('div.empty.msgs-empty', { style: { margin: 'auto' } }, icon('dm', 56), h('h2', 'Suas mensagens'), h('p', S.dms.size ? 'Escolha uma conversa na lista ao lado ou comece uma nova.' : 'Converse em particular com seus amigos.'), h('button.btn', { onclick: () => newMessageModal() }, 'Nova mensagem')));
+  if (v.kind === 'messages') return main.replaceChildren(h('div#topbar.msgs-top', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('dm', 24)), h('span', 'Mensagens')), messagesHome());
   const ch = channelById(v.cid);
   if (!ch) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('h2', 'Sem canais'), h('p', 'Este servidor ainda não tem canais.')));
   const dm = ch.type === 1, vc = ch.type === 2, peer = dm && dmPeer(ch);
