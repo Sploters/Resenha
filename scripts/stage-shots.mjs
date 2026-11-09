@@ -58,7 +58,7 @@ try {
   // controle remoto: bruno pede o controle da tela da ana (com o Vanguard "rodando" no PC dela)
   await A.evaluate(() => { window.__ac = ['Riot Vanguard (Valorant, League of Legends)']; });
   await B.evaluate((u) => document.querySelector(`.tile.screen[data-sid="${u}"]`)?.click(), a.id); await sleep(600);
-  await B.evaluate(() => [...document.querySelectorAll('.tctl button, #stage button')].find(x => /Pedir controle/.test(x.title))?.click()); await sleep(600);
+  await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle/.test(x.textContent))?.click()); await sleep(600);
   await shot(B, '05-pedir-controle-intro');
   await B.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Pedir controle')?.click());
   await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });

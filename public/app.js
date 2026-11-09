@@ -20,7 +20,7 @@ import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pru
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
 import { syncThrottle } from './lite.js';
-import { initRemote, onRemoteEvent, tileButton as remoteTileButton, controlling as remoteControlling } from './remote.js';
+import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
@@ -716,7 +716,7 @@ function voicePanel() {
   return h('div#voice-panel',
     h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', voice.joinedAt && h('span.vtimer.vp-time', { 'data-start': voice.joinedAt, title: 'Tempo na chamada' }, fmtDur(Date.now() - voice.joinedAt)), abrEl()),
       h('span.vp-btns', h('button.ibtn', { title: 'Testar microfone, ruído e eco', onclick: (e) => openMicPanel(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('waves', 20)),
-        h('button.ibtn', { title: 'Desconectar', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
+        h('button.ibtn', { title: 'Sair da chamada', onclick: (e) => leaveCall(e) }, icon('phoneoff', 20)))),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
@@ -1943,8 +1943,7 @@ function renderVoiceUI(speakOnly) {
   const dm = ch.type === 1, gid = ch.guild_id;
   const members = [...S.voice.values()].filter(v => v.channel_id === ch.id);
   const inRoom = voice.channelId === ch.id;
-  const tiles = [], live = new Set(), ctls = new Map(); // ctls: botões de cada transmissão, que ficam na linha da barra de baixo
-  let setCtl = () => { };
+  const tiles = [], live = new Set();
   const nm = (uid) => dm ? user(uid).display_name : nameOf(uid, gid);
   for (const v of members) {
     const uid = v.user_id, mine = uid === S.me.id, p = voice.peers.get(uid);
@@ -1959,8 +1958,8 @@ function renderVoiceUI(speakOnly) {
       if (clipsAuto(mine) && inRoom) startBuffer(key, scr, mine ? [scr, voice.mic] : [p?.screenAudioEl?.raw, p?.audioEl?.raw], voice.getCtx());
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
-            ctls.set(key, h('div.tctl', mine && h('button.ibtn', { title: S.selfPreview ? 'Pausar prévia' : 'Ver prévia da minha transmissão', onclick: (e) => { e.stopPropagation(); S.selfPreview = !S.selfPreview; renderVoiceUI(); } }, icon('eye', 18)), !mine && h('button.ibtn', { title: 'Fechar transmissão (parar de assistir)', onclick: (e) => { e.stopPropagation(); voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); } }, icon('x', 18)), h('button.ibtn' + (clipping(key) ? '.rec' : ''), { title: 'Clipes', onclick: (e) => { e.stopPropagation(); clipMenu(e, key, nm(uid)); } }, icon('clip', 18)), h('button.ibtn' + (S.annot === key ? '.rec' : ''), { title: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão (todos veem)', onclick: (e) => { e.stopPropagation(); S.annot = S.annot === key ? null : key; renderVoiceUI(); } }, icon('edit', 18)), h('button.ibtn' + (S.room?.spot === key ? '.rec' : ''), { title: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', onclick: (e) => { e.stopPropagation(); voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }); } }, icon('star', 18)), !mine && inRoom && remoteTileButton(uid), !mine && h('button.ibtn' + (S.qstats === key ? '.rec' : ''), { title: 'Qualidade desta transmissão', onclick: (e) => { e.stopPropagation(); S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } }, icon('sliders', 18)), h('button.ibtn', { title: 'Janela flutuante sobre outros apps', onclick: (e) => { e.stopPropagation(); popOut(scr); } }, icon('external', 18)), h('button.ibtn', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr); } }, icon('expand', 18))));
-            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { onmouseenter: () => setCtl(key), 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); }, oncontextmenu: (e) => !mine && menu(e, [{ node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }]) }, vid, mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+            const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });
+            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); }, oncontextmenu: (e) => !mine && menu(e, [{ node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }]) }, vid, mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
     }
     const ckey = 'c:' + uid;
@@ -1994,25 +1993,18 @@ function renderVoiceUI(speakOnly) {
     btn(voice.muted ? 'micoff' : 'mic', voice.muted ? 'Ativar microfone (clique direito: redução de ruído)' : 'Silenciar (clique direito: redução de ruído)', voice.muted, () => voiceToggle('mute'), '.mic.solo-narrow'),
     btn(voice.deafened ? 'headoff' : 'headset', 'Ensurdecer', voice.deafened, () => voiceToggle('deaf'), '.solo-narrow'),
     btn('video', 'Câmera', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'),
-    btn('screen', voice.screen ? 'Parar transmissão' : 'Transmitir tela', !!voice.screen, startShare),
+    voice.screen ? h('button.roundbtn.stopshare', { title: 'Parar de compartilhar a tela', onclick: () => stopSharing() }, icon('screenoff', 22), h('span', 'Parar transmissão')) : btn('screen', 'Transmitir tela', false, startShare),
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow', { title: 'Música (bot) — indisponível', disabled: true, style: { opacity: .4, cursor: 'not-allowed' } }, icon('music', 24)),
-    btn('phoneoff', 'Desconectar', false, () => voice.leave(), '.red'),
+    btn('phoneoff', 'Sair da chamada', false, (e) => leaveCall(e), '.red'),
   ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
   if (slot) slot.replaceChildren(...(inRoom && tiles.length > 1 ? [h('button#vc-layout' + (document.querySelector('.layoutpop') ? '.open' : ''), { title: 'Mudar o layout do palco', onclick: layoutMenu }, icon('layout', 18), h('span', STAGE_LAYOUTS.find(l => l.id === layout).label), icon('chevdown', 14))] : []));
   if (hasScreen) bar.append(h('button.partbtn' + (S.hideMembers ? '.membershid' : ''), { title: S.hideMembers ? 'Mostrar participantes' : 'Ocultar participantes', onclick: () => { S.hideMembers = !S.hideMembers; renderVoiceUI(); } }, icon('caret', 16), icon('users', 18)));
-  if (inRoom) { // botões da transmissão na linha da barra, à direita: valem para o quadro grande (em destaque ou na grade), não para os minimizados
-    const barCtl = h('div.bar-ctl');
-    const eligible = () => (focusTile ? (focusTile.classList.contains('screen') ? [focusTile.dataset.key] : []) : screens.map(t => t.dataset.key));
-    const showCtl = () => { const el = eligible(), k = el.includes(S.ctlKey) ? S.ctlKey : el[0]; barCtl.replaceChildren(...(k && ctls.get(k) ? [ctls.get(k)] : [])); };
-    setCtl = (key) => { if (eligible().includes(key) && S.ctlKey !== key) { S.ctlKey = key; showCtl(); } };
-    bar.append(barCtl); showCtl();
-  }
   for (const t of screens) { const sid = t.dataset.sid; if (sid && sid !== S.me.id) voice.setStreamLayer(sid, focusTile && t !== focusTile ? 0 : screens.length > 2 && !focusTile ? 1 : 2); } // miniaturas e grades cheias pedem a camada menor
   const rest = focusTile ? tiles.filter(t => t !== focusTile) : tiles;
   const empty = !tiles.length; // sala vazia: o botão de entrar fica junto do texto, no meio (como no Discord)
@@ -2139,6 +2131,41 @@ const pipCtx = {
   fullscreen: (uid) => { const s = uid ? voice.peers.get(uid)?.streams.screen : voice.screen; if (s) fullscreenStream(s); },
   nameOf: (uid) => { const ch = channelById(voice.channelId); return ch?.type === 1 ? user(uid).display_name : nameOf(uid, ch?.guild_id); },
 };
+// parar de compartilhar a tela (sem sair da chamada)
+function stopSharing() { if (voice.screen) voice.toggleScreen(); }
+// sair da chamada: quem está transmitindo costuma clicar aqui achando que é "parar transmissão", então pergunta antes
+function leaveCall(e) {
+  if (!voice.screen) return voice.leave();
+  const r = e?.currentTarget?.getBoundingClientRect?.();
+  menu(r ? { preventDefault() { }, clientX: r.left, clientY: r.top - 110 } : e, [
+    { node: h('div.leaveq', h('b', 'Você está transmitindo a tela'), h('span', 'Quer só parar a transmissão ou sair da chamada?')) },
+    { label: 'Só parar a transmissão', fn: stopSharing },
+    { label: 'Sair da chamada', danger: true, fn: () => voice.leave() }]);
+}
+// botões de cada transmissão, no canto do próprio quadro: a ação principal com texto (parar de assistir / parar transmissão),
+// tela cheia e o resto num menu "⋯" para não poluir
+function streamControls({ key, uid, mine, scr, inRoom, who }) {
+  const stop = (e) => { e.stopPropagation(); voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); };
+  const more = (e) => {
+    e.stopPropagation();
+    const on = remoteControlling(uid), wait = remotePending(uid);
+    menu(e, [
+      mine && { label: S.selfPreview ? 'Pausar a prévia' : 'Ver a prévia da minha transmissão', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
+      mine && { label: 'Ajustes da transmissão', hint: 'Qualidade, áudio e trocar o que compartilho', fn: liveShareModal },
+      inRoom && { label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
+      { label: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão', hint: 'Todos na sala veem', fn: () => { S.annot = S.annot === key ? null : key; renderVoiceUI(); } },
+      { label: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
+      !mine && inRoom && { label: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta…' : 'Pedir controle (mouse e teclado)', fn: () => (on ? stopControl() : !wait && requestControl(uid)) },
+      !mine && { label: S.qstats === key ? 'Esconder a qualidade' : 'Qualidade desta transmissão', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
+      { label: 'Janela flutuante sobre outros apps', fn: () => popOut(scr) },
+    ]);
+  };
+  return h('div.sctl', { onclick: (e) => e.stopPropagation() },
+    mine ? h('button.sc-main.sc-stop', { title: 'Parar de compartilhar a tela', onclick: (e) => { e.stopPropagation(); stopSharing(); } }, icon('screenoff', 16), h('span', 'Parar transmissão'))
+      : h('button.sc-main', { title: 'Fechar esta transmissão (você continua na chamada)', onclick: stop }, icon('x', 16), h('span', 'Parar de assistir')),
+    h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr); } }, icon('expand', 16)),
+    h('button.sc-ic', { title: 'Mais opções', onclick: more }, icon('more', 16)));
+}
 function liveShareModal() {
   const o = { ...voice.screenOpts };
   const settings = h('div.qinfo'), net = h('div.qinfo'), blk = h('div.qinfo.warn'), updInfo = () => { blk.textContent = voice.captureBlack ? 'A transmissão está saindo PRETA. Se for um jogo (ex.: Valorant), coloque-o em "Janela sem bordas" nas opções de vídeo do jogo e transmita a tela inteira. Tela cheia exclusiva e alguns anti-cheats bloqueiam a captura, e a Resenha não contorna isso.' : ''; blk.style.display = voice.captureBlack ? '' : 'none'; const st = voice.screen?.getVideoTracks()[0]?.getSettings?.() || {}; const cf = voice.captureFps, want = +o.fps || 0; settings.textContent = `${want} FPS solicitados · ${cf == null ? 'medindo…' : cf + ' FPS capturados'} — ${voice.native?.w ? voice.native.w + '×' + voice.native.h + ' (modo 120 FPS, placa de vídeo)' : (st.width || '?') + '×' + (st.height || '?')} — ${qualityLabel(o)}`; settings.classList.toggle('warn', cf != null && want > 0 && cf < want * 0.85); voice.screenStats().then(L => { if (!L?.length) return; const t = L[0], why = { cpu: 'limitado pelo processador', bandwidth: 'limitado pela sua internet (upload)', none: 'sem limitação', other: 'limitado' }[t.limit] || t.limit; net.textContent = `Enviando: ${t.w}×${t.h} a ${t.fps} fps, ${(t.kbps / 1000).toFixed(1)} Mbps — ${why}${/nativo/.test(t.enc) ? ' (' + t.enc + ')' : /hw|h264|video toolbox|nvenc|media/i.test(t.enc) ? ' (placa de vídeo)' : t.enc ? ' (' + t.enc + ')' : ''}`; }); };

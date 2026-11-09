@@ -500,3 +500,22 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 
 /* ---------- busca em tudo: sem o "x" nativo de limpar ---------- */
 #gs-q::-webkit-search-cancel-button, #gs-q::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+
+/* ---------- transmissão: ações no canto do próprio quadro (a principal com texto; o resto no "⋯") ---------- */
+.tile .sctl { position: absolute; top: 10px; right: 10px; z-index: 4; display: flex; gap: 6px; align-items: center; opacity: 0; transform: translateY(-4px); transition: opacity .12s, transform .12s; pointer-events: none; }
+.tile.screen:hover .sctl, .tile.screen:focus-within .sctl, .tile.screen.focus .sctl, #stage .spot .tile.screen .sctl { opacity: 1; transform: none; pointer-events: auto; }
+.sctl button { border: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #fff; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); border-radius: 10px; height: 34px; font: inherit; font-size: 14px; font-weight: 600; }
+.sctl .sc-main { padding: 0 12px 0 10px; } .sctl .sc-ic { width: 34px; }
+.sctl button:hover { background: rgba(0,0,0,.85); }
+.sctl .sc-main:hover { background: #fff; color: #111; }
+.sctl .sc-stop { background: #da373c; } .sctl .sc-stop:hover { background: #a12828; color: #fff; }
+.sctl button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+/* miniaturas (faixa ao lado do destaque): só o botão principal, compacto */
+#stage .strip .tile .sctl { top: 6px; right: 6px; } #stage .strip .tile .sctl .sc-ic { display: none; }
+#stage .strip .tile .sctl .sc-main { height: 28px; padding: 0 8px; font-size: 12px; }
+/* barra de baixo: enquanto transmite, o botão de tela vira "Parar transmissão" com texto (não se confunde com sair da chamada) */
+#stage .bar .roundbtn.stopshare { width: auto; padding: 0 18px 0 14px; gap: 8px; border-radius: 28px; background: #da373c !important; color: #fff; font-weight: 600; font-size: 15px; white-space: nowrap; }
+#stage .bar .roundbtn.stopshare:hover { background: #a12828 !important; }
+/* pergunta ao sair da chamada transmitindo */
+.menu .leaveq { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; max-width: 240px; }
+.menu .leaveq b { color: var(--header); font-size: 14px; } .menu .leaveq span { color: var(--text-muted); font-size: 13px; }

@@ -97,9 +97,9 @@ try {
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id);
   await B.evaluate((uid) => { window.__lc.S.focus = 's:' + uid; }, a.id);
-  const ctlBtn = (P, uid) => P.evaluate((uid) => { const t = document.querySelector(`.tile.screen[data-sid="${uid}"]`); t?.dispatchEvent(new MouseEvent('mouseenter')); return !![...document.querySelectorAll('.tctl button')].find(x => /controle/i.test(x.title)); }, uid);
+  const ctlBtn = (P, uid) => P.evaluate((uid) => { const t = document.querySelector(`.tile.screen[data-sid="${uid}"]`); const b = t?.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return !![...document.querySelectorAll('.menu .it')].find(x => /controle/i.test(x.textContent)); }, uid); // fica no "⋯" do quadro
   ok(await ctlBtn(B, a.id), 'quem assiste vê o botão "Pedir controle" na transmissão');
-  const clickCtl = (P) => P.evaluate(() => [...document.querySelectorAll('.tctl button')].find(x => /Pedir controle|Parar de controlar/.test(x.title))?.click());
+  const clickCtl = (P) => P.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle|Parar de controlar/.test(x.textContent))?.click());
 
   // pedido -> alice vê o diálogo, libera só o mouse
   await clickCtl(B);
@@ -175,7 +175,7 @@ try {
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`), { timeout: 15000 }, c.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`).click(), c.id); await sleep(800);
   await B.evaluate((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(), c.id); await sleep(400); // destaca a transmissão da carol (os botões valem para a destacada)
-  await B.evaluate(() => [...document.querySelectorAll('.tctl button')].find(x => /Pedir controle/.test(x.title))?.click());
+  await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle/.test(x.textContent))?.click());
   ok(await toastOf(B, 'carol não pode ser controlad'), 'navegador comum: pedido recusado automaticamente com explicação');
   ok(!(await C.evaluate(() => !!document.querySelector('.modal .rmask'))), 'carol (sem o app) nem vê diálogo de consentimento');
 

@@ -145,7 +145,7 @@ try {
   await B.waitForFunction((u) => document.querySelector(`.tile.screen[data-sid="${u}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id);
   await sleep(7000); // o buffer de clipes junta alguns segundos
   const before = (await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total;
-  await B.evaluate(() => [...document.querySelectorAll('.tctl button')].find(x => x.title === 'Clipes')?.click()); await sleep(300);
+  await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /^(Ativar )?[Cc]lipes/.test(x.textContent))?.click()); await sleep(300); // "⋯" do quadro → Clipes
   await B.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /últimos 5s/.test(x.textContent))?.click());
   let real = null; for (let i = 0; i < 40 && !real; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before) real = l.clips[0]; }
   ok(real && real.streamer?.id === a.id && real.author.id === b.id && real.secs === 5 && /^alice — \d\d\/\d\d \d\d:\d\d$/.test(real.title), 'botão de clipe da transmissão salva na galeria com nome distinto', real && { t: real.title, secs: real.secs });
