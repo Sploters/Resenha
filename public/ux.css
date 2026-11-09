@@ -553,9 +553,9 @@ h3.sec.snd-sec .icon { fill: currentColor; }
      nem alfinete); continua aberta 0,5 s depois que o mouse sai, como a barra solta */
   #app.hide-side #userbar.pb-body { flex: none; padding: 0 6px !important; }
   #app.hide-side #userbar.pb-body .me, #app.hide-side #userbar.pb-body .pb-pin { display: none; }
-  /* Buscar em tudo abre ao passar o mouse (no lugar da dica com o nome); Mensagens e amigos mostra a dica enquanto espera
-     os 1,2 s e a esconde quando a fileira com as abas abre (app.js: meFlyShow, gsFlyEnter) */
-  #app.hide-side .rail-wrap.rail-fly:has([data-fly="gs"])[data-tip]:hover::after { display: none; }
+  /* Buscar em tudo só abre com clique: a dica com o nome aparece normalmente e some enquanto o painel flutuante está aberto;
+     Mensagens e amigos mostra a dica enquanto espera os 1,2 s e a esconde quando a fileira com as abas abre (app.js: meFlyShow) */
+  #app.hide-side.gs-open .rail-wrap.rail-fly:has([data-fly="gs"])[data-tip]:hover::after { display: none; }
   /* busca em tudo: o painel aparece flutuando por cima da conversa, colado na barra dos servidores */
   #app.hide-side.gs-open #side { position: absolute; top: 0; bottom: 0; left: 72px; z-index: 35; width: 300px; border-radius: 0 18px 18px 0; box-shadow: 8px 0 24px rgba(0,0,0,.35); animation: gs-fly .14s ease-out; }
   #app.hide-side.gs-open:has(#chtabs) #side { border: 1px solid var(--divider); border-left: 0; }

@@ -407,7 +407,7 @@ function renderRail() {
   const meView = S.view.gid === '@me';
   rail.replaceChildren(
     wrap('.rail-fly' + (meView && !S.searchOpen ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), oncontextmenu: (e) => { e.preventDefault(); clearTimeout(RF.meWait); RF.meWait = 0; meFlyShow(e.currentTarget); }, style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
-    wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => gsFlyClick(), style: { fontSize: '0' } }, icon('search', 26))),
+    wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
       return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name,
@@ -430,14 +430,14 @@ function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de M
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
 const GS = { q: '', scope: 'all', sort: 'new', groups: null, loading: false, open: null, msgs: {}, seq: 0 };
-function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; RF.gsHov = false; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderSide(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
-function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; RF.gsHov = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderSide(); }
+function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderSide(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
+function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderSide(); }
 // ---------- Mensagens/Amigos e Buscar em tudo com a lista de canais oculta ----------
 // Mensagens e amigos: clique direito (sempre) ou o mouse parado em cima por 1,2 s (lista oculta) abre uma fileira com as
-// duas abas. Buscar em tudo: com a lista oculta, passar o mouse abre o painel de busca flutuando por cima da conversa.
-// Os dois fecham 0,5 s depois que o mouse sai (a busca fica aberta se você clicou nela ou digitou algo)
+// duas abas; fecha 0,5 s depois que o mouse sai. Buscar em tudo: só abre com clique (passar o mouse não faz nada); com a lista
+// oculta, o painel de busca aparece flutuando por cima da conversa e fecha ao clicar fora ou no ícone de novo
 const sideHidden = () => !!$('#app.hide-side') && matchMedia('(min-width: 641px)').matches;
-const RF = { me: null, meT: 0, meAt: 0, meWait: 0, gsT: 0, gsHov: false };
+const RF = { me: null, meT: 0, meAt: 0, meWait: 0 };
 const meFlyOpen = () => !!RF.me && RF.me.isConnected && !RF.me.classList.contains('leaving');
 function meFlyHide() { clearTimeout(RF.meT); if (meFlyOpen()) RF.me.remove(); RF.me = null; }
 function meFlyShow(anchor) {
@@ -451,16 +451,6 @@ function meFlyShow(anchor) {
   el.style.top = Math.max(8, Math.min(r.top + r.height / 2 - b.height / 2, innerHeight - b.height - 8)) + 'px';
 }
 function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500); }
-// busca aberta pelo mouse: fecha sozinha, a menos que você tenha clicado nela ou digitado algo
-function gsFlyEnter() { clearTimeout(RF.gsT); if (!S.searchOpen) { toggleGlobalSearch(false); RF.gsHov = true; } }
-function gsFlyLater() {
-  clearTimeout(RF.gsT);
-  RF.gsT = setTimeout(() => { if (RF.gsHov && S.searchOpen && !GS.q.trim() && !$('#side')?.matches(':focus-within')) closeGlobalSearch(); }, 500);
-}
-function gsFlyClick() {
-  if (sideHidden() && RF.gsHov) { RF.gsHov = false; clearTimeout(RF.gsT); $('#gs-q')?.focus(); return; } // aberta pelo mouse: o clique fixa e vai para o campo
-  toggleGlobalSearch();
-}
 {
   const flyOf = (e) => sideHidden() && e.target.closest?.('#rail [data-fly]')?.dataset.fly;
   document.addEventListener('mouseover', (e) => {
@@ -471,12 +461,10 @@ function gsFlyClick() {
       const anchor = e.target.closest('[data-fly]');
       RF.meWait = setTimeout(() => { RF.meWait = 0; if (anchor.isConnected && anchor.matches(':hover') && !document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(anchor); }, 1200);
     }
-    else if (k === 'gs' || (S.searchOpen && sideHidden() && e.target.closest?.('#side'))) gsFlyEnter();
   });
   document.addEventListener('mouseout', (e) => {
     const k = flyOf(e), to = e.relatedTarget;
     if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { clearTimeout(RF.meWait); RF.meWait = 0; if (meFlyOpen()) meFlyLater(); }
-    else if ((k === 'gs' || (sideHidden() && e.target.closest?.('#side'))) && !to?.closest?.('[data-fly="gs"], #side')) gsFlyLater();
   });
   // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
   document.addEventListener('mousedown', (e) => { if (S.searchOpen && sideHidden() && !e.target.closest('#side, #rail [data-fly="gs"], #layer')) closeGlobalSearch(); });
