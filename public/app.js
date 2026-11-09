@@ -1535,7 +1535,7 @@ function composer(ch, label) {
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
   // emoji, GIF, mensagem de voz e traduzir num botão só: abre um painel com as quatro opções
-  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'Emoji, GIF, mensagem de voz e tradução', 'aria-label': 'Emoji, GIF, mensagem de voz e tradução', 'aria-haspopup': 'true' }, icon('smile', 24));
+  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'Emoji, GIF, mensagem de voz e tradução', 'aria-label': 'Emoji, GIF, mensagem de voz e tradução', 'aria-haspopup': 'true' }, icon('extras', 26));
   const insertEmoji = (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); };
   extrasBtn.onclick = () => {
     const at = () => { const r = extrasBtn.getBoundingClientRect(); return { preventDefault() { }, clientX: r.left - 120, clientY: r.top - 140 }; };
