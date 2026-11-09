@@ -87,7 +87,7 @@ html, body, button, input, textarea, select { font-family: var(--font, "gg sans"
 #app { filter: saturate(var(--sat, 100%)); }
 .modal, .popout, .menu, .tile, .sbtn, .ncard { border-radius: var(--radius, 8px); }
 .high-contrast { --text-muted: #d0d4da; --divider: #6b6f78; --interactive: #e6e8ec; }
-.high-contrast .msg:hover { background: rgba(255,255,255,.08); } .high-contrast :focus-visible { outline: 3px solid #fff !important; }
+.high-contrast .msg:hover { background: rgba(255,255,255,.08); }
 .underline-links a { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
