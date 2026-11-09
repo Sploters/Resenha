@@ -33,14 +33,14 @@ try {
   ok(await p.evaluate(() => window.__liveMics()) === 1, 'na call: 1 microfone ligado');
   // painel de microfone da call: 12 cliques rápidos alternando os filtros (RNNoise / GTCRN / Padrão)
   await p.evaluate(() => [...document.querySelectorAll('#voice-panel .ibtn')].find(x => /Testar microfone/.test(x.title)).click()); await sleep(300);
-  await p.evaluate(async () => { const btns = () => [...document.querySelectorAll('.micpop .seg button')]; const labels = btns().map(b => b.textContent); for (let i = 0; i < 12; i++) { btns()[[2, 3, 1][i % 3] % labels.length].click(); await new Promise(r => setTimeout(r, 40)); } });
+  await p.evaluate(async () => { const btns = () => [...document.querySelectorAll('.micpop .nz-compact .choice')]; const labels = btns().map(b => b.textContent); for (let i = 0; i < 12; i++) { btns()[[2, 3, 1][i % 3] % labels.length].click(); await new Promise(r => setTimeout(r, 40)); } });
   await p.waitForFunction(() => !window.__lc.voice._rb, { timeout: 30000 }).catch(() => { }); await sleep(800);
   const st = await p.evaluate(() => ({ live: window.__liveMics(), opened: window.__mics.length, graph: !!window.__lc.voice.micGraph, mode: window.__lc.S.prefs.noiseMode }));
   ok(st.live === 1 && st.graph, 'depois de 12 trocas rápidas: continua 1 microfone ligado (os anteriores foram desligados)', st);
   ok(st.opened <= 13, 'no máximo uma montagem por clique (cliques sobrepostos se juntam)', st.opened);
   // clicar no filtro que já está ativo não remonta nada
   const before = await p.evaluate(() => window.__mics.length);
-  await p.evaluate(async () => { const on = document.querySelector('.micpop .seg button.on'); for (let i = 0; i < 5; i++) { on.click(); await new Promise(r => setTimeout(r, 40)); } }); await sleep(800);
+  await p.evaluate(async () => { for (let i = 0; i < 5; i++) { document.querySelector('.micpop .nz-compact .choice.on').click(); await new Promise(r => setTimeout(r, 40)); } }); await sleep(800);
   ok(await p.evaluate(() => window.__mics.length) === before, 'clicar 5x no filtro já ativo não remonta o microfone');
   await p.keyboard.press('Escape');
   // teste de microfone nas configurações (fora da call ele abre outro microfone só para o teste)

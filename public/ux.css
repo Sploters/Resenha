@@ -519,3 +519,15 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 /* painel "Voz conectada": o botão de tela vira "Parar transmissão" (vermelho) enquanto transmite */
 #voice-panel .row button.stopshare { background: #da373c !important; color: #fff; }
 #voice-panel .row button.stopshare:hover { background: #a12828 !important; }
+
+/* ---------- painel do microfone: redução de ruído em cartões compactos (os quatro numa linha) ---------- */
+.micpop { width: 300px; }
+.choices.nz-compact { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 4px 0 10px; }
+.nz-compact .choice { padding: 5px; gap: 5px; border-radius: 8px; }
+.nz-compact .choice .ch-prev { height: 34px; }
+.nz-compact .nz-wave { height: 24px; gap: 2px; }
+.nz-compact .nz-v { width: 3px; } .nz-compact .nz-n { width: 2px; }
+.nz-compact .nz-badge { top: 2px; right: 3px; padding: 0 3px; font-size: 8.5px; }
+.nz-compact .choice .ch-lbl { font-size: 12px; gap: 4px; justify-content: center; white-space: nowrap; }
+.nz-compact .choice .ch-lbl .icon { display: none; }
+.nz-compact .nz-l b { font-weight: 600; }

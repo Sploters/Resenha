@@ -59,15 +59,17 @@ try {
   await B.screenshot({ path: '.testshots/22-bob-watching.png' });
 
   // --- muda qualidade durante a transmissão ---
-  await E.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(b => b.title.includes('Parar') || b.title.includes('Transmitir')).click()); await sleep(800);
-  ok(await E.evaluate(() => !!document.querySelector('.modal h2')?.textContent.includes('ao vivo')), 'painel "Transmissão ao vivo" abriu');
+  await E.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]').click(); [...document.querySelectorAll('.menu .it')].find(i => /Ajustes da transmissão/.test(i.textContent)).click(); }); await sleep(800);
+  ok(await E.evaluate(() => !!document.querySelector('.modal h2')?.textContent.includes('Ajustes da transmissão') && ![...document.querySelectorAll('.modal .btn')].some(b => /Parar/.test(b.textContent))), 'painel "Ajustes da transmissão" abriu (sem botão de parar)');
   await E.screenshot({ path: '.testshots/23-electron-live-panel.png' });
-  await E.evaluate(() => [...document.querySelectorAll('.modal .preset')].find(b => /1080p • 60/.test(b.textContent)).click()); await sleep(2500);
+  await E.evaluate(() => { const pick = (t) => [...document.querySelectorAll('.modal .seg button')].find(b => b.textContent === t).click(); pick('1080p'); pick('60 fps'); }); await sleep(2500);
   const st2 = await E.evaluate(() => window.__lc.voice.screenOpts);
   ok(st2.res === 1080 && st2.fps === 60, 'qualidade alterada ao vivo para 1080p/60');
   const br = await E.evaluate(() => window.__lc.voice.peers.values().next().value.senders.screenvideo?.getParameters().encodings[0].maxBitrate);
   ok(br >= 7e6, `bitrate subiu para ${br}`);
-  await E.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(b => /Parar transmissão/.test(b.textContent)).click()); await sleep(1500);
+  await E.evaluate(() => document.querySelector('.modal .btn.green').click()); await sleep(300);
+  ok(await E.evaluate(() => !!window.__lc.voice.screen), 'fechar os ajustes não para a transmissão');
+  await E.evaluate(() => document.querySelector('#stage .bar .stopshare').click()); await sleep(1500);
   ok(await E.evaluate(() => !window.__lc.voice.screen), 'transmissão encerrada');
   ok(await B.evaluate(() => !document.querySelector('.tile.screen')), 'bob deixou de ver a tela');
 } catch (e) { console.log('  EXCEÇÃO', e.message); fails++; }

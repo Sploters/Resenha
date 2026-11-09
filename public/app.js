@@ -101,9 +101,21 @@ function outdatedModal(d) {
 }
 
 // =============== Gateway ===============
+// id desta aba/janela (sobrevive ao F5): o servidor reconhece a conexão antiga da mesma aba e a tira da sala de voz na hora
+const tabId = (() => { try { let t = sessionStorage.getItem('lc_tab'); if (!t) sessionStorage.setItem('lc_tab', t = Math.random().toString(36).slice(2, 12)); return t; } catch { return Math.random().toString(36).slice(2, 12); } })();
+// conexão "travada" (a internet caiu sem o navegador perceber): 2 pings seguidos sem resposta = reconecta (e volta para a sala)
+let wsMiss = 0;
+setInterval(async () => {
+  if (!ready || ws?.readyState !== 1 || document.hidden && !voice?.active) { wsMiss = 0; return; }
+  const cur = ws, ms = await wsPing();
+  if (cur !== ws) return;
+  if (ms != null) { wsMiss = 0; return; }
+  if (++wsMiss < 2) return;
+  wsMiss = 0; const onclose = cur.onclose; cur.onclose = cur.onmessage = null; try { cur.close(); } catch { } onclose?.();
+}, 8000);
 function connect() {
   clearTimeout(connect.t);
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}`);
   ws.onmessage = (e) => { const { t, d } = JSON.parse(e.data); inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
   ws.onopen = () => {
     retry = 0; $('#reconnect')?.remove();
@@ -2157,18 +2169,13 @@ function streamControls({ key, uid, mine, scr, inRoom, who }) {
     h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr); } }, icon('expand', 16)),
     h('button.sc-ic', { title: 'Mais opções', onclick: more }, icon('more', 16)));
 }
+// ajustes durante a transmissão: só resolução, FPS e taxa de dados, aplicados na hora sem parar nem trocar o que está sendo
+// compartilhado (parar fica no botão vermelho "Parar transmissão")
 function liveShareModal() {
   const o = { ...voice.screenOpts };
-  const settings = h('div.qinfo'), net = h('div.qinfo'), blk = h('div.qinfo.warn'), updInfo = () => { blk.textContent = voice.captureBlack ? 'A transmissão está saindo PRETA. Se for um jogo (ex.: Valorant), coloque-o em "Janela sem bordas" nas opções de vídeo do jogo e transmita a tela inteira. Tela cheia exclusiva e alguns anti-cheats bloqueiam a captura, e a Resenha não contorna isso.' : ''; blk.style.display = voice.captureBlack ? '' : 'none'; const st = voice.screen?.getVideoTracks()[0]?.getSettings?.() || {}; const cf = voice.captureFps, want = +o.fps || 0; settings.textContent = `${want} FPS solicitados · ${cf == null ? 'medindo…' : cf + ' FPS capturados'} — ${voice.native?.w ? voice.native.w + '×' + voice.native.h + ' (modo 120 FPS, placa de vídeo)' : (st.width || '?') + '×' + (st.height || '?')} — ${qualityLabel(o)}`; settings.classList.toggle('warn', cf != null && want > 0 && cf < want * 0.85); voice.screenStats().then(L => { if (!L?.length) return; const t = L[0], why = { cpu: 'limitado pelo processador', bandwidth: 'limitado pela sua internet (upload)', none: 'sem limitação', other: 'limitado' }[t.limit] || t.limit; net.textContent = `Enviando: ${t.w}×${t.h} a ${t.fps} fps, ${(t.kbps / 1000).toFixed(1)} Mbps — ${why}${/nativo/.test(t.enc) ? ' (' + t.enc + ')' : /hw|h264|video toolbox|nvenc|media/i.test(t.enc) ? ' (placa de vídeo)' : t.enc ? ' (' + t.enc + ')' : ''}`; }); };
-  updInfo(); const iv = setInterval(() => { if (!document.body.contains(settings)) return clearInterval(iv); updInfo(); }, 1000);
-  const a = voice.appAudio, audInfo = h('div.qinfo', !voice.screen?.getAudioTracks().length ? 'Áudio: transmissão sem som.'
-    : a?.mode === 'include' ? `Áudio: só ${a.name || 'o jogo'} (música, navegador e a call não entram).` : a ? 'Áudio: tudo do PC, menos a Resenha.' : 'Áudio: do PC inteiro (áudio só do jogo indisponível aqui).');
-  const body = h('div', blk, settings, net, audInfo, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, hint: n.hint, bitrate: n.bitrate || 0 }; savePrefs(); setTimeout(updInfo, 400); }),
-    h('div', { style: { fontSize: '14px', color: 'var(--text-muted)' } }, `${[...S.voice.values()].filter(v => v.channel_id === voice.channelId).length - 1} pessoa(s) na sala podem assistir.`));
-  modal('Transmissão ao vivo', 'Mudanças valem imediatamente.', body, [
-    { label: 'Parar transmissão', cls: 'red', fn: () => voice.toggleScreen() },
-    desktop && { label: 'Trocar o que compartilho', cls: 'grey', fn: async () => { const keep = { ...voice.screenOpts }; await voice.toggleScreen(); setTimeout(startShare, 150); void keep; } },
-    { label: 'Fechar', cls: 'link' }].filter(Boolean), { width: '560px' });
+  const blk = voice.captureBlack ? h('div.qinfo.warn', 'A transmissão está saindo PRETA. Se for um jogo (ex.: Valorant), coloque-o em "Janela sem bordas" nas opções de vídeo do jogo e transmita a tela inteira. Tela cheia exclusiva e alguns anti-cheats bloqueiam a captura, e a Resenha não contorna isso.') : null;
+  const body = h('div', blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }));
+  modal('Ajustes da transmissão', 'Mudam na hora, sem interromper o que você está transmitindo.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
 }
 
 // latência até o servidor (SFU) ou pior par (malha): Wi-Fi colorido; passar o mouse = ms; clicar = gráfico do último minuto

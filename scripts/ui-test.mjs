@@ -133,7 +133,7 @@ try {
   // ---- painéis rápidos: ruído e eco (teste de microfone), dispositivos (menu do mic/fone) e status ----
   const away = () => A.evaluate(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
   await A.click('#voice-panel button[title^="Testar microfone"]'); await sleep(500);
-  await A.evaluate(() => [...document.querySelectorAll('.micpop .seg button')].find(b => /Padrão/.test(b.textContent)).click()); await sleep(1200);
+  await A.evaluate(() => [...document.querySelectorAll('.micpop .nz-compact .choice')].find(b => /Leve/.test(b.textContent)).click()); await sleep(1200);
   ok(await A.evaluate(() => window.__lc.S.prefs.noiseMode === 'standard'), 'troca de ruído pelo painel do microfone');
   const echo0 = await A.evaluate(() => window.__lc.S.prefs.echo !== false);
   await A.evaluate(() => document.querySelector('.micpop .qrow .switch').click()); await sleep(300);

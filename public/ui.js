@@ -1,6 +1,6 @@
 // Componentes de interface compartilhados (app + configurações)
 import { h, icon } from './util.js';
-import { SCREEN_PRESETS } from './voice.js';
+import { SCREEN_PRESETS, NOISE_MODES } from './voice.js';
 import { S } from './state.js';
 
 export const seg = (opts, val, on) => { // opts: objeto ou lista de [valor, rótulo] (para manter a ordem com chaves numéricas)
@@ -33,6 +33,20 @@ export const choiceCards = (opts, val, on) => {
   const draw = (v) => box.replaceChildren(...opts.map(([k, l, prev]) => h('button.choice' + (String(k) === String(v) ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(String(k) === String(v)), onclick: () => { on(k); draw(k); } }, h('div.ch-prev', prev), h('span.ch-lbl', icon('check', 14), l))));
   draw(val); return box;
 };
+// redução de ruído em cartões: cada nível mostra a voz (barras) e o ruído (pontinhos amarelos) que sobra
+// (configurações e painel do microfone; compact = os quatro numa linha, só o nome)
+export const NOISE_INFO = { off: ['Sem filtro', 'Voz crua, com todo o ruído', 1, null], standard: ['Leve', 'Filtro do navegador', .55, null], rnnoise: ['Forte', 'IA tira teclado e ventilador', .18, 'IA'], gtcrn: ['Máxima', 'IA mais forte, usa mais CPU', 0, 'IA+'] };
+const VOICE_H = [18, 34, 52, 40, 60, 46, 28, 54, 38, 22], NOISE_H = [10, 6, 12, 8, 5, 11, 7, 9, 6, 12];
+export const noisePrev = (k, n = 10) => { const [, , lv, badge] = NOISE_INFO[k]; return h('span.nz-prev', h('span.nz-wave', VOICE_H.slice(0, n).map((v, i) => [h('i.nz-n', { style: { height: NOISE_H[i] + 'px', opacity: lv } }), h('i.nz-v', { style: { height: v + '%' } })])), badge && h('b.nz-badge', badge)); };
+export function noiseCards(val, on, { compact = false } = {}) {
+  const box = choiceCards(Object.keys(NOISE_MODES).map(k => {
+    const [name, hint] = NOISE_INFO[k], prev = noisePrev(k, compact ? 6 : 10);
+    if (compact) prev.title = hint; // no painel compacto a explicação fica no passar o mouse
+    return [k, compact ? h('span.nz-l', { title: hint }, h('b', k === 'off' ? 'Nenhum' : name)) : h('span.nz-l', h('b', name), h('small', hint)), prev];
+  }), val || 'standard', on);
+  if (compact) box.classList.add('nz-compact');
+  return box;
+}
 export const section = (t) => h('h3.sec', t);
 export const slider = (min, max, value, step, onInput, fmt = (v) => v) => {
   const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); } });
@@ -52,12 +66,12 @@ export const qualityLabel = (o) => `${o.res === 'source' ? 'Original' : o.res + 
 export const estMbps = (o) => (+o.bitrate > 0 ? (+o.bitrate).toFixed(1) : (({ 720: 2.2, 1080: 4.5, 1440: 8, source: 9 })[o.res] * (o.fps >= 120 ? 2.4 : o.fps >= 60 ? 1.6 : o.fps <= 15 ? .6 : 1)).toFixed(1));
 
 // painel de qualidade da transmissão (antes e durante)
-export function qualityPanel(o, onChange) {
+export function qualityPanel(o, onChange, { live = false } = {}) { // live: durante a transmissão, só resolução, FPS e taxa de dados
   const box = h('div.qpanel');
   const draw = () => box.replaceChildren(
     h('label.f', 'Resolução', seg(SCREEN_PRESETS.res, o.res, v => { o.res = v; draw(); onChange?.(o); })),
     h('label.f', 'Taxa de quadros (FPS)', seg(SCREEN_PRESETS.fps, o.fps, v => { o.fps = v; draw(); onChange?.(o); })),
-    h('label.f', 'Otimizar para'), choiceCards([
+    !live && h('label.f', 'Otimizar para'), !live && choiceCards([
       ['motion', 'Movimento (jogos/vídeo)', h('span.opt-motion', h('i.om-ball'), h('i.om-trail'), h('i.om-trail.t2'), h('i.om-trail.t3'))],
       ['detail', 'Nitidez (texto/apresentação)', h('span.opt-detail', h('b', 'Aa'), h('span.od-lines', h('i'), h('i'), h('i')))]], o.hint || 'motion', v => { o.hint = v; draw(); onChange?.(o); }),
     h('label.f', 'Taxa de dados (bitrate)', seg({ 0: 'Automática', 8: '8 Mbps', 16: '16 Mbps', 24: '24 Mbps', 32: '32 Mbps', 50: '50 Mbps' }, +o.bitrate || 0, v => { o.bitrate = +v; draw(); onChange?.(o); })),

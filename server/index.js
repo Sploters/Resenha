@@ -1406,7 +1406,7 @@ const onUpgrade = (req, socket, head) => {
   if (url.pathname !== '/gateway') return socket.destroy();
   const s = get('SELECT user_id FROM sessions WHERE token=?', url.searchParams.get('token') || '');
   if (!s) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
-  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.token = url.searchParams.get('token'); wss.emit('connection', ws); });
+  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.token = url.searchParams.get('token'); ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; wss.emit('connection', ws); });
 };
 server.on('upgrade', onUpgrade);
 
@@ -1480,15 +1480,27 @@ const remote = createRemote({
   sendUser: (uid, type, d) => { const c = currentVoice(uid), st = c && voice.get(c).get(uid); if (st?.ws?.readyState === 1) send(st.ws, type, d); else dispatch([uid], type, d); },
 });
 function currentVoice(uid) { for (const [cid, m] of voice) if (m.has(uid)) return cid; return null; }
+// a pessoa abriu uma conexão nova e o servidor ainda a tem numa sala por uma conexão antiga (caiu a internet sem aviso,
+// F5 atrás de proxy, app reiniciado): a mesma aba/janela (tab) sai da sala na hora; outra conexão da mesma conta pode ser
+// outro aparelho de verdade, então a antiga só sai se não responder a um ping em 5 s
+function dropStaleVoice(uid, ws) {
+  const c = currentVoice(uid), st = c && voice.get(c).get(uid), old = st?.ws;
+  if (!old || old === ws) return;
+  if (old.readyState !== 1 || (ws.tab && old.tab === ws.tab)) { leaveVoice(uid, c); try { old.terminate(); } catch { } return; }
+  if (old.probing) return;
+  old.probing = true; old.alive = false; try { old.ping(); } catch { }
+  setTimeout(() => { old.probing = false; if (!old.alive) old.terminate(); }, 5000); // terminate -> 'close' -> sai da sala
+}
 
 wss.on('connection', (ws) => {
   const uid = ws.uid;
   const first = !conns.has(uid);
   if (first) conns.set(uid, new Set());
   conns.get(uid).add(ws);
+  ws.alive = true; ws.on('pong', () => (ws.alive = true));
+  dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastPresence(uid); activity.poke(); }
-  ws.alive = true; ws.on('pong', () => (ws.alive = true));
 
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
