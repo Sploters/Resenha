@@ -1051,12 +1051,12 @@ function renderMain() {
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
       vc && h('div#vc-layout-slot'),
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
-        dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'phone')),
+        dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('bell')),
         h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('pin')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
-        dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('sidebar'))]);
+        dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('dmprofile'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord
   main.replaceChildren(...[!vc && top,
     h('div#content',
