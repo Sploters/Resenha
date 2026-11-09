@@ -1546,18 +1546,29 @@ function composer(ch, label) {
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
   // GIF, emoji e gravar voz num botão só: abre uma fileira com os três ícones (o nome aparece ao passar o mouse)
-  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', title: 'GIF, emoji e mensagem de voz', 'aria-label': 'GIF, emoji e mensagem de voz', 'aria-haspopup': 'true' }, icon('extras', 26));
+  const extrasBtn = h('button.ibtn.extras-btn', { type: 'button', 'data-keepfloat': '', title: 'GIF, emoji e mensagem de voz', 'aria-label': 'GIF, emoji e mensagem de voz', 'aria-haspopup': 'true' }, icon('extras', 26));
   const insertEmoji = (em) => { ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); };
-  extrasBtn.onclick = () => {
-    const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', title: label, 'aria-label': label, onclick: () => { closeFloating(); fn(); } }, icon(ic, 24));
+  // abre ao passar o mouse (ou clicar) e fecha ~1,2 s depois que o mouse sai do botão e do painel
+  let cxEl = null, cxTimer = 0, cxAt = 0;
+  const cxOpen = () => !!cxEl && cxEl.isConnected;
+  const cxHide = () => { clearTimeout(cxTimer); if (cxOpen()) cxEl.remove(); cxEl = null; };
+  const cxLater = () => { clearTimeout(cxTimer); cxTimer = setTimeout(cxHide, 1200); };
+  const cxShow = () => {
+    clearTimeout(cxTimer); if (cxOpen()) return;
+    const opt = (ic, label, fn) => h('button.cx-opt', { type: 'button', title: label, 'aria-label': label, onclick: () => { cxHide(); closeFloating(); fn(); } }, icon(ic, 24));
     const body = h('div.cx-pop', { role: 'menu' },
       opt('cxgif', 'GIF', () => gifPicker(extrasBtn, (url) => sendGif(ch, url))),
       opt('cxemoji', 'Emoji', () => emojiPicker(extrasBtn, insertEmoji)),
       opt('cxmic', 'Gravar mensagem de voz', () => recordVoiceMessage(ch, extrasBtn.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } })));
-    const el = popout(extrasBtn, body, 'up'); el.classList.add('cx-popout');
+    const el = cxEl = popout(extrasBtn, body, 'up'); el.classList.add('cx-popout'); cxAt = Date.now();
+    el.addEventListener('mouseenter', () => clearTimeout(cxTimer)); el.addEventListener('mouseleave', cxLater);
     const r = extrasBtn.getBoundingClientRect(), b = el.getBoundingClientRect();
     el.style.top = Math.max(8, r.top - b.height - 8) + 'px'; el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - b.width / 2, innerWidth - b.width - 8)) + 'px';
   };
+  // passar o mouse não fecha um seletor de GIF/emoji que já está aberto (só o clique troca)
+  extrasBtn.addEventListener('mouseenter', () => { if (cxOpen() || !document.querySelector('#layer :is(.popout, .emoji-picker, .menu):not(.leaving)')) cxShow(); });
+  extrasBtn.addEventListener('mouseleave', () => { if (cxOpen()) cxLater(); });
+  extrasBtn.onclick = () => (!cxOpen() ? cxShow() : Date.now() - cxAt > 700 && cxHide()); // clique logo depois de abrir pelo mouse (ou toque) mantém aberto
   const wrap = h('div#composer-wrap', h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
     h('div#composer', h('button.ibtn', { title: 'Enviar arquivo ou compartilhar tema', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
       extrasBtn));

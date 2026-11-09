@@ -163,7 +163,7 @@ export function promptBox(title, label, value = '', okLabel = 'Salvar') {
   });
 }
 export function closeFloating() { layer().querySelectorAll('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)').forEach(e => leave(e, e.classList.contains('menu') ? 120 : 160)); } // voltam para onde foram abertos
-document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static),.emoji-picker')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static),.emoji-picker,[data-keepfloat]')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos; [data-keepfloat]: botão que abre o próprio painel ao passar o mouse (o clique nele decide)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFloating(); }); // o visualizador de imagens trata o próprio Esc
 // (sem fechar no blur: o menu continua aberto ao dar alt+tab)
 
