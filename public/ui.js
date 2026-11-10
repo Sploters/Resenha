@@ -48,8 +48,8 @@ export function noiseCards(val, on, { compact = false } = {}) {
   return box;
 }
 export const section = (t) => h('h3.sec', t);
-export const slider = (min, max, value, step, onInput, fmt = (v) => v) => {
-  const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); } });
+export const slider = (min, max, value, step, onInput, fmt = (v) => v, onChange) => { // onChange: ao soltar (ex.: tocar uma prévia do volume)
+  const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); }, onchange: () => onChange?.(+r.value) });
   return h('div.sl', r, out);
 };
 

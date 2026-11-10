@@ -3,7 +3,7 @@ import { pulse } from './motion.js';
 import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { openNews } from './changelog.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, savePrefs, popout, closeFloating, user, nameOf } from './state.js';
+import { S, api, tryApi, toast, savePrefs, setDevice, popout, closeFloating, user, nameOf, focusOn, setFocus, menu } from './state.js';
 import { seg, toggle, slider, noiseCards } from './ui.js';
 
 const STATUS = [['online', 'Online', 's-online', ''], ['idle', 'Ausente', 's-idle', ''], ['dnd', 'Não perturbe', 's-dnd', 'Silencia notificações'], ['invisible', 'Invisível', 's-offline', 'Aparece offline']];
@@ -19,7 +19,7 @@ function deviceList(kind, key, onPick) {
   const draw = async () => {
     const list = await devices(kind);
     box.replaceChildren(...[{ deviceId: '', label: 'Padrão do sistema' }, ...list.filter(d => d.deviceId !== 'default' && d.deviceId !== 'communications')].map((d, i) =>
-      h('div.dev' + ((S.prefs[key] || '') === d.deviceId ? '.on' : ''), { onclick: () => { S.prefs[key] = d.deviceId; savePrefs(); draw(); onPick?.(d); } }, h('span.dot'), h('span', d.label || `Dispositivo ${i}`))));
+      h('div.dev' + ((S.prefs[key] || '') === d.deviceId ? '.on' : ''), { onclick: () => { setDevice(key, d.deviceId, d.label); draw(); onPick?.(d); } }, h('span.dot'), h('span', d.label || `Dispositivo ${i}`))));
     if (!list.length) box.append(h('small', { style: { color: 'var(--text-muted)' } }, 'Permita o acesso ao microfone para listar os dispositivos.'));
   };
   draw(); navigator.mediaDevices?.addEventListener?.('devicechange', draw);
@@ -66,7 +66,7 @@ export function openAudioPanel(anchor, voice, kind, { openSettings } = {}) {
   let fly = null, flyTimer = 0;
   const closeFly = () => { clearTimeout(flyTimer); fly?.remove(); fly = null; };
   const later = () => { clearTimeout(flyTimer); flyTimer = setTimeout(closeFly, 200); };
-  const pick = (d) => { S.prefs[key] = d.deviceId; savePrefs(); closeFly(); refresh(); if (inp) voice.active && voice.rebuildMic(); else applyOutput(voice); };
+  const pick = (d) => { setDevice(key, d.deviceId, d.label); closeFly(); refresh(); if (inp) voice.active && voice.rebuildMic(); else applyOutput(voice); };
   const refresh = async () => {
     const list = (await devices(dk)).filter(d => d.deviceId !== 'default' && d.deviceId !== 'communications');
     const all = [{ deviceId: '', label: 'Padrão do sistema' }, ...list], on = all.find(d => d.deviceId === (S.prefs[key] || '')) || all[0];
@@ -132,6 +132,20 @@ export function openMicPanel(anchor, voice, { openSettings } = {}) {
 }
 
 // Cartão do próprio usuário (clique na barra do usuário): banner, status personalizado, editar perfil, status, trocar de conta
+// ---------- modo foco ----------
+const hm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+export const focusLabel = () => (S.prefs.focusUntil === true ? 'ligado até você desligar' : 'ligado até ' + hm(S.prefs.focusUntil));
+export const FOCUS_TIMES = [['1 hora', 60], ['3 horas', 180], ['8 horas', 480], ['Até amanhã', 'tomorrow'], ['Até eu desligar', true]];
+export const focusUntilOf = (v) => (v === true ? true : v === 'tomorrow' ? new Date().setHours(24 + 8, 0, 0, 0) : Date.now() + v * 60000); // amanhã às 8h
+export function focusMenu(e, after) {
+  e.stopPropagation?.();
+  const done = (txt) => { after?.(); toast(txt); };
+  menu(e, [
+    { node: h('div.mfocus', h('b', 'Modo foco'), h('small', 'Só mensagens diretas e chamadas para você tocam som e mostram aviso. Os servidores continuam marcando não lidas, em silêncio — e seu status continua o mesmo.')) },
+    ...FOCUS_TIMES.map(([l, v]) => ({ label: l, icon: 'clock', fn: () => { setFocus(focusUntilOf(v)); done('Modo foco ligado: só mensagens diretas avisam'); } })),
+    focusOn() && '-', focusOn() && { label: 'Desligar modo foco', icon: 'x', fn: () => { setFocus(null); done('Modo foco desligado'); } },
+  ]);
+}
 export function openStatusPanel(anchor, { openSettings, openFullProfile, logout } = {}) {
   const body = h('div.mepop');
   let editing = false, fly = null, flyTimer = 0;
@@ -171,6 +185,7 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
         h('div.megroup',
           item(icon('edit', 16), 'Editar perfil', () => { closeFloating(); openSettings?.('profile'); }),
           item(h('i.sdot.' + cur[2]), h('span', 'Status: ' + cur[1], me.status === 'invisible' && h('span', { title: 'Seu status e sua atividade ficam ocultos quando você está invisível', style: { marginLeft: '6px', display: 'inline-flex', color: 'var(--yellow, #f0b232)' } }, icon('warn', 14))), () => openFly(body.querySelector('.meitem:nth-child(2)')), h('span.mearrow', '›'), true),
+          item(icon('dm', 16), h('span', 'Modo foco', h('small.melite', focusOn() ? focusLabel() : 'só mensagens diretas avisam')), (e) => focusMenu(e, draw), h('span.mearrow' + (focusOn() ? '.on' : ''), focusOn() ? 'Ligado' : '›')),
           item(icon('sparkle', 16), 'Novidades', () => { closeFloating(); openNews(); }),
         ),
         S.prefs.lightMode && h('div.megroup',

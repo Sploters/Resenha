@@ -7,7 +7,7 @@ import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isG
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -180,7 +180,7 @@ function ingestGuild(g) {
   const old = S.guilds.get(g.id);
   g.members = new Map(g.members.map(m => [m.user_id, m]));
   g.channels.sort((a, b) => a.position - b.position);
-  for (const u of g.users || []) S.users.set(u.id, u);
+  for (const u of g.users || []) mergeUser(u);
   // limpa estados de voz antigos desta guilda
   for (const [uid, v] of S.voice) if (old?.channels.some(c => c.id === v.channel_id)) S.voice.delete(uid);
   for (const v of g.voice_states || []) S.voice.set(v.user_id, v);
@@ -203,6 +203,7 @@ function onEvent(t, d) {
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
       if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: (speakOnly) => renderVoiceUI(speakOnly) });
+      if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
       voice.onAutoAdjust = (msg) => toast(msg);
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
@@ -220,9 +221,13 @@ function onEvent(t, d) {
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
-      if (!S.synced) api('GET', '/me/settings').then(r => { // sincroniza preferências entre dispositivos
-        const keep = { inputId: S.prefs.inputId, outputId: S.prefs.outputId, videoId: S.prefs.videoId };
-        const local = { ...S.prefs }; Object.assign(S.prefs, r.settings || {}, keep); relite(r.settings || {}, local); S.friendPolicy = r.friend_policy; S.synced = true;
+      if (!S.synced) Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()]).then(([r]) => { // sincroniza preferências entre dispositivos
+        resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
+        S.friendPolicy = r.friend_policy; S.privacy = r.privacy || {};
+        // mudança feita aqui que não chegou à conta (o app fechou/atualizou antes de enviar): vale a daqui, e vai para a conta agora
+        if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; pushPrefsNow(); applyTheme(); migrateClipKey(); maybeShowNews(); renderSide(); return; }
+        const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
+        const local = { ...S.prefs }; Object.assign(S.prefs, r.settings || {}, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k]; relite(r.settings || {}, local); S.synced = true;
         localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); applyTheme();
         migrateClipKey();
         if (!Object.keys(r.settings || {}).length) { markNewsSeen(); savePrefs(); } else maybeShowNews(); // conta nova não precisa da lista do que mudou
@@ -260,16 +265,16 @@ function onEvent(t, d) {
     }
     case 'ACTIVITY_UPDATE': onActivityUpdate(d); break;
     case 'INTEGRATION_UPDATE': onIntegrationUpdate(d); break;
-    case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(u => S.users.set(u.id, u)); renderSide(); renderRail(); break; }
-    case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); S.users.set(d.user.id, d.user); renderMembers(); } break; }
+    case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(mergeUser); renderSide(); renderRail(); break; }
+    case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); mergeUser(d.user); renderMembers(); } break; }
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
     case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until, softmute_until: d.softmute_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); if (d.user_id === S.me.id && S.view.gid === d.guild_id) renderSoftmute(); } break; }
     case 'ROLE_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.roles.findIndex(r => r.id === d.role.id); if (i >= 0) g.roles[i] = d.role; else g.roles.push(d.role); g.roles.sort((a, b) => b.position - a.position); renderMembers(); } break; }
     case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
     case 'RELATIONSHIP': {
-      S.users.set(d.user.id, d.user);
+      mergeUser(d.user);
       if (!d.type) S.rels.delete(d.user.id); else S.rels.set(d.user.id, d);
-      if (d.type === 3) { toast(`${d.user.display_name} enviou um pedido de amizade`); playSound('friend'); }
+      if (d.type === 3) { toast(`${d.user.display_name} enviou um pedido de amizade`); if (alertAllowed('dm')) playSound('friend'); }
       renderRail(); if (S.view.kind === 'home') { renderMain(); renderSide(); }
       break;
     }
@@ -349,11 +354,14 @@ function onEvent(t, d) {
   }
 }
 
+// perfil vindo de mensagens, cartões e listas: o status de verdade só chega por presença (READY e USER_UPDATE). Quem escolheu
+// esconder a presença vai como offline nesses dados genéricos; quem pode ver não perde o status certo que já tem.
+const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status } : u); };
 const detached = new Set(); // canais em que estou vendo o início do histórico (sem as mensagens recentes)
 function onMessage(m) {
   const list = S.messages.get(m.channel_id), gap = detached.has(m.channel_id);
   if (list && !gap && !list.some(x => x.id === m.id)) list.push(m);
-  S.users.set(m.author.id, { ...S.users.get(m.author.id), ...m.author });
+  mergeUser(m.author);
   const mine = m.author_id === S.me.id, viewing = S.view.cid === m.channel_id && document.hasFocus() && !vcChatHidden(channelById(m.channel_id));
   const t = S.typing.get(m.channel_id); if (t) { t.delete(m.author_id); renderTyping(); previewTyping(); }
   previewMessage(m); onFilesMessage(m);
@@ -370,11 +378,12 @@ function onMessage(m) {
   if (!viewing) {
     if (counts) { const u = S.unread[m.channel_id] ||= { count: 0 }; u.count++; u.last_id = m.id; }
     // outro aparelho da conta em uso e este parado: conta como não lida, mas sem som nem aviso aqui (state.js quietHere)
-    const quiet = quietHere();
+    // modo foco: só mensagens diretas avisam; não perturbe: nada avisa (as não lidas continuam contando)
+    const quiet = quietHere() || !alertAllowed(isDM ? 'dm' : 'server');
     if (isMention && pol.level !== 'none') {
       S.mentions[m.channel_id] = (S.mentions[m.channel_id] || 0) + 1;
       if (!quiet) playSound('mention');
-      notify(isDM ? m.author.display_name : `${m.author.display_name} (#${ch?.name})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (inviteText(themeText(text)) || 'Anexo'), () => go(ch.guild_id || '@me', ch.id), m.channel_id);
+      if (!quiet) notify(isDM ? m.author.display_name : `${m.author.display_name} (#${ch?.name})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (inviteText(themeText(text)) || 'Anexo'), () => go(ch.guild_id || '@me', ch.id), m.channel_id);
     } else if (counts && !isDM && !quiet) playSound('message');
     renderRail(); renderSide(); updateTitle();
   } else ack(m.channel_id);
@@ -406,7 +415,7 @@ function onReadState(d) {
 // configurações mudadas em outro aparelho: aplica aqui sem recarregar (menos as que são só desta máquina)
 function onSettingsSync(d) {
   if (!d.settings || (d.tab && d.tab === tabId)) return;
-  const keep = { inputId: S.prefs.inputId, outputId: S.prefs.outputId, videoId: S.prefs.videoId, clipsOn: S.prefs.clipsOn, lightMode: S.prefs.lightMode, lightPrev: S.prefs.lightPrev, liteAuto: S.prefs.liteAuto, liteAutoGame: S.prefs.liteAutoGame };
+  const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
   const local = { ...S.prefs };
   Object.assign(S.prefs, d.settings, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k];
   relite(d.settings, local);
@@ -414,6 +423,9 @@ function onSettingsSync(d) {
   applyTheme(); renderRail(); renderSide(); renderMembers();
   if (S.searchOpen && !GS.q) renderGS();
 }
+// modo foco ligado/desligado (e o fim do horário escolhido): atualiza o selo na barra do perfil
+document.addEventListener('focus-mode', () => { if (ready) renderSide(); });
+setInterval(() => { const f = S.prefs.focusUntil; if (typeof f === 'number' && f <= Date.now()) { delete S.prefs.focusUntil; savePrefs(); if (ready) { renderSide(); toast('Modo foco terminou: os servidores voltaram a avisar'); } } }, 30000);
 // outra aba do app neste navegador mudou as preferências (state.js): aplica aqui também
 document.addEventListener('prefs-changed-elsewhere', () => { if (!ready) return; applyTheme(); syncThrottle(!!voice?.active); renderRail(); renderSide(); renderMembers(); });
 // este aparelho está em uso? (janela em foco, visível e com mexida nos últimos 2 min) — o servidor repassa aos outros
@@ -1082,6 +1094,9 @@ const newsActions = {
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },
   lfg: () => go('@me', 'lfg'),
   messages: () => openMessages(),
+  notifications: () => openSettings('notifications', ctxSettings()),
+  privacy: () => openSettings('privacy', ctxSettings()),
+  sounds: () => openSettings('sounds', ctxSettings()),
   appearance: () => openSettings('appearance', ctxSettings()),
   storage: () => openSettings('storage', ctxSettings()),
   lite: () => openSettings('lite', ctxSettings()),
@@ -1126,14 +1141,14 @@ function userbar() {
   const av = h('button.pb-av', { type: 'button', 'aria-label': pinned ? 'Status e perfil' : 'Abrir a barra do perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
     onclick: () => { if (pinned || bar.classList.contains('open')) return status(); bar.classList.add('open'); setTimeout(() => document.addEventListener('pointerdown', function out(e) { if (!bar.contains(e.target)) { bar.classList.remove('open'); document.removeEventListener('pointerdown', out, true); } }, true)); },
     oncontextmenu: (e) => statusMenu(e) },
-    avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), // microfone/som desligado: o próprio ícone riscado no canto do avatar (antes uma bolinha vermelha), à vista mesmo com a
+    avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), focusOn() && h('span.pb-fbadge', { title: 'Modo foco: só mensagens diretas avisam' }, icon('dm', 10)), // microfone/som desligado: o próprio ícone riscado no canto do avatar (antes uma bolinha vermelha), à vista mesmo com a
     // lista oculta; clicar nele religa sem abrir a barra
     off && h('span.pb-off', { role: 'button', tabIndex: 0, title: voice?.deafened ? 'Som desligado — clique para ativar' : 'Microfone desligado — clique para ativar', 'aria-label': voice?.deafened ? 'Som desligado: ativar' : 'Microfone desligado: ativar',
       onclick: (e) => { e.stopPropagation(); voiceToggle(voice?.deafened ? 'deaf' : 'mute'); }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); voiceToggle(voice?.deafened ? 'deaf' : 'mute'); } } },
       icon(voice?.deafened ? 'headoff' : 'micoff', 13)));
   const body = h('div#userbar.pb-body',
     h('div.me', { onclick: status, oncontextmenu: (e) => statusMenu(e), title: 'Status e perfil' },
-      h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', me.custom_status || STATUS_TXT[me.status]))),
+      h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', focusOn() ? h('span.pb-focus', icon('dm', 12), 'Modo foco') : me.custom_status || STATUS_TXT[me.status]))),
     swapIcon(h('button.ibtn.pb-mic' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: microfone, ruído e eco)', onclick: () => voiceToggle('mute'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'in', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.muted ? 'micoff' : 'mic')), 'ua-mic', !!voice?.muted),
     swapIcon(h('button.ibtn.pb-deaf' + (voice?.deafened ? '.on' : ''), { title: (voice?.deafened ? 'Ativar áudio' : 'Ensurdecer') + ' (clique direito: saída e volumes)', onclick: () => voiceToggle('deaf'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
     h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
@@ -1169,7 +1184,7 @@ document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.
 async function profile(anchor, uid, gid) {
   if (botOf(uid)) return openBot(anchor, uid);
   const full = await tryApi('GET', `/users/${uid}`); if (!full) return;
-  S.users.set(uid, { ...S.users.get(uid), ...full });
+  mergeUser(full);
   const u = full, m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const rt = relType(uid), isMe = uid === S.me.id;
   const roles = g && m ? g.roles.filter(r => m.roles.includes(r.id)) : [];
@@ -1185,7 +1200,7 @@ async function profile(anchor, uid, gid) {
 // perfil completo de outra pessoa (clicar na foto/banner do cartão): banner e dados à esquerda, atividade e itens em comum à direita
 async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum
   const u = await tryApi('GET', `/users/${uid}`); if (!u) return;
-  S.users.set(uid, { ...S.users.get(uid), ...u });
+  mergeUser(u);
   const m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const roles = g && m ? g.roles.filter(r => m.roles.includes(r.id)) : [];
   const tp = u.theme_primary, ta = u.theme_accent, themed = !!(tp && ta), color = themed ? tp : u.banner_color || u.color || '#5865f2';
@@ -1439,7 +1454,7 @@ async function renderDmPanel(uid) {
   };
   draw(user(uid));
   const full = await api('GET', `/users/${uid}`).catch(() => null);
-  if (full && $('#dmpanel') === box) { S.users.set(uid, { ...S.users.get(uid), ...full }); draw(full); }
+  if (full && $('#dmpanel') === box) { mergeUser(full); draw(full); }
 }
 // vídeo na DM: entra na chamada (se preciso) e liga a câmera
 async function videoCall(cid) {
@@ -1472,7 +1487,7 @@ async function loadChannel(cid) {
   if (!S.messages.has(cid)) {
     box.replaceChildren(skeleton('msgs', 9));
     const list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!list) return;
-    list.forEach(m => S.users.set(m.author.id, { ...S.users.get(m.author.id), ...m.author }));
+    list.forEach(m => mergeUser(m.author));
     S.messages.set(cid, list); S.loaded.set(cid, list.length < 50);
   }
   if (S.view.cid !== cid) return;
@@ -1481,7 +1496,7 @@ async function loadChannel(cid) {
   msgs.onscroll = async () => {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
       msgs.dataset.loading = 1; const cur = S.messages.get(cid), newer = await tryApi('GET', `/channels/${cid}/messages?limit=50&after=${cur[cur.length - 1]?.id}`); delete msgs.dataset.loading;
-      if (newer?.length) { newer.forEach(x => S.users.set(x.author.id, { ...S.users.get(x.author.id), ...x.author })); cur.push(...newer); renderMessages(true); }
+      if (newer?.length) { newer.forEach(x => mergeUser(x.author)); cur.push(...newer); renderMessages(true); }
       if (newer && newer.length < 50) { detached.delete(cid); $('#detached-bar')?.remove(); }
       return;
     }
@@ -1783,7 +1798,7 @@ async function jumpTo(mid) {
 async function jumpToTop() {
   const cid = S.view.cid; if (!cid) return;
   const list = await tryApi('GET', `/channels/${cid}/messages?oldest=1&limit=50`); if (!list || S.view.cid !== cid) return;
-  list.forEach(m => S.users.set(m.author.id, { ...S.users.get(m.author.id), ...m.author }));
+  list.forEach(m => mergeUser(m.author));
   S.messages.set(cid, list); S.loaded.set(cid, true); $('#detached-bar')?.remove();
   renderMessages(false); const box = $('#msgs'); box.stick = false; box.scrollTop = 0;
   if (list.length >= 50) {
@@ -2855,6 +2870,7 @@ function openPingChart(anchor) {
 }
 
 function incomingCall(dm, uid) {
+  if (!alertAllowed('dm')) return; // não perturbe: sem toque (o cartão da chamada continua na conversa)
   const u = user(uid); document.getElementById('call-banner')?.remove();
   let n = 0; const t = setInterval(() => { if (!document.getElementById('call-banner') || ++n > 6) return clearInterval(t); playSound('ring'); }, 2600);
   const el = h('div#call-banner', avatar(u, 48, { status: false }), h('div', { style: { flex: 1 } }, h('b', u.display_name), h('div', { style: { fontSize: '13px', color: 'var(--text-muted)' } }, 'está te ligando…')),

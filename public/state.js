@@ -32,8 +32,32 @@ export const S = {
     JSON.parse(localStorage.getItem('lc_prefs') || '{}')),
   replyTo: null, editing: null, pending: [], membersOpen: true, viewers: new Map(), watching: new Set(),
 };
-const DEVICE_KEYS = ['inputId', 'outputId', 'videoId', 'clipsOn', 'lightMode', 'lightPrev', 'liteAuto', 'liteAutoGame']; // específicos de cada máquina: não sincronizam
+const DEVICE_KEYS = ['inputId', 'outputId', 'videoId', 'inputLabel', 'outputLabel', 'videoLabel', 'clipsOn', 'lightMode', 'lightPrev', 'liteAuto', 'liteAutoGame']; // específicos de cada máquina: não sincronizam
+export const DEVICE_PREF_KEYS = DEVICE_KEYS;
+// armazenamento do navegador começou vazio (app reinstalado, pasta de dados nova, outro endereço do servidor):
+// o app desktop guarda uma cópia dos ajustes desta máquina e devolve (ver restoreDevicePrefs)
+export const freshStorage = !localStorage.getItem('lc_prefs');
 let syncTimer;
+// mudança ainda não enviada à conta: marcada no aparelho, para não se perder se o app fechar/atualizar antes do envio
+// (antes, ao abrir de novo, o que estava na conta passava por cima e a mudança sumia)
+const DIRTY = 'lc_prefs_dirty';
+export const prefsDirty = () => { try { return !!localStorage.getItem(DIRTY); } catch { return false; } };
+const syncBody = () => { const p = { ...S.prefs }; DEVICE_KEYS.forEach(k => delete p[k]); unlite(p); return { settings: p }; };
+const pushPrefs = () => api('PUT', '/me/settings', syncBody()).then(() => { try { localStorage.removeItem(DIRTY); } catch { } }).catch(() => { });
+export const pushPrefsNow = () => { clearTimeout(syncTimer); syncTimer = null; return pushPrefs(); };
+// fechando (atualização, reinício, F5) com envio pendente: manda já, num pedido que sobrevive ao fechamento da página
+addEventListener('pagehide', () => {
+  if (!syncTimer || !S.token) return;
+  clearTimeout(syncTimer); syncTimer = null;
+  try { fetch('/api/me/settings', { method: 'PUT', keepalive: true, headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify(syncBody()) }).then(r => r.ok && localStorage.removeItem(DIRTY)).catch(() => { }); } catch { }
+});
+let lastDev = '';
+const backupDevicePrefs = () => { // cópia no app desktop (fora do navegador): sobrevive mesmo se o armazenamento da página for apagado
+  if (!desktop?.setSettings) return;
+  const d = {}; for (const k of DEVICE_KEYS) if (S.prefs[k] !== undefined) d[k] = S.prefs[k];
+  const j = JSON.stringify(d); if (j === lastDev) return; lastDev = j;
+  desktop.setSettings({ devicePrefs: d }).catch?.(() => { });
+};
 // várias abas/janelas do app no mesmo navegador dividem o localStorage: quando uma muda um ajuste deste aparelho (modo
 // leve, dispositivos de áudio…), as outras adotam os mesmos valores — senão a próxima gravação de uma aba desfazia o que a
 // outra acabou de ligar (ex.: modo leve voltava desligado ao recarregar)
@@ -48,9 +72,42 @@ window.addEventListener('storage', (e) => {
 });
 export const savePrefs = () => {
   localStorage.setItem('lc_prefs', JSON.stringify(S.prefs));
-  clearTimeout(syncTimer);
-  if (S.token && S.synced) syncTimer = setTimeout(() => { const p = { ...S.prefs }; DEVICE_KEYS.forEach(k => delete p[k]); unlite(p); api('PUT', '/me/settings', { settings: p }).catch(() => { }); }, 1200);
+  backupDevicePrefs();
+  clearTimeout(syncTimer); syncTimer = null;
+  if (S.token && S.synced) { try { localStorage.setItem(DIRTY, '1'); } catch { } syncTimer = setTimeout(() => { syncTimer = null; pushPrefs(); }, 1200); }
 };
+// armazenamento vazio no app desktop: devolve dispositivos de áudio/vídeo e outros ajustes desta máquina guardados no app
+export async function restoreDevicePrefs() {
+  if (!freshStorage || !desktop?.getSettings) return false;
+  const d = (await desktop.getSettings().catch(() => null))?.devicePrefs;
+  if (!d || typeof d !== 'object') return false;
+  for (const k of DEVICE_KEYS) if (d[k] !== undefined && (S.prefs[k] === undefined || S.prefs[k] === '')) S.prefs[k] = d[k];
+  localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); return true;
+}
+// dispositivo salvo pelo id; se o id mudou (driver atualizado, outra porta USB, atualização do app/Windows), acha o mesmo
+// aparelho pelo nome em vez de cair no padrão do sistema. Desconectado agora: mantém o escolhido (volta quando religar).
+const DEVS = [['inputId', 'inputLabel', 'audioinput'], ['outputId', 'outputLabel', 'audiooutput'], ['videoId', 'videoLabel', 'videoinput']];
+export async function resolveDevices() {
+  const ds = await navigator.mediaDevices?.enumerateDevices?.().catch(() => null); if (!ds) return false;
+  let changed = false;
+  for (const [key, lab, kind] of DEVS) {
+    const id = S.prefs[key], list = ds.filter(d => d.kind === kind); if (!id) continue;
+    const hit = list.find(d => d.deviceId === id);
+    if (hit) { if (hit.label && S.prefs[lab] !== hit.label) { S.prefs[lab] = hit.label; changed = true; } continue; }
+    if (!list.some(d => d.label)) continue; // sem permissão ainda: os nomes vêm vazios, não dá para conferir
+    const same = S.prefs[lab] && list.find(d => d.label === S.prefs[lab] && !/^(default|communications)$/.test(d.deviceId));
+    if (same) { S.prefs[key] = same.deviceId; changed = true; }
+  }
+  if (changed) savePrefs();
+  return changed;
+}
+// escolheu um dispositivo: guarda o id e o nome (o nome é o que permite reencontrá-lo se o id mudar)
+export function setDevice(key, deviceId, label) {
+  const lab = DEVS.find(d => d[0] === key)?.[1];
+  S.prefs[key] = deviceId || '';
+  if (lab) { if (deviceId && label) S.prefs[lab] = label; else delete S.prefs[lab]; }
+  savePrefs();
+}
 // modo leve é só desta máquina: a conta guarda os valores de antes, e o que vem da conta vira o novo "antes"
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function unlite(p) { const lp = S.prefs.lightPrev; if (lp) for (const k in lp.applied) if (same(p[k], lp.applied[k])) { if (lp.prev[k] === null) delete p[k]; else p[k] = lp.prev[k]; } }
@@ -245,14 +302,23 @@ export function emojiPicker(anchor, onPick, opts = {}) {
 }
 export const lightbox = (src, opts) => openViewer(src, opts);
 
+// ---------- modo foco / não perturbe ----------
+// Modo foco: só mensagens diretas (e chamadas para você) tocam som e mostram aviso; servidores continuam contando como
+// não lidas, em silêncio. Independe do status: dá para ficar Online (os amigos veem verde e mandam mensagem) e em foco.
+// S.prefs.focusUntil: true = até desligar, número = até esse horário (ms). Não perturbe silencia tudo.
+export const focusOn = () => { const f = S.prefs.focusUntil; return f === true || (typeof f === 'number' && f > Date.now()); };
+// kind: 'dm' (mensagem direta, chamada, pedido de amizade) | 'server' (canais, procura de grupo, convites de servidor)
+export const alertAllowed = (kind) => S.me?.status !== 'dnd' && !(kind === 'server' && focusOn());
+export function setFocus(until) { if (until) S.prefs.focusUntil = until; else delete S.prefs.focusUntil; savePrefs(); document.dispatchEvent(new Event('focus-mode')); }
 // ---------- som / notificação ----------
 let actx;
 export function beep() {
-  if (!S.prefs.sounds) return;
+  if (!S.prefs.sounds || S.prefs.soundsMuted) return;
+  const vol = (S.prefs.soundVolume ?? 80) / 100 * (S.prefs.notifVolume ?? 100) / 100; if (vol <= 0) return;
   try {
     actx ||= new (window.AudioContext || window.webkitAudioContext)();
     const o = actx.createOscillator(), g = actx.createGain();
-    o.frequency.value = 880; o.type = 'sine'; g.gain.setValueAtTime(.12, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .25);
+    o.frequency.value = 880; o.type = 'sine'; g.gain.setValueAtTime(.12 * vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .25);
     o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + .25);
   } catch { }
 }
@@ -267,7 +333,8 @@ const openNotifs = new Map(); // tag (id do canal) -> Set<Notification>
 export function notify(title, body, onclick, tag) {
   if (!S.prefs.desktopNotif || !('Notification' in window) || Notification.permission !== 'granted') return;
   if (quietHere()) return;
-  const n = new Notification(title, { body: body.slice(0, 140), ...(tag ? { tag: 'lc-' + tag } : {}) });
+  // silent: o som do aviso é o do app (com o volume das notificações), não o do sistema por cima
+  const n = new Notification(title, { body: body.slice(0, 140), silent: true, ...(tag ? { tag: 'lc-' + tag } : {}) });
   n.onclick = () => { window.focus(); onclick?.(); n.close(); };
   if (tag) { const set = openNotifs.get(tag) || openNotifs.set(tag, new Set()).get(tag); set.add(n); n.onclose = () => { set.delete(n); if (!set.size) openNotifs.delete(tag); }; }
   return n;

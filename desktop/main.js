@@ -330,6 +330,8 @@ ipcMain.handle('set-settings', (_e, patch) => {
   for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip', 'hotkeyShare']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
   if ('hardwareAcceleration' in patch) cfg.hardwareAcceleration = !!patch.hardwareAcceleration;
   if (['auto', 'on', 'off'].includes(patch.gpuCompat)) cfg.gpuCompat = patch.gpuCompat;
+  // ajustes desta máquina (microfone, fone, câmera, modo leve…) guardados fora do navegador: voltam se o armazenamento da página for apagado
+  if (patch.devicePrefs && typeof patch.devicePrefs === 'object' && JSON.stringify(patch.devicePrefs).length < 20000) cfg.devicePrefs = patch.devicePrefs;
   if ('cacheLimitMB' in patch) cfg.cacheLimitMB = Math.max(0, Math.min(65536, Math.round(+patch.cacheLimitMB || 0)));
   if ('hotkeyMute' in patch || 'hotkeyDeafen' in patch || 'hotkeyClip' in patch || 'hotkeyShare' in patch) registerHotkeys();
   if ('autoStart' in patch) app.setLoginItemSettings({ openAtLogin: cfg.autoStart, args: ['--hidden'] });

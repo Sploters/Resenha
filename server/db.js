@@ -65,6 +65,7 @@ addCol('messages', 'type', 'INTEGER DEFAULT 0');
 db.exec(`CREATE TABLE IF NOT EXISTS emojis(id TEXT PRIMARY KEY, guild_id TEXT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE, name TEXT NOT NULL, url TEXT NOT NULL, creator_id TEXT, created_at INTEGER);`);
 addCol('users', 'friend_policy', "TEXT DEFAULT 'all'");
 addCol('users', 'settings', 'TEXT');
+addCol('users', 'privacy', 'TEXT'); // quem pode ligar e quem vê status/atividade (server/privacy.js)
 addCol('sessions', 'agent', 'TEXT');
 addCol('sessions', 'last_seen', 'INTEGER');
 // moderação: banimentos, castigo (timeout) e registro de auditoria

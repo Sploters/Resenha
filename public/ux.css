@@ -637,3 +637,28 @@ html.anim .mh-card:active { transform: scale(.98); }
 .clipembed.loading .cmthumb { background: var(--bg-tert); }
 .cmthumb.cmgone { display: flex; align-items: center; justify-content: center; color: var(--text-muted); background: var(--bg-tert); cursor: default; }
 .cmthumb.cmgone .icon { fill: currentColor; }
+
+/* modo foco: selo no avatar da barra do perfil e linha "Modo foco" no lugar do status */
+.pb-av .pb-fbadge { position: absolute; left: 0; top: 2px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--brand); color: #fff; border: 3px solid var(--bg-tert); box-sizing: content-box; pointer-events: none; }
+.pbar.pinned .pb-av .pb-fbadge, .pbar:hover .pb-av .pb-fbadge, .pbar.open .pb-av .pb-fbadge { border-color: var(--bg-user); }
+.pb-focus { display: inline-flex; align-items: center; gap: 4px; color: var(--brand); font-weight: 600; }
+.pb-focus .icon { fill: currentColor; }
+.mepop .mearrow.on { opacity: 1; color: var(--brand); font-size: 12px; font-weight: 600; }
+.menu .mnode .mfocus { display: flex; flex-direction: column; gap: 4px; max-width: 260px; padding: 6px 8px 8px; }
+.menu .mnode .mfocus small { color: var(--text-muted); font-size: 12px; line-height: 1.35; }
+.np-focus { display: flex; flex-direction: column; gap: 12px; } .np-focus p { margin: 0; }
+.np-focus-t { display: flex; flex-direction: column; gap: 8px; }
+.snd-gvol { margin: 4px 0 10px; } .snd-gvol .f small { font-weight: 400; }
+
+/* privacidade: pessoas que podem ver / de quem esconder */
+.pv-sub { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.pv-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pv-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 3px; border-radius: 999px; background: var(--bg-mod-hover, rgba(127,127,127,.15)); font-size: 13px; }
+.pv-chip button { display: inline-flex; border: 0; background: none; color: var(--text-muted); cursor: pointer; padding: 2px; border-radius: 50%; }
+.pv-chip button:hover { color: var(--red); } .pv-chip .icon { fill: currentColor; }
+.pv-add { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 28px; }
+.pv-pick { display: flex; flex-direction: column; gap: 2px; max-height: min(50vh, 420px); overflow-y: auto; margin-top: 10px; }
+.pv-pi { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.pv-pi:hover { background: var(--bg-mod-hover, rgba(127,127,127,.12)); }
+.pv-pi > div { display: flex; flex-direction: column; min-width: 0; } .pv-pi small { color: var(--text-muted); font-size: 12px; }
+.snd-gvol .f small, .np-vol small { display: block; margin: 2px 0 4px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }

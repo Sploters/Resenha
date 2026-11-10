@@ -1,7 +1,7 @@
 // Procurar jogadores: mural de anúncios (quem divide servidor com você ou é seu amigo), "Quero entrar" → o autor
 // aceita e você vai para a chamada, "Copiar anúncio" para colar em grupos de LFG, perfil de jogador e atalhos para sites.
 import { h, icon, avatar } from './util.js';
-import { S, tryApi, toast, modal, notify, savePrefs, guild } from './state.js';
+import { S, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
 import { toggle } from './ui.js';
 import { playSound } from './sounds.js';
 
@@ -180,18 +180,18 @@ async function profileModal() {
 export function onLfgEvent(t, d) {
   if (t === 'LFG_POST') {
     const isNew = !st.posts.some(p => p.id === d.id);
-    if (isNew && d.author.id !== S.me.id && !d.closed && (S.prefs.lfgAlerts || {})[d.game] && Date.now() - d.created_at < 15000) {
+    if (isNew && d.author.id !== S.me.id && !d.closed && (S.prefs.lfgAlerts || {})[d.game] && Date.now() - d.created_at < 15000 && alertAllowed('server')) { // modo foco: em silêncio
       playSound('mention'); toast(`${d.author.display_name} procura ${d.slots === 1 ? '1 pessoa' : d.slots + ' pessoas'} para ${d.game_name} (${d.mode})`);
       notify(`Procurando grupo: ${d.game_name}`, `${d.author.display_name} · ${d.mode} · precisa de ${d.slots}`, () => ctx.go('@me', 'lfg'));
     }
     if (st.root && document.body.contains(st.root)) upsert(d); else { const i = st.posts.findIndex(p => p.id === d.id); if (i >= 0) st.posts[i] = d; else st.posts.push(d); }
   }
   if (t === 'LFG_REQUEST') {
-    playSound('mention'); toast(`${d.user.display_name} quer entrar no seu grupo de ${d.game_name}`);
+    if (alertAllowed('dm')) playSound('mention'); toast(`${d.user.display_name} quer entrar no seu grupo de ${d.game_name}`);
     notify(`${d.user.display_name} quer entrar no seu grupo`, `${d.game_name} · ${d.mode}`, () => ctx.go('@me', 'lfg'));
   }
   if (t === 'LFG_ANSWER') {
-    if (d.accept) { playSound('mention'); toast(d.invited ? `${d.author.display_name} aceitou! Veja o convite para a chamada.` : `${d.author.display_name} aceitou você no grupo de ${d.game_name}!`); }
+    if (d.accept) { if (alertAllowed('dm')) playSound('mention'); toast(d.invited ? `${d.author.display_name} aceitou! Veja o convite para a chamada.` : `${d.author.display_name} aceitou você no grupo de ${d.game_name}!`); }
     else toast(`${d.author.display_name} recusou o pedido para ${d.game_name}`, true);
   }
 }

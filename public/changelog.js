@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-10-5', title: 'Pedidos da comunidade',
+    items: [
+      { i: 'dm', t: 'Modo foco', d: 'Só mensagens diretas e chamadas para você tocam som e mostram aviso; os servidores continuam marcando não lidas, em silêncio. Seu status não muda: os amigos continuam te vendo online. Ligue pelo seu avatar → Modo foco (por 1 h, 3 h, 8 h, até amanhã ou até desligar) ou em Notificações.', try: 'notifications' },
+      { i: 'phone', t: 'Quem pode te ligar', d: 'Em Privacidade → Ligações, escolha se todo mundo pode te ligar ou só amigos, amigos de amigos e membros dos seus servidores. Quem não pode recebe "não está aceitando ligações" e só manda mensagem. Vale também para convites para a sala.', try: 'privacy' },
+      { i: 'eye', t: 'Quem vê seu status e sua atividade', d: 'Todo mundo, só amigos ou só quem você escolher veem quando você está online e o que está jogando ou ouvindo. Dá também para esconder de pessoas específicas (colegas de trabalho, por exemplo). Para elas você aparece offline e sem atividade.', try: 'privacy' },
+      { i: 'vol', t: 'Volume das notificações', d: 'Um volume só para as notificações (mensagens, menções, chamadas recebidas, pedidos de amizade), separado dos sons da chamada e da transmissão. O aviso do sistema não toca mais um som próprio por cima.', try: 'sounds' },
+      { i: 'gear', t: 'Configurações que não somem', d: 'Atualizar ou reiniciar o app não desfaz mais o que você mudou: o que não deu tempo de ir para a conta vai na próxima abertura. Microfone, fone e câmera escolhidos são reencontrados pelo nome se o Windows ou o driver mudarem o aparelho de lugar, e o app desktop guarda uma cópia dos ajustes deste computador.' },
+    ],
+  },
+  {
     id: '2026-11-10-4', title: 'Transmitir com um atalho',
     items: [
       { i: 'screen', t: 'Atalho da transmissão', d: 'Ctrl+Shift+S inicia ou encerra a transmissão, inclusive com o jogo aberto (app desktop). Com um jogo aberto, transmite o jogo direto, com a qualidade e o áudio da última vez. Dá para trocar a tecla em Configurações → Atalhos.' },

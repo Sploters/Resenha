@@ -1,11 +1,11 @@
 import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce } from './util.js';
-import { S, api, tryApi, savePrefs, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
+import { S, api, tryApi, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
-import { playSound, SOUND_DEFS, soundCfg } from './sounds.js';
+import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
-import { applyOutput } from './quick.js';
+import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
 import { SOLID_THEMES, GRADIENT_THEMES, gradientCss, decodeTheme, PROFILE_THEMES, parseColorPair, isLightPair, NAME_FONTS, NAME_EFFECTS, TWO_COLOR_EFFECTS, styleName } from './themes.js';
@@ -280,6 +280,63 @@ function blockedCard() {
   };
   draw(); return box;
 }
+// ---------- privacidade: ligações e presença (o servidor aplica: server/privacy.js) ----------
+const priv = () => (S.privacy ||= {});
+async function savePrivacy(patch) {
+  const r = await tryApi('PUT', '/me/settings', { privacy: patch });
+  if (r?.privacy) S.privacy = r.privacy;
+  return !!r;
+}
+// quem pode te ligar (DM) e te chamar para uma sala: quem não pode recebe "não está aceitando ligações"
+function callsCard() {
+  const c = { everyone: true, fof: true, friends: true, servers: true, ...(priv().calls || {}) };
+  const box = h('div');
+  const opt = (k, label, sub) => row(label, sub, toggle(c[k], async (v) => { c[k] = v; await savePrivacy({ calls: { [k]: v } }); draw(); }));
+  const draw = () => box.replaceChildren(
+    hint(c.everyone ? 'Qualquer pessoa pode te ligar e te chamar para uma sala de voz.' : 'Quem não puder te ligar recebe o aviso "não está aceitando ligações" e só pode mandar mensagem.'),
+    opt('everyone', 'Todo mundo', 'Qualquer pessoa pode te ligar. Desligue para escolher abaixo quem pode.'),
+    !c.everyone && opt('friends', 'Amigos', 'Seus amigos podem te ligar.'),
+    !c.everyone && opt('fof', 'Amigos de amigos', 'Quem tem um amigo em comum com você.'),
+    !c.everyone && opt('servers', 'Membros dos seus servidores', 'Quem está num servidor com você.'),
+    !c.everyone && !c.friends && !c.fof && !c.servers && h('div.qinfo', 'Ninguém pode te ligar agora.'));
+  draw(); return card(box);
+}
+// quem vê se você está online e o que está fazendo (jogo, música, atividade). Quem não pode ver te vê offline.
+function presenceCard() {
+  const p = { mode: 'everyone', allow: [], deny: [], ...(priv().presence || {}) };
+  const box = h('div');
+  // pessoas para escolher: amigos primeiro, depois quem divide servidor com você
+  const people = () => {
+    const ids = new Set([...S.rels.values()].filter(r => r.type === 1).map(r => r.user.id));
+    const friends = [...ids];
+    for (const g of S.guilds.values()) for (const id of g.members.keys()) if (id !== S.me.id && !user(id)?.bot) ids.add(id);
+    return [...ids].map(id => ({ id, u: user(id), friend: friends.includes(id) })).filter(x => x.u && !x.u.username?.startsWith('bot_music_'))
+      .sort((a, b) => (b.friend - a.friend) || a.u.display_name.localeCompare(b.u.display_name));
+  };
+  const chips = (key, emptyTxt) => h('div.pv-people', p[key].length ? p[key].map(id => h('span.pv-chip', avatar(user(id), 20, { status: false }), h('span', user(id)?.display_name || 'alguém'),
+    h('button', { type: 'button', title: 'Tirar', onclick: async () => { p[key] = p[key].filter(x => x !== id); await savePrivacy({ presence: { [key]: p[key] } }); draw(); } }, icon('x', 12)))) : h('small.mut', emptyTxt),
+    h('button.btn.grey.pv-add', { type: 'button', onclick: () => pick(key) }, icon('plus', 14), 'Escolher pessoas'));
+  const pick = (key) => {
+    const sel = new Set(p[key]), q = h('input', { placeholder: 'Procurar amigos e membros dos seus servidores' }), list = h('div.pv-pick');
+    const drawList = () => { const f = q.value.toLowerCase(); list.replaceChildren(...people().filter(x => !f || x.u.display_name.toLowerCase().includes(f) || x.u.username?.toLowerCase().includes(f)).slice(0, 200).map(x =>
+      h('label.pv-pi', h('input', { type: 'checkbox', checked: sel.has(x.id), onchange: (e) => { e.target.checked ? sel.add(x.id) : sel.delete(x.id); } }), avatar(x.u, 28, { status: false }), h('div', h('b', x.u.display_name), h('small', x.friend ? 'Amigo' : 'Membro de servidor'))))); };
+    q.oninput = drawList; drawList();
+    modal(key === 'allow' ? 'Quem pode ver' : 'Esconder de', key === 'allow' ? 'Só estas pessoas veem quando você está online e o que está jogando ou ouvindo.' : 'Estas pessoas te veem offline e sem atividade, mesmo que as outras vejam.',
+      h('div', q, list), [{ label: 'Cancelar', cls: 'link' }, { label: 'Salvar', fn: async () => { p[key] = [...sel]; if (!(await savePrivacy({ presence: { [key]: p[key] } }))) return false; draw(); toast('Privacidade atualizada'); } }]);
+  };
+  const draw = () => box.replaceChildren(
+    choiceCards([
+      ['everyone', 'Todo mundo', h('span.pv-fr', icon('globe', 28))],
+      ['friends', 'Só amigos', h('span.pv-fr', icon('users', 28))],
+      ['chosen', 'Só quem eu escolher', h('span.pv-fr', icon('user', 28), h('b.pv-ok', icon('check', 14)))]], p.mode,
+      async (v) => { p.mode = v; await savePrivacy({ presence: { mode: v } }); draw(); }),
+    hint(p.mode === 'everyone' ? 'Todo mundo vê quando você está online e o que você está jogando ou ouvindo (conforme a privacidade de cada atividade em Conexões).'
+      : p.mode === 'friends' ? 'Só seus amigos veem seu status e sua atividade. Para os outros você aparece offline — e continua recebendo mensagens normalmente.'
+      : 'Só as pessoas escolhidas veem seu status e sua atividade. Para todo o resto você aparece offline.'),
+    p.mode === 'chosen' && h('div.pv-sub', h('b', 'Quem pode ver'), chips('allow', 'Ninguém escolhido ainda: você aparece offline para todos.')),
+    h('div.pv-sub', h('b', 'Esconder de pessoas específicas'), chips('deny', 'Ninguém. Útil para colegas de trabalho, por exemplo.')));
+  draw(); return card(box);
+}
 function privacyPage(reg) {
   const sessions = h('div');
   const draw = async () => {
@@ -290,6 +347,8 @@ function privacyPage(reg) {
   draw();
   return h('div', h('h2', 'Privacidade e segurança'),
     section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
+    section('Ligações'), callsCard(),
+    section('Quem vê seu status e sua atividade'), presenceCard(),
     section('Usuários bloqueados'), blockedCard(),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
@@ -405,8 +464,8 @@ function accessibilityPage() {
 function voicePage(ctx, reg) {
   const voice = ctx.voice;
   const sel = (kind, key, label, after) => {
-    const s = h('select', { onchange: () => { S.prefs[key] = s.value; save(); after?.(); } }, h('option', { value: '' }, 'Padrão'));
-    navigator.mediaDevices?.enumerateDevices().then(ds => ds.filter(d => d.kind === kind).forEach(d => s.append(h('option', { value: d.deviceId, selected: S.prefs[key] === d.deviceId }, d.label || d.kind))));
+    const s = h('select', { onchange: () => { setDevice(key, s.value, s.selectedOptions[0]?.dataset.label); save(); after?.(); } }, h('option', { value: '' }, 'Padrão'));
+    navigator.mediaDevices?.enumerateDevices().then(ds => ds.filter(d => d.kind === kind).forEach(d => s.append(h('option', { value: d.deviceId, 'data-label': d.label, selected: S.prefs[key] === d.deviceId }, d.label || d.kind))));
     return h('label.f', label, s);
   };
   const meterBar = h('i'), gateMark = h('b.gatemark'), meterWrap = h('div.meter.big', meterBar, gateMark);
@@ -503,10 +562,13 @@ function soundsPage() {
         h('button.snd-b', { type: 'button', title: 'Voltar ao som padrão', onclick: () => { cfg.url = null; save(); status.textContent = 'Som padrão'; } }, icon('refresh', 16))));
     return tile;
   };
+  // volume de cada grupo, sem mexer nos outros: notificações baixinhas e os sons da chamada no normal (ou o contrário)
+  const GV = { chat: ['Volume das notificações', 'Mensagens, menções, mensagens diretas, chamadas recebidas e pedidos de amizade'], voz: ['Volume dos sons da chamada', 'Entrar, sair, mutar, câmera'], transmissão: ['Volume dos sons de transmissão', 'Começar e parar de transmitir'] };
+  const groupVol = (g) => { const k = SOUND_GROUP_VOL[g]; return h('div.snd-gvol', h('label.f', GV[g][0], h('small.mut', GV[g][1]), slider(0, 100, S.prefs[k] ?? 100, 5, v => { S.prefs[k] = v; save(); }, v => v + '%', () => playSound({ chat: 'mention', voz: 'join', transmissão: 'streamStart' }[g], { force: true })))); };
   return h('div', h('h2', 'Sons'),
     card(toggleCards([{ on: !!S.prefs.soundsMuted, label: 'Silenciar todos os sons do app', sub: 'Nenhum efeito sonoro toca', prev: h('span.snd-hero', icon('volmute', 30), h('i.sh-x')), fn: v => { S.prefs.soundsMuted = v; save(); } }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Volume geral dos sons', slider(0, 100, S.prefs.soundVolume, 5, v => { S.prefs.soundVolume = v; save(); }, v => v + '%'))),
-    ...Object.entries(groups).flatMap(([g, [title, ic]]) => [h('h3.sec.snd-sec', icon(ic, 16), title), h('div.snd-grid', Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g).map(tileFor))]),
+    ...Object.entries(groups).flatMap(([g, [title, ic]]) => [h('h3.sec.snd-sec', icon(ic, 16), title), groupVol(g), h('div.snd-grid', Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g).map(tileFor))]),
     hint([icon('music', 14), ' troca o som pelo seu próprio arquivo de áudio; ', icon('refresh', 14), ' volta ao padrão. As configurações acompanham sua conta.']));
 }
 
@@ -567,6 +629,15 @@ function notificationsPage() {
         // prévia: como o aviso aparece
         h('div.np-preview', { 'aria-hidden': 'true' }, h('small', 'Prévia'),
           h('div.np-toast' + (S.prefs.desktopNotif ? '' : '.off'), h('div.np-ic', icon('dm', 18)), h('div', h('b', 'Ana Clara'), h('span', preview ? 'bora jogar hoje? 🎮' : 'Nova mensagem')))))),
+      card(h('label.f.np-vol', 'Volume das notificações', h('small.mut', 'Mensagens, menções, mensagens diretas, chamadas e pedidos de amizade. Os sons da chamada têm o volume deles, em Sons.'),
+        slider(0, 100, S.prefs.notifVolume ?? 100, 5, v => { S.prefs.notifVolume = v; save(); }, v => v + '%', () => playSound('mention', { force: true })))),
+      section('Modo foco'),
+      card(h('div.np-focus',
+        h('p.mut', 'Só mensagens diretas e chamadas para você tocam som e mostram aviso. Os servidores continuam marcando o que não foi lido, em silêncio. Seu status não muda: os amigos continuam te vendo online.'),
+        choiceCards([['off', 'Desligado', h('span.nl-prev', icon('bell', 26))], ['on', 'Ligado', h('span.nl-prev.at', icon('dm', 26))]], focusOn() ? 'on' : 'off',
+          (v) => { setFocus(v === 'on' ? true : null); draw(); }),
+        focusOn() && h('div.np-focus-t', h('small.mut', 'Modo foco ' + focusLabel() + '. Desligar automaticamente:'),
+          h('div.seg', FOCUS_TIMES.map(([l, v]) => h('button', { type: 'button', onclick: () => { setFocus(focusUntilOf(v)); draw(); } }, l)))))),
       section('Por servidor'),
       ...(S.guilds.size ? [...S.guilds.values()].map(g => {
         const c = gcfg(g), set = (fn) => { fn(); save(); draw(); };
