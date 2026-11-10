@@ -7,10 +7,10 @@ import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isG
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
-import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState } from './music.js';
+import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
 import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
@@ -59,7 +59,46 @@ const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 initMusic(gwSend);
 let musicLit = false; // acende o botão de música quando o bot começa/para de tocar (só redesenha se mudou)
-document.addEventListener('music-changed', () => { if (musicOn() === musicLit) return; musicLit = musicOn(); if (voice?.active) { renderSide(); renderVoiceUI(); } });
+let musicTrack = ''; // faixa atual: o cartão do bot na sala e na lista de canais mostra o que está tocando
+document.addEventListener('music-changed', () => {
+  const m = musicState(), key = m?.active ? `${m.current?.id || ''}|${m.paused ? 1 : 0}` : '';
+  if (musicOn() === musicLit && key === musicTrack) return;
+  musicLit = musicOn(); musicTrack = key; if (voice?.active) { renderSide(); renderVoiceUI(); }
+});
+// ---------- bot de música (não é uma pessoa: sem perfil, amizade, cargos, banir...) ----------
+const botPlaying = (uid) => { const m = musicState(); return m?.active && m.bot_id === uid && m.current ? m : null; };
+function openBot(anchor, uid) {
+  const v = S.voice.get(uid);
+  if (!v) return;
+  if (voice?.channelId !== v.channel_id) return toast('Entre na sala de voz para controlar a música');
+  openMusic(anchor, voice);
+}
+function botMenu(e, uid) {
+  const v = S.voice.get(uid), here = v && voice?.channelId === v.channel_id;
+  menu(e, [
+    { label: 'Abrir o painel de música', fn: () => openBot(e.target, uid) },
+    here && voice.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume da música (só para você)') },
+    here && '-',
+    here && { label: 'Tirar o bot da sala', danger: true, fn: () => musicCmd('disconnect').catch(err => toast(err.message, true)) },
+  ]);
+}
+const eqBars = (on) => h('span.boteq' + (on ? '.on' : ''), { 'aria-hidden': 'true' }, h('i'), h('i'), h('i'));
+function botRow(v) {
+  const m = botPlaying(v.user_id), b = v.bot || {};
+  return h('div.vuser.vbot', { 'data-uid': v.user_id, title: m ? `${m.current.title}${m.current.artist ? ' — ' + m.current.artist : ''}` : 'Bot de música', onclick: (e) => openBot(e.currentTarget, v.user_id), oncontextmenu: (e) => botMenu(e, v.user_id) },
+    avatar(user(v.user_id), 24),
+    h('span.nm', h('span.botnm', b.name || 'Música'), h('span.bottag', 'BOT'), m && h('small.botnow', m.current.title)),
+    eqBars(m && !m.paused));
+}
+function botTile(v, gid) {
+  const uid = v.user_id, m = botPlaying(uid), c = m?.current, b = v.bot || {};
+  return h('div.tile.bottile' + (m && !m.paused ? '.playing' : ''), { 'data-uid': uid, 'data-key': 'c:' + uid, onclick: (e) => openBot(e.currentTarget.querySelector('.botcard') || e.currentTarget, uid), oncontextmenu: (e) => botMenu(e, uid) },
+    c?.thumb && h('div.botbg', { style: { backgroundImage: `url("${String(c.thumb).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
+    h('div.botcard',
+      c?.thumb ? h('img.botart', { src: c.thumb, alt: '', referrerPolicy: 'no-referrer' }) : h('div.botart.ph', icon('musicbot', 40)),
+      h('div.botinfo', h('b', c ? c.title : 'Nada tocando'), h('small', c ? (m.paused ? 'Pausado' : c.artist || 'Tocando agora') : 'Clique para escolher uma música'))),
+    h('div.label', eqBars(m && !m.paused), h('span', b.name || 'Música'), h('span.bottag', 'BOT')));
+}
 
 // Redesenhos pedidos por eventos do servidor (alguém mudou de status, entrou na sala…) viram um só por quadro: quando o
 // servidor reinicia e todo mundo reconecta, eram centenas de redesenhos da lista lateral e de membros seguidos.
@@ -244,7 +283,7 @@ function onEvent(t, d) {
       if (d.user_id === S.me.id && d.channel_id !== before) resetPresenceSounds(); // saí ou troquei de sala: sons pendentes da sala antiga não tocam mais
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
       if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) voice.leave();
-      if (d.user_id !== S.me.id) {
+      if (d.user_id !== S.me.id && !d.bot && !prevVs?.bot) { // o bot entrando/saindo não toca o som de pessoa
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
         if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
         else if (mineCh && before === mineCh && d.channel_id !== mineCh) presenceSound(d.user_id, 'leave'); // saiu, caiu ou foi para outra sala
@@ -920,6 +959,7 @@ function watchFromList(v) {
   renderVoiceUI();
 }
 function vuserRow(g, v) {
+  if (v.bot) return botRow(v);
   const u = user(v.user_id);
   const row = h('div.vuser', { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
@@ -1127,6 +1167,7 @@ document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.
 
 // =============== Perfil / menus de usuário ===============
 async function profile(anchor, uid, gid) {
+  if (botOf(uid)) return openBot(anchor, uid);
   const full = await tryApi('GET', `/users/${uid}`); if (!full) return;
   S.users.set(uid, { ...S.users.get(uid), ...full });
   const u = full, m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
@@ -1305,6 +1346,7 @@ function callUserMenu(e, uid, gid) {
   ]);
 }
 function userMenu(e, uid, gid) {
+  if (botOf(uid)) return botMenu(e, uid);
   if (voice?.channelId) return callUserMenu(e, uid, gid);
   if (uid === S.me.id) return menu(e, [{ label: 'Perfil', fn: () => profile(e.target, uid, gid) }, S.prefs.devMode && { label: 'Copiar ID do usuário', fn: () => navigator.clipboard?.writeText(uid) }]);
   const g = gid && gid !== '@me' ? guild(gid) : null, rt = relType(uid), muted = isLocalMuted(uid);
@@ -2395,6 +2437,7 @@ function renderVoiceUI(speakOnly) {
   const tiles = [], live = new Set();
   const nm = (uid) => dm ? user(uid).display_name : nameOf(uid, gid);
   for (const v of members) {
+    if (v.bot) { tiles.push(botTile(v, gid)); continue; }
     const uid = v.user_id, mine = uid === S.me.id, p = voice.peers.get(uid);
     const cam = mine ? voice.cam : (S.prefs.hiddenVideo?.[uid] ? null : p?.streams.cam), scr = mine ? voice.screen : p?.streams.screen;
     if (!v.screen) voice.closedStreams.delete(uid);

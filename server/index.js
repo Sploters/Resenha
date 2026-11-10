@@ -161,7 +161,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -1184,7 +1184,7 @@ function setRel(a, b, type) {
 }
 app.post('/api/relationships', auth, wrap((req, res) => {
   const t = get('SELECT * FROM users WHERE username=?', clean(req.body.username, 32));
-  if (!t) return bad(res, 'Usuário não encontrado', 404);
+  if (!t || t.username.startsWith('bot_music_')) return bad(res, 'Usuário não encontrado', 404);
   if (t.id === req.uid) return bad(res, 'Você não pode adicionar a si mesmo');
   if (t.friend_policy === 'none' && !get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=4', t.id, req.uid)) return bad(res, 'Este usuário não está aceitando pedidos de amizade', 403);
   const ex = get('SELECT type FROM relationships WHERE user_id=? AND other_id=?', req.uid, t.id);
@@ -1521,9 +1521,10 @@ function leaveVoice(uid, cid) {
   musicOnLeave(cid);
 }
 // Bot de música: participante sem conexão WebSocket (ws "morto" faz send() ser ignorado)
-async function joinBot(cid, botId) {
+// bot: { kind: 'music', n, name } — vai no estado de voz para o app desenhá-lo como bot (não é um membro do servidor)
+async function joinBot(cid, botId, bot) {
   if (!voice.has(cid)) { voice.set(cid, new Map()); roomStart.set(cid, Date.now()); }
-  const st = { ws: { readyState: 0 }, mute: false, deaf: false, video: false, screen: false };
+  const st = { ws: { readyState: 0 }, mute: false, deaf: false, video: false, screen: false, bot: bot || { kind: 'music', n: 1, name: 'Música' } };
   voice.get(cid).set(botId, st);
   const ch = get('SELECT * FROM channels WHERE id=?', cid);
   dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, botId, st), guild_id: ch.guild_id });
