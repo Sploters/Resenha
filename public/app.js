@@ -21,7 +21,7 @@ import { refreshFreeze } from './freeze.js';
 import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
-import { syncThrottle, gameChanged, liteAutoOn } from './lite.js';
+import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch } from './lite.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
@@ -175,7 +175,7 @@ function onEvent(t, d) {
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       if (!ready) buildShell(); ready = true;
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
-      applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active);
+      applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
       if (!S.synced) api('GET', '/me/settings').then(r => { // sincroniza preferências entre dispositivos
@@ -370,7 +370,7 @@ function onSettingsSync(d) {
   relite(d.settings, local);
   try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch { }
   applyTheme(); renderRail(); renderSide(); renderMembers();
-  if (S.searchOpen && !GS.q) renderSide();
+  if (S.searchOpen && !GS.q) renderGS();
 }
 // este aparelho está em uso? (janela em foco, visível e com mexida nos últimos 2 min) — o servidor repassa aos outros
 let lastActive = null, lastInput = Date.now();
@@ -438,6 +438,8 @@ function applyRoute(first) {
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }
   }
+  if (S.favMode && !(S.view.cid && isFav(S.view.cid))) S.favMode = false; // saiu dos favoritos (busca, link, outro canal)
+  if (S.favMode) S.prefs.favLast = S.view.cid;
   S.replyTo = null; S.editing = null; clearPending(); closeFloating();
   $('#app').classList.remove('nav-open');
   syncWatching(null); renderRail(); renderSide(); renderMain();
@@ -454,7 +456,7 @@ function buildShell() {
     const a = e.target.closest?.('.msg .body a[href]'); if (!a || !S.prefs.confirmLinks) return;
     e.preventDefault(); confirmBox('Abrir link externo?', a.href, 'Abrir').then(ok => ok && window.open(a.href, '_blank', 'noopener'));
   });
-  $('#app').replaceChildren(h('div#rail'), h('div#side'), h('div#main'));
+  $('#app').replaceChildren(h('div#rail'), h('div#side'), h('div#gsearch.hidden', { role: 'search', 'aria-label': 'Buscar em tudo' }), h('div#main'));
   $('#app').addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files') && $('#composer')) { e.preventDefault(); if (!$('#dropzone')) $('#chat').append(h('div#dropzone', 'Solte para anexar')); } });
   $('#app').addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#dropzone')?.remove(); });
   initPlugins({ S, go, channelById, guild, user, dmPeer, menu, showInbox: (e) => showInbox(e), inboxBadge: () => inboxBadge() });
@@ -474,17 +476,20 @@ function renderRail() {
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
   const meView = S.view.gid === '@me';
   rail.replaceChildren(
-    wrap('.rail-fly' + (meView && !S.searchOpen ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), oncontextmenu: (e) => { e.preventDefault(); clearTimeout(RF.meWait); RF.meWait = 0; meFlyShow(e.currentTarget); }, style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly' + (meView ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), oncontextmenu: (e) => { e.preventDefault(); clearTimeout(RF.meWait); RF.meWait = 0; meFlyShow(e.currentTarget); }, style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
+    // canais favoritos (de qualquer servidor, juntos): aparece quando há pelo menos um
+    favList().length > 0 && wrap('.rail-fly' + (S.favMode ? '.active' : '') + (!S.favMode && favList().some(f => S.unread[f.c]) ? '.unread' : ''), 'Canais favoritos',
+      h('div.rail-item.rail-tool.fav-btn', { onclick: () => openFavs(), style: { fontSize: '0' } }, icon('star', 24)), badge(favList().reduce((n, f) => n + (S.mentions[f.c] || 0), 0))),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
       return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name,
-        h('div.rail-item', { onclick: () => { closeGlobalSearch(); go('@me', dm.id); }, oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)]); }),
+        h('div.rail-item', { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)]); }),
     h('div.sep'),
     ...[...S.guilds.values()].map(g => {
       const rooms = voiceRooms(g);
-      const w = wrap((S.view.gid === g.id ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
-        h('div.rail-item', { onclick: () => { closeGlobalSearch(); go(g.id); }, oncontextmenu: (e) => guildMenu(e, g) }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
+      const w = wrap((S.view.gid === g.id && !S.favMode ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
+        h('div.rail-item', { onclick: () => { S.favMode = false; go(g.id); }, oncontextmenu: (e) => guildMenu(e, g) }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
         badge(guildMentions(g)) || (rooms.length ? h('div.vbadge', { title: '' }, icon('voice', 12)) : null));
       if (rooms.length) { w.onmouseenter = () => voiceCard(w, g); w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
       return w;
@@ -498,8 +503,33 @@ function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de M
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
 const GS = { q: '', scope: 'all', sort: 'new', groups: null, loading: false, open: null, msgs: {}, seq: 0 };
-function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderSide(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
-function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderSide(); }
+// Buscar em tudo é um painel próprio, ao lado da lista de canais (antes tomava o lugar dela): continua aberto enquanto
+// você troca de servidor e de canal, para comparar o resultado da busca com o que está nos canais. A largura é ajustável
+// arrastando a borda (fica na conta). No celular abre por cima e fecha ao escolher um resultado.
+const gsNarrow = () => matchMedia('(max-width: 640px)').matches;
+const gsNarrowClose = () => { if (gsNarrow()) closeGlobalSearch(); };
+function renderGS() {
+  const box = $('#gsearch'); if (!box) return;
+  box.classList.toggle('hidden', !S.searchOpen);
+  if (!S.searchOpen) return box.replaceChildren();
+  const old = $('#gs-q'), focused = old && document.activeElement === old, val = old?.value, a = old?.selectionStart, b = old?.selectionEnd;
+  const keep = box.querySelector('.gs-list')?.scrollTop || 0;
+  const { head, list } = globalSearchPanel();
+  const grip = h('div.gs-grip', { title: 'Arraste para mudar a largura', onpointerdown: (e) => {
+    e.preventDefault(); const x0 = e.clientX, w0 = box.offsetWidth; grip.setPointerCapture(e.pointerId);
+    const mv = (ev) => { box.style.width = Math.max(260, Math.min(720, w0 + ev.clientX - x0)) + 'px'; $('#app').style.setProperty('--gs-w', box.offsetWidth + 'px'); };
+    const up = () => { grip.removeEventListener('pointermove', mv); S.prefs.gsWidth = box.offsetWidth; savePrefs(); };
+    grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up, { once: true });
+  } });
+  if (S.prefs.gsWidth && !gsNarrow()) box.style.width = S.prefs.gsWidth + 'px';
+  box.replaceChildren(head, list, grip);
+  $('#app').style.setProperty('--gs-w', box.offsetWidth + 'px'); // as abas de canais passam por cima do painel também
+  list.scrollTop = keep;
+  const inp = $('#gs-q');
+  if (old && inp) { inp.value = val; if (focused) { inp.focus(); try { inp.setSelectionRange(a, b); } catch { } } }
+}
+function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderGS(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
+function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderGS(); }
 // ---------- Mensagens/Amigos e Buscar em tudo com a lista de canais oculta ----------
 // Mensagens e amigos: clique direito (sempre) ou o mouse parado em cima por 1,2 s (lista oculta) abre uma fileira com as
 // duas abas; fecha 0,5 s depois que o mouse sai. Buscar em tudo: só abre com clique (passar o mouse não faz nada); com a lista
@@ -510,8 +540,8 @@ const meFlyOpen = () => !!RF.me && RF.me.isConnected && !RF.me.classList.contain
 function meFlyHide() { clearTimeout(RF.meT); if (meFlyOpen()) RF.me.remove(); RF.me = null; }
 function meFlyShow(anchor) {
   clearTimeout(RF.meT); if (meFlyOpen()) return;
-  const tab = S.view.gid !== '@me' || S.searchOpen ? null : S.view.kind === 'home' ? 'friends' : S.view.kind === 'messages' || S.view.kind === 'dm' ? 'messages' : null;
-  const opt = (k, ic, label, fn) => h('button.rf-opt' + (tab === k ? '.on' : ''), { type: 'button', role: 'menuitem', 'aria-current': tab === k ? 'page' : null, onclick: () => { meFlyHide(); closeGlobalSearch(); fn(); } }, icon(ic, 20), h('span', label));
+  const tab = S.view.gid !== '@me' ? null : S.view.kind === 'home' ? 'friends' : S.view.kind === 'messages' || S.view.kind === 'dm' ? 'messages' : null;
+  const opt = (k, ic, label, fn) => h('button.rf-opt' + (tab === k ? '.on' : ''), { type: 'button', role: 'menuitem', 'aria-current': tab === k ? 'page' : null, onclick: () => { meFlyHide(); fn(); } }, icon(ic, 20), h('span', label));
   const el = RF.me = popout(anchor, h('div.rf-pop', { role: 'menu' }, opt('messages', 'dm', 'Mensagens', openMessages), opt('friends', 'users', 'Amigos', () => go('@me'))));
   el.classList.add('rf-popout'); RF.meAt = Date.now();
   el.addEventListener('mouseenter', () => clearTimeout(RF.meT)); el.addEventListener('mouseleave', meFlyLater);
@@ -535,17 +565,15 @@ function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500
     if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { clearTimeout(RF.meWait); RF.meWait = 0; if (meFlyOpen()) meFlyLater(); }
   });
   // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
-  document.addEventListener('mousedown', (e) => { if (S.searchOpen && sideHidden() && !e.target.closest('#side, #rail [data-fly="gs"], #layer')) closeGlobalSearch(); });
-  document.addEventListener('click', (e) => { if (S.searchOpen && sideHidden() && e.target.closest('#side .gs-msg, #side .gs-group:not([aria-expanded])')) setTimeout(closeGlobalSearch); });
 }
 const gsKey = (g) => g.guild_id ? 'g:' + g.guild_id : 'd:' + g.channel_id;
 async function runGlobalSearch() {
   const q = GS.q.trim(), seq = ++GS.seq; GS.open = null; GS.msgs = {};
-  if (!q) { GS.groups = null; GS.loading = false; return renderSide(); }
-  GS.loading = true; renderSide();
+  if (!q) { GS.groups = null; GS.loading = false; return renderGS(); }
+  GS.loading = true; renderGS();
   const r = await api('GET', `/search/groups?q=${encodeURIComponent(q)}&scope=${encodeURIComponent(GS.scope)}&sort=${GS.sort}`).catch(() => []);
   if (seq !== GS.seq) return; // chegou uma busca mais nova
-  GS.groups = (r || []).filter(g => g.guild_id ? guild(g.guild_id) : S.dms.has(g.channel_id)); GS.loading = false; renderSide();
+  GS.groups = (r || []).filter(g => g.guild_id ? guild(g.guild_id) : S.dms.has(g.channel_id)); GS.loading = false; renderGS();
 }
 // buscas recentes: ficam na conta (S.prefs, sincroniza com os outros aparelhos na hora) — a busca feita no PC aparece no celular
 function rememberSearch(q) {
@@ -555,11 +583,11 @@ function rememberSearch(q) {
 }
 async function openGsGroup(g) {
   rememberSearch(GS.q);
-  const k = gsKey(g); if (GS.open === k) { GS.open = null; return renderSide(); }
-  GS.open = k; renderSide();
+  const k = gsKey(g); if (GS.open === k) { GS.open = null; return renderGS(); }
+  GS.open = k; renderGS();
   if (GS.msgs[k]) return;
   const list = await api('GET', `/search?q=${encodeURIComponent(GS.q.trim())}&${g.guild_id ? 'guild=' + g.guild_id : 'channel=' + g.channel_id}&sort=${GS.sort}`).catch(() => []);
-  GS.msgs[k] = list || []; renderSide();
+  GS.msgs[k] = list || []; renderGS();
 }
 // termos digitados (sem os filtros de:, tem:, em:) para destacar nos resultados
 const gsTerms = () => GS.q.split(/\s+/).filter(t => t && !/^(de|tem|em|from|has|in):/i.test(t)).map(t => t.toLowerCase());
@@ -571,7 +599,7 @@ function gsMark(text) {
 function globalSearchPanel() {
   const input = h('input#gs-q', { type: 'search', placeholder: 'Buscar em tudo', value: GS.q, 'aria-label': 'Buscar em todas as conversas e servidores',
     oninput: debounce((e) => { GS.q = e.target.value; runGlobalSearch(); }, 300), onkeydown: (e) => { if (e.key === 'Escape') { e.preventDefault(); closeGlobalSearch(); } else if (e.key === 'Enter') rememberSearch(e.target.value); } });
-  const head = h('div#side-head.gs-head', icon('search', 22), input, h('button.sh-btn', { type: 'button', title: 'Fechar a busca', 'aria-label': 'Fechar a busca', onclick: () => closeGlobalSearch() }, icon('x', 18)));
+  const head = h('div.gs-head', icon('search', 22), input, h('button.sh-btn', { type: 'button', title: 'Fechar a busca', 'aria-label': 'Fechar a busca', onclick: () => closeGlobalSearch() }, icon('x', 18)));
   const scopeLabel = GS.scope === 'all' ? 'DMs e servidores' : GS.scope === 'dms' ? 'Mensagens diretas' : (guild(GS.scope)?.name || 'Servidor');
   const scopeMenu = (e) => { const it = (k, l) => ({ label: (GS.scope === k ? '✓ ' : '') + l, fn: () => { GS.scope = k; runGlobalSearch(); } });
     const r = e.currentTarget.getBoundingClientRect(); menu({ preventDefault() { }, clientX: r.left, clientY: r.bottom + 4 }, [it('all', 'DMs e servidores'), it('dms', 'Só mensagens diretas'), '-', ...[...S.guilds.values()].map(g => it(g.id, g.name))]); };
@@ -590,25 +618,25 @@ function globalSearchPanel() {
     return [h('button.gs-group' + (open ? '.open' : ''), { type: 'button', 'aria-expanded': String(open), onclick: () => openGsGroup(g) }, ic, h('span.gs-t', h('b', gg ? gsMark(gg.name) : gsMark(u.display_name)), h('small', sub)), icon('chevdown', 16)), msgs];
   };
   const hits = (gHits.length + pHits.length > 0) && [h('div.cat', { style: { cursor: 'default' } }, 'Ir para'),
-    ...gHits.map(g => h('button.gs-group', { type: 'button', onclick: () => { closeGlobalSearch(); go(g.id); } }, h('div.gs-ic', g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : initialsOf(g.name)), h('span.gs-t', h('b', gsMark(g.name)), h('small', 'Servidor')))),
-    ...pHits.map(u => h('button.gs-group', { type: 'button', onclick: () => { closeGlobalSearch(); openDM(u.id); } }, avatar(u, 40), h('span.gs-t', h('b', gsMark(u.display_name)), h('small', 'Mensagem direta'))))];
+    ...gHits.map(g => h('button.gs-group', { type: 'button', onclick: () => { gsNarrowClose(); go(g.id); } }, h('div.gs-ic', g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : initialsOf(g.name)), h('span.gs-t', h('b', gsMark(g.name)), h('small', 'Servidor')))),
+    ...pHits.map(u => h('button.gs-group', { type: 'button', onclick: () => { gsNarrowClose(); openDM(u.id); } }, avatar(u, 40), h('span.gs-t', h('b', gsMark(u.display_name)), h('small', 'Mensagem direta'))))];
   const recent = S.prefs.recentSearches || [];
   const recentBox = recent.length > 0 && h('div.gs-recent', h('div.cat', { style: { cursor: 'default' } }, h('span', 'Buscas recentes'),
-    h('button.gs-clear', { type: 'button', title: 'Limpar as buscas recentes (em todos os aparelhos)', onclick: () => { S.prefs.recentSearches = []; savePrefs(); renderSide(); } }, 'Limpar')),
+    h('button.gs-clear', { type: 'button', title: 'Limpar as buscas recentes (em todos os aparelhos)', onclick: () => { S.prefs.recentSearches = []; savePrefs(); renderGS(); } }, 'Limpar')),
     recent.map(q => h('button.gs-rq', { type: 'button', onclick: () => { GS.q = q; const i = $('#gs-q'); if (i) i.value = q; runGlobalSearch(); } }, icon('clock', 16), h('span', q))));
   const body = !t ? [recentBox, h('div.dm-empty', h('p', 'Procure mensagens em todas as suas conversas e servidores.'), h('small', 'Filtros: de:nome · tem:imagem, arquivo, link ou video · em:canal'))]
     : GS.loading && !GS.groups ? skeleton('rows', 4)
     : [hits, GS.groups?.length ? [h('div.cat', { style: { cursor: 'default' } }, 'Mensagens'), ...GS.groups.flatMap(groupRow)] : !GS.loading && h('div.dm-empty', 'Nenhuma mensagem encontrada')];
-  return { head, list: h('div#side-list.gs-list', filters, body) };
+  return { head, list: h('div.gs-list', filters, body) };
 }
 function gsMsg(m, inGuild) {
   const ch = channelById(m.channel_id), txt = stripInvites(m.content || '').replace(/<@!?(\d+)>/g, (x, id) => '@' + (S.users.get(id)?.display_name || 'alguém')).replace(/[*_~`>|]/g, '') || (m.attachments?.length ? 'Anexo' : '');
-  return h('button.gs-msg', { type: 'button', onclick: () => { rememberSearch(GS.q); go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } },
+  return h('button.gs-msg', { type: 'button', onclick: () => { rememberSearch(GS.q); gsNarrowClose(); go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } },
     avatar(user(m.author_id), 24, { status: false }),
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
 }
 // ícone de mensagens da barra: volta para a aba usada por último (Mensagens ou Amigos)
-function openMeSection() { meFlyHide(); closeGlobalSearch(); if (localStorage.getItem('lc_metab') === 'friends') go('@me'); else openMessages(); }
+function openMeSection() { meFlyHide(); S.favMode = false; if (localStorage.getItem('lc_metab') === 'friends') go('@me'); else openMessages(); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
 const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
@@ -711,7 +739,7 @@ function renderSide() {
   const side = $('#side'); if (!side) return;
   const keepScroll = $('#side-list')?.scrollTop || 0;
   let head, list;
-  if (S.searchOpen) ({ head, list } = globalSearchPanel());
+  if (S.favMode && favList().length) ({ head, list } = favSide());
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inMessages()) {
     // seção Mensagens: lista simples com buscar, nova mensagem e ordenar; fixadas no topo
     const btn = (ic, title, fn, on) => h('button.sh-btn' + (on ? '.on' : ''), { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 20));
@@ -748,7 +776,7 @@ function renderSide() {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       return h('div', h('div.ch' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''),
         { onclick: () => { go(g.id, c.id); }, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
-        chIcon(c), h('span.name', chName(c)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
+        chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
     };
@@ -856,9 +884,82 @@ function vuserRow(g, v) {
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;
 }
+// ---------- canais favoritos ----------
+// Canais de qualquer servidor reunidos num lugar só (estrela na barra dos servidores), na ordem que você quiser e em
+// grupos seus (ex.: "Campanha" com canais de servidores diferentes). Arrastar reordena e muda de grupo. Fica na conta
+// (S.prefs.favs: [{ c: id do canal, g: grupo }], S.prefs.favGroups: ordem dos grupos) e sincroniza com os outros aparelhos.
+const favList = () => (S.prefs.favs || []).filter(f => { const c = channelById(f.c); return c && c.guild_id && guild(c.guild_id); });
+const isFav = (cid) => (S.prefs.favs || []).some(f => f.c === cid);
+function toggleFav(c) {
+  const list = S.prefs.favs ||= [];
+  if (isFav(c.id)) { S.prefs.favs = list.filter(f => f.c !== c.id); if (S.favMode && !favList().length) S.favMode = false; }
+  else { list.push({ c: c.id, g: '' }); toast(`#${chName(c)} está nos favoritos (estrela na barra dos servidores)`); }
+  savePrefs(); renderRail(); renderSide();
+}
+function openFavs() {
+  const fl = favList(); if (!fl.length) return;
+  const f = fl.find(x => x.c === S.prefs.favLast) || fl[0], c = channelById(f.c);
+  S.favMode = true; go(c.guild_id, c.id); renderRail(); renderSide();
+}
+const favGroups = () => { const used = new Set(favList().map(f => f.g).filter(Boolean)); return [...new Set([...(S.prefs.favGroups || []).filter(g => used.has(g)), ...used])]; };
+function moveFav(cid, group, beforeCid) {
+  const list = (S.prefs.favs || []).filter(f => f.c !== cid), item = { c: cid, g: group || '' };
+  const i = beforeCid ? list.findIndex(f => f.c === beforeCid) : -1;
+  if (i >= 0) list.splice(i, 0, item); else { let j = -1; list.forEach((f, k) => { if ((f.g || '') === item.g) j = k; }); list.splice(j >= 0 ? j + 1 : list.length, 0, item); }
+  S.prefs.favs = list; if (group && !(S.prefs.favGroups || []).includes(group)) (S.prefs.favGroups ||= []).push(group);
+  savePrefs(); renderSide();
+}
+async function newFavGroup(cid) {
+  const name = (await promptBox('Novo grupo de favoritos', 'Nome do grupo', '', 'Criar'))?.slice(0, 40); if (!name) return;
+  moveFav(cid, name);
+}
+function favGroupMenuItem(cid) {
+  const cur = (S.prefs.favs || []).find(f => f.c === cid)?.g || '';
+  return { label: 'Mover para o grupo', sub: [
+    { label: 'Sem grupo', radio: cur === '', fn: () => moveFav(cid, '') },
+    ...favGroups().map(g => ({ label: g, radio: cur === g, fn: () => moveFav(cid, g) })),
+    '-', { label: 'Novo grupo…', fn: () => newFavGroup(cid) }] };
+}
+function favGroupMenu(e, g) {
+  menu(e, [
+    { label: 'Renomear grupo', fn: async () => { const n = (await promptBox('Renomear grupo', 'Nome do grupo', g))?.slice(0, 40); if (!n || n === g) return; for (const f of S.prefs.favs || []) if (f.g === g) f.g = n; S.prefs.favGroups = (S.prefs.favGroups || []).map(x => (x === g ? n : x)); savePrefs(); renderSide(); } },
+    { label: 'Subir grupo', fn: () => { const gs = favGroups(), i = gs.indexOf(g); if (i > 0) { [gs[i - 1], gs[i]] = [gs[i], gs[i - 1]]; S.prefs.favGroups = gs; savePrefs(); renderSide(); } } },
+    { label: 'Descer grupo', fn: () => { const gs = favGroups(), i = gs.indexOf(g); if (i >= 0 && i < gs.length - 1) { [gs[i + 1], gs[i]] = [gs[i], gs[i + 1]]; S.prefs.favGroups = gs; savePrefs(); renderSide(); } } },
+    '-', { label: 'Desfazer grupo (os canais continuam nos favoritos)', fn: () => { for (const f of S.prefs.favs || []) if (f.g === g) f.g = ''; S.prefs.favGroups = (S.prefs.favGroups || []).filter(x => x !== g); savePrefs(); renderSide(); } },
+  ]);
+}
+function favSide() {
+  const head = h('div#side-head.fav-head', icon('star', 20), h('span', 'Favoritos'),
+    h('button.sh-btn', { type: 'button', title: 'Como organizar', 'aria-label': 'Como organizar os favoritos', onclick: () => toast('Arraste para mudar a ordem ou o grupo. Clique direito num canal: grupos e remover. Para adicionar: clique direito num canal de qualquer servidor → Adicionar aos favoritos.') }, icon('info', 18)));
+  let dragId = null;
+  const drop = (el, group, before) => {
+    el.addEventListener('dragover', (e) => { if (!dragId) return; e.preventDefault(); el.classList.add('fav-over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('fav-over'));
+    el.addEventListener('drop', (e) => { e.preventDefault(); el.classList.remove('fav-over'); if (dragId && dragId !== before) moveFav(dragId, group, before); dragId = null; });
+    return el;
+  };
+  const row = (f) => {
+    const c = channelById(f.c), g = guild(c.guild_id), vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
+    const el = h('div.ch.favrow' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''), {
+      draggable: true, title: `#${chName(c)} — ${g.name}`,
+      onclick: () => { S.favMode = true; go(g.id, c.id); }, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c),
+      ondragstart: (e) => { dragId = c.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.id); el.classList.add('dragging'); },
+      ondragend: () => { dragId = null; el.classList.remove('dragging'); } },
+      h('span.fav-g', g.icon ? h('img', { src: imgUrl(g.icon, 32), alt: '' }) : initialsOf(g.name)), chIcon(c),
+      h('span.name', h('span.fn', chName(c)), h('small', g.name)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]));
+    return h('div', drop(el, f.g || '', c.id), vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
+  };
+  const fl = favList(), loose = fl.filter(f => !f.g);
+  const list = h('div#side-list.favlist',
+    drop(h('div.fav-drop', loose.length ? null : 'Solte aqui para tirar do grupo'), '', null), loose.map(row),
+    favGroups().map(gn => [drop(h('div.cat.fav-cat', { oncontextmenu: (e) => favGroupMenu(e, gn), title: 'Clique direito: renomear, mudar a ordem ou desfazer' }, h('span', gn)), gn, null), fl.filter(f => f.g === gn).map(row)]));
+  return { head, list };
+}
 function channelMenu(e, g, c) {
   menu(e, [
     c.type === 2 && { label: 'Entrar no canal de voz', fn: () => { go(g.id, c.id); joinVoice(c.id); } },
+    c.type !== 4 && { label: isFav(c.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos', fn: () => toggleFav(c) },
+    c.type !== 4 && isFav(c.id) && favGroupMenuItem(c.id),
     S.unread[c.id] && { label: 'Marcar como lido', fn: () => ack(c.id) },
     c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Editar canal', fn: () => channelSettings(g, c) },
@@ -941,7 +1042,11 @@ function userbar() {
   const av = h('button.pb-av', { type: 'button', 'aria-label': pinned ? 'Status e perfil' : 'Abrir a barra do perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
     onclick: () => { if (pinned || bar.classList.contains('open')) return status(); bar.classList.add('open'); setTimeout(() => document.addEventListener('pointerdown', function out(e) { if (!bar.contains(e.target)) { bar.classList.remove('open'); document.removeEventListener('pointerdown', out, true); } }, true)); },
     oncontextmenu: (e) => statusMenu(e) },
-    avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), off && h('i.pb-off', { title: voice?.deafened ? 'Som desligado' : 'Microfone desligado' }));
+    avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), // microfone/som desligado: o próprio ícone riscado no canto do avatar (antes uma bolinha vermelha), à vista mesmo com a
+    // lista oculta; clicar nele religa sem abrir a barra
+    off && h('span.pb-off', { role: 'button', tabIndex: 0, title: voice?.deafened ? 'Som desligado — clique para ativar' : 'Microfone desligado — clique para ativar', 'aria-label': voice?.deafened ? 'Som desligado: ativar' : 'Microfone desligado: ativar',
+      onclick: (e) => { e.stopPropagation(); voiceToggle(voice?.deafened ? 'deaf' : 'mute'); }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); voiceToggle(voice?.deafened ? 'deaf' : 'mute'); } } },
+      icon(voice?.deafened ? 'headoff' : 'micoff', 13)));
   const body = h('div#userbar.pb-body',
     h('div.me', { onclick: status, oncontextmenu: (e) => statusMenu(e), title: 'Status e perfil' },
       h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', me.custom_status || STATUS_TXT[me.status]))),
@@ -2670,7 +2775,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, openFavs, moveFav, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

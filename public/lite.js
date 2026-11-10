@@ -18,7 +18,7 @@ const ITEMS = [
 if (desktop) ITEMS.push({ key: null, title: 'Economia em segundo plano', desc: 'Com o app minimizado e fora de chamada, o Windows pode desacelerar a Resenha.' });
 
 export const liteOn = () => !!S.prefs.lightMode;
-let skipGame = null, misses = 0, lastGame = null; // automático com o jogo aberto (gameChanged, abaixo)
+let skipGame = null, misses = 0, lastGame = null, lastGameTitle = null; // automático com o jogo aberto (gameChanged, abaixo)
 
 // app desktop: deixa o Chromium desacelerar a página escondida, mas nunca durante uma chamada (timers da voz)
 let throttled = null;
@@ -59,7 +59,7 @@ export function setLite(on, voice, opts = {}) {
 const AUTO_SKIP = ['noiseMode', 'screen'];
 export const liteAutoOn = () => !!desktop?.detectGame && S.prefs.liteAuto !== false;
 export function gameChanged(game, voice) {
-  lastGame = game?.id || null;
+  lastGame = game?.id || null; lastGameTitle = game?.title || game?.name || null;
   if (!liteAutoOn()) return;
   const P = S.prefs;
   if (game) {
@@ -108,6 +108,63 @@ export function litePage(ctx) {
 const GROUP = (m) => m.type === 'Browser' ? 'Janela e sistema' : m.type === 'Tab' ? 'Interface (chat, voz, vídeos)' : m.type === 'GPU' ? 'Placa de vídeo (desenho e vídeo)'
   : /audio/i.test(m.service) ? 'Áudio' : /video_capture|capture/i.test(m.service) ? 'Captura de tela/câmera' : /network/i.test(m.service) ? 'Rede' : 'Outros';
 const mb = (b) => (b / 1048576).toFixed(0) + ' MB';
+// ---------- pico de consumo ----------
+// Medido desde que o app abriu (não só com esta tela aberta): a cada 10 s, e a cada 2 s com a tela à vista. Guarda o maior
+// uso de processador e de memória, a hora e o que estava acontecendo (chamada, transmissão, jogo aberto…), mais os
+// últimos 10 min para o gráfico. No navegador só dá para medir a memória da página.
+const USE = { since: Date.now(), cpu: null, mem: null, parts: new Map(), hist: [], getVoice: null, t: 0 };
+const cores = () => navigator.hardwareConcurrency || 1;
+const pcTxt = (c) => (c / cores()).toFixed(1).replace('.', ',') + '%'; // percentCPUUsage é por núcleo
+function doing() {
+  const v = USE.getVoice?.(), out = [];
+  if (v?.screen) out.push('transmitindo'); else if (v?.active) out.push('em chamada');
+  if (S.watching?.size) out.push(`assistindo ${S.watching.size}`);
+  if (v?.cam) out.push('câmera ligada');
+  if (lastGameTitle || lastGame) out.push((lastGameTitle || 'jogo') + ' aberto');
+  if (liteOn()) out.push('modo leve');
+  return out.join(' · ');
+}
+async function sample() {
+  let cpu = 0, mem = 0; const g = new Map();
+  if (desktop?.appMetrics) {
+    let ms = await desktop.appMetrics().catch(() => []); if (!Array.isArray(ms)) ms = [];
+    for (const m of ms) { const k = GROUP(m), x = g.get(k) || { cpu: 0, mem: 0 }; x.cpu += m.cpu; x.mem += m.mem; g.set(k, x); cpu += m.cpu; mem += m.mem; }
+  } else if (performance.memory) mem = performance.memory.usedJSHeapSize;
+  else return null;
+  const now = Date.now(), what = doing();
+  if (desktop?.appMetrics && (!USE.cpu || cpu > USE.cpu.v)) USE.cpu = { v: cpu, at: now, what };
+  if (!USE.mem || mem > USE.mem.v) USE.mem = { v: mem, at: now, what };
+  for (const [k, x] of g) { const p = USE.parts.get(k) || { cpu: 0, mem: 0 }; p.cpu = Math.max(p.cpu, x.cpu); p.mem = Math.max(p.mem, x.mem); USE.parts.set(k, p); }
+  USE.hist.push({ at: now, cpu, mem }); while (USE.hist.length && now - USE.hist[0].at > 600e3) USE.hist.shift();
+  return { cpu, mem, g };
+}
+// chamado na abertura do app (app.js): começa a medir em segundo plano
+export function startUsageWatch(getVoice) {
+  USE.getVoice = getVoice; if (USE.t) return;
+  sample(); USE.t = setInterval(() => { if (!usageOpen) sample(); }, 10e3);
+}
+export const usagePeak = () => ({ since: USE.since, cpu: USE.cpu, mem: USE.mem, parts: Object.fromEntries(USE.parts) });
+let usageOpen = false;
+const hhmm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+// mini gráfico dos últimos 10 min (linha de agora + ponto no pico)
+function spark(key, peak) {
+  const pts = USE.hist; if (pts.length < 2) return null;
+  const W = 220, H = 36, t0 = Math.max(Date.now() - 600e3, Math.min(pts[0].at, Date.now() - 60e3)), span = Date.now() - t0, max = Math.max(1, peak?.v || 0, ...pts.map(p => p[key]));
+  const x = (t) => Math.max(0, (t - t0) / span * W), y = (v) => H - 2 - v / max * (H - 4);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + x(p.at).toFixed(1) + ' ' + y(p[key]).toFixed(1)).join(' ');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('class', 'us-spark'); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = `<path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
+    (peak && peak.at >= t0 ? `<circle cx="${x(peak.at).toFixed(1)}" cy="${y(peak.v).toFixed(1)}" r="3" class="us-pkdot"/>` : '');
+  return svg;
+}
+function peakBox() {
+  const P = usagePeak(), stat = (label, pk, fmt, key) => pk && h('div.us-pk',
+    h('div.us-pkt', h('span', label), h('b', fmt(pk.v)), h('small', `às ${hhmm(pk.at)}${pk.what ? ' — ' + pk.what : ''}`)), spark(key, pk));
+  return h('div.us-peak',
+    h('div.rt', `Pico desde que o app abriu (${hhmm(P.since)})`, h('button.btn.link.sm', { type: 'button', title: 'Começar a contar o pico de novo a partir de agora', onclick: () => { USE.cpu = USE.mem = null; USE.parts.clear(); USE.hist.length = 0; USE.since = Date.now(); sample(); } }, 'Zerar')),
+    h('div.us-pks', stat('Processador', P.cpu, pcTxt, 'cpu'), stat(desktop?.appMetrics ? 'Memória' : 'Memória da página', P.mem, mb, 'mem')));
+}
+
 function usagePanel(ctx) {
   const box = h('div.card2.usage', h('div.hintline.keep', 'Medindo…'));
   let t = 0;
@@ -123,23 +180,24 @@ function usagePanel(ctx) {
     return out;
   };
   const draw = async () => {
-    const rows = [];
-    if (desktop?.appMetrics) {
-      let ms = await desktop.appMetrics().catch(() => []); if (!Array.isArray(ms)) ms = []; const g = new Map(); let cpu = 0, mem = 0;
-      for (const m of ms) { const k = GROUP(m), x = g.get(k) || { cpu: 0, mem: 0 }; x.cpu += m.cpu; x.mem += m.mem; g.set(k, x); cpu += m.cpu; mem += m.mem; }
-      const cores = navigator.hardwareConcurrency || 1, pc = (c) => (c / cores).toFixed(1).replace('.', ',') + '%'; // percentCPUUsage é por núcleo
+    const rows = [], cur = await sample();
+    if (desktop?.appMetrics && cur) {
+      const { cpu, mem, g } = cur, pc = pcTxt;
       rows.push(h('div.us-total', h('div', h('b', pc(cpu)), h('span', 'do processador')), h('div', h('b', mb(mem)), h('span', 'de memória'))));
       const maxMem = Math.max(1, ...[...g.values()].map(x => x.mem));
-      rows.push(h('div.us-rows', [...g].sort((a, b) => b[1].mem - a[1].mem).map(([k, x]) => h('div.us-row', h('span', k), h('div.us-bar', h('i', { style: { width: Math.max(2, x.mem / maxMem * 100) + '%' } })), h('b', mb(x.mem)), h('small', pc(x.cpu))))));
+      rows.push(h('div.us-rows', h('div.us-row.us-hd', h('span'), h('span'), h('small', 'agora'), h('small', 'CPU'), h('small', 'pico')),
+        [...g].sort((a, b) => b[1].mem - a[1].mem).map(([k, x]) => { const p = USE.parts.get(k);
+          return h('div.us-row', h('span', k), h('div.us-bar', h('i', { style: { width: Math.max(2, x.mem / maxMem * 100) + '%' } }), p && h('u', { style: { left: Math.min(100, p.mem / maxMem * 100) + '%' }, title: 'Pico de memória: ' + mb(p.mem) })), h('b', mb(x.mem)), h('small', pc(x.cpu)), h('small.us-pkc', { title: `Pico: ${mb(p?.mem || 0)} de memória e ${pc(p?.cpu || 0)} do processador` }, mb(p?.mem || 0))); })));
     } else {
       const pm = performance.memory;
       rows.push(h('div.us-total', h('div', h('b', pm ? mb(pm.usedJSHeapSize) : '—'), h('span', 'de memória da página')), h('div.us-note', 'No navegador, o consumo completo fica no gerenciador de tarefas dele (Shift+Esc no Chrome/Edge).')));
     }
+    if (USE.mem || USE.cpu) rows.push(peakBox());
     const hv = heavy();
     rows.push(h('div.us-heavy', h('div.rt', hv.length ? 'Ligado agora e pesa' : 'Nada pesado ligado agora'), hv.map(([a, b]) => h('div.us-h', icon('bolt', 14), h('div', h('b', a), h('span', b))))));
     box.replaceChildren(...rows);
   };
-  draw(); t = setInterval(draw, 2000);
-  queueMicrotask(() => whenGone(box, () => clearInterval(t)));
+  usageOpen = true; draw(); t = setInterval(draw, 2000);
+  queueMicrotask(() => whenGone(box, () => { clearInterval(t); usageOpen = false; }));
   return box;
 }

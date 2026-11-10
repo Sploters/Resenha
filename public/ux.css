@@ -137,7 +137,9 @@ button.mgroup .mg-n::before { content: '— '; }
 .pb-av .avatar { transition: box-shadow .12s; }
 .pb-av:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .pb-av .pb-st { position: absolute; right: 4px; bottom: 6px; left: auto; top: auto; width: 12px; height: 12px; min-width: 0; min-height: 0; border: 3px solid var(--bg-tert); }
-.pb-av .pb-off { position: absolute; right: 4px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--red); border: 3px solid var(--bg-tert); box-sizing: content-box; }
+.pb-av .pb-off { position: absolute; right: 0; top: 2px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--red); color: #fff; border: 3px solid var(--bg-tert); box-sizing: content-box; cursor: pointer; }
+.pb-av .pb-off .icon, .pb-av .pb-off svg { width: 13px; height: 13px; fill: currentColor; color: #fff; }
+.pb-av .pb-off:hover { filter: brightness(1.15); } .pb-av .pb-off:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 #userbar.pb-body { display: none !important; flex: 1 1 auto; min-width: 0; height: auto !important; position: relative; margin-left: 8px; padding: 0 6px 0 8px !important; gap: 2px !important; align-items: center; border-radius: 18px; background: var(--bg-user); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
 /* ponte entre o avatar e a barra (o "pescoço" do design) */
 .pb-body::before { content: ''; position: absolute; left: -9px; top: 16px; bottom: 16px; width: 10px; background: var(--bg-user); }
@@ -182,10 +184,10 @@ button.mgroup .mg-n::before { content: '— '; }
 .msgs-top { flex: none; }
 
 /* ---------- busca em tudo ---------- */
-#side-head.gs-head { cursor: default; gap: 8px; padding: 0 6px 0 12px; height: 52px; color: var(--text-muted); }
-#side-head.gs-head:hover { background: none; }
-#side-head.gs-head input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--header); font: inherit; font-size: 16px; }
-#side-head.gs-head:focus-within { box-shadow: inset 0 -2px 0 var(--brand); }
+#gsearch .gs-head { cursor: default; gap: 8px; padding: 0 6px 0 12px; height: 52px; color: var(--text-muted); }
+#gsearch .gs-head:hover { background: none; }
+#gsearch .gs-head input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--header); font: inherit; font-size: 16px; }
+#gsearch .gs-head:focus-within { box-shadow: inset 0 -2px 0 var(--brand); }
 .gs-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
 .gs-scope, .gs-chip { height: 30px; display: inline-flex; align-items: center; gap: 4px; padding: 0 12px; border: 1px solid var(--divider); border-radius: 15px; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .gs-scope { max-width: 100%; }
@@ -556,9 +558,6 @@ h3.sec.snd-sec .icon { fill: currentColor; }
   /* Buscar em tudo só abre com clique: a dica com o nome aparece normalmente e some enquanto o painel flutuante está aberto;
      Mensagens e amigos mostra a dica enquanto espera os 1,2 s e a esconde quando a fileira com as abas abre (app.js: meFlyShow) */
   #app.hide-side.gs-open .rail-wrap.rail-fly:has([data-fly="gs"])[data-tip]:hover::after { display: none; }
-  /* busca em tudo: o painel aparece flutuando por cima da conversa, colado na barra dos servidores */
-  #app.hide-side.gs-open #side { position: absolute; top: 0; bottom: 0; left: 72px; z-index: 35; width: 300px; border-radius: 0 18px 18px 0; box-shadow: 8px 0 24px rgba(0,0,0,.35); animation: gs-fly .14s ease-out; }
-  #app.hide-side.gs-open:has(#chtabs) #side { border: 1px solid var(--divider); border-left: 0; }
 }
 @keyframes gs-fly { from { opacity: 0; transform: translateX(-8px); } }
 /* Mensagens e amigos (clique direito ou mouse parado 1,2 s): as duas abas numa fileira que sai do ícone */

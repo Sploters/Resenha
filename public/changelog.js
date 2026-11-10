@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-10', title: 'Favoritos e busca ao lado',
+    items: [
+      { i: 'star', t: 'Canais favoritos', d: 'Clique direito num canal → Adicionar aos favoritos. A estrela na barra dos servidores junta canais de servidores diferentes num lugar só; arraste para ordenar e crie grupos seus (clique direito → Mover para o grupo).' },
+      { i: 'search', t: 'Busca ao lado dos canais', d: 'Buscar em tudo abre num painel próprio e continua aberto enquanto você troca de servidor e de canal, para comparar o resultado com o que está nos canais. Arraste a borda para mudar a largura.' },
+      { i: 'mic', t: 'Mudo sempre à vista', d: 'Com a lista de canais oculta, o avatar mostra o microfone (ou o fone) riscado em vez de uma bolinha vermelha. Clique nele para ativar de novo.' },
+      { i: 'bolt', t: 'Pico de consumo', d: 'Configurações → Modo leve mostra o maior uso de processador e de memória desde que o app abriu, a hora e o que estava acontecendo (chamada, transmissão, jogo), com um gráfico dos últimos minutos.' },
+    ],
+  },
+  {
     id: '2026-11-09-2', title: 'Arquivos, aparelhos e comunidade',
     items: [
       { i: 'file', t: 'Aba Arquivos', d: 'Cada servidor tem a entrada "Arquivos" (abaixo de Clipes) e cada canal ou DM tem o botão de arquivo no topo: fotos, vídeos, áudios, documentos, outros arquivos e links numa grade por mês, com filtros de quem enviou, período, canal e nome. O limite por arquivo subiu para 500 MB.' },

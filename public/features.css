@@ -82,7 +82,7 @@ html.anim .btn:active, html.anim .roundbtn:active { transform: scale(.95); }
 
 /* ---- esconder lista de canais ---- */
 #hide-side.sel { color: #fff; }
-#app.hide-side #side { width: 0; } #app.hide-side:not(.gs-open) #side > :not(#user-area) { display: none; } /* lista oculta: o avatar do perfil (pb-av) continua no pé da barra dos servidores (ux.css) */
+#app.hide-side #side { width: 0; } #app.hide-side #side > :not(#user-area) { display: none; } /* lista oculta: o avatar do perfil (pb-av) continua no pé da barra dos servidores (ux.css) */
 @media (max-width: 640px) { #app.hide-side #side { width: 200px; overflow: visible; } #app.hide-side #side > :not(#user-area) { display: revert; } #app.hide-side #user-area { display: block; } }
 
 /* ---- tempo de chamada no painel de voz ---- */
@@ -312,6 +312,9 @@ body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima
   #main > #chtabs { border-bottom-color: transparent; } /* sem linha embaixo das abas */
   :root.grad #app { background: var(--g1); }
   #main > #chtabs { margin-left: calc(-1 * var(--side-w)); position: relative; z-index: 21; }
+  /* com o painel de busca aberto, as abas se estendem também por cima dele, e ele desce a altura delas */
+  #app.gs-open #main > #chtabs { margin-left: calc(-1 * (var(--side-w) + var(--gs-w, 340px))); }
+  #app:has(#chtabs) #gsearch { margin-top: var(--ct-h); }
 }
 
 /* invisível aparece para todos como offline (bolinha cinza) */
@@ -1397,13 +1400,13 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .usage .us-total > div { display: flex; flex-direction: column; } .usage .us-total b { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; } .usage .us-total span { color: var(--text-muted); font-size: 12.5px; }
 .usage .us-total .us-note { flex: 1; min-width: 200px; color: var(--text-muted); font-size: 13px; }
 .usage .us-rows { display: flex; flex-direction: column; gap: 6px; }
-.usage .us-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1fr) 64px 48px; gap: 10px; align-items: center; font-size: 13.5px; }
+.usage .us-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1fr) 64px 48px 64px; gap: 10px; align-items: center; font-size: 13.5px; }
 .usage .us-row b, .usage .us-row small { text-align: right; font-variant-numeric: tabular-nums; } .usage .us-row small { color: var(--text-muted); }
 .usage .us-bar { height: 6px; border-radius: 3px; background: var(--bg-ter, rgba(127,127,127,.18)); overflow: hidden; } .usage .us-bar i { display: block; height: 100%; background: var(--brand, #5865f2); }
 .usage .us-heavy { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--divider, rgba(127,127,127,.2)); display: flex; flex-direction: column; gap: 8px; }
 .usage .us-h { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; } .usage .us-h svg { fill: var(--yellow, #f0b232); flex: none; margin-top: 2px; }
 .usage .us-h div { display: flex; flex-direction: column; } .usage .us-h span { color: var(--text-muted); }
-@media (max-width: 520px) { .usage .us-row { grid-template-columns: minmax(0, 1fr) 64px 48px; } .usage .us-bar { display: none; } }
+@media (max-width: 520px) { .usage .us-row { grid-template-columns: minmax(0, 1fr) 64px 48px 64px; } .usage .us-bar, .usage .us-hd > span:nth-child(2) { display: none; } }
 
 /* ---------- saúde da transmissão (app.js healthPill) e aviso para quem assiste (screen_note) ---------- */
 .tile.screen .hpill { position: absolute; left: 8px; top: 8px; z-index: 4; max-width: calc(100% - 16px); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 5px 10px; border: 0; border-radius: 12px; background: rgba(0,0,0,.62); color: #fff; font: 600 12px/1.25 var(--font, inherit); text-align: left; cursor: pointer; backdrop-filter: blur(4px); }
@@ -1491,3 +1494,44 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .gs-rq { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left; cursor: pointer; }
 .gs-rq:hover { background: var(--bg-mod-hover, #393c41); }
 .gs-rq svg { color: var(--text-muted); flex: none; }
+
+/* ===== Pico de consumo (Configurações → Modo leve) ===== */
+.usage .us-hd small { font-size: 11px; text-transform: uppercase; letter-spacing: .02em; }
+.usage .us-bar { position: relative; overflow: visible; }
+.usage .us-bar u { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--yellow, #f0b232); }
+.usage .us-row .us-pkc { color: var(--yellow, #f0b232); }
+.usage .us-peak { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--divider, rgba(127,127,127,.2)); }
+.usage .us-peak > .rt { display: flex; justify-content: space-between; align-items: center; }
+.usage .us-pks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 6px; }
+.usage .us-pk { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 8px; background: var(--bg-ter, rgba(127,127,127,.12)); }
+.usage .us-pkt { display: flex; flex-direction: column; } .usage .us-pkt span { color: var(--text-muted); font-size: 12px; }
+.usage .us-pkt b { font-size: 20px; font-weight: 800; color: var(--yellow, #f0b232); font-variant-numeric: tabular-nums; } .usage .us-pkt small { color: var(--text-muted); font-size: 12px; }
+.usage .us-spark { width: 100%; height: 36px; color: var(--brand, #5865f2); } .usage .us-spark .us-pkdot { fill: var(--yellow, #f0b232); }
+
+/* ===== Buscar em tudo: painel próprio ao lado da lista (não cobre mais a lista de canais) ===== */
+#gsearch { position: relative; width: 340px; flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--bg-sec); border-left: 1px solid var(--divider, rgba(127,127,127,.2)); animation: gs-fly .14s ease-out; }
+#gsearch.hidden { display: none; }
+#gsearch .gs-head { height: 48px; flex: none; display: flex; align-items: center; box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 1.5px 0 rgba(0,0,0,.05); font-weight: 600; }
+#gsearch .gs-list { flex: 1; overflow-y: auto; padding: 8px 8px 16px; }
+#gsearch .gs-grip { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
+#gsearch .gs-grip:hover, #gsearch .gs-grip:active { background: color-mix(in srgb, var(--brand, #5865f2) 50%, transparent); }
+@media (max-width: 900px) { #gsearch { width: 280px !important; } }
+@media (max-width: 640px) { #gsearch { position: absolute; z-index: 31; top: 0; bottom: 0; left: 72px; width: calc(100% - 72px) !important; border-left: 0; } #gsearch .gs-grip { display: none; } }
+
+/* ===== Canais favoritos ===== */
+#side-head.fav-head { cursor: default; gap: 8px; justify-content: flex-start; } #side-head.fav-head:hover { background: none; }
+#side-head.fav-head > .icon, #side-head.fav-head > svg { fill: var(--yellow, #f0b232); color: var(--yellow, #f0b232); }
+#side-head.fav-head .sh-btn { margin-left: auto; }
+.favlist .favrow { gap: 8px; }
+.favlist .favrow .fav-g { width: 20px; height: 20px; flex: none; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--bg-tert); color: var(--text-muted); font-size: 9px; font-weight: 700; }
+.favlist .favrow .fav-g img { width: 100%; height: 100%; object-fit: cover; }
+.favlist .favrow .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.favlist .favrow .name .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favlist .favrow .name small { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.favlist .favrow.dragging { opacity: .4; }
+.favlist .fav-over { box-shadow: inset 0 2px 0 var(--brand, #5865f2); }
+.favlist .fav-cat { cursor: context-menu; }
+.favlist .fav-drop { min-height: 4px; border-radius: 6px; font-size: 12px; color: var(--text-muted); text-align: center; }
+.favlist .fav-drop:not(:empty) { padding: 6px; border: 1px dashed var(--divider, rgba(127,127,127,.3)); margin-bottom: 6px; }
+.ch .favmark { display: inline-flex; margin-left: 4px; color: var(--yellow, #f0b232); opacity: .8; } .ch .favmark svg { fill: currentColor; }
+.rail-item.fav-btn svg { fill: var(--yellow, #f0b232); }
