@@ -1529,7 +1529,7 @@ async function joinBot(cid, botId) {
   dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, botId, st), guild_id: ch.guild_id });
   await sfuJoin(cid, botId, () => { });
 }
-initMusic({ get, run, newId, voice, send, dispatch, guildMemberIds, memberObj, userPub, joinBot, leaveBot: (cid, botId) => leaveVoice(botId, cid), attachRtp: sfuAttachRtp, sfuEnabled });
+initMusic({ db, all, get, run, newId, canManage: (gid, uid) => can(gid, uid, P.MANAGE_CHANNELS) || can(gid, uid, P.MANAGE_GUILD), voice, send, dispatch, guildMemberIds, memberObj, userPub, joinBot, leaveBot: (cid, botId) => leaveVoice(botId, cid), attachRtp: sfuAttachRtp, sfuEnabled });
 // Controle remoto (server/remote.js). Pedido, resposta e comandos só valem da conexão que está na chamada.
 const remote = createRemote({
   newId,

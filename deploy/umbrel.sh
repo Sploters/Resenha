@@ -25,7 +25,7 @@ tar czf - Dockerfile README.md package.json package-lock.json .gitignore deploy 
   mkdir -p ~/resenha ~/resenha-backups ~/resenha-data
   # limpa o código antigo para não sobrar arquivo removido/renomeado (os dados ficam em ~/resenha-data)
   cd ~/resenha && rm -rf deploy public server scripts && tar xzf -
-  docker build -q -t resenha . >/dev/null
+  docker build -q --build-arg YTDLP_BUST=\$(date +%Y%m%d) -t resenha . >/dev/null # yt-dlp novo a cada dia de deploy (o YouTube muda)
   # backup do banco antes de trocar o container
   DB=\$(cd ~/resenha-data && ls resenha.db* localcord.db* 2>/dev/null || true)
   [ -n \"\$DB\" ] && tar czf ~/resenha-backups/data-\$(date +%Y%m%d-%H%M%S).tgz -C ~/resenha-data \$DB

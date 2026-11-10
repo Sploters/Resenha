@@ -34,6 +34,18 @@ export const S = {
 };
 const DEVICE_KEYS = ['inputId', 'outputId', 'videoId', 'clipsOn', 'lightMode', 'lightPrev', 'liteAuto', 'liteAutoGame']; // específicos de cada máquina: não sincronizam
 let syncTimer;
+// várias abas/janelas do app no mesmo navegador dividem o localStorage: quando uma muda um ajuste deste aparelho (modo
+// leve, dispositivos de áudio…), as outras adotam os mesmos valores — senão a próxima gravação de uma aba desfazia o que a
+// outra acabou de ligar (ex.: modo leve voltava desligado ao recarregar)
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'lc_prefs' || !e.newValue) return;
+  let p; try { p = JSON.parse(e.newValue); } catch { return; }
+  // mesma conta no mesmo aparelho: vale o que a outra aba gravou (inclusive o que o modo leve aplicou)
+  if (JSON.stringify(S.prefs) === e.newValue) return;
+  for (const k of Object.keys(S.prefs)) if (!(k in p)) delete S.prefs[k];
+  Object.assign(S.prefs, p);
+  document.dispatchEvent(new Event('prefs-changed-elsewhere'));
+});
 export const savePrefs = () => {
   localStorage.setItem('lc_prefs', JSON.stringify(S.prefs));
   clearTimeout(syncTimer);

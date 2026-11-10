@@ -60,8 +60,17 @@ Docker: `docker build -t resenha . && docker run -d --restart=always -p 3000:300
 Atualizar: reconstrua a imagem e recrie o container com o mesmo volume (o banco migra sozinho).
 
 ## Bot de música
-Botão 🎵 na barra da chamada: cole um link (YouTube, SoundCloud, Spotify, Bandcamp, Twitch, Vimeo…) ou digite o nome da música. O bot entra na sala como um participante (cada um ajusta o volume dele), mantém uma fila/playlist e qualquer pessoa da sala pode pausar, pular, remover músicas ou tirá-lo da chamada. Sai sozinho após 5 min parado (`MUSIC_IDLE_MIN`) ou quando todos saem. O áudio vem do yt-dlp (sem anúncios) + ffmpeg, ambos já incluídos na imagem Docker; o Spotify só fornece os nomes das faixas, que são procurados no YouTube. Requer o SFU de voz ativo.
-Variáveis: `MUSIC_IDLE_MIN`, `MUSIC_ALLOW_ANY=1` (libera qualquer site), `YTDLP_COOKIES=/data/cookies.txt` (se o YouTube pedir login), `YTDLP_PATH`, `FFMPEG_PATH`. Se o YouTube parar de funcionar, refaça o deploy para baixar o yt-dlp atualizado.
+Embutido, no estilo do Jockie Music: botão 🎵 no painel de voz (aceso enquanto toca). Busque pelo nome (escolha entre 6 resultados) ou cole um link — YouTube (vídeo ou playlist), YouTube Music, SoundCloud, Spotify (faixa, álbum ou playlist: os nomes são procurados no YouTube), Bandcamp, Twitch, Vimeo… O bot entra na sala como um participante e toca numa fila.
+- **Tocar agora / a seguir / no fim**, pular, voltar para a anterior, pausar e continuar do mesmo ponto, **barra para pular para qualquer ponto** (ou ← → de 10 s), parar.
+- **Repetir** a música ou a fila, **embaralhar**, arrastar para reordenar, tocar um item da fila na hora, tirar repetidas, limpar.
+- **Reprodução automática:** quando a fila acaba, toca músicas parecidas (o "mix" do YouTube da última música; fora do YouTube, pelo artista), sem repetir o que já tocou.
+- **Efeitos:** grave reforçado, nightcore, vaporwave, 8D, karaokê (tira a voz), acelerado 1,25x e lento 0,85x. **Volume do bot para todos** (0–200%) e, à parte, só para você.
+- **Letra sincronizada** com a música (lrclib.net, gratuita; clique numa linha para ir àquele trecho), **histórico** da sessão e **playlists salvas no servidor** (salvar a fila, tocar, apagar).
+- **Vários bots:** até 4 por servidor (`MUSIC_BOTS`), um por sala — "Música", "Música 2"… tocam ao mesmo tempo em salas diferentes.
+- **24/7:** o bot fica na sala mesmo parado ou sozinho. Sem isso, sai após 5 min parado (`MUSIC_IDLE_MIN`) ou 20 s sozinho.
+
+Áudio: yt-dlp (sem anúncios) → ffmpeg (efeitos, volume, Opus) → SFU de voz. O **YouTube exige resolver um desafio em JavaScript**: a imagem Docker usa o `yt-dlp_linux` (standalone, já com o script EJS) e o Node da própria imagem; sem isso o YouTube responde 403. Fora do Docker, instale `pip install -U "yt-dlp[default]"` (ou deixe `YTDLP_REMOTE_EJS` ligado, que baixa o script do GitHub). O `deploy/umbrel.sh` baixa o yt-dlp mais novo a cada dia de deploy — se o YouTube parar de funcionar, refaça o deploy. Requer o SFU de voz ativo.
+Variáveis: `MUSIC_BOTS` (padrão 4), `MUSIC_IDLE_MIN`, `MUSIC_ALLOW_ANY=1` (libera qualquer site), `MUSIC_LYRICS=0` (desliga as letras), `YTDLP_COOKIES=/data/cookies.txt` (se o YouTube pedir login), `YTDLP_REMOTE_EJS=0`, `YTDLP_PATH`, `FFMPEG_PATH`.
 
 ### Novidades
 Depois de uma atualização, quem já usava o app vê uma vez a janela "Novidades" (o que mudou, com botões "Experimentar"); fica gravado na conta, então não repete em outro aparelho. Conta nova não recebe a lista. Histórico em Configurações → Novidades e no menu do perfil. Para anunciar uma atualização: acrescente uma entrada no topo de `NEWS` em `public/changelog.js` com um id novo (a data).
@@ -106,7 +115,7 @@ O cliente do SFU fica em `public/vendor/msc/` (gerado de `mediasoup-client`): `n
     RTC=0 node scripts/ui-test.mjs                    # o mesmo, com voz em malha P2P
     node scripts/desktop-test.mjs                     # app Electron
     node scripts/desktop-share-test.mjs               # Electron transmitindo a tela real para outro usuário
-Os testes de navegador usam o Edge do Windows por padrão; em outro sistema aponte `BROWSER` para um Chrome/Chromium (ex.: `BROWSER=/usr/bin/chromium node scripts/ui-test.mjs`). Também há `layout-favs-test` (favoritos, busca ao lado, mudo no avatar e pico de consumo), `sync-rep-files-test` (aba Arquivos, sincronização entre aparelhos e reputação), `lfg-test`, `polls-test`, `clips-test`, `remote-test`, `callinvite-test`, `extras-test`, `themes-test`, `lite-test`, `activity-test`, `activity-ui-test`, `steam-test` (sobem o próprio servidor) e `fase2-test` (usa `API`, padrão `http://localhost:3000`).
+Os testes de navegador usam o Edge do Windows por padrão; em outro sistema aponte `BROWSER` para um Chrome/Chromium (ex.: `BROWSER=/usr/bin/chromium node scripts/ui-test.mjs`). Também há `music-test` (bot de música de ponta a ponta com áudio de verdade; precisa de `yt-dlp` e `ffmpeg`), `layout-favs-test` (favoritos, busca ao lado, mudo no avatar e pico de consumo), `sync-rep-files-test` (aba Arquivos, sincronização entre aparelhos e reputação), `lfg-test`, `polls-test`, `clips-test`, `remote-test`, `callinvite-test`, `extras-test`, `themes-test`, `lite-test`, `activity-test`, `activity-ui-test`, `steam-test` (sobem o próprio servidor) e `fase2-test` (usa `API`, padrão `http://localhost:3000`).
 
 ## Limitações conhecidas
 Sem o SFU (RTC=0 ou mediasoup indisponível) a voz cai para malha P2P, boa até ~6-8 pessoas por sala. Push-to-talk e atalhos de som só com o app em foco (global: mutar/ensurdecer). Sem threads, bots ou criptografia de ponta a ponta.

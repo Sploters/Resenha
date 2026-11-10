@@ -1,5 +1,13 @@
 FROM node:24-slim
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ffmpeg python3 ca-certificates curl  && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod 755 /usr/local/bin/yt-dlp  && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ffmpeg python3 ca-certificates curl && rm -rf /var/lib/apt/lists/*
+# yt-dlp do bot de música: a versão "standalone" (yt-dlp_linux) já traz o script EJS que resolve o desafio em
+# JavaScript do YouTube (com o Node desta imagem). A versão comum (zipapp) não traz e o YouTube responde 403.
+# YTDLP_BUST muda a cada deploy (deploy/umbrel.sh) para baixar o yt-dlp mais novo — o YouTube muda com frequência.
+ARG TARGETARCH
+ARG YTDLP_BUST=0
+RUN echo "yt-dlp $YTDLP_BUST" && case "$TARGETARCH" in arm64) F=yt-dlp_linux_aarch64 ;; amd64|"") F=yt-dlp_linux ;; *) F=yt-dlp ;; esac \
+  && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$F" -o /usr/local/bin/yt-dlp && chmod 755 /usr/local/bin/yt-dlp \
+  && /usr/local/bin/yt-dlp --version
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev

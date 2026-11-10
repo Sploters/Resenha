@@ -10,7 +10,8 @@ import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, da
 import { S, api, tryApi, user, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
-import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic } from './music.js';
+import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState } from './music.js';
+const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
 import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
@@ -57,6 +58,8 @@ let ws, voice, retry = 0, ready = false, pendingInvite = null;
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 initMusic(gwSend);
+let musicLit = false; // acende o botão de música quando o bot começa/para de tocar (só redesenha se mudou)
+document.addEventListener('music-changed', () => { if (musicOn() === musicLit) return; musicLit = musicOn(); if (voice?.active) { renderSide(); renderVoiceUI(); } });
 
 // Redesenhos pedidos por eventos do servidor (alguém mudou de status, entrou na sala…) viram um só por quadro: quando o
 // servidor reinicia e todo mundo reconecta, eram centenas de redesenhos da lista lateral e de membros seguidos.
@@ -372,6 +375,8 @@ function onSettingsSync(d) {
   applyTheme(); renderRail(); renderSide(); renderMembers();
   if (S.searchOpen && !GS.q) renderGS();
 }
+// outra aba do app neste navegador mudou as preferências (state.js): aplica aqui também
+document.addEventListener('prefs-changed-elsewhere', () => { if (!ready) return; applyTheme(); syncThrottle(!!voice?.active); renderRail(); renderSide(); renderMembers(); });
 // este aparelho está em uso? (janela em foco, visível e com mexida nos últimos 2 min) — o servidor repassa aos outros
 let lastActive = null, lastInput = Date.now();
 const devKind = () => (desktop ? 'desktop' : matchMedia('(pointer: coarse)').matches ? 'mobile' : 'web');
@@ -988,7 +993,7 @@ function voicePanel() {
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       fxButton(20, false),
       h('button', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 20)),
-      h('button', { title: 'Música (bot) — indisponível', disabled: true, style: { opacity: .4, cursor: 'not-allowed' } }, icon('music', 20))));
+      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('music', 20))));
 }
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
@@ -2403,7 +2408,7 @@ function renderVoiceUI(speakOnly) {
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
-    !dm && h('button.roundbtn.solo-narrow', { title: 'Música (bot) — indisponível', disabled: true, style: { opacity: .4, cursor: 'not-allowed' } }, icon('music', 24)),
+    !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('music', 24)),
     btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
   ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
