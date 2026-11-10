@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-10-4', title: 'Transmitir com um atalho',
+    items: [
+      { i: 'screen', t: 'Atalho da transmissão', d: 'Ctrl+Shift+S inicia ou encerra a transmissão, inclusive com o jogo aberto (app desktop). Com um jogo aberto, transmite o jogo direto, com a qualidade e o áudio da última vez. Dá para trocar a tecla em Configurações → Atalhos.' },
+      { i: 'gamepad', t: 'Jogando? Transmita', d: 'Abriu um jogo durante a chamada? A Resenha pergunta se você quer transmitir, com um botão que já transmite o jogo. Se não quiser, clique no X para não perguntar mais.' },
+      { i: 'music', t: 'Painel de música mais firme', d: 'O painel não pula mais para o canto da tela ao tocar ou pausar, mostra "pausado" na hora, fecha com Esc e clicando de novo no botão, e fecha sozinho ao tirar o bot ou sair da sala.' },
+    ],
+  },
+  {
     id: '2026-11-10-3', title: 'Música mais leve',
     items: [
       { i: 'music', t: 'Tempo da música à vista', d: 'A barra do painel de música agora anda junto com a música, então dá para ver em que ponto ela está e pular para qualquer parte.' },

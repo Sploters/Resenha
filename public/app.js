@@ -30,7 +30,7 @@ const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobri
 import { initFiles, renderFiles, filesPreset, onFilesMessage } from './files.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
-import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel } from './ui.js';
+import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
 const lazySettings = () => import('./settings.js');
 const openSettings = (...a) => { lazySettings().then(m => m.openSettings(...a)); };
@@ -1072,7 +1072,7 @@ function voicePanel() {
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       fxButton(20, false),
       h('button', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 20)),
-      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20))));
+      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20))));
 }
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
@@ -1111,7 +1111,7 @@ function watchFriend(uid, ch) {
 }
 function joinVoice(cid) {
   if (voice.channelId === cid) return;
-  voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; } });
+  voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }
 // barra de perfil: o avatar fica na barra dos servidores (bolinha de status embaixo, vermelha em cima se o microfone ou o
 // som estiver desligado) e a barra com nome, microfone, fone, configurações e alfinete sai dele. Alfinete azul: sempre
@@ -1721,8 +1721,8 @@ function shareClipModal(c) {
         const btn = e.currentTarget; btn.disabled = true;
         const content = (note.value.trim() ? note.value.trim() + '\n' : '') + clipLink(c.id);
         const ok = await tryApi('POST', `/channels/${r.id}/messages`, { content });
-        if (ok) { sent.add(r.id); btn.textContent = 'Enviado'; btn.classList.add('grey'); } else btn.disabled = false;
-      } }, sent.has(r.id) ? 'Enviado' : 'Enviar'))), !rows.length && h('div.dm-empty', 'Nada encontrado'));
+        if (ok) { sent.add(r.id); btn.replaceChildren(icon('clipcheck', 14), 'Enviado'); btn.classList.add('grey', 'sent'); } else btn.disabled = false;
+      } }, ...(sent.has(r.id) ? [icon('clipcheck', 14), 'Enviado'] : ['Enviar'])))), !rows.length && h('div.dm-empty', 'Nada encontrado'));
   };
   q.oninput = draw;
   const copy = h('button.btn.grey', { type: 'button', onclick: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } }, icon('link', 16), 'Copiar link');
@@ -2419,6 +2419,7 @@ function autoClosed() {
   for (const k of [...seenLive]) if (!now.has(k)) seenLive.delete(k);
 }
 function renderVoiceUI(speakOnly) {
+  if (!voice?.active || voice.screen) hideGameOffer();
   if (speakOnly) {
     // só as classes de "falando"; o ping já é medido 1x por segundo (antes cada fala disparava uma medição extra)
     document.querySelectorAll('.tile[data-uid],.avatar[data-uid]').forEach(e => { const u = e.dataset.uid; e.classList.toggle('speaking', voice.speaking.has(u)); e.classList.toggle('sbplay', voice.sbActive.has(u)); });
@@ -2490,7 +2491,7 @@ function renderVoiceUI(speakOnly) {
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
-    !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
+    !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
     btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
   ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
@@ -2523,20 +2524,20 @@ function clipHotkey() {
 }
 // aviso de clipe capturado, só para quem apertou: com o app em segundo plano (jogando), o app desktop mostra por cima do
 // jogo (fora da captura, não aparece na transmissão); com o app à vista, a animação é dentro da própria página
-function clipFlash(ok, title, sub) {
-  if (desktop?.clipFlash && !document.hasFocus()) return desktop.clipFlash({ ok, title, sub });
+function clipFlash(ok, title, sub, kind) { // kind 'share': ícone de tela (atalho da transmissão)
+  if (desktop?.clipFlash && !document.hasFocus()) return desktop.clipFlash({ ok, title, sub, kind });
   document.querySelector('.clipflash')?.remove();
-  const el = h('div.clipflash' + (ok ? '' : '.bad'), { role: 'status', 'aria-live': 'polite' }, h('div.cf-ic', icon(ok ? 'clip' : 'x', 14)), h('b', title), sub && h('small', sub));
+  const el = h('div.clipflash' + (ok ? '' : '.bad'), { role: 'status', 'aria-live': 'polite' }, h('div.cf-ic', icon(ok ? (kind === 'share' ? 'screen' : 'clip') : 'x', 14)), h('b', title), sub && h('small', sub));
   document.body.append(el);
   setTimeout(() => el.remove(), 2200);
 }
 // clipes: ligados por padrão para as transmissões dos outros; na sua própria só se você ativar (codificar o próprio jogo duas vezes pesa)
 const clipsAuto = (mine) => (mine ? S.prefs.clipsOn === true : S.prefs.clipsOn !== false);
 function clipMenu(e, key, who) {
-  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', hint: 'Grava os últimos 60s das transmissões em segundo plano', fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
-  menu(e, [...clipLengths.map(n => ({ label: `Salvar os últimos ${n}s`, hint: 'Posta no chat da sala', fn: () => saveClip(key, n, { channelId: voice.channelId, who }) })),
-    { label: 'Salvar e cortar…', hint: 'Escolhe o trecho dos últimos 60s antes de postar', fn: () => saveClipTrim(key, { channelId: voice.channelId, who }) }, '-',
-    { label: 'Desativar clipes', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
+  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', icon: 'clipsparkle', hint: 'Grava os últimos 60s das transmissões em segundo plano', fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
+  menu(e, [...clipLengths.map(n => ({ label: `Salvar os últimos ${n}s`, icon: 'clip', hint: 'Posta no chat da sala', fn: () => saveClip(key, n, { channelId: voice.channelId, who }) })),
+    { label: 'Salvar e cortar…', icon: 'cliptrim', hint: 'Escolhe o trecho dos últimos 60s antes de postar', fn: () => saveClipTrim(key, { channelId: voice.channelId, who }) }, '-',
+    { label: 'Desativar clipes', icon: 'x', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
 }
 const ctxSettings = () => ({ voice, logout, go });
 function noiseMenu(e) {
@@ -2625,6 +2626,54 @@ const pipCtx = {
 };
 // parar de compartilhar a tela (sem sair da chamada)
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
+// ---------- atalho da transmissão (padrão Ctrl+Shift+S) ----------
+// Liga/desliga a transmissão. Com um jogo aberto (app desktop), transmite o jogo direto, sem abrir o seletor, com as
+// últimas escolhas de qualidade e áudio (só o jogo): dá para apertar no meio da partida. Sem jogo, abre o seletor.
+const shareKey = () => S.prefs.keyShare || 'Ctrl+Shift+KeyS';
+async function shareHotkey() {
+  if (!voice?.active) return clipFlash(false, 'Entre numa sala de voz', null, 'share');
+  if (voice.screen) { stopSharing(); hideGameOffer(); return clipFlash(true, 'Transmissão encerrada', null, 'share'); }
+  const game = await findGameSource();
+  if (game) return quickShareGame(game);
+  if (!document.hasFocus()) clipFlash(true, 'Escolha o que transmitir', 'na janela da Resenha', 'share');
+  startShare();
+}
+async function findGameSource(g) {
+  if (!desktop?.getSources) return null;
+  const list = (await desktop.getSources().catch(() => [])).filter(s => s.type === 'window' && s.game);
+  return (g && list.find(s => s.name === g.title)) || list[0] || null;
+}
+async function quickShareGame(src) {
+  hideGameOffer();
+  const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen };
+  const cap = await desktop.appAudioCapable?.().catch(() => null);
+  const mode = o.audio === false ? 'none' : o.audioMode === 'system' ? 'system' : 'game';
+  o.audio = mode !== 'none';
+  const appAudio = !cap?.ok || mode === 'none' ? null : mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name } : { mode: 'exclude' };
+  if (!(await desktop.selectSource(src.id, src.name).catch(() => false))) return startShare();
+  await voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
+  if (voice.screen) clipFlash(true, 'Transmitindo', src.name, 'share');
+}
+// jogo aberto na chamada e sem transmitir: oferece transmitir o jogo (uma vez por jogo em cada sala)
+const offeredGames = new Set();
+function hideGameOffer() { document.getElementById('gameoffer')?.remove(); }
+function offerGameShare(g) {
+  if (!g || !voice?.active || voice.screen) return hideGameOffer();
+  if (S.prefs.gameShareOffer === false || offeredGames.has(voice.channelId + ':' + g.id)) return;
+  offeredGames.add(voice.channelId + ':' + g.id); hideGameOffer();
+  const key = comboLabel(shareKey());
+  const el = h('div#gameoffer', { role: 'dialog', 'aria-label': 'Transmitir o jogo' },
+    g.icon ? h('img.go-ic', { src: String(g.icon).startsWith('data:') ? g.icon : 'data:image/png;base64,' + g.icon, alt: '' }) : h('div.go-ic.ph', icon('gamepad', 22)),
+    h('div.go-txt', h('b', `Jogando ${g.title}?`), h('small', `Transmita o jogo para a sala. Atalho: ${key}`)),
+    h('div.go-acts',
+      h('button.btn.green', { type: 'button', onclick: async () => { const s = await findGameSource(g); s ? quickShareGame(s) : (hideGameOffer(), startShare()); } }, icon('screen', 16), 'Transmitir'),
+      h('button.btn.link', { type: 'button', onclick: hideGameOffer }, 'Agora não'),
+      h('button.go-x', { type: 'button', title: 'Não perguntar mais (dá para religar em Configurações → Atalhos)', 'aria-label': 'Não perguntar mais', onclick: () => { S.prefs.gameShareOffer = false; savePrefs(); hideGameOffer(); toast('Não vou mais perguntar. Para religar: Configurações → Atalhos.'); } }, icon('x', 14))));
+  document.body.append(el);
+  setTimeout(() => el.isConnected && el.remove(), 45000);
+  // jogando com a Resenha em segundo plano: o aviso aparece por cima do jogo
+  if (!document.hasFocus()) clipFlash(true, `Transmitir ${g.title}?`, `Aperte ${key}`, 'share');
+}
 // botões de cada transmissão, no canto do próprio quadro: a ação principal com texto (parar de assistir / parar transmissão),
 // tela cheia e o resto num menu "⋯" para não poluir
 // selo de saúde da sua transmissão (voice.screenHealth): fps real, de onde vem o áudio e o que está atrapalhando. Um elemento
@@ -2807,16 +2856,17 @@ function incomingCall(dm, uid) {
 // ---------- jogo aberto no PC -> atividade "Jogando X" (app desktop) ----------
 // usa a mesma detecção da transmissão (pasta de loja/jogos, executável conhecido, janela em tela cheia). Repete a cada 20 s
 // enquanto há jogo (o servidor esquece em 90 s sem notícia: app fechado/travado não deixa "Jogando" preso).
-let gameTimer = null, sentGame; // undefined = nada enviado nesta conexão
+let gameTimer = null, sentGame, gameTick = null; // undefined = nada enviado nesta conexão
 function startGameDetect() {
   sentGame = undefined; // (re)conectou: manda o estado de novo
   if (!desktop?.detectGame || gameTimer) return;
   api('GET', '/activity/pc').then(r => { S.pcActivity = r.visibility; }).catch(() => { });
-  const tick = async () => {
+  const tick = gameTick = async () => {
     const share = S.pcActivity !== 'off' && ws?.readyState === 1;
-    if (!share && !liteAutoOn()) return;
+    if (!share && !liteAutoOn() && !voice?.active) return;
     const g = await desktop.detectGame().catch(() => null), id = g?.id || null;
     gameChanged(g, voice); // modo leve automático enquanto o jogo está aberto (lite.js)
+    offerGameShare(g); // na chamada e sem transmitir: "Jogando X? Transmitir" 
     if (!share) return;
     // o ícone (PNG ~10 KB) só vai quando o jogo muda ou a conexão é nova; nas outras vezes o servidor usa o que já tem
     if (g || sentGame !== null) gwSend('ACTIVITY_LOCAL', { game: g ? { id: g.id, title: g.title, steam: g.steam || null, ...(id !== sentGame && g.icon ? { icon: g.icon } : {}) } : null });
@@ -2845,11 +2895,12 @@ function setupDesktop() {
     if (c && c === (S.prefs.keyDeafen || 'Ctrl+Shift+KeyD')) { e.preventDefault(); voiceToggle('deaf'); }
     if (c && c === (S.prefs.keyClip || 'F8')) { e.preventDefault(); clipHotkey(); }
     if (c && c === (S.prefs.keyFx || 'Ctrl+Shift+KeyE')) { e.preventDefault(); fxHotkey(); }
+    if (c && c === shareKey() && !e.repeat) { e.preventDefault(); shareHotkey(); }
   });
   addEventListener('keyup', (e) => { if (e.code === S.prefs.pttKey) voice?.setPtt(false); });
   addEventListener('blur', () => voice?.setPtt(false));
-  desktop?.setSettings?.({ hotkeyMute: comboToAccel(S.prefs.keyMute || 'Ctrl+Shift+KeyM'), hotkeyDeafen: comboToAccel(S.prefs.keyDeafen || 'Ctrl+Shift+KeyD'), hotkeyClip: comboToAccel(S.prefs.keyClip || 'F8') });
-  desktop?.onHotkey?.((k) => { if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); });
+  desktop?.setSettings?.({ hotkeyMute: comboToAccel(S.prefs.keyMute || 'Ctrl+Shift+KeyM'), hotkeyDeafen: comboToAccel(S.prefs.keyDeafen || 'Ctrl+Shift+KeyD'), hotkeyClip: comboToAccel(S.prefs.keyClip || 'F8'), hotkeyShare: comboToAccel(shareKey()) });
+  desktop?.onHotkey?.((k) => { if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); if (k === 'share') shareHotkey(); });
 }
 
 // gancho de depuração/testes automatizados
@@ -2862,7 +2913,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, openFavs, moveFav, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

@@ -56,7 +56,7 @@ try {
   ok(!r1.error && r1.added === 1, 'tocar um link: o bot entra e começa', r1);
   let s = await waitPlaying(A, 'Musica A'); await sleep(1500);
   ok(s?.active && s.bot_n === 1 && s.current?.title === 'Musica A', 'estado: tocando "Musica A" com o bot 1', { cur: s?.current?.title, n: s?.bot_n });
-  ok(await A.evaluate((gid) => [...window.__lc.S.guilds.get(gid).members.keys()].length, g.id) === 3, 'o bot aparece como membro do servidor');
+  ok(await A.evaluate((gid, bot) => [...window.__lc.S.guilds.get(gid).members.keys()].length === 2 && window.__lc.S.voice.get(bot)?.bot?.kind === 'music', g.id, s.bot_id), 'o bot NÃO é membro do servidor; está na sala marcado como bot');
   ok(near(await hz(A), 440), 'o som do bot chega na sala (440 Hz)', await hz(A));
   await cmd(A, 'play', { query: MURL('Musica B.webm') }); await cmd(A, 'play', { query: MURL('Musica C.webm'), where: 'next' });
   s = await st(A);
@@ -104,7 +104,7 @@ try {
   // ---- 24/7 e sair ----
   await cmd(A, 'stay', { on: true }); ok((await st(A)).stay === true, '24/7 ligado');
   await cmd(A, 'disconnect'); await sleep(600);
-  ok(!(await st(A))?.active && await A.evaluate((gid) => [...window.__lc.S.guilds.get(gid).members.keys()].length, g.id) === 3, 'tirar o bot: ele sai da sala (o bot 2 continua na outra)');
+  ok(!(await st(A))?.active && await A.evaluate(() => [...window.__lc.S.voice.values()].filter(v => v.bot).length) === 1, 'tirar o bot: ele sai da sala (o bot 2 continua na outra)');
 } catch (e) { console.log('ERRO', e); fails++; }
 await browser?.close(); srv.kill(); media.close();
 if (fails && srvErr) console.log(srvErr.split('\n').filter(l => /Error|error/.test(l)).slice(-5).join('\n'));
