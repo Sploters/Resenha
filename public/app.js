@@ -2447,8 +2447,9 @@ function renderVoiceUI(speakOnly) {
     } else if (scr && v.screen) {
       const key = 's:' + uid; live.add(key);
       const vid = mine && !S.selfPreview ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
-      // clipe = vídeo + áudio da transmissão + voz de quem transmite (o microfone só entra no clipe, não no ao vivo)
-      if (clipsAuto(mine) && inRoom) startBuffer(key, scr, mine ? [scr, voice.mic] : [p?.screenAudioEl?.raw, p?.audioEl?.raw], voice.getCtx());
+      // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
+      // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
+      if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx());
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
             const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });
@@ -2556,12 +2557,12 @@ async function startShare() {
   const audTarget = () => (src?.type === 'window' ? (src.pid ? src : null) : list.find(s => s.type === 'window' && s.game && s.pid) || null);
   const drawAudio = () => {
     if (!desktop || !appCap.ok) { // navegador / Windows antigo: só o áudio do sistema (como antes)
-      return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema (tudo que toca no PC, menos a Resenha)', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })),
+      return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })),
         desktop && appCap.reason && h('div.qinfo', 'Áudio só do jogo indisponível: ' + appCap.reason));
     }
     const t = audTarget(), opts = {};
     if (t) opts.game = `Só ${src?.type === 'window' ? 'este programa' : 'o jogo'}: ${t.name.length > 34 ? t.name.slice(0, 33) + '…' : t.name}`;
-    opts.system = 'Tudo do PC, menos a Resenha'; opts.none = 'Sem áudio';
+    opts.system = 'Tudo do PC'; opts.none = 'Sem áudio';
     const mode = audMode === 'game' && !t ? 'system' : audMode;
     audRow.replaceChildren(h('label.f', 'Áudio', seg(opts, mode, v => { audMode = v; drawAudio(); })),
       h('div.qinfo', mode === 'game' ? 'Como no Discord: vai só o som do jogo. Música, navegador e a voz da call não entram na transmissão.'
