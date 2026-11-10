@@ -108,9 +108,9 @@ try {
   await A.evaluate(() => { window.__lc.S.prefs.clipsOn = true; window.__lc.voice.onUpdate(); });
   await sleep(1500);
   const infoA = await A.evaluate(async (me) => (await window.__lc.import('clips.js')).clipInfo('s:' + me), a.id);
-  ok(infoA?.audioSources === 2, 'clipe da própria transmissão: áudio do jogo + o microfone de quem transmite', infoA);
+  ok(infoA?.audioSources === 4, 'clipe da própria transmissão: áudio do jogo + minha voz + soundboard + a voz de quem está na sala', infoA);
   const infoB = await B.evaluate(async (uid) => (await window.__lc.import('clips.js')).clipInfo('s:' + uid), a.id);
-  ok(infoB?.audioSources === 2, 'clipe de quem assiste: áudio da transmissão + a voz de quem transmite', infoB);
+  ok(infoB?.audioSources === 4, 'clipe de quem assiste: áudio da transmissão + a voz de quem transmite + a minha + soundboard', infoB);
   const prod = await A.evaluate(() => { const v = window.__lc.voice, P = v.sfu.producers; return { sources: Object.keys(P).sort(), screenAudioIsGame: P.screenaudio?.track?.id === v.appAudio.track.id, micSeparate: !!P.mic && P.mic.track?.id !== P.screenaudio?.track?.id }; });
   ok(prod.screenAudioIsGame && prod.micSeparate, 'ao vivo: o áudio da transmissão é só o jogo; o microfone segue separado, como voz da call', prod);
   await sleep(5000);

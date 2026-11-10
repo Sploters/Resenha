@@ -597,7 +597,7 @@ function keysPage() {
     card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', cap('keyMute', '', 'hotkeyMute')),
       row('Ensurdecer / ativar áudio', null, cap('keyDeafen', '', 'hotkeyDeafen')),
       row('Salvar clipe da transmissão', 'Salva os últimos segundos da transmissão em destaque no chat da sala (clipes ficam ligados por padrão nas transmissões dos outros).', cap('keyClip', '', 'hotkeyClip')),
-      row('Iniciar / encerrar transmissão', (desktop ? 'Funciona com o jogo aberto. ' : '') + 'Com um jogo aberto, transmite o jogo direto (com a qualidade e o áudio da última vez); sem jogo, abre a escolha da tela.', cap('keyShare', '', 'hotkeyShare')),
+      row('Iniciar / encerrar transmissão', desktop ? 'Funciona com o jogo aberto. Começa na hora, sem escolher nada: transmite a janela em primeiro plano (jogo em janela ou em tela cheia) com a qualidade e o áudio da última vez.' : 'Transmite com a qualidade e o áudio da última vez; o navegador ainda pede para escolher a tela (no app desktop começa direto na janela da frente).', cap('keyShare', '', 'hotkeyShare')),
       row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
       row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', cap('keyFx', '')),
       row('Duração do clipe do atalho', null, seg({ 15: '15s', 30: '30s', 60: '60s' }, S.prefs.clipSecs || 30, (v) => { S.prefs.clipSecs = +v; save(); })),

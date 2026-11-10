@@ -172,6 +172,7 @@ export class Voice {
     for (const uid of [...this.peers.keys()]) this.drop(uid);
     this.micGraph?.dispose(); this.micGraph = null;
     this.stopAppAudio(); // programa de áudio do jogo também para
+    const c = this._clipMe; if (c) { c.src?.disconnect(); c.node?.stop(); c.dest.stream.getTracks().forEach(t => t.stop()); } this._clipSb?.stream.getTracks().forEach(t => t.stop()); this._clipMe = this._clipSb = null; // áudio dos clipes
     for (const s of [this.cam, this.screen]) s?.getTracks().forEach(t => t.stop());
     this.mic = this.cam = this.screen = null; this.channelId = null; this.speaking.clear();
     for (const a of this.analysers.values()) a.src.disconnect(); this.analysers.clear();
@@ -718,6 +719,43 @@ export class Voice {
       src.connect(node.input); node.output.connect(g).connect(ctx.destination);
       this._mon = { src, node: { stop: () => { node.stop(); g.disconnect(); } } };
     });
+  }
+  // ---------- áudio dos clipes: tudo da Resenha (na transmissão ao vivo nada disso vai) ----------
+  // minha voz COM o meu efeito (quem ouve aplica o efeito do lado de lá; no clipe tem que sair como a sala ouviu).
+  // A trilha devolvida é sempre a mesma: trocar de microfone ou de efeito só religa por dentro, sem reiniciar a gravação.
+  clipVoice() {
+    if (!this.mic) return null;
+    const ctx = this.getCtx(), c = this._clipMe ||= { dest: ctx.createMediaStreamDestination() };
+    const fx = this.prefs.hearFx === false ? null : this.fx;
+    if (c.mic !== this.mic || c.fx !== fx) {
+      c.src?.disconnect(); c.node?.stop(); c.node = null; c.mic = this.mic; c.fx = fx;
+      const src = c.src = ctx.createMediaStreamSource(this.mic);
+      src.connect(c.dest); // até o efeito carregar: voz normal
+      if (fx) loadFx(ctx).then(() => {
+        if (c.src !== src || c.fx !== fx || c.node) return; // mudou enquanto carregava
+        src.disconnect(); c.node = createFx(ctx, fx); src.connect(c.node.input); c.node.output.connect(c.dest);
+      });
+    }
+    return c.dest.stream;
+  }
+  // sons do soundboard só para o clipe (tocam aqui por fora, sem sair nos alto-falantes; valem mesmo com o soundboard mudo)
+  clipSounds() { const ctx = this.getCtx(); this._clipSb ||= ctx.createMediaStreamDestination(); return this._clipSb.stream; }
+  async clipSound(url, volumePct = 100, maxSecs = 15) {
+    if (!this._clipSb) return; // nenhum clipe gravando
+    try {
+      const ctx = this.getCtx(), cache = this._sbBufs ||= new Map();
+      let buf = cache.get(url);
+      if (!buf) { buf = await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer()); if (cache.size > 40) cache.clear(); cache.set(url, buf); }
+      const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = buf; g.gain.value = Math.min(2, volumePct / 100);
+      s.connect(g).connect(this._clipSb); s.onended = () => g.disconnect(); s.start(); s.stop(ctx.currentTime + maxSecs);
+    } catch { /* som inválido: o clipe segue sem ele */ }
+  }
+  // todas as fontes de áudio da Resenha que entram no clipe: minha voz (com efeito), a voz de cada um na sala
+  // (como eu ouço, já com o efeito deles; inclui o bot de música) e o soundboard. O áudio da transmissão entra à parte.
+  clipAudio() {
+    const out = [this.clipVoice(), this.clipSounds()];
+    for (const p of this.peers.values()) if (p.audioEl) out.push(p.audioEl.srcObject || p.audioEl.raw);
+    return out.filter(Boolean);
   }
   unboost(p, key) { const b = p[key + 'Boost']; if (!b) return; b.src.disconnect(); b.fxNode?.stop(); b.hold.srcObject = null; delete p[key + 'Boost']; }
   // volumes por usuário ficam nas preferências (salvas e sincronizadas)

@@ -185,11 +185,13 @@ document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.po
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFloating(); }); // o visualizador de imagens trata o próprio Esc
 // (sem fechar no blur: o menu continua aberto ao dar alt+tab)
 
+const EDGE = 12; // margem de segurança: menu nunca encosta nem sai da borda da janela
 function place(el, x, y) {
+  el.style.maxHeight = `calc(100vh - ${EDGE * 2}px)`; el.style.maxWidth = `calc(100vw - ${EDGE * 2}px)`; el.style.overflowY = 'auto'; // menu maior que a tela rola por dentro
   layer().append(el);
   const r = el.getBoundingClientRect();
-  el.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
-  el.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  el.style.left = Math.max(EDGE, Math.min(x, innerWidth - r.width - EDGE)) + 'px';
+  el.style.top = Math.max(EDGE, Math.min(y, innerHeight - r.height - EDGE)) + 'px';
   originAt(el, x, y); // cresce a partir do clique
 }
 export function menu(e, items) {
@@ -202,7 +204,7 @@ export function menu(e, items) {
     const row = h('div.it' + (i.danger ? '.danger' : '') + (i.icon ? '.hasic' : ''), i.icon && h('span.mic', icon(i.icon, 18)), i.hint ? h('div.itl', h('span', i.label), h('small', i.hint)) : i.icon ? h('span.mlab', i.label) : i.label, cbx, i.radio !== undefined && h('span.radio' + (i.radio ? '.on' : '')), i.sub && h('span', { style: { marginLeft: 'auto', opacity: .7 } }, '›'));
     const closeDeeper = () => layer().querySelectorAll('.menu:not(.leaving)').forEach(m => { if (+m.dataset.depth > depth) leave(m, 100); });
     if (i.sub) {
-      const open = () => { closeDeeper(); const r = row.getBoundingClientRect(), sub = build(i.sub, depth + 1); place(sub, r.right + 2, r.top - 6); const w = sub.getBoundingClientRect(); if (w.right > innerWidth - 8) sub.style.left = Math.max(8, r.left - w.width - 2) + 'px'; };
+      const open = () => { closeDeeper(); const r = row.getBoundingClientRect(), sub = build(i.sub, depth + 1); place(sub, r.right + 2, r.top - 6); const w = sub.getBoundingClientRect(); if (w.right > innerWidth - EDGE) sub.style.left = Math.max(EDGE, r.left - w.width - 2) + 'px'; };
       row.onmouseenter = open; row.onclick = open;
     } else { row.onmouseenter = closeDeeper; row.onclick = () => {
         if (!cbx) { closeFloating(); i.fn?.(); return; }

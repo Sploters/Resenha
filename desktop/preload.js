@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   isDesktop: true,
   getSources: () => ipcRenderer.invoke('get-sources'),
   selectSource: (id, name) => ipcRenderer.invoke('select-source', id, name),
+  foregroundSource: () => ipcRenderer.invoke('foreground-source'), // atalho da transmissão: { id, name, type, pid?, game? } do que está na frente
   // áudio da transmissão só do jogo (loopback por processo do Windows; desde a 1.0.24): ver desktop/appaudio.js
   appAudioCapable: () => ipcRenderer.invoke('app-audio-capable'),
   appAudioStart: (o) => ipcRenderer.invoke('app-audio-start', o),
