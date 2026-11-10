@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-10-6', title: 'Spoilers, pedidos e silêncio com exceção',
+    items: [
+      { i: 'eye', t: 'Spoiler em qualquer mensagem', d: 'Clique direito numa mensagem → "Marcar como spoiler só para mim" esconde texto e anexos só para você (ótimo em conversas diretas). Moderadores podem marcar a mensagem de outra pessoa como spoiler para o servidor todo, sem apagar e pedir para postar de novo; fica no registro de auditoria.' },
+      { i: 'users', t: 'Pedidos de amizade na caixa de entrada', d: 'A caixa de entrada ganhou a aba Pedidos: os pedidos recebidos do mais novo ao mais antigo, com a data e a hora de cada um e os servidores em comum, para aceitar, ignorar ou responder. Os que você enviou e ainda esperam resposta ficam no fim.', try: 'requests' },
+      { i: 'bell', t: 'Servidor silenciado, canal reativado', d: 'Silenciou um servidor cheio de canais? Clique direito no canal (ou na categoria) que importa, como o de anúncios → "Reativar este canal". Só ele volta a avisar; o resto continua quieto, e os canais silenciados ficam mais apagados na lista.', try: 'notifications' },
+      { i: 'users', t: 'Amigos neste servidor', d: 'Embaixo do nome do servidor aparece quem dos seus amigos está nele; clique para ver a lista e mandar mensagem. O cartão de convite também mostra quais amigos já estão no servidor antes de você entrar.', try: 'servers' },
+    ],
+  },
+  {
     id: '2026-11-10-5', title: 'Pedidos da comunidade',
     items: [
       { i: 'dm', t: 'Modo foco', d: 'Só mensagens diretas e chamadas para você tocam som e mostram aviso; os servidores continuam marcando não lidas, em silêncio. Seu status não muda: os amigos continuam te vendo online. Ligue pelo seu avatar → Modo foco (por 1 h, 3 h, 8 h, até amanhã ou até desligar) ou em Notificações.', try: 'notifications' },

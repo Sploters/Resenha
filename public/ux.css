@@ -662,3 +662,55 @@ html.anim .mh-card:active { transform: scale(.98); }
 .pv-pi:hover { background: var(--bg-mod-hover, rgba(127,127,127,.12)); }
 .pv-pi > div { display: flex; flex-direction: column; min-width: 0; } .pv-pi small { color: var(--text-muted); font-size: 12px; }
 .snd-gvol .f small, .np-vol small { display: block; margin: 2px 0 4px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }
+
+/* spoiler na mensagem inteira (texto, cartões e anexos): borrado até clicar */
+.msg .mspoil { position: relative; border-radius: 8px; cursor: pointer; overflow: hidden; margin-top: 2px; min-height: 44px; max-width: 560px; }
+.msg .mspoil-in { filter: blur(22px) saturate(.6); opacity: .55; pointer-events: none; user-select: none; }
+.msg .mspoil-in > * { margin-left: 0 !important; }
+.msg .mspoil::after { content: ''; position: absolute; inset: 0; background: var(--bg-tert, #1e1f22); opacity: .55; transition: opacity .15s; }
+.msg .mspoil:hover::after, .msg .mspoil:focus-visible::after { opacity: .4; }
+.msg .mspoil-tag { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); padding: 8px; }
+.msg .mspoil-tag b { letter-spacing: .08em; font-size: 13px; padding: 3px 10px; border-radius: 999px; background: rgba(0,0,0,.55); }
+.msg .mspoil-tag small { font-size: 12px; opacity: .9; }
+.msg .mspoil-tag .icon { fill: currentColor; }
+
+/* caixa de entrada → Pedidos (de amizade), com a data de cada um */
+.ib-tabs .ib-tabn { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 6px; border-radius: 8px; background: var(--red, #f23f43); color: #fff; font-size: 11px; font-weight: 700; }
+.ib-req-h { padding: 12px 12px 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); }
+.ib-req-none { padding: 4px 12px 8px; font-size: 13px; color: var(--text-muted); }
+.ib-req { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; }
+.ib-req:hover { background: var(--bg-mod-hover, rgba(127,127,127,.1)); }
+.ib-req-av { cursor: pointer; flex: none; }
+.ib-req-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ib-req-t b { cursor: pointer; color: var(--header); } .ib-req-t b:hover { text-decoration: underline; }
+.ib-req-t small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ib-req-d { display: inline-flex; align-items: center; gap: 4px; } .ib-req-d .icon { fill: currentColor; flex: none; }
+.ib-req-b { display: flex; align-items: center; gap: 6px; flex: none; }
+.ib-req-b .btn.sm { display: inline-flex; align-items: center; gap: 4px; }
+
+/* servidor silenciado: canais dele ficam apagados; o reativado ganha um sininho */
+#side-list .ch.muted:not(.active):not(.unread) .name { opacity: .55; }
+#side-list .ch .unmutemark { display: inline-flex; margin-left: 4px; color: var(--brand); } #side-list .ch .unmutemark .icon { fill: currentColor; }
+.np-unmute { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--text-muted); }
+.np-unmute .icon { fill: var(--brand); flex: none; }
+.np-unch { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--header); font-size: 12px; font-weight: 600; }
+
+/* amigos neste servidor: linha no topo da lista de canais, no cartão de convite e na janela */
+.avstack { display: inline-flex; flex: none; }
+.avstack > * { border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-sec, #2b2d31); }
+.avstack > * + * { margin-left: -6px; }
+.srv-friends { display: flex; align-items: center; gap: 8px; margin: 0 8px 8px; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; text-align: left; min-width: 0; }
+.srv-friends:hover { background: var(--bg-mod-hover, rgba(127,127,127,.12)); color: var(--header); }
+.srv-friends span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ivfriends { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--text-muted); min-width: 0; }
+.ivfriends .avstack > * { box-shadow: 0 0 0 2px var(--bg-sec, #2b2d31); }
+.ivfriends span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fis { display: flex; flex-direction: column; gap: 10px; }
+.fis-list { display: flex; flex-direction: column; gap: 2px; max-height: min(55vh, 460px); overflow-y: auto; }
+.fis-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 8px; }
+.fis-row:hover { background: var(--bg-mod-hover, rgba(127,127,127,.1)); }
+.fis-av { cursor: pointer; flex: none; }
+.fis-t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.fis-t b { cursor: pointer; color: var(--header); } .fis-t b:hover { text-decoration: underline; }
+.fis-t small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ib-req-t small.ib-req-d { white-space: normal; overflow: visible; line-height: 1.35; align-items: flex-start; } .ib-req-d .icon { margin-top: 2px; }

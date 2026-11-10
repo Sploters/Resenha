@@ -35,9 +35,10 @@ try {
   ok(info.items === info.want.items && info.tries === info.want.tries && info.first === info.want.first && info.title.includes(info.want.title), 'mostra as novidades da atualização mais nova, com os botões "Experimentar"', info);
   if (process.env.SHOTS) { await sleep(900); await A.screenshot({ path: `${OUT}/01-janela.png` }); }
   if (info.tries) {
-    const before = await A.evaluate(() => JSON.stringify(window.__lc.S.view) + !!document.querySelector('#settings'));
+    const where = () => JSON.stringify(window.__lc.S.view) + !!document.querySelector('#settings') + !!document.querySelector('#layer .popout:not(.leaving)') + document.querySelectorAll('.modal').length; // tela, Configurações, popup ou outra janela
+    const before = await A.evaluate(where);
     await A.evaluate(() => document.querySelector('.modal .newsitem .btn').click()); await sleep(900);
-    const after = await A.evaluate(() => ({ modal: !!document.querySelector('.modal .newsitem'), moved: JSON.stringify(window.__lc.S.view) + !!document.querySelector('#settings') }));
+    const after = await A.evaluate((w) => ({ modal: !!document.querySelector('.modal .newsitem'), moved: new Function('return ' + w)()() }), where.toString());
     ok(!after.modal && after.moved !== before, '"Experimentar" fecha a janela e leva ao recurso', after);
     await A.keyboard.press('Escape'); await sleep(300);
   }

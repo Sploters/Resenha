@@ -7,7 +7,7 @@ import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isG
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -275,7 +275,8 @@ function onEvent(t, d) {
       mergeUser(d.user);
       if (!d.type) S.rels.delete(d.user.id); else S.rels.set(d.user.id, d);
       if (d.type === 3) { toast(`${d.user.display_name} enviou um pedido de amizade`); if (alertAllowed('dm')) playSound('friend'); }
-      renderRail(); if (S.view.kind === 'home') { renderMain(); renderSide(); }
+      renderRail(); updateTitle(); if (S.view.kind === 'home') { renderMain(); renderSide(); }
+      if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); // caixa de entrada aberta em Pedidos: atualiza
       break;
     }
     case 'VOICE_STATE': {
@@ -765,10 +766,32 @@ async function joinInvite(code) {
 }
 
 const openRep = (gid) => repModal(gid, (m) => { go(gid, m.channel_id); setTimeout(() => jumpTo(m.id), 600); });
+// ---------- amigos neste servidor ----------
+const ONLINE_FIRST = { online: 0, idle: 1, dnd: 2 };
+const friendsIn = (g) => [...S.rels.values()].filter(r => r.type === 1 && g.members?.has?.(r.user.id)).map(r => user(r.user.id))
+  .sort((a, b) => ((ONLINE_FIRST[a.status] ?? 3) - (ONLINE_FIRST[b.status] ?? 3)) || a.display_name.localeCompare(b.display_name));
+// avatares empilhados (até 3) + "Ana, Bia e mais 2"
+const friendNames = (list) => list.length === 1 ? list[0].display_name : list.length === 2 ? `${list[0].display_name} e ${list[1].display_name}` : `${list[0].display_name}, ${list[1].display_name} e mais ${list.length - 2}`;
+const avStack = (list, size = 20) => h('span.avstack', list.slice(0, 3).map(u => avatar(u, size, { status: false })));
+function friendsInServer(g) {
+  const list = friendsIn(g), q = h('input', { type: 'search', placeholder: 'Buscar amigos' }), box = h('div.fis-list');
+  const draw = () => { const f = q.value.trim().toLowerCase(); const rows = list.filter(u => !f || u.display_name.toLowerCase().includes(f) || u.username?.toLowerCase().includes(f) || (nameOf(u.id, g.id) || '').toLowerCase().includes(f));
+    box.replaceChildren(...(rows.length ? rows.map(u => { const nick = nameOf(u.id, g.id), m = member(g.id, u.id);
+      return h('div.fis-row', h('div.fis-av', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, avatar(u, 36)),
+        h('div.fis-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, u.display_name), h('small', [nick !== u.display_name && `aqui: ${nick}`, '@' + u.username, m?.joined_at && 'entrou em ' + new Date(m.joined_at).toLocaleDateString('pt-BR')].filter(Boolean).join(' · '))),
+        h('button.ibtn', { title: 'Mandar mensagem', onclick: () => { closeModals(); openDM(u.id); } }, icon('dm', 18)));
+    }) : [h('div.dm-empty', list.length ? 'Nenhum amigo com esse nome' : 'Nenhum amigo seu está neste servidor ainda.')])); };
+  q.oninput = draw; draw();
+  modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && q, box),
+    [list.length ? null : { label: 'Convidar amigos', fn: () => inviteModal(g) }, { label: 'Fechar', cls: 'grey' }].filter(Boolean), { width: '460px' });
+  setTimeout(() => q.focus());
+}
+const closeModals = () => document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
 function guildMenu(e, g) {
-  const owner = g.owner_id === S.me.id;
+  const owner = g.owner_id === S.me.id, fr = friendsIn(g);
   menu(e, [
     { label: 'Convidar pessoas', fn: () => inviteModal(g) },
+    { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
     { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
     { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
@@ -865,13 +888,15 @@ function renderSide() {
     head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
       g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
-        h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))));
+        h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
+      (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
     const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
-      return h('div', h('div.ch' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''),
+      const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
+      return h('div', h('div.ch' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
-        chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
+        chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
     };
@@ -1057,7 +1082,11 @@ function channelMenu(e, g, c) {
     c.type !== 4 && { label: isFav(c.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos', fn: () => toggleFav(c) },
     c.type !== 4 && isFav(c.id) && favGroupMenuItem(c.id),
     S.unread[c.id] && { label: 'Marcar como lido', fn: () => ack(c.id) },
-    c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
+    // servidor silenciado: o canal (ou a categoria inteira) pode voltar a avisar sem tirar o silêncio do resto
+    serverMuted(g.id) && !channelMuted(c.id) ? (S.prefs.notifyCfg?.chUnmute?.[c.id]
+      ? { label: c.type === 4 ? 'Silenciar a categoria de novo' : 'Silenciar de novo (seguir o servidor)', fn: () => { setChannelUnmuted(c.id, false); renderSide(); toast(c.type === 4 ? 'A categoria voltou a seguir o servidor silenciado' : `#${chName(c)} voltou a seguir o servidor silenciado`); } }
+      : { label: c.type === 4 ? 'Reativar esta categoria' : 'Reativar este canal', hint: 'O servidor continua silenciado', fn: () => { setChannelUnmuted(c.id, true); renderSide(); toast(c.type === 4 ? 'Categoria reativada: o resto do servidor continua silenciado' : `#${chName(c)} reativado: o resto do servidor continua silenciado`); } })
+      : c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Editar canal', fn: () => channelSettings(g, c) },
     can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },
@@ -1095,6 +1124,8 @@ const newsActions = {
   lfg: () => go('@me', 'lfg'),
   messages: () => openMessages(),
   notifications: () => openSettings('notifications', ctxSettings()),
+  requests: () => { inboxTab = 'requests'; showInbox(); },
+  servers: () => { const g = [...S.guilds.values()][0]; if (g) friendsInServer(g); else toast('Entre num servidor para ver quais amigos estão nele.'); },
   privacy: () => openSettings('privacy', ctxSettings()),
   sounds: () => openSettings('sounds', ctxSettings()),
   appearance: () => openSettings('appearance', ctxSettings()),
@@ -1554,6 +1585,7 @@ function msgEl(m, prev) {
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
     m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', inviteText(themeText(m.reply.content)) || 'Clique para ver o anexo')]));
   if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12))));
+  const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
     const ta = h('textarea', { value: m.content, rows: 1, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m, ta.value); } if (e.key === 'Escape') { S.editing = null; renderMessages(true); } } });
     el.append(h('div.edit-box', ta, h('div.edit-hint', 'esc para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); S.editing = null; renderMessages(true); } }, 'cancelar'), ' • enter para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); saveEdit(m, ta.value); } }, 'salvar'))));
@@ -1584,6 +1616,7 @@ function msgEl(m, prev) {
     if (tr) el.append(tr);
   }
   appendAttachments(el, m, mine || (gid && can(gid, PERM.MANAGE_MESSAGES)));
+  if (S.editing !== m.id && spoiled(m) && !spoilShown.has(m.id)) coverSpoiler(el, spoilFrom, m);
   if (m.reactions?.length) el.append(h('div.reactions', m.reactions.map(r => h('div.react' + (r.users.includes(S.me.id) ? '.me' : ''), { title: r.users.map(u => nameOf(u, gid)).join(', '), onclick: () => react(m, r.emoji, !r.users.includes(S.me.id)) }, reactionFace(r.emoji), h('span', r.users.length)))));
   el.append(h('div.toolbar',
     h('button', { title: 'Reagir', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em, true)) }, icon('smile', 18)),
@@ -1633,7 +1666,8 @@ function inviteCard(code) {
     card.className = 'invcard'; card.dataset.code = code;
     card.replaceChildren(top, h('div.ivh', inside() ? 'Você já está neste servidor' : 'Você foi convidado para entrar em um servidor'),
       h('div.ivbody', ic, h('div.ivinfo', h('b', { title: g.name }, g.name),
-        h('div.ivstats', h('span', h('i.on'), `${info.online} online`), h('span', h('i'), `${info.members} ${info.members === 1 ? 'membro' : 'membros'}`))), btn));
+        h('div.ivstats', h('span', h('i.on'), `${info.online} online`), h('span', h('i'), `${info.members} ${info.members === 1 ? 'membro' : 'membros'}`)),
+        info.friends?.length > 0 && h('div.ivfriends', { title: info.friends.map(u => u.display_name).join(', ') }, avStack(info.friends, 18), h('span', `${friendNames(info.friends)} ${info.friends.length === 1 ? 'está' : 'estão'} aqui`))), btn));
   });
   return card;
 }
@@ -1766,6 +1800,7 @@ function msgMenu(e, m) {
     m.content && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) },
     mine && !m.poll && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
+    ...(m.type === 1 ? [] : spoilerItems(m, mine, mod)),
     S.prefs.devMode && { label: 'Copiar ID da mensagem', fn: () => navigator.clipboard?.writeText(m.id) },
     // reputação: sinal da comunidade (esconde para mim; várias pessoas em pouco tempo limitam o envio do autor)
     gid && !mine && m.type !== 1 && '-',
@@ -1774,6 +1809,35 @@ function msgMenu(e, m) {
     (mine || mod) && '-',
     (mine || mod) && { label: 'Apagar mensagem', danger: true, fn: async () => { if (await confirmBox('Apagar mensagem', 'Tem certeza?', 'Apagar')) tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}`); } },
   ]);
+}
+// ---------- spoiler em mensagens (inclusive de outras pessoas) ----------
+// para todos: o autor ou um moderador marca (servidor guarda; m.spoiler). Só para mim: fica nas preferências da conta
+// (vale em todos os aparelhos), útil numa conversa direta ou quando não sou moderador.
+const mySpoilers = () => (S.prefs.mySpoilers ||= {});
+const spoiled = (m) => !!(m.spoiler || mySpoilers()[m.id]);
+const spoilShown = new Set(); // revelados nesta sessão (clicou para ver)
+function setMySpoiler(m, on) {
+  const all = mySpoilers();
+  if (on) { all[m.id] = Date.now(); const ks = Object.keys(all); if (ks.length > 500) ks.sort((a, b) => all[a] - all[b]).slice(0, ks.length - 500).forEach(k => delete all[k]); } // guarda as 500 mais recentes
+  else delete all[m.id];
+  spoilShown.delete(m.id); savePrefs(); refreshMsg(m);
+}
+function coverSpoiler(el, from, m) {
+  const parts = [...el.childNodes].slice(from); if (!parts.length) return;
+  const who = m.spoiler ? (m.spoiler_by_mod ? 'Marcado como spoiler por um moderador' : 'Spoiler') : 'Você marcou como spoiler';
+  const box = h('div.mspoil', { role: 'button', tabIndex: 0, title: 'Clique para ver', onclick: () => { spoilShown.add(m.id); refreshMsg(m); }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } } },
+    h('div.mspoil-in', { 'aria-hidden': 'true', inert: '' }, ...parts), h('span.mspoil-tag', icon('eye', 16), h('b', 'SPOILER'), h('small', who)));
+  el.append(box);
+}
+function spoilerItems(m, mine, mod) {
+  const forAll = mine || mod, ours = !!mySpoilers()[m.id];
+  return [
+    forAll && (m.spoiler ? { label: 'Tirar spoiler para todos', fn: () => tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}/spoiler`) }
+      : { label: 'Marcar como spoiler para todos', hint: mine ? 'Esconde o texto e os anexos até clicarem' : 'Como moderador: esconde para todo o servidor, sem apagar', fn: () => tryApi('PUT', `/channels/${m.channel_id}/messages/${m.id}/spoiler`) }),
+    !m.spoiler && !mine && (ours ? { label: 'Tirar spoiler (só para mim)', fn: () => setMySpoiler(m, false) }
+      : { label: 'Marcar como spoiler só para mim', hint: 'Ninguém mais vê a diferença', fn: () => setMySpoiler(m, true) }),
+    spoiled(m) && spoilShown.has(m.id) && { label: 'Esconder de novo', fn: () => { spoilShown.delete(m.id); refreshMsg(m); } },
+  ];
 }
 // redesenha uma única mensagem (por ex. depois de traduzir)
 function refreshMsg(m) {
@@ -1831,10 +1895,14 @@ function notifCard(e, { ch, g: srv }) {
   const LV = [['all', 'Todas as mensagens'], ['mentions', h('span', 'Só ', h('b', '@menções'))], ['none', 'Nada']];
   const draw = () => {
     const cur = srv ? gc.level || 'all' : lv[ch.id] || gc?.level || 'all', inherited = !srv && !lv[ch.id] && !!gid;
-    const muted = srv ? !!gc.muted : channelMuted(ch.id), until = srv ? null : mutes[ch.id];
+    const viaSrv = !srv && gid && gc?.muted && !channelMuted(ch.id), exc = viaSrv && !!cfg.chUnmute?.[ch.id]; // servidor silenciado: este canal segue ou é exceção
+    const muted = srv ? !!gc.muted : channelMuted(ch.id) || (viaSrv && !channelUnmuted(ch)), until = srv ? null : mutes[ch.id];
     const setLv = (k) => { if (srv) gc.level = k; else lv[ch.id] = k; done(); };
     const tile = (on, cls, ic, label, sub, fn, title) => h('button.ntile' + cls + (on ? '.on' : ''), { type: 'button', 'aria-pressed': String(on), title, onclick: fn }, ic, h('span.nt-l', label), sub && h('small', sub));
-    const muteTile = tile(muted, '.nt-mute', icon(muted ? 'volmute' : 'bell', 22), muted ? 'Silenciado' : 'Silenciar', muted && until && until !== true ? 'até ' + clock(until) : null, (ev) => {
+    const muteTile = viaSrv && !mutes[ch.id]
+      ? tile(muted, '.nt-mute', icon(muted ? 'volmute' : 'bell', 22), muted ? 'Silenciado pelo servidor' : 'Reativado', muted ? 'clique para reativar só este canal' : 'o servidor segue silenciado', () => { setChannelUnmuted(ch.id, !exc); done(); },
+        muted ? 'O servidor está silenciado. Reative só este canal (o resto continua quieto).' : 'Voltar a seguir o servidor silenciado')
+      : tile(muted, '.nt-mute', icon(muted ? 'volmute' : 'bell', 22), muted ? 'Silenciado' : 'Silenciar', muted && until && until !== true ? 'até ' + clock(until) : null, (ev) => {
       if (muted) { if (srv) gc.muted = false; else delete mutes[ch.id]; return done(); }
       if (srv) { gc.muted = true; return done(); }
       const r = ev.currentTarget.getBoundingClientRect();
@@ -1880,7 +1948,7 @@ async function doSearch(q) {
   if (!list.length) $('#results')?.append(h('div.hintline', { style: { padding: '8px' } }, 'Dica: use de:nome, tem:imagem, tem:arquivo, tem:link ou em:canal para filtrar.'));
 }
 // ---------- caixa de entrada: menções, respostas e @everyone ----------
-const inboxCount = () => Object.values(S.mentions).reduce((n, v) => n + (v || 0), 0);
+const inboxCount = () => Object.values(S.mentions).reduce((n, v) => n + (v || 0), 0) + [...S.rels.values()].filter(r => r.type === 3).length; // menções + pedidos de amizade esperando resposta
 const inboxBadge = () => { const n = inboxCount(); return n ? h('span.ibadge', n > 99 ? '99+' : n) : null; };
 const KIND_TXT = { mention: 'mencionou você', reply: 'respondeu você', everyone: 'mencionou @everyone' };
 // popup "Caixa de entrada" no canto superior direito: não lidas por canal e menções/respostas
@@ -1894,7 +1962,8 @@ async function showInbox(e) {
   if (topWasOpen) { topWasOpen = false; return closeFloating(); }
   const body = h('div.ib-body'), tabs = h('div.ib-tabs');
   const pending = [...S.rels.values()].filter(r => r.type === 3).length;
-  const drawTabs = () => tabs.replaceChildren(...[['unread', 'Não lidas'], ['mentions', 'Menções']].map(([k, l]) => h('button' + (inboxTab === k ? '.on' : ''), { onclick: () => { inboxTab = k; drawTabs(); draw(); } }, l)));
+  const reqCount = () => [...S.rels.values()].filter(r => r.type === 3).length;
+  const drawTabs = () => tabs.replaceChildren(...[['unread', 'Não lidas'], ['mentions', 'Menções'], ['requests', 'Pedidos']].map(([k, l]) => h('button' + (inboxTab === k ? '.on' : ''), { onclick: () => { inboxTab = k; drawTabs(); draw(); } }, l, k === 'requests' && reqCount() > 0 && h('span.ib-tabn', reqCount()))));
   const empty = (t, p) => h('div.ib-empty', h('div.ib-art', icon('inbox', 36)), h('b', t), h('p', p));
   const chBox = ({ ch, u }) => {
     const g = ch.guild_id ? guild(ch.guild_id) : null, dm = ch.type === 1, peer = dm && dmPeer(ch), cat = ch.parent_id && channelById(ch.parent_id);
@@ -1913,6 +1982,7 @@ async function showInbox(e) {
     return box;
   };
   const draw = () => {
+    if (inboxTab === 'requests') { body.replaceChildren(...friendRequests(() => { drawTabs(); draw(); }, empty)); return; }
     if (inboxTab === 'unread') {
       const chs = unreadCh().slice(0, 20);
       body.replaceChildren(...(chs.length ? chs.map(chBox) : [empty('Tudo em dia!', 'Você não tem mensagens não lidas.')]));
@@ -1934,10 +2004,38 @@ async function showInbox(e) {
   const pop = popout(btn, h('div.ib',
     h('div.ib-top', icon('inbox', 22), h('b', 'Caixa de entrada'),
       h('button.ib-btn', { title: 'Marcar tudo como lido', onclick: () => { [...Object.keys(S.unread), ...Object.keys(S.mentions)].forEach(ack); draw(); } }, icon('check', 16)),
-      h('button.ib-btn', { title: `Ver pedidos de amizade (${pending})`, onclick: () => { closeFloating(); S.view.tab = 'all'; go('@me'); } }, icon('users', 16), pending > 0 && h('span.ibadge', pending))),
+      h('button.ib-btn', { title: `Pedidos de amizade (${pending})`, onclick: () => { inboxTab = 'requests'; drawTabs(); draw(); } }, icon('users', 16), pending > 0 && h('span.ibadge', pending))),
     tabs, body));
   pop.classList.add('inboxpop'); if (btn.closest('#rail')) { const r = btn.getBoundingClientRect(); pop.style.left = (r.right + 10) + 'px'; pop.style.top = 'auto'; pop.style.bottom = Math.max(8, innerHeight - r.bottom) + 'px'; } else anchorRight(pop, btn, 6);
   drawTabs(); draw();
+}
+// caixa de entrada → Pedidos: pedidos de amizade recebidos, do mais novo ao mais antigo, com a data de cada um
+// (e os enviados que ainda esperam resposta, no fim)
+const reqWhen = (t) => { if (!t) return 'data desconhecida'; const d = new Date(t), min = (Date.now() - t) / 60000;
+  const rel = min < 1 ? 'agora' : min < 60 ? `há ${Math.floor(min)} min` : min < 1440 ? `há ${Math.floor(min / 60)} h` : min < 2880 ? 'ontem' : `há ${Math.floor(min / 1440)} dias`;
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${rel}`; };
+function friendRequests(redraw, empty) {
+  const byNew = (a, b) => (b.since || 0) - (a.since || 0);
+  const inc = [...S.rels.values()].filter(r => r.type === 3).sort(byNew), out = [...S.rels.values()].filter(r => r.type === 4).sort(byNew);
+  const shared = (uid) => [...S.guilds.values()].filter(g => g.members?.has?.(uid)).map(g => g.name);
+  const act = (b, p) => busy(b, p.then(() => setTimeout(redraw, 150)));
+  const row = (r, incoming) => {
+    const u = user(r.user.id), gs = shared(u.id);
+    return h('div.ib-req', { 'data-uid': u.id },
+      h('div.ib-req-av', { onclick: (e) => profile(e.currentTarget, u.id) }, avatar(u, 40)),
+      h('div.ib-req-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id) }, u.display_name), h('small', '@' + u.username + (gs.length ? ` · em comum: ${gs.slice(0, 2).join(', ')}${gs.length > 2 ? ` e mais ${gs.length - 2}` : ''}` : '')),
+        h('small.ib-req-d', icon('clock', 12), (incoming ? 'Recebido em ' : 'Enviado em ') + reqWhen(r.since))),
+      incoming ? h('div.ib-req-b',
+        h('button.btn.green.sm', { title: 'Aceitar', onclick: (e) => act(e.currentTarget, tryApi('PUT', `/relationships/${u.id}`, {})) }, icon('check', 14), 'Aceitar'),
+        h('button.btn.grey.sm', { title: 'Ignorar', onclick: (e) => act(e.currentTarget, tryApi('DELETE', `/relationships/${u.id}`)) }, 'Ignorar'),
+        h('button.ib-btn', { title: 'Mais', onclick: (e) => menu(e, [{ label: 'Mandar mensagem', fn: () => { closeFloating(); openDM(u.id); } }, { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${u.id}`, { type: 2 }).then(redraw) }]) }, icon('more', 16)))
+        : h('div.ib-req-b', h('button.btn.grey.sm', { onclick: (e) => act(e.currentTarget, tryApi('DELETE', `/relationships/${u.id}`)) }, 'Cancelar')));
+  };
+  if (!inc.length && !out.length) return [empty('Nenhum pedido', 'Os pedidos de amizade que você receber aparecem aqui, com a data de cada um.')];
+  return [
+    h('div.ib-req-h', `Recebidos — ${inc.length}`), ...(inc.length ? inc.map(r => row(r, true)) : [h('div.ib-req-none', 'Nenhum pedido recebido esperando resposta.')]),
+    out.length > 0 && h('div.ib-req-h', `Enviados — ${out.length}`), ...out.map(r => row(r, false)),
+  ].filter(Boolean);
 }
 function closeResults() { $('#results')?.remove(); markResultBtns(); }
 function showResults(title, list, kind = 'search') {

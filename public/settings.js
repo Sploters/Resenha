@@ -602,7 +602,7 @@ function soundboardPage() {
 // ============================ Notificações ============================
 function notificationsPage() {
   const root = h('div');
-  const cfgAll = (S.prefs.notifyCfg ||= {}), chLv = (cfgAll.chLevel ||= {}), chMute = (cfgAll.channels ||= {});
+  const cfgAll = (S.prefs.notifyCfg ||= {}), chLv = (cfgAll.chLevel ||= {}), chMute = (cfgAll.channels ||= {}), chUn = (cfgAll.chUnmute ||= {});
   const gcfg = (g) => (cfgAll[g.id] ||= { level: 'all', muted: false, noEveryone: false });
   const tile = (on, cls, ic, label, sub, fn, title) => h('button.ntile.big' + cls + (on ? '.on' : ''), { type: 'button', 'aria-pressed': String(on), title, onclick: fn }, ic, h('span.nt-l', label), sub && h('small', sub));
   const levelCards = (cur, on) => choiceCards([
@@ -612,7 +612,7 @@ function notificationsPage() {
   const draw = () => {
     const preview = S.prefs.notifPreview !== false;
     // canais com ajuste próprio ou silenciados
-    const custom = [...new Set([...Object.keys(chLv), ...Object.keys(chMute)])].map(id => channelById(id)).filter(Boolean);
+    const custom = [...new Set([...Object.keys(chLv), ...Object.keys(chMute), ...Object.keys(chUn)])].map(id => channelById(id)).filter(Boolean);
     const until = (id) => { const u = chMute[id]; return u === true ? 'até você reativar' : u > Date.now() ? 'até ' + new Date(u).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null; };
     const LVL = { all: 'Todas', mentions: 'Só @menções', none: 'Nada' };
     root.replaceChildren(h('h2', 'Notificações'),
@@ -646,13 +646,15 @@ function notificationsPage() {
           levelCards(c.level, (v) => set(() => { c.level = v; })),
           h('div.nc-tiles.np-tiles',
             tile(!c.noEveryone, '.nt-every', h('span.nt-chips', h('i', '@everyone'), h('i', '@here')), null, null, () => set(() => { c.noEveryone = !c.noEveryone; }), c.noEveryone ? 'Avisos de @everyone e @here desligados' : 'Receber avisos de @everyone e @here'),
-            tile(!!c.muted, '.nt-mute', icon(c.muted ? 'volmute' : 'bell', 24), c.muted ? 'Servidor silenciado' : 'Silenciar servidor', null, () => set(() => { c.muted = !c.muted; }), 'Silenciar o servidor inteiro'))));
+            tile(!!c.muted, '.nt-mute', icon(c.muted ? 'volmute' : 'bell', 24), c.muted ? 'Servidor silenciado' : 'Silenciar servidor', null, () => set(() => { c.muted = !c.muted; }), 'Silenciar o servidor inteiro')),
+          c.muted && h('div.np-unmute', icon('bell', 14), h('span', 'Quer avisos só de alguns canais (anúncios, por exemplo)? Clique direito no canal ou na categoria → ', h('b', 'Reativar este canal'), '. O resto do servidor continua silenciado.'),
+            ...g.channels.filter(x => chUn[x.id]).map(x => h('span.np-unch', (x.type === 4 ? '' : '#') + x.name)))));
       }) : [note('Você ainda não está em nenhum servidor.')]),
       custom.length > 0 && section('Canais e conversas com ajuste próprio'),
       custom.length > 0 && card(h('div.np-chs', custom.map(ch => {
         const g = ch.guild_id && guild(ch.guild_id), u = until(ch.id), name = ch.type === 1 ? '@' + (user(ch.recipients?.find(r => r.id !== S.me.id)?.id)?.display_name || 'conversa') : '#' + ch.name;
-        return h('div.np-ch', h('div.np-ch-t', h('b', name), h('small', [g?.name, chLv[ch.id] && LVL[chLv[ch.id]], u && 'silenciado ' + u].filter(Boolean).join(' · '))),
-          h('button.btn.grey', { onclick: () => { delete chLv[ch.id]; delete chMute[ch.id]; save(); draw(); } }, 'Voltar ao padrão'));
+        return h('div.np-ch', h('div.np-ch-t', h('b', name), h('small', [g?.name, ch.type === 4 && 'categoria', chLv[ch.id] && LVL[chLv[ch.id]], u && 'silenciado ' + u, chUn[ch.id] && (cfgAll[ch.guild_id]?.muted ? 'reativado (servidor silenciado)' : 'reativado se o servidor for silenciado')].filter(Boolean).join(' · '))),
+          h('button.btn.grey', { onclick: () => { delete chLv[ch.id]; delete chMute[ch.id]; delete chUn[ch.id]; save(); draw(); } }, 'Voltar ao padrão'));
       }))));
   };
   draw();

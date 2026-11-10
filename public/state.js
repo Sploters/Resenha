@@ -204,9 +204,13 @@ export function relType(uid) { return S.rels.get(uid)?.type || 0; }
 // política de notificação por servidor/canal (salva nas preferências)
 // canal silenciado: true = até reativar, número = até esse horário (ms)
 export function channelMuted(cid) { const v = (S.prefs.notifyCfg?.channels || {})[cid]; return v === true || (typeof v === 'number' && v > Date.now()); }
+// servidor silenciado, mas este canal (ou a categoria dele) reativado: avisa normalmente, o resto do servidor continua quieto
+export const channelUnmuted = (ch) => { const u = S.prefs.notifyCfg?.chUnmute || {}; return !!(ch && (u[ch.id] || (ch.parent_id && u[ch.parent_id]))); };
+export const serverMuted = (gid) => !!(gid && S.prefs.notifyCfg?.[gid]?.muted);
+export function setChannelUnmuted(cid, on) { const c = (S.prefs.notifyCfg ||= {}), u = (c.chUnmute ||= {}); if (on) u[cid] = true; else delete u[cid]; savePrefs(); }
 export function notifPolicy(ch) {
   const c = S.prefs.notifyCfg || {}, g = ch?.guild_id ? (c[ch.guild_id] || {}) : {};
-  return { level: (c.chLevel || {})[ch?.id] || g.level || 'all', muted: !!(g.muted || channelMuted(ch?.id)), noEveryone: !!g.noEveryone };
+  return { level: (c.chLevel || {})[ch?.id] || g.level || 'all', muted: !!((g.muted && !channelUnmuted(ch)) || channelMuted(ch?.id)), noEveryone: !!g.noEveryone };
 }
 
 // ---------- UI utilitários ----------

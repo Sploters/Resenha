@@ -213,6 +213,7 @@ function messageObj(m) {
   const reply = m.reply_to ? get('SELECT id,content,author_id FROM messages WHERE id=?', m.reply_to) : null;
   return { id: m.id, channel_id: m.channel_id, author_id: m.author_id, author: userPub(m.author_id),
     content: m.content, type: m.type || 0, created_at: m.created_at, edited_at: m.edited_at, pinned: !!m.pinned,
+    ...(m.spoiler_by ? { spoiler: true, spoiler_by_mod: m.spoiler_by !== m.author_id } : {}),
     attachments: JSON.parse(m.attachments || '[]'),
     reply: reply ? { id: reply.id, content: (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
     reactions: Object.entries(rx).map(([emoji, users]) => ({ emoji, users })),
@@ -241,7 +242,7 @@ function canAccessChannel(uid, ch) {
 // last_message: prévia e ordem da lista de Mensagens (só o começo do texto)
 const lastDmMsg = (cid) => { const m = get('SELECT id, author_id, substr(content,1,140) content, created_at, attachments FROM messages WHERE channel_id=? ORDER BY id DESC LIMIT 1', cid); return m ? { id: m.id, author_id: m.author_id, content: m.content || '', created_at: m.created_at, attachment: m.attachments && m.attachments !== '[]' } : null; };
 const dmChannelObj = (ch) => ({ ...ch, recipients: all('SELECT user_id FROM dm_participants WHERE channel_id=?', ch.id).map(r => userPub(r.user_id)), last_message: lastDmMsg(ch.id) });
-const relObj = (uid) => all('SELECT * FROM relationships WHERE user_id=?', uid).map(r => ({ user: userPub(r.other_id), type: r.type }));
+const relObj = (uid) => all('SELECT * FROM relationships WHERE user_id=?', uid).map(r => ({ user: userPub(r.other_id), type: r.type, since: r.since || null }));
 
 function sharedAudience(uid) {
   const ids = new Set([uid]);
@@ -612,7 +613,12 @@ app.get('/api/invites/:code', wrap((req, res) => {
   // online: conectados que não estão invisíveis (o cartão de convite mostra os dois números)
   const ms = all('SELECT u.id,u.status FROM members m JOIN users u ON u.id=m.user_id WHERE m.guild_id=?', i.guild_id);
   const online = ms.filter(u => conns.has(u.id) && u.status !== 'invisible').length;
-  res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online });
+  // com login: quais amigos seus já estão lá (antes de entrar). Só amigos aceitos dos dois lados; quem esconde a presença de
+  // você continua aparecendo como membro (amizade não é presença), mas offline
+  const token = (req.headers.authorization || '').replace(/^Bearer /, ''), me = token && get('SELECT user_id FROM sessions WHERE token=?', token)?.user_id;
+  const friends = me ? all(`SELECT u.* FROM members m JOIN users u ON u.id=m.user_id JOIN relationships r1 ON r1.user_id=? AND r1.other_id=m.user_id AND r1.type=1
+    JOIN relationships r2 ON r2.user_id=m.user_id AND r2.other_id=? AND r2.type=1 WHERE m.guild_id=? LIMIT 50`, me, me, i.guild_id).map(u => ({ ...pubUser(u), status: statusFor(me, u) })) : [];
+  res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online, friends });
 }));
 app.post('/api/invites/:code', auth, wrap((req, res) => {
   const i = get('SELECT * FROM invites WHERE code=?', req.params.code);
@@ -1115,6 +1121,23 @@ function setPin(req, res, v) {
   dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
   res.json({});
 }
+// spoiler na mensagem de outra pessoa: o autor ou um moderador (gerenciar mensagens) esconde conteúdo e anexos para todos,
+// sem precisar apagar e pedir para postar de novo. Numa conversa direta só o autor; os outros usam o "só para mim" do app.
+function setSpoiler(req, res, v) {
+  const ch = channelFor(req, res); if (!ch) return;
+  const m = get('SELECT * FROM messages WHERE id=? AND channel_id=?', req.params.mid, ch.id);
+  if (!m) return bad(res, 'Mensagem não encontrada', 404);
+  const mod = ch.guild_id && can(ch.guild_id, req.uid, P.MANAGE_MESSAGES);
+  if (m.author_id !== req.uid && !mod) return bad(res, 'Só quem enviou ou um moderador pode marcar como spoiler para todos', 403);
+  // o autor não desfaz o spoiler que um moderador pôs
+  if (!v && m.spoiler_by && m.spoiler_by !== req.uid && m.spoiler_by !== m.author_id && !mod) return bad(res, 'Um moderador marcou esta mensagem como spoiler', 403);
+  run('UPDATE messages SET spoiler_by=? WHERE id=?', v ? req.uid : null, m.id);
+  if (m.author_id !== req.uid) audit(ch.guild_id, req.uid, v ? 'message_spoiler' : 'message_unspoiler', m.author_id, `#${ch.name}: ${(m.content || '').slice(0, 200) || 'anexo'}`);
+  dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
+  res.json({});
+}
+app.put('/api/channels/:id/messages/:mid/spoiler', auth, wrap((req, res) => setSpoiler(req, res, 1)));
+app.delete('/api/channels/:id/messages/:mid/spoiler', auth, wrap((req, res) => setSpoiler(req, res, 0)));
 app.put('/api/channels/:id/pins/:mid', auth, wrap((req, res) => setPin(req, res, 1)));
 app.delete('/api/channels/:id/pins/:mid', auth, wrap((req, res) => setPin(req, res, 0)));
 function reaction(req, res, add) {
@@ -1199,8 +1222,8 @@ app.post('/api/reports', auth, wrap((req, res) => {
 }));
 function setRel(a, b, type) {
   if (type == null) run('DELETE FROM relationships WHERE user_id=? AND other_id=?', a, b);
-  else run('INSERT INTO relationships VALUES(?,?,?) ON CONFLICT(user_id,other_id) DO UPDATE SET type=excluded.type', a, b, type);
-  dispatch([a], 'RELATIONSHIP', { user: userPub(b), type: type ?? 0 });
+  else run('INSERT INTO relationships(user_id,other_id,type,since) VALUES(?,?,?,?) ON CONFLICT(user_id,other_id) DO UPDATE SET type=excluded.type, since=CASE WHEN relationships.type=excluded.type THEN relationships.since ELSE excluded.since END', a, b, type, Date.now());
+  dispatch([a], 'RELATIONSHIP', { user: userPub(b), type: type ?? 0, since: get('SELECT since FROM relationships WHERE user_id=? AND other_id=?', a, b)?.since || null });
   activity.onFriendsChanged(a, b);
   // presença só para amigos/escolhidos: virou (ou deixou de ser) amigo, o status visível para o outro muda na hora
   for (const [x, y] of [[a, b], [b, a]]) if (privacy.restricted(x)) { const u = getUser(x); if (u) dispatch([y], 'USER_UPDATE', { ...pubUser(u), status: statusFor(y, u) }); }
