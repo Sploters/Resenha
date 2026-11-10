@@ -494,9 +494,9 @@ function renderRail() {
     ...[...S.guilds.values()].map(g => {
       const rooms = voiceRooms(g);
       const w = wrap((S.view.gid === g.id && !S.favMode ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
-        h('div.rail-item', { onclick: () => { S.favMode = false; go(g.id); }, oncontextmenu: (e) => guildMenu(e, g) }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
+        h('div.rail-item', { 'data-fly': 'g', 'data-gid': g.id, onclick: () => { gFlyHide(); S.favMode = false; go(g.id); }, oncontextmenu: (e) => { gFlyCancel(); guildMenu(e, g); } }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
         badge(guildMentions(g)) || (rooms.length ? h('div.vbadge', { title: '' }, icon('voice', 12)) : null));
-      if (rooms.length) { w.onmouseenter = () => voiceCard(w, g); w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
+      if (rooms.length) { w.onmouseenter = () => { if (!sideHidden()) voiceCard(w, g); }; w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
       return w;
     }),
     wrap('', 'Adicionar um servidor', h('div.rail-item.add', { onclick: addServerModal, style: { fontSize: '0' } }, icon('plus', 24))),
@@ -554,6 +554,37 @@ function meFlyShow(anchor) {
   el.style.top = Math.max(8, Math.min(r.top + r.height / 2 - b.height / 2, innerHeight - b.height - 8)) + 'px';
 }
 function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500); }
+// Servidores com a lista de canais oculta: o mouse parado 0,45 s em cima do servidor abre um atalho com Clipes, Arquivos,
+// o canal de texto principal e a sala de voz principal (o primeiro de cada tipo, na ordem da lista). Clicar na sala já
+// entra nela. Fecha 0,4 s depois que o mouse sai; passar para outro servidor com o atalho aberto troca na hora
+const RG = { el: null, gid: null, t: 0, wait: 0 };
+const gFlyOpen = () => !!RG.el && RG.el.isConnected && !RG.el.classList.contains('leaving');
+function gFlyHide() { clearTimeout(RG.t); gFlyCancel(); if (gFlyOpen()) RG.el.remove(); RG.el = null; RG.gid = null; }
+function gFlyCancel() { clearTimeout(RG.wait); RG.wait = 0; }
+function gFlyLater() { clearTimeout(RG.t); RG.t = setTimeout(gFlyHide, 400); }
+// canais na ordem em que aparecem na lista: os sem categoria primeiro, depois categoria por categoria
+const guildChOrder = (g) => { const kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid); return [...kids(null), ...g.channels.filter(c => c.type === 4).flatMap(c => kids(c.id))]; };
+function gFlyShow(anchor, g) {
+  clearTimeout(RG.t); gFlyCancel(); if (gFlyOpen() && RG.gid === g.id) return;
+  const chans = guildChOrder(g), text = chans.find(c => c.type === 0), room = chans.find(c => c.type === 2);
+  const here = S.view.gid === g.id && !S.favMode, inRoom = room && voice?.channelId === room.id;
+  const people = room ? [...S.voice.values()].filter(v => v.channel_id === room.id) : [];
+  const opt = (on, ic, label, fn, extra, tip) => h('button.rf-opt' + (on ? '.on' : ''), { type: 'button', role: 'menuitem', title: tip || null, 'aria-current': on ? 'page' : null, onclick: () => { gFlyHide(); S.favMode = false; fn(); } }, icon(ic, 20), h('span.gf-l', label), extra);
+  const el = RG.el = popout(anchor, h('div.rf-pop.gf-pop', { role: 'menu', 'aria-label': g.name },
+    h('div.gf-head', g.name),
+    opt(here && S.view.kind === 'clips', 'clip', 'Clipes', () => go(g.id, 'clips')),
+    opt(here && S.view.kind === 'files', 'file', 'Arquivos', () => go(g.id, 'files')),
+    (text || room) && h('div.gf-sep'),
+    text && opt(here && S.view.cid === text.id, 'hash', chName(text), () => go(g.id, text.id),
+      S.mentions[text.id] > 0 ? h('span.pill', S.mentions[text.id]) : S.unread[text.id] ? h('i.gf-dot') : null),
+    room && opt(inRoom, 'voice', chName(room), () => { go(g.id, room.id); joinVoice(room.id); },
+      people.length > 0 && h('span.gf-av', people.slice(0, 3).map(v => avatar(user(v.user_id), 20, { status: false })), people.length > 3 && h('small', '+' + (people.length - 3))),
+      inRoom ? 'Você está nesta sala' : 'Entrar na sala de voz')));
+  el.classList.add('rf-popout', 'gf-popout'); RG.gid = g.id;
+  el.addEventListener('mouseenter', () => clearTimeout(RG.t)); el.addEventListener('mouseleave', gFlyLater);
+  const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();
+  el.style.top = Math.max(8, Math.min(r.top + r.height / 2 - 24, innerHeight - b.height - 8)) + 'px'; // o nome do servidor na altura do ícone
+}
 {
   const flyOf = (e) => sideHidden() && e.target.closest?.('#rail [data-fly]')?.dataset.fly;
   document.addEventListener('mouseover', (e) => {
@@ -564,10 +595,18 @@ function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500
       const anchor = e.target.closest('[data-fly]');
       RF.meWait = setTimeout(() => { RF.meWait = 0; if (anchor.isConnected && anchor.matches(':hover') && !document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(anchor); }, 1200);
     }
+    if (k === 'g') {
+      const anchor = e.target.closest('[data-fly]'), g = guild(anchor.dataset.gid); if (!g) return;
+      clearTimeout(RG.t);
+      if (gFlyOpen()) { if (RG.gid !== g.id) gFlyShow(anchor, g); return; } // já aberto: troca de servidor na hora
+      if (RG.wait) return;
+      RG.wait = setTimeout(() => { RG.wait = 0; if (anchor.isConnected && anchor.matches(':hover') && !document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) gFlyShow(anchor, g); }, 450);
+    }
   });
   document.addEventListener('mouseout', (e) => {
     const k = flyOf(e), to = e.relatedTarget;
     if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { clearTimeout(RF.meWait); RF.meWait = 0; if (meFlyOpen()) meFlyLater(); }
+    if (k === 'g' && to?.closest?.('[data-fly]') !== e.target.closest('[data-fly]')) { gFlyCancel(); if (gFlyOpen() && !to?.closest?.('.gf-popout')) gFlyLater(); }
   });
   // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
 }
@@ -780,7 +819,7 @@ function renderSide() {
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       return h('div', h('div.ch' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''),
-        { onclick: () => { go(g.id, c.id); }, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
+        { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
         chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
