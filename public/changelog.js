@@ -9,7 +9,7 @@ export const NEWS = [
     id: '2026-11-10-2', title: 'Bot de música',
     items: [
       { i: 'music', t: 'Música na sala de voz', d: 'O botão de música do painel de voz voltou: busque pelo nome (e escolha o resultado) ou cole um link do YouTube, Spotify, SoundCloud… O bot entra na sala e toca para todos, com fila, tocar a seguir, voltar, repetir, embaralhar e uma barra para pular para qualquer ponto.' },
-      { i: 'sparkle', t: 'Como os bots do Discord', d: 'Reprodução automática de músicas parecidas quando a fila acaba, efeitos (nightcore, vaporwave, 8D, grave reforçado, karaokê…), volume do bot para todos, letra sincronizada, histórico, playlists salvas no servidor, modo 24/7 e até 4 bots tocando em salas diferentes.' },
+      { i: 'sparkle', t: 'Como os bots do Discord', d: 'Reprodução automática de músicas parecidas quando a fila acaba, histórico, playlists salvas no servidor, modo 24/7 e até 4 bots tocando em salas diferentes.' },
     ],
   },
   {

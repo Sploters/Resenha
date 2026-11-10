@@ -60,17 +60,16 @@ Docker: `docker build -t resenha . && docker run -d --restart=always -p 3000:300
 Atualizar: reconstrua a imagem e recrie o container com o mesmo volume (o banco migra sozinho).
 
 ## Bot de música
-Embutido, no estilo do Jockie Music: botão 🎵 no painel de voz (aceso enquanto toca). Busque pelo nome (escolha entre 6 resultados) ou cole um link — YouTube (vídeo ou playlist), YouTube Music, SoundCloud, Spotify (faixa, álbum ou playlist: os nomes são procurados no YouTube), Bandcamp, Twitch, Vimeo… O bot entra na sala como um participante e toca numa fila.
+Embutido, no estilo do Jockie Music: botão 🎵 no painel de voz (aceso enquanto toca) abre um popup com a busca no topo, o que está tocando (capa, barra de posição e controles), Automático e 24/7, e as abas Fila, Histórico e Playlists. Busque pelo nome (escolha entre 6 resultados) ou cole um link — YouTube (vídeo ou playlist), YouTube Music, SoundCloud, Spotify (faixa, álbum ou playlist: os nomes são procurados no YouTube), Bandcamp, Twitch, Vimeo… O bot entra na sala como um participante e toca numa fila.
 - **Tocar agora / a seguir / no fim**, pular, voltar para a anterior, pausar e continuar do mesmo ponto, **barra para pular para qualquer ponto** (ou ← → de 10 s), parar.
 - **Repetir** a música ou a fila, **embaralhar**, arrastar para reordenar, tocar um item da fila na hora, tirar repetidas, limpar.
 - **Reprodução automática:** quando a fila acaba, toca músicas parecidas (o "mix" do YouTube da última música; fora do YouTube, pelo artista), sem repetir o que já tocou.
-- **Efeitos:** grave reforçado, nightcore, vaporwave, 8D, karaokê (tira a voz), acelerado 1,25x e lento 0,85x. **Volume do bot para todos** (0–200%) e, à parte, só para você.
-- **Letra sincronizada** com a música (lrclib.net, gratuita; clique numa linha para ir àquele trecho), **histórico** da sessão e **playlists salvas no servidor** (salvar a fila, tocar, apagar).
+- **Volume do bot só para você**, **histórico** da sessão e **playlists salvas no servidor** (salvar a fila, tocar, apagar).
 - **Vários bots:** até 4 por servidor (`MUSIC_BOTS`), um por sala — "Música", "Música 2"… tocam ao mesmo tempo em salas diferentes.
 - **24/7:** o bot fica na sala mesmo parado ou sozinho. Sem isso, sai após 5 min parado (`MUSIC_IDLE_MIN`) ou 20 s sozinho.
 
-Áudio: yt-dlp (sem anúncios) → ffmpeg (efeitos, volume, Opus) → SFU de voz. O **YouTube exige resolver um desafio em JavaScript**: a imagem Docker usa o `yt-dlp_linux` (standalone, já com o script EJS) e o Node da própria imagem; sem isso o YouTube responde 403. Fora do Docker, instale `pip install -U "yt-dlp[default]"` (ou deixe `YTDLP_REMOTE_EJS` ligado, que baixa o script do GitHub). O `deploy/umbrel.sh` baixa o yt-dlp mais novo a cada dia de deploy — se o YouTube parar de funcionar, refaça o deploy. Requer o SFU de voz ativo.
-Variáveis: `MUSIC_BOTS` (padrão 4), `MUSIC_IDLE_MIN`, `MUSIC_ALLOW_ANY=1` (libera qualquer site), `MUSIC_LYRICS=0` (desliga as letras), `YTDLP_COOKIES=/data/cookies.txt` (se o YouTube pedir login), `YTDLP_REMOTE_EJS=0`, `YTDLP_PATH`, `FFMPEG_PATH`.
+Áudio: yt-dlp (sem anúncios) → ffmpeg (Opus) → SFU de voz. O **YouTube exige resolver um desafio em JavaScript**: a imagem Docker usa o `yt-dlp_linux` (standalone, já com o script EJS) e o Node da própria imagem; sem isso o YouTube responde 403. Fora do Docker, instale `pip install -U "yt-dlp[default]"` (ou deixe `YTDLP_REMOTE_EJS` ligado, que baixa o script do GitHub). O `deploy/umbrel.sh` baixa o yt-dlp mais novo a cada dia de deploy — se o YouTube parar de funcionar, refaça o deploy. Requer o SFU de voz ativo.
+Variáveis: `MUSIC_BOTS` (padrão 4), `MUSIC_IDLE_MIN`, `MUSIC_ALLOW_ANY=1` (libera qualquer site), `YTDLP_COOKIES=/data/cookies.txt` (se o YouTube pedir login), `YTDLP_REMOTE_EJS=0`, `YTDLP_PATH`, `FFMPEG_PATH`.
 
 ### Novidades
 Depois de uma atualização, quem já usava o app vê uma vez a janela "Novidades" (o que mudou, com botões "Experimentar"); fica gravado na conta, então não repete em outro aparelho. Conta nova não recebe a lista. Histórico em Configurações → Novidades e no menu do perfil. Para anunciar uma atualização: acrescente uma entrada no topo de `NEWS` em `public/changelog.js` com um id novo (a data).

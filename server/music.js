@@ -1,12 +1,11 @@
 // Bot de música embutido (inspirado no Jockie Music do Discord): entra na sala de voz como um participante e toca
 // links ou buscas (YouTube, SoundCloud, Spotify, Bandcamp…) numa fila.
-// Áudio: yt-dlp (extração, sem anúncios) -> ffmpeg (filtros, volume, Opus/RTP) -> PlainTransport do mediasoup -> aparece
+// Áudio: yt-dlp (extração, sem anúncios) -> ffmpeg (Opus/RTP) -> PlainTransport do mediasoup -> aparece
 // como o microfone do bot.
-// Recursos: até MUSIC_BOTS bots por servidor (um por sala, como Jockie Music 1–4), buscar e escolher entre 5 resultados,
-// tocar agora / a seguir / no fim, pular, voltar, repetir (faixa ou fila), embaralhar, mover e remover da fila, pular
-// para um ponto (seek), volume do bot para todos, efeitos (grave reforçado, nightcore, vaporwave, 8D, karaokê,
-// acelerado), reprodução automática de músicas parecidas quando a fila acaba, modo 24/7, histórico, letra sincronizada
-// (lrclib.net) e playlists salvas no servidor.
+// Recursos: até MUSIC_BOTS bots por servidor (um por sala, como Jockie Music 1–4), buscar e escolher entre os
+// resultados, tocar agora / a seguir / no fim, pular, voltar, repetir (faixa ou fila), embaralhar, mover e remover da
+// fila, pular para um ponto (seek), reprodução automática de músicas parecidas quando a fila acaba, modo 24/7,
+// histórico e playlists salvas no servidor.
 // YouTube: desde 2025 exige resolver um desafio em JavaScript; o yt-dlp precisa de um runtime (usamos o próprio Node)
 // e do script "EJS" (já embutido no yt-dlp_linux da imagem Docker; senão, --remote-components baixa do GitHub).
 import { spawn } from 'node:child_process';
@@ -22,20 +21,8 @@ const ALONE_MS = 20_000; // sem humanos na sala
 const MAX_QUEUE = 300, MAX_PLAYLIST = 100, MAX_HISTORY = 30;
 const MAX_BOTS = Math.max(1, Math.min(8, Number(process.env.MUSIC_BOTS || 4)));
 const ALLOW_ANY = process.env.MUSIC_ALLOW_ANY === '1';
-const LYRICS = process.env.MUSIC_LYRICS !== '0';
 const HOSTS = ['youtube.com', 'youtu.be', 'music.youtube.com', 'soundcloud.com', 'spotify.com', 'bandcamp.com', 'twitch.tv', 'vimeo.com', 'dailymotion.com', 'mixcloud.com', 'deezer.com', 'audiomack.com'];
 const BOT_PREFIX = 'bot_music_';
-// efeitos: cadeia do ffmpeg e a velocidade em que a música anda (para o tempo decorrido e o ritmo de leitura)
-export const FILTERS = {
-  off: { label: 'Normal', af: '', rate: 1 },
-  bassboost: { label: 'Grave reforçado', af: 'bass=g=9:f=110:w=0.6,alimiter=limit=0.95', rate: 1 },
-  nightcore: { label: 'Nightcore', af: 'asetrate=48000*1.25,aresample=48000', rate: 1.25 },
-  vaporwave: { label: 'Vaporwave', af: 'asetrate=48000*0.8,aresample=48000', rate: 0.8 },
-  '8d': { label: '8D', af: 'apulsator=hz=0.09:amount=0.8', rate: 1 },
-  karaoke: { label: 'Karaokê (tira a voz)', af: 'pan=stereo|c0=c0-c1|c1=c1-c0', rate: 1 },
-  speed: { label: 'Acelerado 1,25x', af: 'atempo=1.25', rate: 1.25 },
-  slowed: { label: 'Lento 0,85x', af: 'atempo=0.85', rate: 0.85 },
-};
 const LOOPS = ['off', 'track', 'queue'];
 
 const sessions = new Map(); // channelId -> sessão (um bot por sala; vários bots por servidor)
@@ -144,42 +131,14 @@ export async function resolveQuery(q) {
   return [trackFrom(j, u.href)];
 }
 
-// ---------- letra (lrclib.net: gratuita, sem chave; letra sincronizada quando existe) ----------
-const lyricsCache = new Map();
-const cleanTitle = (t) => String(t).replace(/\s*[([](official|oficial|lyric|lyrics|letra|audio|áudio|video|vídeo|clipe|clip|hd|4k|remaster(ed)?|visualizer|mv)[^)\]]*[)\]]/gi, '').replace(/\s*\|.*$/, '').replace(/\s+(ft|feat)\.?\s.*$/i, '').trim();
-export function parseLrc(lrc) {
-  const out = [];
-  for (const line of String(lrc || '').split('\n')) {
-    const m = line.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/); if (!m) continue;
-    out.push([Math.round((+m[1] * 60 + +m[2]) * 1000), m[3].trim()]);
-  }
-  return out;
-}
-export async function lyricsFor(t) {
-  if (!LYRICS) throw new Error('Letras desligadas neste servidor');
-  const key = (t.artist + '|' + t.title).toLowerCase();
-  if (lyricsCache.has(key)) return lyricsCache.get(key);
-  let title = cleanTitle(t.title), artist = t.artist || '';
-  const dash = title.match(/^(.+?)\s+[-–—]\s+(.+)$/); if (dash) { artist = dash[1]; title = dash[2]; } // "Artista - Música"
-  const q = new URLSearchParams({ track_name: title, ...(artist ? { artist_name: artist } : {}) });
-  let r = null;
-  try { const list = JSON.parse(await fetchText('https://lrclib.net/api/search?' + q, { 'user-agent': 'Resenha (https://github.com/sploters/discord)' })); r = list.find(x => x.syncedLyrics) || list[0]; } catch { }
-  if (!r && artist) { try { const list = JSON.parse(await fetchText('https://lrclib.net/api/search?' + new URLSearchParams({ q: `${artist} ${title}` }))); r = list.find(x => x.syncedLyrics) || list[0]; } catch { } }
-  const out = r ? { title: r.trackName, artist: r.artistName, synced: parseLrc(r.syncedLyrics), plain: r.plainLyrics || '', source: 'lrclib.net' } : null;
-  if (lyricsCache.size > 300) lyricsCache.clear();
-  lyricsCache.set(key, out);
-  return out;
-}
-
 // ---------- sessão ----------
 const isHuman = (uid) => !isMusicBot(uid);
 const humansIn = (cid) => [...(env.voice.get(cid)?.keys() || [])].filter(isHuman);
 const pub = (t) => t && ({ id: t.id, title: t.title, artist: t.artist, duration: t.duration, thumb: t.thumb, by: t.by, url: t.url, auto: !!t.auto });
-const elapsedOf = (s) => (!s.current ? 0 : s.paused ? s.pos.base : s.pos.base + (Date.now() - s.pos.at) * s.pos.rate);
+const elapsedOf = (s) => (!s.current ? 0 : s.paused ? s.pos.base : s.pos.base + (Date.now() - s.pos.at));
 const view = (s) => ({
   channel_id: s.channelId, guild_id: s.guildId, bot_id: s.botId, bot_n: s.n, active: true, paused: s.paused, loading: !!s.loading,
-  elapsed: Math.round(elapsedOf(s)), rate: FILTERS[s.filter].rate,
-  loop: s.loop, autoplay: s.autoplay, stay: s.stay, volume: s.volume, filter: s.filter, filters: Object.fromEntries(Object.entries(FILTERS).map(([k, f]) => [k, f.label])),
+  elapsed: Math.round(elapsedOf(s)), loop: s.loop, autoplay: s.autoplay, stay: s.stay,
   current: pub(s.current), queue: s.queue.map(pub), history: s.history.slice(-MAX_HISTORY).reverse().map(pub),
 });
 
@@ -221,8 +180,8 @@ async function startSession(guildId, channelId) {
     env.run('INSERT INTO members(guild_id,user_id,joined_at) VALUES(?,?,?)', guildId, botId, Date.now());
     env.dispatch(env.guildMemberIds(guildId).filter(x => x !== botId), 'MEMBER_ADD', { guild_id: guildId, member: env.memberObj(guildId, botId), user: env.userPub(botId) });
   }
-  const s = { guildId, channelId, botId, n, queue: [], history: [], current: null, paused: false, loading: false, pos: { base: 0, at: 0, rate: 1 },
-    loop: 'off', autoplay: false, stay: false, volume: 100, filter: 'off', proc: null, rtp: null, idleTimer: null, aloneTimer: null, gen: 0 };
+  const s = { guildId, channelId, botId, n, queue: [], history: [], current: null, paused: false, loading: false, pos: { base: 0, at: 0 },
+    loop: 'off', autoplay: false, stay: false, proc: null, rtp: null, idleTimer: null, aloneTimer: null, gen: 0 };
   sessions.set(channelId, s);
   await env.joinBot(channelId, botId); // entra na sala (voice map + SFU)
   armIdle(s);
@@ -267,7 +226,7 @@ async function related(s, t) {
     const vid = String(t.url || '').match(/[?&]v=([\w-]{11})|youtu\.be\/([\w-]{11})/);
     let list = [];
     if (vid) { const id = vid[1] || vid[2]; const j = await runJson(['-J', '--flat-playlist', '--playlist-items', '2-12', '--', `https://www.youtube.com/watch?v=${id}&list=RD${id}`]); list = (j.entries || []).filter(Boolean).map(e => trackFrom(e)); }
-    if (!list.length) list = await searchTracks(`${t.artist || cleanTitle(t.title)} mix`, 8);
+    if (!list.length) list = await searchTracks(`${t.artist || t.title} mix`, 8);
     const pick = list.find(x => x.url && !played.has(x.url) && x.url !== t.url);
     return pick ? { ...pick, id: newTid(), by: s.botId, auto: true } : null;
   } finally { s.loading = false; }
@@ -275,18 +234,16 @@ async function related(s, t) {
 // inicia (ou retoma) a faixa atual a partir de offsetMs (posição na música)
 async function startTrack(s, offsetMs) {
   killProc(s);
-  const gen = s.gen, t = s.current, f = FILTERS[s.filter] || FILTERS.off;
-  s.paused = false; s.pos = { base: offsetMs, at: Date.now(), rate: f.rate };
+  const gen = s.gen, t = s.current;
+  s.paused = false; s.pos = { base: offsetMs, at: Date.now() };
   try {
     const rtp = await env.attachRtp(s.channelId, s.botId);
     if (gen !== s.gen) return rtp.close();
     s.rtp = rtp;
     const src = t.url || t.search;
-    const af = ['aresample=48000', f.af, s.volume !== 100 ? `volume=${(s.volume / 100).toFixed(2)}` : ''].filter(Boolean).join(',');
     const dl = spawn(YTDLP, ytdlpArgs(['-f', 'bestaudio/best', '--no-playlist', '-o', '-', '--quiet', '--', src]), { stdio: ['ignore', 'pipe', 'pipe'] });
-    // -readrate = velocidade do efeito: com nightcore/acelerado a música anda mais rápido que o relógio (com -re faltaria áudio)
-    const ff = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', ...(offsetMs ? ['-ss', (offsetMs / 1000).toFixed(2)] : []), '-readrate', String(f.rate), '-i', 'pipe:0', '-vn', '-map', '0:a:0',
-      '-af', af, '-ac', '2', '-ar', '48000', '-c:a', 'libopus', '-b:a', '128k', '-application', 'audio',
+    const ff = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', ...(offsetMs ? ['-ss', (offsetMs / 1000).toFixed(2)] : []), '-re', '-i', 'pipe:0', '-vn', '-map', '0:a:0',
+      '-af', 'aresample=48000', '-ac', '2', '-ar', '48000', '-c:a', 'libopus', '-b:a', '128k', '-application', 'audio',
       '-f', 'rtp', '-payload_type', String(rtp.payloadType), '-ssrc', String(rtp.ssrc), `rtp://127.0.0.1:${rtp.port}?pkt_size=1200`], { stdio: ['pipe', 'ignore', 'pipe'] });
     s.proc = [dl, ff];
     let dlErr = '', started = false;
@@ -294,14 +251,12 @@ async function startTrack(s, offsetMs) {
     dl.stdout.pipe(ff.stdin); ff.stdin.on('error', () => { }); dl.stdout.on('error', () => { });
     const fail = (msg) => { if (gen !== s.gen) return; s.current = null; push(s, { notice: `Não consegui tocar "${t.title}": ${msg}` }); playNext(s); };
     dl.on('error', () => fail('yt-dlp não está instalado no servidor')); ff.on('error', () => fail('ffmpeg não está instalado no servidor'));
-    dl.stdout.once('data', () => { if (gen === s.gen && !started) { started = true; s.pos = { base: offsetMs, at: Date.now(), rate: f.rate }; s.loading = false; push(s); } });
+    dl.stdout.once('data', () => { if (gen === s.gen && !started) { started = true; s.pos = { base: offsetMs, at: Date.now() }; s.loading = false; push(s); } });
     dl.on('close', (code) => { if (gen === s.gen && code !== 0 && !started) fail(ytErr(dlErr)); });
     ff.on('close', () => { if (gen !== s.gen) return; started ? playNext(s) : fail('formato de áudio não suportado'); }); // terminou a faixa
     s.loading = true; push(s);
   } catch (e) { if (gen === s.gen) { s.current = null; push(s, { notice: 'Falha ao tocar: ' + e.message }); playNext(s); } }
 }
-// reinicia a faixa atual no mesmo ponto (troca de efeito ou de volume)
-const restartHere = (s) => (s.current && !s.paused ? startTrack(s, elapsedOf(s)) : null);
 
 // ---------- playlists salvas no servidor ----------
 const plList = (gid) => env.all('SELECT id, name, tracks, by_id, created_at FROM music_playlists WHERE guild_id=? ORDER BY name COLLATE NOCASE', gid)
@@ -350,8 +305,8 @@ export async function handle(uid, cid, d) {
     }
     case 'replay': if (s.current) await startTrack(s, 0); break;
     case 'seek': { if (!s.current) break; const ms = Math.max(0, Math.min((s.current.duration || 1e9) * 1000 - 1000, Math.round(+d.ms || 0)));
-      if (s.paused) { s.pos = { base: ms, at: Date.now(), rate: s.pos.rate }; push(s); } else await startTrack(s, ms); break; }
-    case 'pause': if (s.current && !s.paused) { const at = elapsedOf(s); killProc(s); s.paused = true; s.pos = { base: at, at: Date.now(), rate: s.pos.rate }; armIdle(s); push(s); } break; // pausar = parar o fluxo e retomar do mesmo ponto
+      if (s.paused) { s.pos = { base: ms, at: Date.now() }; push(s); } else await startTrack(s, ms); break; }
+    case 'pause': if (s.current && !s.paused) { const at = elapsedOf(s); killProc(s); s.paused = true; s.pos = { base: at, at: Date.now() }; armIdle(s); push(s); } break; // pausar = parar o fluxo e retomar do mesmo ponto
     case 'resume': if (s.current && s.paused) { clearTimeout(s.idleTimer); await startTrack(s, s.pos.base); } break;
     case 'remove': { const i = s.queue.findIndex(t => t.id === String(d.id)); if (i >= 0) { s.queue.splice(i, 1); push(s); } break; }
     case 'move': { const i = s.queue.findIndex(t => t.id === String(d.id)); if (i < 0) break; const [t] = s.queue.splice(i, 1); s.queue.splice(Math.max(0, Math.min(s.queue.length, +d.to || 0)), 0, t); push(s); break; }
@@ -362,9 +317,6 @@ export async function handle(uid, cid, d) {
     case 'loop': s.loop = LOOPS.includes(d.mode) ? d.mode : LOOPS[(LOOPS.indexOf(s.loop) + 1) % LOOPS.length]; push(s); break;
     case 'autoplay': s.autoplay = d.on === undefined ? !s.autoplay : !!d.on; push(s); if (s.autoplay && !s.current && s.history.length) await playNext(s); break;
     case 'stay': s.stay = d.on === undefined ? !s.stay : !!d.on; clearTimeout(s.aloneTimer); armIdle(s); push(s); break;
-    case 'volume': s.volume = Math.max(0, Math.min(200, Math.round(+d.value || 0))); await restartHere(s); push(s); break;
-    case 'filter': s.filter = FILTERS[d.name] ? d.name : 'off'; await restartHere(s); push(s); break;
-    case 'lyrics': { const t = s.current; if (!t) throw new Error('Nada tocando'); return { lyrics: await lyricsFor(t), track_id: t.id }; }
     case 'pl_save': {
       const name = String(d.name || '').trim().slice(0, 60); if (!name) throw new Error('Dê um nome para a playlist');
       const tracks = [s.current, ...s.queue].filter(Boolean).map(strip).slice(0, MAX_QUEUE); if (!tracks.length) throw new Error('A fila está vazia');

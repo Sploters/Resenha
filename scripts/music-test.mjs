@@ -1,8 +1,8 @@
 // Bot de música de ponta a ponta (servidor real + navegador + yt-dlp + ffmpeg + SFU), sem depender do YouTube:
 // três arquivos com tons diferentes (440, 880 e 660 Hz) servidos por HTTP local (MUSIC_ALLOW_ANY=1).
 // Confere o som que chega de verdade na sala (frequência do áudio do bot) e: fila, tocar a seguir/agora, pular, voltar,
-// pausar/continuar no mesmo ponto, seek, repetir faixa e fila, embaralhar, mover, efeitos (nightcore muda o tom e a
-// velocidade), volume do bot, histórico, playlists salvas, 24/7, dois bots em duas salas do mesmo servidor e sair.
+// pausar/continuar no mesmo ponto, seek, repetir faixa e fila, embaralhar, mover, histórico, playlists salvas, 24/7,
+// dois bots em duas salas do mesmo servidor, o popup na tela e sair.
 // Uso: BROWSER=/caminho/do/chrome YTDLP_PATH=/caminho/do/yt-dlp node scripts/music-test.mjs
 import puppeteer from 'puppeteer-core';
 import { spawn, execFileSync } from 'node:child_process';
@@ -72,14 +72,6 @@ try {
   await cmd(A, 'seek', { ms: 30000 }); s = await waitPlaying(A, 'Musica A'); await sleep(800);
   ok(s.elapsed >= 29000 && s.elapsed < 33000 && near(await hz(A), 440), 'pular para 0:30 (seek)', s.elapsed);
   await cmd(A, 'seek', { ms: 1000 }); await waitPlaying(A, 'Musica A'); // volta ao começo: os 40 s da música não acabam no meio dos próximos testes
-  // ---- efeitos e volume ----
-  await cmd(A, 'filter', { name: 'nightcore' }); s = await waitPlaying(A, 'Musica A'); await sleep(1200);
-  const nc = await hz(A);
-  ok(s.filter === 'nightcore' && s.rate === 1.25 && near(nc, 550), 'nightcore: tom 1,25x mais alto (440 → 550 Hz) e música mais rápida', { nc, rate: s.rate });
-  await cmd(A, 'filter', { name: 'off' }); await waitPlaying(A, 'Musica A'); await sleep(1000);
-  const loud = await hz(A); await cmd(A, 'volume', { value: 30 }); await waitPlaying(A, 'Musica A'); await sleep(1200); const quiet = await hz(A);
-  ok(near(quiet, 440) && quiet.db < loud.db - 6, 'volume do bot para todos (30%) fica mais baixo', { loud: loud?.db, quiet: quiet?.db });
-  await cmd(A, 'volume', { value: 100 });
   // ---- pular, voltar, histórico, repetir ----
   await cmd(A, 'skip'); s = await waitPlaying(A, 'Musica B'); await sleep(1000);
   ok(s.current.title === 'Musica B' && s.history[0]?.title === 'Musica A' && near(await hz(A), 880), 'pular: toca a próxima (880 Hz) e a anterior vai pro histórico', { cur: s.current.title, hist: s.history.map(t => t.title) });
@@ -104,16 +96,15 @@ try {
   // ---- painel na tela ----
   await A.bringToFront();
   await A.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => x.title === 'Música: tocar no canal de voz'); b.click(); }); await sleep(600);
-  const pan = await A.evaluate(() => ({ now: document.querySelector('.mupanel .munow b')?.textContent, tabs: [...document.querySelectorAll('.mutab')].map(t => t.textContent), fx: document.querySelectorAll('.mufxc').length, lit: !!document.querySelector('button.on[title="Música: tocar no canal de voz"]') }));
-  ok(/Musica/.test(pan.now || '') && pan.tabs.length === 4 && pan.fx === 8 && pan.lit, 'painel: tocando agora, abas Fila/Letra/Histórico/Playlists, efeitos e botão aceso', pan);
+  const pan = await A.evaluate(() => ({ now: document.querySelector('.mupanel .muhero .mutitle b')?.textContent, tabs: [...document.querySelectorAll('.mutab')].map(t => t.firstChild.textContent), q: document.querySelectorAll('.mulist .muitem').length,
+    gone: !document.querySelector('.mupanel .mufx, .mupanel .mulyr') && !/Volume do bot para todos|Letra|Efeito/.test(document.querySelector('.mupanel').textContent),
+    lit: !!document.querySelector('button.on[title="Música: tocar no canal de voz"]') }));
+  ok(/Musica/.test(pan.now || '') && pan.tabs.join() === 'Fila,Histórico,Playlists' && pan.q === 2 && pan.gone && pan.lit, 'popup: tocando agora, abas Fila/Histórico/Playlists, sem volume para todos/efeitos/letra, botão aceso', pan);
   await A.screenshot({ path: '.testshots/music-panel.png' });
   // ---- 24/7 e sair ----
   await cmd(A, 'stay', { on: true }); ok((await st(A)).stay === true, '24/7 ligado');
   await cmd(A, 'disconnect'); await sleep(600);
   ok(!(await st(A))?.active && await A.evaluate((gid) => [...window.__lc.S.guilds.get(gid).members.keys()].length, g.id) === 3, 'tirar o bot: ele sai da sala (o bot 2 continua na outra)');
-  // lyrics (rede): só confere o parser
-  const { parseLrc } = await import('../server/music.js');
-  ok(JSON.stringify(parseLrc('[00:01.50] Oi\n[01:02.00]Tchau')) === '[[1500,"Oi"],[62000,"Tchau"]]', 'letra sincronizada: leitura do formato LRC');
 } catch (e) { console.log('ERRO', e); fails++; }
 await browser?.close(); srv.kill(); media.close();
 if (fails && srvErr) console.log(srvErr.split('\n').filter(l => /Error|error/.test(l)).slice(-5).join('\n'));
