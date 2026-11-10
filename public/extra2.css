@@ -561,3 +561,22 @@ body:has(#auth:not(.hidden)) #layer { z-index: 101; }
 .bottile .botinfo small { color: rgba(255,255,255,.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bottile .label { z-index: 1; }
 @media (max-width: 520px) { .bottile .botart { width: 56px; height: 56px; } .bottile .botinfo b { font-size: 13px; } }
+.muhero.paused .mufill { filter: grayscale(.6) brightness(.8); }
+.muhero.paused .muart.big { opacity: .75; }
+
+/* ---------- "Jogando X? Transmitir" (jogo aberto na chamada) ---------- */
+#gameoffer { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 89; display: flex; align-items: center; gap: 12px; width: max-content; max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 12px 12px 14px; border-radius: 12px; background: var(--bg-float, #111214); color: var(--text, #dbdee1);
+  border: 1px solid rgba(88,101,242,.45); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: goin .25s ease-out; }
+@keyframes goin { from { opacity: 0; transform: translate(-50%, -10px); } }
+#gameoffer .go-ic { width: 40px; height: 40px; flex: none; border-radius: 8px; object-fit: contain; }
+#gameoffer .go-ic.ph { display: grid; place-items: center; background: #5865f2; color: #fff; }
+#gameoffer .go-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+#gameoffer .go-txt b { color: var(--header, #fff); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gameoffer .go-txt small { color: var(--text-muted); font-size: 12px; }
+#gameoffer .go-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+#gameoffer .go-acts .btn.green { display: inline-flex; align-items: center; gap: 6px; }
+#gameoffer .go-x { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--text-muted); background: none; border: 0; cursor: pointer; }
+#gameoffer .go-x:hover { background: var(--hov, rgba(255,255,255,.08)); color: var(--header, #fff); }
+@media (max-width: 560px) { #gameoffer { left: 16px; right: 16px; transform: none; width: auto; flex-wrap: wrap; } #gameoffer .go-acts { width: 100%; justify-content: flex-end; } }
+@media (prefers-reduced-motion: reduce) { #gameoffer { animation: none; } }

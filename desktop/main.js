@@ -26,7 +26,7 @@ app.setAppUserModelId('br.resenha.app');
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 
 const cfgPath = () => path.join(app.getPath('userData'), 'config.json');
-const defaults = { server: '', autoStart: false, startMinimized: false, closeToTray: true, globalHotkeys: true, hotkeyMute: 'CommandOrControl+Shift+M', hotkeyDeafen: 'CommandOrControl+Shift+D', hotkeyClip: 'F8', hardwareAcceleration: true, gpuCompat: 'auto', cacheLimitMB: 1024, bounds: { width: 1360, height: 860 } };
+const defaults = { server: '', autoStart: false, startMinimized: false, closeToTray: true, globalHotkeys: true, hotkeyMute: 'CommandOrControl+Shift+M', hotkeyDeafen: 'CommandOrControl+Shift+D', hotkeyClip: 'F8', hotkeyShare: 'CommandOrControl+Shift+S', hardwareAcceleration: true, gpuCompat: 'auto', cacheLimitMB: 1024, bounds: { width: 1360, height: 860 } };
 let cfg = { ...defaults };
 try { cfg = { ...defaults, ...JSON.parse(fs.readFileSync(cfgPath(), 'utf8')) }; } catch { /* primeira execução */ }
 const saveCfg = () => { try { fs.mkdirSync(path.dirname(cfgPath()), { recursive: true }); fs.writeFileSync(cfgPath(), JSON.stringify(cfg, null, 2)); } catch (e) { console.error(e); } };
@@ -197,6 +197,7 @@ function buildTray() {
     { label: 'Abrir a Resenha', click: showWin },
     { label: 'Silenciar / ativar microfone', click: () => send('mute') },
     { label: 'Ensurdecer / ativar áudio', click: () => send('deafen') },
+    { label: 'Iniciar / encerrar transmissão', click: () => send('share') },
     { type: 'separator' },
     { label: 'Trocar servidor…', click: () => { showWin(); showConnect(); } },
     { label: 'Sair', click: () => { quitting = true; app.quit(); } },
@@ -211,7 +212,7 @@ function registerHotkeys() {
   const KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`' };
   const fix = (acc) => String(acc || '').split('+').map(p => KEYS[p] || p).join('+');
   const reg = (acc, k) => { acc = fix(acc); try { if (acc && !globalShortcut.register(acc, () => send(k))) log('atalho em uso por outro app:', acc); } catch (e) { log('atalho inválido', acc, e.message); } };
-  reg(cfg.hotkeyMute, 'mute'); reg(cfg.hotkeyDeafen, 'deafen'); reg(cfg.hotkeyClip, 'clip');
+  reg(cfg.hotkeyMute, 'mute'); reg(cfg.hotkeyDeafen, 'deafen'); reg(cfg.hotkeyClip, 'clip'); reg(cfg.hotkeyShare, 'share');
 }
 function setBadge(n) {
   badge = n | 0;
@@ -311,11 +312,11 @@ ipcMain.on('set-throttle', (_e, on) => { if (win && !win.isDestroyed()) win.webC
 ipcMain.handle('get-settings', () => ({ ...cfg, version: app.getVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName, updateFailed }));
 ipcMain.handle('set-settings', (_e, patch) => {
   for (const k of ['autoStart', 'startMinimized', 'closeToTray', 'globalHotkeys']) if (k in patch) cfg[k] = !!patch[k];
-  for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
+  for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip', 'hotkeyShare']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
   if ('hardwareAcceleration' in patch) cfg.hardwareAcceleration = !!patch.hardwareAcceleration;
   if (['auto', 'on', 'off'].includes(patch.gpuCompat)) cfg.gpuCompat = patch.gpuCompat;
   if ('cacheLimitMB' in patch) cfg.cacheLimitMB = Math.max(0, Math.min(65536, Math.round(+patch.cacheLimitMB || 0)));
-  if ('hotkeyMute' in patch || 'hotkeyDeafen' in patch || 'hotkeyClip' in patch) registerHotkeys();
+  if ('hotkeyMute' in patch || 'hotkeyDeafen' in patch || 'hotkeyClip' in patch || 'hotkeyShare' in patch) registerHotkeys();
   if ('autoStart' in patch) app.setLoginItemSettings({ openAtLogin: cfg.autoStart, args: ['--hidden'] });
   if ('globalHotkeys' in patch) registerHotkeys();
   saveCfg(); return true;

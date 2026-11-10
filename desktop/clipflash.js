@@ -11,9 +11,11 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 
 // discreto, como o Medal / ShadowPlay: uma pílula pequena no canto de cima à direita, sem piscar a tela
 const W = 250, H = 56, M = 22; // tamanho da janela e distância da borda da tela
-function html({ ok, title, sub }) {
-  const c = ok ? '#23a55a' : '#f23f43';
-  const ic = ok
+function html({ ok, title, sub, kind }) {
+  const c = ok ? (kind === 'share' ? '#5865f2' : '#23a55a') : '#f23f43';
+  const ic = ok && kind === 'share' // atalho da transmissão: ícone de tela
+    ? '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-6v2h3v2H7v-2h3v-2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>'
+    : ok
     ? '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#fff" d="M9 4 7.2 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.2L15 4H9Zm3 4.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>'
     : '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="#fff" d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3 1.4 1.4Z"/></svg>';
   return `<!doctype html><meta charset="utf-8"><style>

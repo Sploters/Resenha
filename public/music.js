@@ -4,7 +4,7 @@
 // - reprodução automática e 24/7 como chips, volume do bot só para você
 // - abas Fila (arrastar para reordenar), Histórico e Playlists do servidor; rodapé com parar e tirar o bot da sala
 import { h, icon } from './util.js';
-import { S, toast, popout, promptBox, confirmBox, menu } from './state.js';
+import { S, toast, popout, promptBox, confirmBox, menu, closeFloating } from './state.js';
 
 let send = () => { }, state = null, redraw = null, rid = 0;
 const waiting = new Map();
@@ -40,7 +40,9 @@ const isLink = (q) => /^https?:\/\//i.test(q);
 const LOOP = { off: ['Repetir', 'Repetir desligado'], track: ['Repetindo a música', 'Repetindo esta música'], queue: ['Repetindo a fila', 'Repetindo a fila inteira'] };
 const art = (t, cls = '.muart') => (t?.thumb ? h('img' + cls, { src: t.thumb, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer' }) : h('div' + cls + '.ph', icon('music', 18)));
 
+const openPop = () => document.querySelector('.mu-pop:not(.leaving)');
 export function openMusic(anchor, voice) {
+  if (openPop()) return closeFloating(); // clicar no botão de novo fecha o painel
   const body = h('div.mupanel');
   // ---------- busca ----------
   const input = h('input.muin', { type: 'search', placeholder: 'Buscar música ou colar um link', maxLength: 500, 'aria-label': 'Buscar música ou colar link' });
@@ -60,7 +62,14 @@ export function openMusic(anchor, voice) {
     } catch (e) { toast(e.message, true); }
     busy = false; ui.searching = false; redraw();
   };
-  input.onkeydown = (e) => { if (e.key === 'Enter') submit(e.shiftKey ? 'next' : 'end'); if (e.key === 'Escape' && ui.results) { ui.results = null; redraw(); e.preventDefault(); } e.stopPropagation(); };
+  input.onkeydown = (e) => {
+    if (e.key === 'Escape') { // Esc: fecha os resultados; sem resultados, fecha o painel (o campo começa focado)
+      if (ui.results || input.value) { ui.results = null; input.value = ''; redraw(); e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
+    if (e.key === 'Enter') submit(e.shiftKey ? 'next' : 'end');
+    e.stopPropagation();
+  };
   input.oninput = () => { if (!input.value && ui.results) { ui.results = null; redraw(); } };
   const searchBox = h('label.musearch', icon('search', 16), input, spin);
 
@@ -78,7 +87,7 @@ export function openMusic(anchor, voice) {
     const c = state?.current; if (!c) return;
     const el = Math.min(elapsedMs() / 1000, c.duration || Infinity), p = c.duration ? Math.min(100, el / c.duration * 100) + '%' : '0%';
     fill.style.width = p; knob.style.left = p;
-    tCur.textContent = state.loading ? 'carregando…' : state.stalled ? fmt(el) + ' · carregando…' : fmt(el); tEnd.textContent = c.duration ? fmt(c.duration) : 'ao vivo';
+    tCur.textContent = state.loading ? 'carregando…' : state.paused ? fmt(el) + ' · pausado' : state.stalled ? fmt(el) + ' · carregando…' : fmt(el); tEnd.textContent = c.duration ? fmt(c.duration) : 'ao vivo';
   };
   const iv = setInterval(tick, 250);
   const ibtn = (ic, title, fn, cls = '') => h('button.muib' + cls, { type: 'button', title, 'aria-label': title, onclick: fn }, ic);
@@ -90,7 +99,7 @@ export function openMusic(anchor, voice) {
       h('div.muart.big.ph', icon('music', 30)),
       h('div.mutitle', h('b', state?.active ? 'Nada tocando' : 'O bot ainda não está na sala'),
         h('small', state?.active ? 'Busque uma música para continuar.' : 'Busque uma música ou cole um link (YouTube, Spotify, SoundCloud…). O bot entra e toca para todos.'))));
-    return h('div.muhero', c.thumb ? h('div.mubg', { style: { backgroundImage: `url("${String(c.thumb).replace(/["\\\n]/g, encodeURIComponent)}")` } }) : null,
+    return h('div.muhero' + (state.paused ? '.paused' : ''), c.thumb ? h('div.mubg', { style: { backgroundImage: `url("${String(c.thumb).replace(/["\\\n]/g, encodeURIComponent)}")` } }) : null,
       h('div.muhero-in',
         h('div.murow', art(c, '.muart.big'),
           h('div.mutitle', h('b', { title: c.title }, c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener' }, c.title) : c.title),
@@ -169,12 +178,13 @@ export function openMusic(anchor, voice) {
         tabBody(),
         state?.active && h('div.mufoot', h('span.mubot', h('span.botav.sm', icon('musicbot', 12)), state.bot_n > 1 ? `Música ${state.bot_n}` : 'Música', h('span.bottag', 'BOT'), state.stay && h('small', ' · 24/7')),
           state.current && h('button.mulink', { type: 'button', onclick: () => act('stop') }, icon('stop', 13), 'Parar'),
-          h('button.mulink.red', { type: 'button', onclick: () => act('disconnect') }, icon('eject', 13), 'Tirar da sala')),
+          h('button.mulink.red', { type: 'button', onclick: () => { closeFloating(); act('disconnect'); } }, icon('eject', 13), 'Tirar da sala')),
       ])].filter(Boolean));
     tick();
   };
   redraw = () => {
     if (!document.body.contains(body)) { redraw = null; return; }
+    if (voice && !voice.active) { redraw = null; return closeFloating(); } // saiu da sala: o botão de música some junto
     if (!state?.active && ui.tab !== 'playlists') ui.tab = 'queue';
     const f = document.activeElement === input, v = input.value, sc = body.querySelector('.mulist')?.scrollTop;
     draw(); input.value = v; if (f) input.focus();
@@ -183,7 +193,16 @@ export function openMusic(anchor, voice) {
   if (!state?.active && ui.tab !== 'playlists') ui.tab = 'queue';
   draw();
   const el = popout(anchor, body, 'up'); el.classList.add('mu-pop'); mounted = true;
-  const place = () => { const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect(); el.style.top = Math.max(8, Math.min(r.top - b.height - 12, innerHeight - b.height - 8)) + 'px'; el.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - b.width - 8)) + 'px'; };
+  // o botão é redesenhado (acende/apaga ao tocar/pausar): segue o botão novo em vez de pular para o canto da tela;
+  // aberto por outro lugar (cartão do bot) e ele sumiu, fica onde está
+  const fromBtn = !!anchor.closest?.('[data-music-btn]');
+  const place = () => {
+    if (!anchor.isConnected) { const nb = fromBtn && [...document.querySelectorAll('[data-music-btn]')].find(b => b.getClientRects().length); if (!nb) return; anchor = nb; }
+    const r = anchor.getBoundingClientRect(), b = { width: el.offsetWidth, height: el.offsetHeight }; // offset*: sem a escala da animação de abrir
+    el.style.top = Math.max(8, Math.min(r.top - b.height - 12, innerHeight - b.height - 8)) + 'px'; el.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - b.width - 8)) + 'px';
+  };
+  const relocate = () => { if (!el.isConnected) { document.removeEventListener('music-changed', relocate); return removeEventListener('resize', relocate); } requestAnimationFrame(place); };
+  document.addEventListener('music-changed', relocate); addEventListener('resize', relocate);
   place(); new ResizeObserver(place).observe(body); // cresce com a fila/resultados sem sair da tela
   setTimeout(() => input.focus(), 30);
 }
