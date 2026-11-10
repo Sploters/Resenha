@@ -281,6 +281,21 @@ ipcMain.handle('get-sources', async () => {
   }
   return out;
 });
+// atalho da transmissão: o que está em primeiro plano agora (janela, jogo em janela ou em tela cheia), sem abrir o seletor.
+// O programa nativo lista as janelas na ordem do Windows (a da frente primeiro); a da Resenha já fica de fora (mesmo processo).
+// Sem a lista (fora do Windows / componente ausente) ou com a área de trabalho na frente: a tela onde está o mouse.
+const NOT_FRONT = /^(NVIDIA GeForce Overlay|Resenha)$/i; // sobreposições que ficam sempre por cima (não são "a janela atual")
+ipcMain.handle('foreground-source', async () => {
+  const wins = await appAudio.listWindows().catch(() => []);
+  const w = wins.find(x => !x.minimized && !NOT_FRONT.test(String(x.title || '').trim()));
+  if (w && !/^Program Manager$/i.test(w.title)) { // "Program Manager" = a área de trabalho na frente: vai a tela
+    return { id: `window:${w.hwnd}:0`, name: w.game ? appAudio.cleanTitle(w.title) : w.title, type: 'window', pid: w.pid, exe: w.exe, game: !!w.game, fullscreen: !!w.fullscreen };
+  }
+  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const ss = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
+  const s = ss.find(x => String(x.display_id) === String(d.id)) || ss[0];
+  return s ? { id: s.id, name: s.name, type: 'screen' } : null;
+});
 ipcMain.handle('select-source', (_e, id, name) => { pickedSource = String(id || ''); pickedName = String(name || '').slice(0, 200); return true; });
 // áudio só do jogo (desktop/appaudio.js): o PCM vai direto para a página, que monta a trilha de áudio da transmissão
 ipcMain.handle('app-audio-capable', () => appAudio.capable());
@@ -294,7 +309,7 @@ ipcMain.handle('source-state', () => appAudio.sourceState(pickedSource).catch(()
 ipcMain.handle('detect-game', () => appAudio.detectGame().catch(() => null));
 ipcMain.on('set-badge', (_e, n) => setBadge(n));
 // aviso de clipe capturado por cima do jogo (desktop/clipflash.js)
-ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120) }); });
+ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120), kind: o.kind === 'share' ? 'share' : undefined }); });
 // controle remoto (desktop/remote.js): o renderer só chama start depois que o dono aceitou
 ipcMain.handle('remote-capable', () => remote.capable());
 ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));

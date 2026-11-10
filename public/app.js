@@ -2628,32 +2628,42 @@ const pipCtx = {
 // parar de compartilhar a tela (sem sair da chamada)
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
 // ---------- atalho da transmissão (padrão Ctrl+Shift+S) ----------
-// Liga/desliga a transmissão. Com um jogo aberto (app desktop), transmite o jogo direto, sem abrir o seletor, com as
-// últimas escolhas de qualidade e áudio (só o jogo): dá para apertar no meio da partida. Sem jogo, abre o seletor.
+// Liga/desliga a transmissão na hora, sem abrir o seletor: transmite o que está em primeiro plano (a janela atual, jogo em
+// janela ou em tela cheia; a área de trabalho na frente = a tela) com as últimas escolhas de qualidade e áudio da pessoa.
+// Um aviso rápido (como o do clipe) confirma que ligou/desligou — por cima do jogo quando a Resenha está em segundo plano.
 const shareKey = () => S.prefs.keyShare || 'Ctrl+Shift+KeyS';
+let shareBusy = false;
 async function shareHotkey() {
   if (!voice?.active) return clipFlash(false, 'Entre numa sala de voz', null, 'share');
   if (voice.screen) { stopSharing(); hideGameOffer(); return clipFlash(true, 'Transmissão encerrada', null, 'share'); }
-  const game = await findGameSource();
-  if (game) return quickShareGame(game);
-  if (!document.hasFocus()) clipFlash(true, 'Escolha o que transmitir', 'na janela da Resenha', 'share');
-  startShare();
+  if (shareBusy) return; // apertou de novo enquanto ainda liga
+  shareBusy = true;
+  try { await quickShare(desktop ? await frontSource() : null); } finally { shareBusy = false; }
+}
+// o que está na frente agora; app desktop antigo (sem a função): o jogo aberto, senão a primeira tela
+async function frontSource() {
+  if (desktop.foregroundSource) return desktop.foregroundSource().catch(() => null);
+  return (await findGameSource()) || (await desktop.getSources?.().catch(() => []))?.find(s => s.type === 'screen') || null;
 }
 async function findGameSource(g) {
   if (!desktop?.getSources) return null;
   const list = (await desktop.getSources().catch(() => [])).filter(s => s.type === 'window' && s.game);
   return (g && list.find(s => s.name === g.title)) || list[0] || null;
 }
-async function quickShareGame(src) {
+// transmite src (app desktop) com as últimas configurações; no navegador (src null) o próprio navegador pede a tela
+async function quickShare(src) {
   hideGameOffer();
+  if (desktop && !src) { clipFlash(false, 'Transmissão não iniciada', 'Nada para transmitir', 'share'); return; }
   const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen };
-  const cap = await desktop.appAudioCapable?.().catch(() => null);
   const mode = o.audio === false ? 'none' : o.audioMode === 'system' ? 'system' : 'game';
   o.audio = mode !== 'none';
-  const appAudio = !cap?.ok || mode === 'none' ? null : mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name } : { mode: 'exclude' };
-  if (!(await desktop.selectSource(src.id, src.name).catch(() => false))) return startShare();
+  let appAudio = null;
+  if (src && o.audio && (await desktop.appAudioCapable?.().catch(() => null))?.ok) // 'game' = só o programa da frente; na tela inteira, tudo menos a Resenha
+    appAudio = mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name } : { mode: 'exclude' };
+  if (src && !(await desktop.selectSource(src.id, src.name).catch(() => false))) { clipFlash(false, 'Transmissão não iniciada', null, 'share'); return; }
   await voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
-  if (voice.screen) clipFlash(true, 'Transmitindo', src.name, 'share');
+  if (voice.screen) clipFlash(true, 'Transmitindo', src?.name, 'share');
+  else clipFlash(false, 'Transmissão não iniciada', null, 'share');
 }
 // jogo aberto na chamada e sem transmitir: oferece transmitir o jogo (uma vez por jogo em cada sala)
 const offeredGames = new Set();
@@ -2667,7 +2677,7 @@ function offerGameShare(g) {
     g.icon ? h('img.go-ic', { src: String(g.icon).startsWith('data:') ? g.icon : 'data:image/png;base64,' + g.icon, alt: '' }) : h('div.go-ic.ph', icon('gamepad', 22)),
     h('div.go-txt', h('b', `Jogando ${g.title}?`), h('small', `Transmita o jogo para a sala. Atalho: ${key}`)),
     h('div.go-acts',
-      h('button.btn.green', { type: 'button', onclick: async () => { const s = await findGameSource(g); s ? quickShareGame(s) : (hideGameOffer(), startShare()); } }, icon('screen', 16), 'Transmitir'),
+      h('button.btn.green', { type: 'button', onclick: async () => { const s = await findGameSource(g); s ? quickShare(s) : (hideGameOffer(), startShare()); } }, icon('screen', 16), 'Transmitir'),
       h('button.btn.link', { type: 'button', onclick: hideGameOffer }, 'Agora não'),
       h('button.go-x', { type: 'button', title: 'Não perguntar mais (dá para religar em Configurações → Atalhos)', 'aria-label': 'Não perguntar mais', onclick: () => { S.prefs.gameShareOffer = false; savePrefs(); hideGameOffer(); toast('Não vou mais perguntar. Para religar: Configurações → Atalhos.'); } }, icon('x', 14))));
   document.body.append(el);
