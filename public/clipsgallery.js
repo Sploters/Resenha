@@ -68,7 +68,7 @@ function moreMenu(e, c) {
     { label: 'Assistir', icon: 'play', fn: () => player(st.clips.findIndex(x => x.id === c.id)) },
     canEdit(c) && { label: 'Renomear…', icon: 'edit', fn: () => rename(c) },
     { label: c.fav ? 'Tirar dos favoritos' : 'Favoritar', icon: 'star', fn: () => toggleFav(c) },
-    /\.webm\//.test(c.url) && { label: 'Cortar (cria uma cópia)…', icon: 'cliptrim', fn: () => trimCopy(c) },
+    /\.webm\//.test(c.url) && { label: 'Cortar', icon: 'cliptrim', fn: () => trimCopy(c) },
     { label: 'Baixar', icon: 'clipdl', hint: mb(c.size), fn: () => { const a = h('a', { href: clipVideoLink(c) + '?download=1', download: fileName(c) }); document.body.append(a); a.click(); a.remove(); } },
     { label: 'Ir para a mensagem', icon: 'dm', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
     { label: 'Compartilhar…', icon: 'clipshare', fn: () => ctx.share?.(c) },

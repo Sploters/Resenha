@@ -60,7 +60,7 @@ try {
   const t2 = await P.evaluate(async () => { const { trimWebm } = await window.__lc.import('webm.js'); const r = trimWebm(window.__t1, 1500, 3500); window.__t2 = r.bytes; return { s: r.startMs, e: r.endMs }; });
   const p2 = await probe('window.__t2');
   ok(p2.ended && Math.abs(p2.dur - (t2.e - t2.s) / 1000) < 0.4, 'cortar de novo um clipe já cortado (arquivo da galeria) funciona', { ...t2, ...p2 });
-  // ---------- galeria: Cortar (cria uma cópia) ----------
+  // ---------- galeria: Cortar (cria uma cópia; o original fica) ----------
   const up = await P.evaluate(async (cid) => {
     const tk = localStorage.lc_token, blob = new Blob([window.__orig], { type: 'video/webm' });
     const u = await (await fetch('/api/upload?name=clipe.webm', { method: 'POST', headers: { authorization: 'Bearer ' + tk, 'content-type': 'video/webm' }, body: blob })).json();
@@ -68,12 +68,12 @@ try {
   }, vch.id);
   await P.evaluate((gid) => window.__lc.go(gid, 'clips'), g.id); await sleep(1200);
   await P.evaluate(() => document.querySelector('#clipsview .clipcard .cbtns button[title="Mais opções"]').click()); await sleep(300);
-  ok(await P.evaluate(() => [...document.querySelectorAll('.menu .item, .menu button, .menu div')].some(x => /Cortar \(cria uma cópia\)/.test(x.textContent))), 'menu do clipe tem "Cortar (cria uma cópia)…"');
+  ok(await P.evaluate(() => [...document.querySelectorAll('.menu .item, .menu button, .menu div')].some(x => /^Cortar$/.test(x.textContent))), 'menu do clipe tem "Cortar"');
   // conexão lenta (~1 Mb/s): o editor tem que abrir na hora, tocando do servidor, enquanto o arquivo baixa
   const cdp = await P.createCDPSession(); await cdp.send('Network.enable');
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: 125000, uploadThroughput: 1e7 });
   const t0 = Date.now();
-  await P.evaluate(() => [...document.querySelectorAll('.menu *')].find(x => x.children.length === 0 && /Cortar \(cria uma cópia\)/.test(x.textContent))?.click());
+  await P.evaluate(() => [...document.querySelectorAll('.menu *')].find(x => x.children.length === 0 && /^Cortar$/.test(x.textContent))?.click());
   await P.waitForSelector('.trimmer .trtrack', { timeout: 8000 });
   const openMs = Date.now() - t0;
   ok(openMs < 1000, 'editor abre na hora mesmo com conexão lenta', { openMs });
