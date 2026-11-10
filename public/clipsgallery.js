@@ -72,8 +72,7 @@ function moreMenu(e, c) {
     { label: 'Baixar', icon: 'clipdl', hint: mb(c.size), fn: () => { const a = h('a', { href: clipVideoLink(c) + '?download=1', download: fileName(c) }); document.body.append(a); a.click(); a.remove(); } },
     { label: 'Ir para a mensagem', icon: 'dm', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
     { label: 'Compartilhar…', icon: 'clipshare', fn: () => ctx.share?.(c) },
-    { label: 'Copiar link do clipe', icon: 'link', hint: 'Abre o clipe no Resenha; vale mesmo depois de renomear', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
-    { label: 'Copiar link do vídeo', icon: 'link', hint: 'Arquivo direto, com o nome atual', fn: () => { navigator.clipboard?.writeText(clipVideoLink(c)); toast('Link do vídeo copiado'); } },
+    { label: 'Copiar link do clipe', icon: 'link', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
     canEdit(c) && '-',
     canEdit(c) && { label: 'Apagar clipe', icon: 'cliptrash', danger: true, fn: () => remove(c) },
   ]);
