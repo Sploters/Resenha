@@ -43,10 +43,15 @@ async function ensureModule(ctx, name) {
 // Cria o microfone processado. Retorna { raw, stream, analyser, dispose, setLoopback }
 export async function createMic(prefs, ctx) {
   const mode = prefs.noiseMode || 'standard';
-  const raw = await navigator.mediaDevices.getUserMedia({ audio: {
-    deviceId: prefs.inputId ? { exact: prefs.inputId } : undefined,
+  const want = (id) => ({ audio: { deviceId: id ? { exact: id } : undefined,
     echoCancellation: prefs.echo !== false, noiseSuppression: mode === 'standard',
     autoGainControl: prefs.agc !== false, channelCount: 1, sampleRate: 48000 }, video: false });
+  let raw;
+  try { raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)); } catch (e) {
+    // microfone escolhido não encontrado (desconectado, id novo): usa o padrão agora, SEM apagar a escolha — volta quando ele voltar
+    if (!prefs.inputId || !/Overconstrained|NotFound/.test(e?.name || '')) throw e;
+    raw = await navigator.mediaDevices.getUserMedia(want(''));
+  }
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
   const out = { raw, nodes, error: null, processed: false };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
@@ -111,6 +116,7 @@ export class Voice {
 
   async buildMic() {
     const gen = (this._micGen = (this._micGen || 0) + 1);
+    await this.resolveDevices?.(); // o id do microfone mudou (atualização, driver, outra porta USB): acha o mesmo pelo nome
     this.micGraph?.dispose(); this.micGraph = null; this.analysers.get(this.myId)?.src.disconnect(); this.analysers.delete(this.myId);
     const g = await createMic(this.prefs, this.getCtx());
     // outra montagem começou enquanto esta carregava (ex.: trocar o filtro várias vezes): esta já nasce velha e é desligada

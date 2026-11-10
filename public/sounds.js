@@ -37,6 +37,9 @@ export const SOUND_DEFS = {
   friend: ['Pedido de amizade', 'chat'], error: ['Erro', 'chat'],
 };
 const OFF_BY_DEFAULT = new Set(['message', 'error']);
+// volume de cada grupo (por cima do volume geral e do volume de cada som): "Volume das notificações" = grupo chat
+export const SOUND_GROUP_VOL = { chat: 'notifVolume', voz: 'voiceSoundVolume', transmissão: 'streamSoundVolume' };
+const groupVol = (name) => (S.prefs[SOUND_GROUP_VOL[SOUND_DEFS[name]?.[1]]] ?? 100) / 100;
 
 export const soundCfg = (name) => {
   const all = (S.prefs.soundCfg ||= {});
@@ -54,7 +57,7 @@ export function playSound(name, { force = false } = {}) {
   try {
     const cfg = soundCfg(name);
     if (!force && (!cfg.on || S.prefs.soundsMuted)) return;
-    const vol = (S.prefs.soundVolume ?? 80) / 100 * (cfg.vol ?? 100) / 100;
+    const vol = (S.prefs.soundVolume ?? 80) / 100 * groupVol(name) * (cfg.vol ?? 100) / 100;
     if (vol <= 0) return;
     if (cfg.url) {
       let a = cache.get(cfg.url); if (!a) cache.set(cfg.url, a = new Audio(cfg.url));

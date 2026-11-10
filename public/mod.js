@@ -43,10 +43,10 @@ export function bansPage(gid) {
 
 const ACTIONS = {
   member_kick: 'expulsou', member_ban: 'baniu', member_unban: 'desbaniu', member_timeout: 'deu castigo a', member_timeout_remove: 'tirou o castigo de',
-  member_roles: 'alterou os cargos de', message_delete: 'apagou uma mensagem de', role_create: 'criou o cargo', role_update: 'editou o cargo', role_delete: 'excluiu o cargo',
+  member_roles: 'alterou os cargos de', message_delete: 'apagou uma mensagem de', message_spoiler: 'marcou como spoiler uma mensagem de', message_unspoiler: 'tirou o spoiler de uma mensagem de', role_create: 'criou o cargo', role_update: 'editou o cargo', role_delete: 'excluiu o cargo',
   channel_create: 'criou o canal', channel_update: 'editou o canal', channel_delete: 'excluiu o canal', guild_update: 'editou o servidor', guild_transfer: 'transferiu o servidor para', invite_delete: 'revogou o convite',
 };
-const USER_TARGET = /^(member_|message_delete|guild_transfer)/;
+const USER_TARGET = /^(member_|message_delete|message_spoiler|message_unspoiler|guild_transfer)/;
 export function auditPage(gid) {
   const box = h('div'), more = h('button.btn.grey', { style: { marginTop: '12px' } }, 'Carregar mais');
   const names = new Map();

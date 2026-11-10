@@ -14,7 +14,7 @@ import { isLauncher } from './launchers.js';
 const LOCAL_STALE_MS = 90000; // o app desktop informa o jogo a cada ~20 s
 const MIN_SECS = 30, MAX_BACKOFF_MS = 15 * 60 * 1000, KEEP_DAYS = 30, KEEP_PER_USER = 200, STALE_X = 3;
 
-export function createActivityService({ all, get, run, newId, dispatch, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, now = () => Date.now(), log = () => { } }) {
+export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, now = () => Date.now(), log = () => { } }) {
   const intervalMs = () => +process.env.ACTIVITY_POLL_MS || Math.max(MIN_SECS, +process.env.STEAM_POLL_SECS || 60) * 1000; // ACTIVITY_POLL_MS: só para testes
   const current = new Map();   // `${uid}:${platform}` -> { uid, platform, game:{id,title}, since, state, at }  (só o que está PUBLICADO)
   const cache = new Map();     // `${platform}:${external_id}` -> { snap, at }  (último snapshot, evita reconsultar)
@@ -31,12 +31,14 @@ export function createActivityService({ all, get, run, newId, dispatch, isOnline
   const guildPeers = (uid) => all('SELECT DISTINCT m2.user_id id FROM members m1 JOIN members m2 ON m2.guild_id=m1.guild_id WHERE m1.user_id=? AND m2.user_id<>?', uid, uid).map(r => r.id);
   const canSee = (viewer, owner, platform) => {
     if (viewer === owner) return true;
+    if (!presenceOk(viewer, owner)) return false; // escolheu quem vê a atividade (server/privacy.js): vale para todas as plataformas
     if (platform === 'pc') { const v = pcVis(owner); return v !== 'off' && (areFriends(viewer, owner) || (v === 'servers' && shareGuild(viewer, owner))); }
     const a = acct(owner, platform);
     return !!a && a.visibility === 'friends' && areFriends(viewer, owner);
   };
   // quem recebe os eventos de `owner`: ele mesmo + amigos aceitos, se a atividade está compartilhada
-  const audience = (owner, platform) => {
+  const audience = (owner, platform) => base(owner, platform).filter(v => v === owner || presenceOk(v, owner));
+  const base = (owner, platform) => {
     if (platform === 'pc') { const v = pcVis(owner); return v === 'off' ? [owner] : [...new Set([owner, ...friendsOf(owner), ...(v === 'servers' ? guildPeers(owner) : [])])]; }
     const a = acct(owner, platform);
     return a && a.visibility === 'friends' ? [owner, ...friendsOf(owner)] : [owner];
@@ -219,6 +221,11 @@ export function createActivityService({ all, get, run, newId, dispatch, isOnline
       const all0 = new Set([...friendsOf(uid), ...guildPeers(uid)]);
       for (const v of all0) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: 'pc', activity: canSee(v, uid, 'pc') ? pub(e) : null });
       void before;
+    },
+    // mudou quem pode ver a atividade (privacidade da presença): cada um recebe o atual ou "parou", conforme pode ver agora
+    onPresencePrivacy(uid) {
+      const cands = new Set([...friendsOf(uid), ...guildPeers(uid)]);
+      for (const e of current.values()) if (e.uid === uid) for (const v of cands) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: e.platform, activity: canSee(v, uid, e.platform) ? pub(e) : null });
     },
     onGameHidden(uid, platform, gameId) { const cur = current.get(uid + ':' + platform); if (cur?.game.id === gameId) clear(uid, platform, { why: 'hidden' }); },
     // amizade criada/desfeita: cada lado passa a ver (ou deixa de ver) o que o outro está jogando, na hora

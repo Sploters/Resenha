@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 export const CALL_INVITE_TTL = 5 * 60 * 1000;
 const RESEND_MS = 20 * 1000; // o mesmo convite pendente não é reenviado (nem toca de novo) antes disso
 
-export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, userPub, dispatch, postDm, now = () => Date.now() }) {
+export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, userPub, dispatch, postDm, canCall = () => true, now = () => Date.now() }) {
   const invites = new Map(); // id -> { id, from, to, guild_id, channel_id, created, expires, state }
 
   const stateOf = (i) => (i.state === 'pending' && now() > i.expires ? 'expired' : i.state);
@@ -29,6 +29,7 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     if (isBlocked(from, to)) return { error: 'Não foi possível convidar esta pessoa', status: 403 };
     // só amigos ou quem já está no servidor (evita convite de desconhecidos)
     if (!isFriend(from, to) && !isMember(ch.guild_id, to)) return { error: 'Só dá para convidar amigos ou membros deste servidor', status: 403 };
+    if (!canCall(from, to)) return { error: 'Essa pessoa não está aceitando chamadas', status: 403, code: 'calls_off' };
     if (isBanned(ch.guild_id, to)) return { error: 'Esta pessoa foi banida deste servidor', status: 403 };
     if (voiceChannelOf(to) === cid) return { error: 'Essa pessoa já está na chamada', status: 400 };
     // idempotente: mesmo par e mesma sala com convite pendente recente -> devolve o mesmo
