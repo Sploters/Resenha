@@ -531,3 +531,33 @@ body:has(#auth:not(.hidden)) #layer { z-index: 101; }
 .mubot { flex: 1; display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; font-weight: 700; color: var(--header, #fff); }
 .mubot i { width: 8px; height: 8px; border-radius: 50%; background: var(--mu); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mu) 30%, transparent); }
 .mubot small { font-weight: 500; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- bot de música: visual próprio (não é uma pessoa) ---------- */
+.avatar.botav, .botav { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 28%; color: #fff;
+  background: linear-gradient(140deg, #a855f7, #6366f1 55%, #0ea5e9); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.botav.sm { width: 18px; height: 18px; border-radius: 6px; }
+.bottag { flex: none; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; line-height: 1; padding: 3px 5px; border-radius: 4px;
+  color: #fff; background: linear-gradient(90deg, #a855f7, #6366f1); }
+.vuser.vbot { position: relative; }
+.vuser.vbot .nm { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.vuser.vbot .botnm { font-weight: 600; color: #c4b5fd; flex: none; }
+.vuser.vbot .botnow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11.5px; }
+.boteq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: none; margin-left: auto; }
+.boteq i { width: 3px; height: 4px; border-radius: 1px; background: #a855f7; }
+.boteq.on i { animation: boteq .9s ease-in-out infinite; }
+.boteq.on i:nth-child(2) { animation-delay: -.3s; } .boteq.on i:nth-child(3) { animation-delay: -.6s; }
+@keyframes boteq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+@media (prefers-reduced-motion: reduce) { .boteq.on i { animation: none; height: 8px; } }
+.tile.bottile { cursor: pointer; background: radial-gradient(120% 120% at 0% 0%, #2e1065, #111827 60%, #0c4a6e); border-color: rgba(168,85,247,.35); border-style: dashed; }
+.tile.bottile.playing { border-style: solid; border-color: rgba(168,85,247,.7); }
+.bottile .botbg { position: absolute; inset: -20px; background: center / cover no-repeat; filter: blur(22px) brightness(.45) saturate(1.3); }
+.bottile .botcard { position: relative; display: flex; align-items: center; gap: 14px; max-width: 86%; padding: 12px; }
+.bottile .botart { width: 88px; height: 88px; flex: none; border-radius: 10px; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.bottile .botart.ph { display: flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(140deg, #a855f7, #6366f1 55%, #0ea5e9); }
+.bottile.playing .botart { animation: botpulse 2.4s ease-in-out infinite; }
+@keyframes botpulse { 50% { box-shadow: 0 8px 30px rgba(168,85,247,.55); } }
+.bottile .botinfo { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #fff; }
+.bottile .botinfo b { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.bottile .botinfo small { color: rgba(255,255,255,.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bottile .label { z-index: 1; }
+@media (max-width: 520px) { .bottile .botart { width: 56px; height: 56px; } .bottile .botinfo b { font-size: 13px; } }

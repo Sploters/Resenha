@@ -116,7 +116,10 @@ async function request(method, path, body) {
 export const tryApi = async (...a) => { try { return await api(...a); } catch (e) { toast(e.message, true); return null; } };
 
 // ---------- consultas ----------
-export const user = (id) => S.users.get(id) || { id, username: 'desconhecido', display_name: 'Usuário desconhecido', status: 'offline' };
+// bot de música: não é uma pessoa nem membro do servidor; o estado de voz dele traz { kind, n, name }
+export const botOf = (id) => S.voice.get(id)?.bot || null;
+export const user = (id) => { const b = botOf(id); if (b) return { id, username: 'bot', display_name: b.name || 'Música', bot: b, status: 'online' };
+  return S.users.get(id) || { id, username: 'desconhecido', display_name: 'Usuário desconhecido', status: 'offline' }; };
 export const guild = (id) => S.guilds.get(id);
 export function channelById(id) {
   if (S.dms.has(id)) return S.dms.get(id);

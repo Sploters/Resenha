@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-10-3', title: 'Música mais leve',
+    items: [
+      { i: 'music', t: 'Tempo da música à vista', d: 'A barra do painel de música agora anda junto com a música, então dá para ver em que ponto ela está e pular para qualquer parte.' },
+      { i: 'bolt', t: 'Pausar e continuar na hora', d: 'Continuar depois de pausar é instantâneo, sem recarregar a música, e pular para um ponto leva uma fração de segundo. A primeira música da busca já começa a carregar enquanto você escolhe, e a próxima da fila fica pronta antes de a atual acabar.' },
+      { i: 'sparkle', t: 'O bot não é uma pessoa', d: 'O bot de música saiu da lista de membros: não tem perfil, não dá para adicionar, expulsar nem banir. Na sala ele aparece com um visual próprio, a etiqueta BOT e a música que está tocando. Clique nele para abrir o painel.' },
+    ],
+  },
+  {
     id: '2026-11-10-2', title: 'Bot de música',
     items: [
       { i: 'music', t: 'Música na sala de voz', d: 'O botão de música do painel de voz voltou: busque pelo nome (e escolha o resultado) ou cole um link do YouTube, Spotify, SoundCloud… O bot entra na sala e toca para todos, com fila, tocar a seguir, voltar, repetir, embaralhar e uma barra para pular para qualquer ponto.' },

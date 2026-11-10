@@ -217,6 +217,7 @@ export function imgUrl(url, size) {
 }
 // foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
 export function avatar(u, size = 40, opts = {}) {
+  if (u?.bot) return h('div.avatar.botav', { style: { width: size + 'px', height: size + 'px' }, title: 'Bot de música' }, icon('musicbot', Math.round(size * .56)));
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.color || '#5865f2' } });
   if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { style: { borderColor: opts.ring || '' } }));

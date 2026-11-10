@@ -33,7 +33,9 @@ const act = (op, extra) => musicCmd(op, extra).catch(e => { toast(e.message, tru
 
 const fmt = (s) => { s = Math.max(0, Math.round(s)); const hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60; return (hh ? hh + ':' + String(mm).padStart(2, '0') : mm) + ':' + String(s % 60).padStart(2, '0'); };
 const who = (id) => (id === state?.bot_id ? 'automático' : S.users.get(id)?.display_name || 'alguém');
-const elapsedMs = () => (state?.current ? state.elapsed + (state.paused || state.loading ? 0 : Date.now() - recvAt.t) : 0);
+const elapsedMs = () => (state?.current ? state.elapsed + (state.paused || state.loading || state.stalled ? 0 : Date.now() - recvAt.t) : 0);
+// resposta imediata no painel (o servidor confirma logo depois com o estado de verdade)
+const optimistic = (patch) => { if (!state?.current) return; state = { ...state, elapsed: elapsedMs(), ...patch }; recvAt.t = Date.now(); redraw?.(); };
 const isLink = (q) => /^https?:\/\//i.test(q);
 const LOOP = { off: ['Repetir', 'Repetir desligado'], track: ['Repetindo a música', 'Repetindo esta música'], queue: ['Repetindo a fila', 'Repetindo a fila inteira'] };
 const art = (t, cls = '.muart') => (t?.thumb ? h('img' + cls, { src: t.thumb, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer' }) : h('div' + cls + '.ph', icon('music', 18)));
@@ -65,16 +67,20 @@ export function openMusic(anchor, voice) {
   // ---------- tocando agora ----------
   const fill = h('div.mufill'), knob = h('i.muknob'), tCur = h('span', '0:00'), tEnd = h('span', '');
   const seekBar = h('div.mubar', { role: 'slider', 'aria-label': 'Posição na música', tabIndex: 0,
-    onclick: (e) => { const c = state?.current; if (!c?.duration) return; const r = seekBar.getBoundingClientRect(); act('seek', { ms: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * c.duration * 1000 }); },
-    onkeydown: (e) => { if (!state?.current) return; const d = e.key === 'ArrowRight' ? 10e3 : e.key === 'ArrowLeft' ? -10e3 : 0; if (d) { e.preventDefault(); e.stopPropagation(); act('seek', { ms: elapsedMs() + d }); } } }, h('div.mutrack', fill), knob);
+    onclick: (e) => { const c = state?.current; if (!c?.duration) return; const r = seekBar.getBoundingClientRect(); seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * c.duration * 1000); },
+    onkeydown: (e) => { if (!state?.current) return; const d = e.key === 'ArrowRight' ? 10e3 : e.key === 'ArrowLeft' ? -10e3 : 0; if (d) { e.preventDefault(); e.stopPropagation(); seekTo(elapsedMs() + d); } } }, h('div.mutrack', fill), knob);
+  const seekTo = (ms) => { const c = state?.current; ms = Math.max(0, Math.min(c?.duration ? c.duration * 1000 - 1000 : Infinity, ms)); optimistic({ elapsed: ms, loading: true }); act('seek', { ms }); };
+  const togglePause = () => { const p = !state.paused; optimistic({ paused: p }); act(p ? 'pause' : 'resume'); };
+  // o painel é montado depois do primeiro desenho: só para de atualizar quando ele sai da tela de verdade
+  let mounted = false;
   const tick = () => {
-    if (!document.body.contains(body)) return clearInterval(iv);
+    if (!body.isConnected) { if (mounted) clearInterval(iv); return; }
     const c = state?.current; if (!c) return;
     const el = Math.min(elapsedMs() / 1000, c.duration || Infinity), p = c.duration ? Math.min(100, el / c.duration * 100) + '%' : '0%';
     fill.style.width = p; knob.style.left = p;
-    tCur.textContent = state.loading ? 'carregando…' : fmt(el); tEnd.textContent = c.duration ? fmt(c.duration) : 'ao vivo';
+    tCur.textContent = state.loading ? 'carregando…' : state.stalled ? fmt(el) + ' · carregando…' : fmt(el); tEnd.textContent = c.duration ? fmt(c.duration) : 'ao vivo';
   };
-  const iv = setInterval(tick, 300);
+  const iv = setInterval(tick, 250);
   const ibtn = (ic, title, fn, cls = '') => h('button.muib' + cls, { type: 'button', title, 'aria-label': title, onclick: fn }, ic);
   const chip = (ic, label, on, title, fn) => h('button.muchip' + (on ? '.on' : ''), { type: 'button', title, 'aria-pressed': String(!!on), onclick: fn }, icon(ic, 14), label);
 
@@ -93,7 +99,7 @@ export function openMusic(anchor, voice) {
         h('div.mucontrols',
           ibtn(icon('shuffle', 18), 'Embaralhar a fila', () => act('shuffle'), state.queue.length > 1 ? '' : '.dim'),
           ibtn(icon('skip', 20), 'Voltar para a anterior', () => act('back'), '.back'),
-          ibtn(icon(state.paused ? 'play' : 'pause', 22), state.paused ? 'Continuar' : 'Pausar', () => act(state.paused ? 'resume' : 'pause'), '.main'),
+          ibtn(icon(state.paused ? 'play' : 'pause', 22), state.paused ? 'Continuar' : 'Pausar', togglePause, '.main'),
           ibtn(icon('skip', 20), 'Pular', () => act('skip')),
           ibtn([icon('refresh', 18), state.loop === 'track' ? h('i.mu1', '1') : null], LOOP[state.loop][1] + ' (clique para trocar)', () => act('loop'), state.loop !== 'off' ? '.on' : ''))));
   };
@@ -161,7 +167,7 @@ export function openMusic(anchor, voice) {
           state?.active && ui.tab === 'queue' && total > 0 && h('small.mutotal', fmt(total)),
           state?.active && ui.tab === 'queue' && h('button.muib.sm', { type: 'button', title: 'Mais opções da fila', 'aria-label': 'Mais opções da fila', onclick: queueMenu }, icon('more', 16))),
         tabBody(),
-        state?.active && h('div.mufoot', h('span.mubot', h('i'), state.bot_n > 1 ? `Música ${state.bot_n}` : 'Música', state.stay && h('small', ' · 24/7')),
+        state?.active && h('div.mufoot', h('span.mubot', h('span.botav.sm', icon('musicbot', 12)), state.bot_n > 1 ? `Música ${state.bot_n}` : 'Música', h('span.bottag', 'BOT'), state.stay && h('small', ' · 24/7')),
           state.current && h('button.mulink', { type: 'button', onclick: () => act('stop') }, icon('stop', 13), 'Parar'),
           h('button.mulink.red', { type: 'button', onclick: () => act('disconnect') }, icon('eject', 13), 'Tirar da sala')),
       ])].filter(Boolean));
@@ -176,7 +182,7 @@ export function openMusic(anchor, voice) {
   };
   if (!state?.active && ui.tab !== 'playlists') ui.tab = 'queue';
   draw();
-  const el = popout(anchor, body, 'up'); el.classList.add('mu-pop');
+  const el = popout(anchor, body, 'up'); el.classList.add('mu-pop'); mounted = true;
   const place = () => { const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect(); el.style.top = Math.max(8, Math.min(r.top - b.height - 12, innerHeight - b.height - 8)) + 'px'; el.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - b.width - 8)) + 'px'; };
   place(); new ResizeObserver(place).observe(body); // cresce com a fila/resultados sem sair da tela
   setTimeout(() => input.focus(), 30);
