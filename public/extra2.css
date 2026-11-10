@@ -580,3 +580,11 @@ body:has(#auth:not(.hidden)) #layer { z-index: 101; }
 #gameoffer .go-x:hover { background: var(--hov, rgba(255,255,255,.08)); color: var(--header, #fff); }
 @media (max-width: 560px) { #gameoffer { left: 16px; right: 16px; transform: none; width: auto; flex-wrap: wrap; } #gameoffer .go-acts { width: 100%; justify-content: flex-end; } }
 @media (prefers-reduced-motion: reduce) { #gameoffer { animation: none; } }
+
+/* ícone à esquerda nos itens de menu ({ icon }) */
+.menu .it.hasic { display: flex; align-items: center; gap: 10px; }
+.menu .it .mic { display: inline-flex; flex: none; width: 18px; height: 18px; opacity: .85; }
+.menu .it .mic .icon { fill: currentColor; }
+.menu .it.hasic:hover .mic { opacity: 1; }
+.share-row .btn.sent { display: inline-flex; align-items: center; gap: 5px; }
+.menu .it.hasic > .mlab, .menu .it.hasic > .itl { flex: 1; min-width: 0; text-align: left; }

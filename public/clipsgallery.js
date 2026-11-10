@@ -59,22 +59,23 @@ function card(c, i) {
       h('div.ctitle', { title: c.title }, c.title),
       h('div.cmeta', c.streamer && h('span', 'de ', h('b', who(c.streamer))), h('span', 'clipado por ', h('b', who(c.author))), h('span', ago(c.created_at))),
       h('div.cbtns', fav,
-        h('a.ibtn', { title: `Baixar (${mb(c.size)})`, href: clipVideoLink(c) + '?download=1', download: fileName(c), onclick: (e) => e.stopPropagation() }, icon('dl', 18)),
+        h('a.ibtn', { title: `Baixar (${mb(c.size)})`, href: clipVideoLink(c) + '?download=1', download: fileName(c), onclick: (e) => e.stopPropagation() }, icon('clipdl', 18)),
         h('button.ibtn', { title: 'Mais opções', onclick: (e) => { e.stopPropagation(); moreMenu(e, c); } }, icon('more', 18)))));
 }
 
 function moreMenu(e, c) {
   menu(e, [
-    { label: 'Assistir', fn: () => player(st.clips.findIndex(x => x.id === c.id)) },
-    canEdit(c) && { label: 'Renomear…', fn: () => rename(c) },
-    { label: c.fav ? 'Tirar dos favoritos' : 'Favoritar', fn: () => toggleFav(c) },
-    /\.webm\//.test(c.url) && { label: 'Cortar (cria uma cópia)…', fn: () => trimCopy(c) },
-    { label: 'Ir para a mensagem', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
-    { label: 'Compartilhar…', fn: () => ctx.share?.(c) },
-    { label: 'Copiar link do clipe', hint: 'Abre o clipe no Resenha; vale mesmo depois de renomear', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
-    { label: 'Copiar link do vídeo', hint: 'Arquivo direto, com o nome atual', fn: () => { navigator.clipboard?.writeText(clipVideoLink(c)); toast('Link do vídeo copiado'); } },
+    { label: 'Assistir', icon: 'play', fn: () => player(st.clips.findIndex(x => x.id === c.id)) },
+    canEdit(c) && { label: 'Renomear…', icon: 'edit', fn: () => rename(c) },
+    { label: c.fav ? 'Tirar dos favoritos' : 'Favoritar', icon: 'star', fn: () => toggleFav(c) },
+    /\.webm\//.test(c.url) && { label: 'Cortar (cria uma cópia)…', icon: 'cliptrim', fn: () => trimCopy(c) },
+    { label: 'Baixar', icon: 'clipdl', hint: mb(c.size), fn: () => { const a = h('a', { href: clipVideoLink(c) + '?download=1', download: fileName(c) }); document.body.append(a); a.click(); a.remove(); } },
+    { label: 'Ir para a mensagem', icon: 'dm', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
+    { label: 'Compartilhar…', icon: 'clipshare', fn: () => ctx.share?.(c) },
+    { label: 'Copiar link do clipe', icon: 'link', hint: 'Abre o clipe no Resenha; vale mesmo depois de renomear', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
+    { label: 'Copiar link do vídeo', icon: 'link', hint: 'Arquivo direto, com o nome atual', fn: () => { navigator.clipboard?.writeText(clipVideoLink(c)); toast('Link do vídeo copiado'); } },
     canEdit(c) && '-',
-    canEdit(c) && { label: 'Apagar clipe', danger: true, fn: () => remove(c) },
+    canEdit(c) && { label: 'Apagar clipe', icon: 'cliptrash', danger: true, fn: () => remove(c) },
   ]);
 }
 // corta um clipe da galeria: o original fica; a cópia cortada vira um clipe novo no mesmo canal.
@@ -121,8 +122,8 @@ function player(i, list = st.clips, opts = {}) {
   const title = h('b.pttl'), meta = h('div.pmeta'), prev = h('button.pnav.prev', { title: 'Anterior (←)', onclick: () => show(cur - 1) }, icon('chevl', 28)), next = h('button.pnav.next', { title: 'Próximo (→)', onclick: () => show(cur + 1) }, icon('chevr', 28));
   const pen = h('button.ibtn.pedit', { title: 'Renomear', onclick: () => editTitle() }, icon('edit', 16));
   const trow = h('div.ptrow', title, pen);
-  const dl = h('a.btn.grey', { download: '' }, icon('dl', 16), 'Baixar');
-  const shareBtn = h('button.btn', { type: 'button', onclick: () => ctx.share?.(list[cur]) }, icon('link', 16), 'Compartilhar');
+  const dl = h('a.btn.grey', { download: '' }, icon('clipdl', 16), 'Baixar');
+  const shareBtn = h('button.btn', { type: 'button', onclick: () => ctx.share?.(list[cur]) }, icon('clipshare', 16), 'Compartilhar');
   // fora da galeria: atalho para a galeria do servidor (e para a mensagem no chat)
   const member = (c) => !!c && S.guilds.has(c.guild_id); // recebeu por link e não é do servidor: sem atalhos para a galeria/mensagem
   const extra = opts.standalone && member(list[cur]) && [h('button.btn.grey', { onclick: () => { dlg.close(); galleryFocus(list[cur].id); ctx.go(list[cur].guild_id, 'clips'); } }, icon('clip', 16), 'Ver na galeria'),

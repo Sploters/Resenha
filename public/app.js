@@ -1721,8 +1721,8 @@ function shareClipModal(c) {
         const btn = e.currentTarget; btn.disabled = true;
         const content = (note.value.trim() ? note.value.trim() + '\n' : '') + clipLink(c.id);
         const ok = await tryApi('POST', `/channels/${r.id}/messages`, { content });
-        if (ok) { sent.add(r.id); btn.textContent = 'Enviado'; btn.classList.add('grey'); } else btn.disabled = false;
-      } }, sent.has(r.id) ? 'Enviado' : 'Enviar'))), !rows.length && h('div.dm-empty', 'Nada encontrado'));
+        if (ok) { sent.add(r.id); btn.replaceChildren(icon('clipcheck', 14), 'Enviado'); btn.classList.add('grey', 'sent'); } else btn.disabled = false;
+      } }, ...(sent.has(r.id) ? [icon('clipcheck', 14), 'Enviado'] : ['Enviar'])))), !rows.length && h('div.dm-empty', 'Nada encontrado'));
   };
   q.oninput = draw;
   const copy = h('button.btn.grey', { type: 'button', onclick: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } }, icon('link', 16), 'Copiar link');
@@ -2534,10 +2534,10 @@ function clipFlash(ok, title, sub, kind) { // kind 'share': ícone de tela (atal
 // clipes: ligados por padrão para as transmissões dos outros; na sua própria só se você ativar (codificar o próprio jogo duas vezes pesa)
 const clipsAuto = (mine) => (mine ? S.prefs.clipsOn === true : S.prefs.clipsOn !== false);
 function clipMenu(e, key, who) {
-  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', hint: 'Grava os últimos 60s das transmissões em segundo plano', fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
-  menu(e, [...clipLengths.map(n => ({ label: `Salvar os últimos ${n}s`, hint: 'Posta no chat da sala', fn: () => saveClip(key, n, { channelId: voice.channelId, who }) })),
-    { label: 'Salvar e cortar…', hint: 'Escolhe o trecho dos últimos 60s antes de postar', fn: () => saveClipTrim(key, { channelId: voice.channelId, who }) }, '-',
-    { label: 'Desativar clipes', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
+  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', icon: 'clipsparkle', hint: 'Grava os últimos 60s das transmissões em segundo plano', fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
+  menu(e, [...clipLengths.map(n => ({ label: `Salvar os últimos ${n}s`, icon: 'clip', hint: 'Posta no chat da sala', fn: () => saveClip(key, n, { channelId: voice.channelId, who }) })),
+    { label: 'Salvar e cortar…', icon: 'cliptrim', hint: 'Escolhe o trecho dos últimos 60s antes de postar', fn: () => saveClipTrim(key, { channelId: voice.channelId, who }) }, '-',
+    { label: 'Desativar clipes', icon: 'x', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
 }
 const ctxSettings = () => ({ voice, logout, go });
 function noiseMenu(e) {
