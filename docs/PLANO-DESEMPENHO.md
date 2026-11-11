@@ -120,6 +120,15 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       (2) A 1ª abertura dos **emojis** era o INP: 144 ms de layout + 118 ms desenhando as letras coloridas. Emojis em blocos
       de 5 linhas com `content-visibility` + fonte aquecida aos poucos com a aba parada: **328 → ~100 ms**. E o "Adicionar
       amigo" aceita `@nome` e qualquer caixa (os 404 do console eram o nome não batendo).
+- [x] ★ **Traces e heap de uma sessão real** (2026-11-11, 2 traces de 5 s abrindo o app e rolando o Descobrir + heap).
+      Estava bem: sem tarefa longa depois de abrir (a maior, 37 ms, é a 1ª pintura do Descobrir), cliques ≤ 15 ms, rolagem
+      com 12% da thread principal, memória JS 4–5 MB. Achados e corrigidos: (1) o aquecimento dos emojis caía na abertura
+      do app — 10 lotes de 15–30 ms de layout (~150 ms) entre 0,3 e 0,5 s, com a thread 70% ocupada → começa 4 s depois,
+      lotes de 6 e só em folga de ≥ 12 ms (o painel continua abrindo em ~100 ms); (2) dos 1.288 elementos desanexados do
+      heap, ~600 eram do app: o cache de linhas da lista de membros segurava o `#members` antigo e, por ele, o chat antigo
+      inteiro (mensagens, mensagens de voz com as barras e ouvintes), e o Descobrir segurava a própria tela depois de sair.
+      Agora soltam ao trocar de tela (`releaseOldScreens`). O resto era o DevTools (o painel Elements guarda o que mostrou).
+      Teste: `scripts/screen-release-test.mjs` (WeakRef + coleta de lixo; a versão anterior falha nos dois).
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
 - [x] ★ **Dados grandes** (2026-11-11, `scripts/load/seed-big.mjs` + `scripts/perf-big.mjs`): 5.000 membros, 1.000 canais
       em 50 categorias, 8 cargos, 100 mil mensagens, 500 conversas diretas, 600 pessoas conectadas. Achados e corrigidos:

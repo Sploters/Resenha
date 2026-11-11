@@ -283,6 +283,8 @@ function draw() {
   if (typing !== null) { const inp = root.querySelector('.dint-in'); if (inp) { inp.value = typing; inp.focus(); } }
 }
 
+// saiu da tela: solta a tela antiga (dados e escolhas ficam para a volta)
+export function release() { if (st.root && !st.root.isConnected) { st.root = null; dirty.clear(); drawAll = false; if (drawQ) { cancelAnimationFrame(drawQ); drawQ = 0; } } }
 export function renderDiscover(main) {
   st.root = h('div#discoverview'); main.replaceChildren(st.root); st.sy = 0; st.sx = {};
   st.root.addEventListener('scroll', (e) => { const t = e.target; if (t.classList?.contains('dbodywrap')) st.sy = t.scrollTop; else if (t.dataset?.rail) st.sx[t.dataset.rail] = t.scrollLeft; }, { capture: true, passive: true });

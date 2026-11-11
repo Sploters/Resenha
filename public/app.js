@@ -28,7 +28,15 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch } from './lite.j
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
-const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
+let discoverMod = null;
+const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
+// Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
+// lista de membros segurava o #members antigo — e, por ele, o chat antigo inteiro (~600 elementos, mensagens de voz com
+// as barras e os ouvintes) —; o Descobrir segurava a própria tela depois de sair dela. Uma tela de cada vez, mas à toa.
+function releaseOldScreens() {
+  if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
+  discoverMod?.release();
+}
 import { initFiles, renderFiles, filesPreset, onFilesMessage } from './files.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
@@ -1542,6 +1550,7 @@ const renderHomeIfHome = () => { if (S.view.kind === 'home') renderMain(); };
 function renderMain() {
   const main = $('#main'); if (!main) return;
   const v = S.view;
+  setTimeout(releaseOldScreens); // depois de trocar a tela: solta o que guardava a tela anterior
   if (v.kind === 'home') return renderHome(main);
   if (v.kind === 'clips') return renderClips(main, v.gid);
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });

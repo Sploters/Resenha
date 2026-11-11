@@ -392,20 +392,26 @@ export function emojiPicker(anchor, onPick, opts = {}) {
 }
 // Com a aba parada, diagrama os emojis do painel escondido, aos poucos: a 1ª busca da fonte colorida de cada emoji
 // (cara no Windows) sai do clique que abre o painel. Uma vez por sessão; sem efeito na tela.
+// Trace real (2026-11-11): 24 emojis por vez custavam 15–30 ms de layout cada e os 10 lotes caíam logo na abertura do app
+// (~150 ms entre 0,3 e 0,5 s, com a thread principal 70% ocupada). Agora começa 4 s depois de chamado, lotes de 6 e só
+// quando o navegador dá uma folga de pelo menos 12 ms (senão espera a próxima); sem prazo, para não furar a fila.
 let emojiWarm = false;
 export function warmEmojis() {
   if (emojiWarm) return; emojiWarm = true;
-  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f, { timeout: 5000 }) : (f) => setTimeout(f, 300);
+  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f) : (f) => setTimeout(() => f({ timeRemaining: () => 50 }), 300);
   const all = Object.values(EMOJIS).flat(); let i = 0;
   const box = h('div.emoji-grid', { 'aria-hidden': 'true', style: { position: 'fixed', left: '0', top: '0', width: '336px', visibility: 'hidden', pointerEvents: 'none', contain: 'layout style size', height: '0', overflow: 'hidden' } });
-  const step = () => {
+  const step = (dl) => {
     if (i >= all.length) return box.remove();
-    box.replaceChildren(...all.slice(i, i += 24).map(e => h('span', e)));
-    if (!box.isConnected) document.body.append(box);
-    void box.firstChild.getBoundingClientRect(); // diagrama agora, nesta folga
+    if (document.hidden) return setTimeout(() => idle(step), 2000); // aba escondida: a fonte não muda, espera voltar
+    while (i < all.length && dl.timeRemaining() > 12) {
+      box.replaceChildren(...all.slice(i, i += 6).map(e => h('span', e)));
+      if (!box.isConnected) document.body.append(box);
+      void box.firstChild.getBoundingClientRect(); // diagrama agora, nesta folga
+    }
     idle(step);
   };
-  idle(step);
+  setTimeout(() => idle(step), 4000);
 }
 export const lightbox = (src, opts) => openViewer(src, opts);
 
