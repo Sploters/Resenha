@@ -124,8 +124,9 @@ export function openMicPanel(anchor, voice, { openSettings } = {}) {
   const el = popout(anchor, body, 'up'); el.classList.add('quick');
   const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();
   el.style.top = Math.max(8, r.top - b.height - 10) + 'px'; el.style.left = Math.max(8, Math.min(r.left - 20, innerWidth - b.width - 8)) + 'px';
+  voice.holdMic?.(true); // mutado: o medidor continua mostrando o microfone enquanto o teste está aberto
   const iv = setInterval(() => {
-    if (!document.body.contains(body)) { clearInterval(iv); if (loop) voice.micGraph?.setLoopback(false); return; }
+    if (!document.body.contains(body)) { clearInterval(iv); voice.holdMic?.(false); if (loop) voice.micGraph?.setLoopback(false); return; }
     const lv = voice.analysers.get(voice.myId)?.level || 0;
     fill.style.width = Math.min(100, Math.round(lv * 160)) + '%'; fill.classList.toggle('hot', lv > .55);
   }, 80);

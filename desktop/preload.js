@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   onUpdate: (cb) => ipcRenderer.on('update-available', (_e, v) => cb(v)),
   saveServer: (url) => ipcRenderer.invoke('save-server', url),
   setThrottle: (on) => ipcRenderer.send('set-throttle', !!on),
+  // janela minimizada/na bandeja: { hidden } (desde a 1.0.25). Sem desaceleração o Electron não muda document.hidden sozinho
+  onWindowState: (() => { let cb = null, last = null; ipcRenderer.on('win-state', (_e, s) => { last = s; cb?.(s); }); return (f) => { cb = f; if (last) f(last); }; })(),
   // controle remoto: só mouse e teclado, com o programa nativo; ver desktop/remote.js
   remoteCapable: () => ipcRenderer.invoke('remote-capable'),
   remoteStart: (o) => ipcRenderer.invoke('remote-start', o),

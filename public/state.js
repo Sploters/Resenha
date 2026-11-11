@@ -121,6 +121,19 @@ export function relite(remote, local) {
   }
 }
 export const desktop = window.lcDesktop || null; // ponte do app Electron (preload)
+// App desktop: a janela roda sem desaceleração (backgroundThrottling: false, para voz, atalhos e clipes não atrasarem) e, com
+// isso, o Electron nunca marca a página como escondida: minimizada ou na bandeja ela seguia "visível" — baixando o vídeo da
+// transmissão assistida, medindo ping 1x/s, desenhando quem fala. O app (desde a 1.0.25) avisa o estado real da janela e
+// aqui document.hidden/visibilityState passam a refletir isso; todo o resto do app já reage a 'visibilitychange'.
+if (desktop?.onWindowState) {
+  const H = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden'), V = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  let winHidden = false;
+  if (H?.get && V?.get) {
+    Object.defineProperty(document, 'hidden', { configurable: true, get() { return winHidden || H.get.call(this); } });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get() { return winHidden ? 'hidden' : V.get.call(this); } });
+    desktop.onWindowState((st) => { const h = !!st?.hidden; if (h === winHidden) return; winHidden = h; document.dispatchEvent(new Event('visibilitychange')); });
+  }
+}
 export function applyTheme() {
   const r = document.documentElement;
   const grad = themeDef(S.prefs.theme, S.prefs.customThemes);
@@ -327,10 +340,11 @@ export function beep() {
   if (!S.prefs.sounds || S.prefs.soundsMuted) return;
   const vol = (S.prefs.soundVolume ?? 80) / 100 * (S.prefs.notifVolume ?? 100) / 100; if (vol <= 0) return;
   try {
-    actx ||= new (window.AudioContext || window.webkitAudioContext)();
+    actx ||= new (window.AudioContext || window.webkitAudioContext)(); actx.resume?.();
     const o = actx.createOscillator(), g = actx.createGain();
     o.frequency.value = 880; o.type = 'sine'; g.gain.setValueAtTime(.12 * vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .25);
     o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + .25);
+    clearTimeout(actx._nap); actx._nap = setTimeout(() => { if (actx.state === 'running') actx.suspend().catch(() => { }); }, 3000); // dorme sem som tocando
   } catch { }
 }
 // ---------- aparelhos da conta (sincronização entre PC e celular) ----------

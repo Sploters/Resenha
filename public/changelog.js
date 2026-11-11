@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-11-5', title: 'Mais leve na chamada e em segundo plano',
+    items: [
+      { i: 'bolt', t: 'Tela da chamada bem mais leve', d: 'O anel verde de quem fala não fica mais piscando a cada sílaba nem repintando a tela: em PCs mais simples, só deixar a chamada aberta gastava até metade do processador.' },
+      { i: 'mic', t: 'Mutado gasta menos', d: 'Com o microfone mutado, a redução de ruído por IA para de trabalhar. Ensurdecido com a janela minimizada, o servidor nem manda a voz dos outros (volta na hora ao abrir a janela).' },
+      { i: 'screen', t: 'App minimizado de verdade', d: 'Com o app do computador minimizado ou na bandeja, o vídeo da transmissão que você assiste pausa (o áudio continua) e o app para de desenhar o que ninguém está vendo. Precisa do app 1.0.25.' },
+      { i: 'video', t: 'Clique duplo sem câmera extra', d: 'Clicar duas vezes na câmera ou na transmissão não abre mais uma câmera escondida que ficava ligada, e clicar em várias salas de voz seguidas sempre termina na última.' },
+    ],
+  },
+  {
     id: '2026-11-11-4', title: 'Ideias que vieram dos mods',
     items: [
       { i: 'link', t: 'Links sem rastreio', d: 'Ao enviar ou editar, os links do YouTube, Spotify, Instagram, TikTok, X, Amazon, Mercado Livre, Shopee e outros perdem o que só serve para rastrear quem compartilhou (utm_, fbclid, si=…). O link abre a mesma coisa e o tempo do vídeo continua. Dá para desligar em Recursos extras.', try: 'extras' },

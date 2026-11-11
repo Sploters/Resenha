@@ -149,6 +149,10 @@ function createWindow(forceShow) {
   win.webContents.on('did-navigate-in-page', repaint);
   win.webContents.on('media-started-playing', repaint); // vídeo/transmissão começou: garante que a janela redesenha (no PC com redesenho atrasado só aparecia ao mexer o mouse)
   for (const ev of ['show', 'restore', 'maximize', 'unmaximize', 'moved', 'focus']) win.on(ev, repaint);
+  // estado real da janela para a página (ver public/state.js): minimizada ou na bandeja = escondida
+  const winState = () => { if (win && !win.isDestroyed()) win.webContents.send('win-state', { hidden: !win.isVisible() || win.isMinimized() }); };
+  for (const ev of ['show', 'hide', 'minimize', 'restore']) win.on(ev, winState);
+  win.webContents.on('did-finish-load', winState);
   screen.on('display-metrics-changed', repaint);
   // tela cheia de vídeo/transmissão/clipe: os botões nativos da barra de título (sobrepostos) ficavam desenhados por cima
   // e a página repintava com defeito; esconde a barra durante a tela cheia e repinta ao entrar e ao sair

@@ -482,7 +482,7 @@ html.anim #lightbox.viewer .vimg img { animation: lc-zoom .26s cubic-bezier(.2, 
 html.anim .vnav, html.anim .vtools .ibtn { transition: background .15s, transform .15s, opacity .15s; } html.anim .vnav:hover { transform: translateY(-50%) scale(1.1); }
 html.anim .msg { transition: background .15s; }
 html.anim .msg .av, html.anim .avatar.clickable, html.anim .avatar.zoomable { transition: opacity .15s, filter .2s, transform .2s; }
-html.anim .tile { transition: box-shadow .2s; }
+/* .tile sem transição no box-shadow: o anel de fala liga/desliga várias vezes por segundo e cada troca repintava a tela por 0,2 s */
 html.anim .ncard, html.anim .avopt, html.anim .sbsnd, html.anim .vwrow, html.anim #home .tab, html.anim .ct-tab, html.anim .chip { transition: background .15s, border-color .2s, color .15s, transform .15s, box-shadow .2s; }
 html.anim .ncard:hover, html.anim .avopt:hover { transform: translateY(-2px); } html.anim .ncard:active, html.anim .avopt:active { transform: scale(.97); }
 html.anim .switch, html.anim .switch::after, html.anim .switch i { transition: background .2s, transform .2s; }

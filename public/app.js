@@ -213,7 +213,7 @@ function onEvent(t, d) {
       S.friendLosses = d.friend_losses || []; S.friendLosses.forEach(x => mergeUser(x.user)); noticeFriendLosses(S.friendLosses.filter(x => x.at > seenLoss()));
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
-      if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: (speakOnly) => renderVoiceUI(speakOnly) });
+      if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate });
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
       // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
       voice.beforeJoin = async (cid) => {
@@ -2689,9 +2689,21 @@ function autoClosed() {
   }
   for (const k of [...seenLive]) if (!now.has(k)) seenLive.delete(k);
 }
+// pedidos seguidos na mesma rodada (mutar 10x pelo atalho, entrar + câmera + estado) viram UM redesenho, com o estado final.
+// Antes cada um redesenhava a lista lateral e o palco inteiros na hora (~400 elementos por vez).
+let vuiQ = 0; // 1 = só as falas, 2 = completo
+function voiceUpdate(speakOnly) {
+  const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
+  const first = !vuiQ; vuiQ = want;
+  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); });
+}
+// aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
+let speakStale = false;
+document.addEventListener('visibilitychange', () => { if (!document.hidden && speakStale && voice) { speakStale = false; renderVoiceUI(true); } });
 function renderVoiceUI(speakOnly) {
   if (!voice?.active || voice.screen) hideGameOffer();
   if (speakOnly) {
+    if (document.hidden) { speakStale = true; return; }
     // só as classes de "falando"; o ping já é medido 1x por segundo (antes cada fala disparava uma medição extra)
     document.querySelectorAll('.tile[data-uid],.avatar[data-uid]').forEach(e => { const u = e.dataset.uid; e.classList.toggle('speaking', voice.speaking.has(u)); e.classList.toggle('sbplay', voice.sbActive.has(u)); });
     return;
@@ -3043,7 +3055,9 @@ function updatePing() {
     document.dispatchEvent(new Event('ping-sample'));
   });
 }
-setInterval(() => (voice?.active ? updatePing() : (pingHist.length = 0)), 1000);
+// janela escondida/minimizada: mede a cada 5 s em vez de 1 s (ninguém está olhando o selo; o gráfico só fica mais espaçado)
+let pingTick = 0;
+setInterval(() => (voice?.active ? (!document.hidden || ++pingTick % 5 === 0) && updatePing() : (pingHist.length = 0)), 1000);
 // qualidade da voz: selo no painel (nível atual) e ajuste automático a cada 3 s
 const isAutoAbr = () => S.prefs.voiceBitrate === 'auto' || S.prefs.voiceBitrate == null;
 const abrEl = () => { const el = h('button#vp-abr.abr', { onclick: (e) => openAbrPicker(e.currentTarget) }); paintAbr(el); return el; };

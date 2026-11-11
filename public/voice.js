@@ -55,8 +55,8 @@ export async function createMic(prefs, ctx) {
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
   const out = { raw, nodes, error: null, processed: false };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
-  let last = src;
-  const chain = (n) => { last.connect(n); nodes.push(n); last = n; };
+  let last = src, first = null;
+  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
   try {
     if (mode === 'rnnoise' || mode === 'gtcrn') {
       nsLib ||= await import(`${NS}/index.js`);
@@ -94,6 +94,10 @@ export async function createMic(prefs, ctx) {
     if (on === looping) return; looping = on;
     try { if (on) { g.connect(mono); merger.connect(ctx.destination); } else { g.disconnect(mono); merger.disconnect(ctx.destination); } } catch { }
   };
+  // mutado: o microfone sai da cadeia e a IA de ruído (RNNoise/GTCRN, na thread de áudio) para de processar — sem entrada
+  // os nós de ruído não fazem nada. O que sai para a sala é silêncio de qualquer jeito (trilha desligada).
+  let idle = false;
+  out.setIdle = (on) => { if (!first || on === idle) return; idle = on; try { on ? src.disconnect(first) : src.connect(first); } catch { } };
   out.dispose = () => {
     out.setLoopback(false);
     for (const n of nodes) { try { n.port?.postMessage('destroy'); } catch { } try { n.disconnect(); } catch { } }
@@ -110,6 +114,7 @@ export class Voice {
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
     this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null;
+    document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
   }
   get active() { return !!this.channelId; }
   getCtx() { this.ctx ||= newAudioContext(); this.ctx.resume?.(); return this.ctx; }
@@ -153,12 +158,27 @@ export class Voice {
     this.leave({ silent: true }); this.muted = muted; this.deafened = deafened;
     return this.join(cid, { silent: true });
   }
-  async join(channelId, { silent = false } = {}) {
-    if (this.channelId === channelId) return;
+  // Cliques seguidos em salas diferentes (ou sair enquanto entra): só a ÚLTIMA entrada vale. Antes as entradas corriam
+  // juntas — terminava fora de qualquer sala, com o medidor de fala (100 ms) e um microfone a mais ligados à toa.
+  join(channelId, opts) {
+    if (this._joinTo === channelId) return this._joinP; // mesma sala já entrando: o segundo clique não faz nada
+    if (this.channelId === channelId && !this._joinTo) return Promise.resolve();
     if (this.channelId) this.leave();
+    const gen = this._joinGen = (this._joinGen || 0) + 1; this._joinTo = channelId;
+    const done = () => { if (this._joinGen === gen) this._joinTo = this._joinP = null; };
+    return (this._joinP = this.joinNow(channelId, opts || {}, gen).finally(done));
+  }
+  async joinNow(channelId, { silent = false }, gen) {
+    const stale = () => {
+      if (gen === this._joinGen) return false;
+      // ninguém mais entrando nem na sala: o microfone que esta entrada montou não fica ligado
+      if (!this._joinTo && !this.channelId) { this.micGraph?.dispose(); this.micGraph = null; this.mic = null; this.analysers.delete(this.myId); }
+      return true;
+    };
     this.error = null;
     // conversa direta protegida (public/e2ee.js): a chamada também vai cifrada de ponta a ponta; trancada = não entra
     const pre = await this.beforeJoin?.(channelId).catch((e) => ({ error: e.message }));
+    if (stale()) return;
     if (pre?.error) { this.error = pre.error; return; }
     this.e2ee = pre?.key || null;
     try {
@@ -167,12 +187,14 @@ export class Voice {
         : 'Microfone indisponível neste navegador.');
       await this.buildMic();
     } catch (e) { this.mic = null; this.error = e.message || 'Não foi possível acessar o microfone (entrando como ouvinte).'; }
+    if (stale()) return;
     this.channelId = channelId; this.joinedAt = Date.now();
-    this.timer = setInterval(() => this.poll(), 100);
+    clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
     this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
   }
   leave({ silent = false } = {}) {
+    if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
@@ -187,8 +209,11 @@ export class Voice {
     for (const s of [this.cam, this.screen]) s?.getTracks().forEach(t => t.stop());
     this.mic = this.cam = this.screen = null; this.channelId = null; this.speaking.clear();
     for (const a of this.analysers.values()) a.src.disconnect(); this.analysers.clear();
-    clearInterval(this.timer); this.onUpdate();
+    clearInterval(this.timer); this.timer = null; this.sleepCtx(); this.onUpdate();
   }
+  // fora da call o contexto de áudio da voz fica suspenso: rodando, ele mantém a thread de áudio e a saída de som
+  // processando silêncio o tempo todo (~2-4% de CPU num PC comum). getCtx() acorda de novo quando precisar.
+  sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
   onJoined({ channel_id, peers, sfu }) {
     if (channel_id !== this.channelId) return;
     if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
@@ -231,7 +256,7 @@ export class Voice {
     if (this.sfu !== sfu) return;
     const { producers } = await this.sfuReq('producers');
     if (this.sfu !== sfu) return;
-    sfu.ready = true;
+    sfu.ready = true; this.syncVoiceFlow(); // já entra ensurdecido e escondido: nem começa a receber as vozes
     for (const p of producers) this.onSfuProducer(p);
     // o que já estava ligado antes de conectar
     if (this.mic) await this.sfuProduce('mic', this.mic.getAudioTracks()[0]);
@@ -479,7 +504,8 @@ export class Voice {
       if (source === 'mic') this.attachAudio(p, stream, 'mic');
       else if (source === 'screenaudio') this.attachAudio(p, stream, 'screen');
       else { p.streams[source] = stream; c.track.onmute = c.track.onunmute = () => this.onUpdate(); }
-      const held = (source === 'screen' || source === 'screenaudio') && this.closedStreams.has(user_id); // transmissão fechada: nem baixa o vídeo
+      const held = (source === 'screen' || source === 'screenaudio') && this.closedStreams.has(user_id) // transmissão fechada: nem baixa o vídeo
+        || source === 'mic' && s.voiceOff; // ensurdecido com a janela escondida (syncVoiceFlow)
       if (!held) await this.sfuReq('resume', { consumer_id: c.id });
       this.onUpdate();
     } catch (e) { console.warn('consume', e); s.seen.delete(producer_id); }
@@ -815,7 +841,9 @@ export class Voice {
       let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
       a.level = peak / 128;
       const mine = uid === this.myId;
-      const on = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || !this.micEnabled()));
+      const loud = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || !this.micEnabled()));
+      const now = performance.now(); if (loud) a.at = now;
+      const on = loud || (a.at > 0 && now - a.at < 300 && !(mine && (this.muted || this.deafened)));
       if (on !== this.speaking.has(uid)) { on ? this.speaking.add(uid) : this.speaking.delete(uid); changed = true; }
     }
     if (changed) this.onUpdate(true);
@@ -823,22 +851,45 @@ export class Voice {
   }
 
   micEnabled() { return this.prefs.inputMode !== 'ptt' || this.ptt; }
-  applyMute() { this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && this.micEnabled())); }
+  applyMute() {
+    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && this.micEnabled()));
+    this.micGraph?.setIdle?.((this.muted || this.deafened) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
+  }
+  holdMic(on) { this.micHold = Math.max(0, (this.micHold || 0) + (on ? 1 : -1)); this.applyMute(); }
   setPtt(down) { if (this.ptt === down) return; this.ptt = down; this.applyMute(); this.onUpdate(true); }
   toggleMute() { const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
   toggleDeaf() { this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
   afterAudioChange() { this.applyMute(); for (const uid of this.peers.keys()) this.applyVolume(uid); this.sendState(); this.onUpdate(); }
-  sendState() { if (!this.channelId) return; this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
+  // várias mudanças na mesma rodada (mutar + câmera, atalho repetido) viram UMA mensagem ao servidor, com o estado final
+  sendState() { if (!this.channelId || this._stQ) return; this._stQ = true; queueMicrotask(() => { this._stQ = false; this.sendStateNow(); }); }
+  // Ensurdecido e com a janela escondida/minimizada, ninguém ouve nem vê quem fala: o servidor para de mandar a voz dos outros
+  // (~40 kbps e uma decodificação Opus por pessoa falando). Volta na hora ao reabrir a janela ou ao desensurdecer.
+  // Transmitindo, não pausa (o clipe com F8 leva a voz da sala).
+  syncVoiceFlow() {
+    const s = this.sfu; if (!s?.ready) return;
+    const off = this.deafened && document.hidden && !this.screen;
+    if (!!s.voiceOff === off) return; s.voiceOff = off;
+    for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
+  }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
 
-  async toggleCam() {
+  // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
+  // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)
+  // Parar continua imediato; a trava só vale enquanto abre.
+  once(key, fn) { if (this[key]) return this[key]; const p = this[key] = fn(); p.finally(() => { if (this[key] === p) this[key] = null; }).catch(() => { }); return p; }
+  toggleCam() { return this.cam ? Promise.resolve(this.stopLocal('cam')) : this.once('_camBusy', () => this.toggleCamNow()); }
+  async toggleCamNow() {
     if (this.cam) return this.stopLocal('cam');
+    const cid = this.channelId;
     try {
       this.cam = await navigator.mediaDevices.getUserMedia({ video: { deviceId: this.prefs.videoId ? { exact: this.prefs.videoId } : undefined, height: { ideal: +(this.prefs.camRes || 720) }, width: { ideal: Math.round(+(this.prefs.camRes || 720) * 16 / 9) }, frameRate: { ideal: +(this.prefs.camFps || 30) } } });
     } catch (e) { throw new Error('Não foi possível acessar a câmera: ' + (e.message || e.name)); }
+    if (!this.channelId || this.channelId !== cid) { this.cam?.getTracks().forEach(t => t.stop()); this.cam = null; return; } // saiu da sala enquanto abria
     this.publish('cam', this.cam); playSound('camOn');
   }
   // opts: { res: 720|1080|1440|'source', fps: 15|30|60, audio: bool, hint: 'motion'|'detail' }
-  async toggleScreen(opts) {
+  toggleScreen(opts) { return this.screen ? Promise.resolve(this.stopLocal('screen')) : this.once('_scrBusy', () => this.toggleScreenNow(opts)); }
+  async toggleScreenNow(opts) {
     if (this.screen) return this.stopLocal('screen');
     opts = { res: 1080, fps: 30, audio: true, hint: 'motion', ...opts };
     const video = { frameRate: { ideal: +opts.fps, max: +opts.fps }, cursor: opts.cursor === false ? 'never' : 'always' };
@@ -1057,5 +1108,6 @@ export function playTone(kind, volume = .15) {
       o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(volume, at); g.gain.exponentialRampToValueAtTime(.001, at + .14);
       o.connect(g).connect(ctx.destination); o.start(at); o.stop(at + .15);
     }
+    clearTimeout(ctx._nap); ctx._nap = setTimeout(() => { if (ctx.state === 'running') ctx.suspend().catch(() => { }); }, 4000); // dorme sem som tocando
   } catch { }
 }

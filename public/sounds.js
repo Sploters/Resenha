@@ -47,6 +47,9 @@ export const soundCfg = (name) => {
 };
 
 let ctx; const cache = new Map();
+// contexto dos sons da interface: dorme 3 s depois do último som. Rodando à toa ele mantém a thread de áudio e a saída
+// de som processando silêncio o tempo todo (CPU e bateria), mesmo com o app parado.
+export function napAudio(c, ms = 3000) { clearTimeout(c._nap); c._nap = setTimeout(() => { if (c.state === 'running') c.suspend().catch(() => { }); }, ms); }
 function getCtx() {
   if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
   ctx.resume?.();
@@ -72,6 +75,8 @@ export function playSound(name, { force = false } = {}) {
       g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(o.gain || 1, at + .012); g.gain.exponentialRampToValueAtTime(0.0001, at + d);
       osc.connect(g).connect(out); osc.start(at); osc.stop(at + d + .02);
     }
+    const end = Math.max(...spec.map(([, t, d]) => t + d)) + .1;
+    setTimeout(() => out.disconnect(), end * 1000 + 200); napAudio(c, end * 1000 + 3000);
   } catch { /* som é opcional */ }
 }
 export { savePrefs };
