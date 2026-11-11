@@ -1315,8 +1315,11 @@ function setRel(a, b, type) {
   for (const [x, y] of [[a, b], [b, a]]) if (privacy.restricted(x)) { const u = getUser(x); if (u) dispatch([y], 'USER_UPDATE', { ...pubUser(u), status: statusFor(y, u), platforms: platformsFor(y, u) }); }
 }
 app.post('/api/relationships', auth, wrap((req, res) => {
-  const t = get('SELECT * FROM users WHERE username=?', clean(req.body.username, 32));
-  if (!t || t.username.startsWith('bot_music_')) return bad(res, 'Usuário não encontrado', 404);
+  // aceita "@nome" e qualquer caixa (Sploters = sploters); se a caixa diferente achar mais de uma conta, só a exata vale
+  const want = clean(req.body.username, 33).replace(/^@/, '').trim();
+  let t = get('SELECT * FROM users WHERE username=?', want);
+  if (!t && want) { const ci = all('SELECT * FROM users WHERE lower(username)=lower(?) LIMIT 2', want); if (ci.length === 1) t = ci[0]; }
+  if (!t || t.username.startsWith('bot_music_')) return bad(res, 'Usuário não encontrado. Confira o nome de usuário (o @ do perfil, não o nome de exibição).', 404);
   if (t.id === req.uid) return bad(res, 'Você não pode adicionar a si mesmo');
   if (t.friend_policy === 'none' && !get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=4', t.id, req.uid)) return bad(res, 'Este usuário não está aceitando pedidos de amizade', 403);
   const ex = get('SELECT type FROM relationships WHERE user_id=? AND other_id=?', req.uid, t.id);
@@ -1328,7 +1331,7 @@ app.post('/api/relationships', auth, wrap((req, res) => {
 }));
 app.put('/api/relationships/:id', auth, wrap((req, res) => { // aceitar / bloquear
   const o = req.params.id;
-  if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado', 404);
+  if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado. Confira o nome de usuário (o @ do perfil, não o nome de exibição).', 404);
   if (req.body.type === 2) { friendLost(o, req.uid); setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
   else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); }
   else return bad(res, 'Sem pedido pendente');

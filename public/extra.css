@@ -153,8 +153,18 @@ input[type=range] { height: 18px; }
 .ne-neon { text-shadow: 0 0 2px #fff, 0 0 6px var(--n1), 0 0 12px var(--n2); }
 .ne-toon { -webkit-text-stroke: 1px var(--n2); paint-order: stroke fill; text-shadow: 1px 2px 0 var(--n2); }
 .ne-pop { text-shadow: 1px 1px 0 var(--n2), 2px 2px 0 var(--n2); }
-.ne-shimmer { background-image: linear-gradient(100deg, var(--n1) 35%, var(--n2) 50%, var(--n1) 65%); background-size: 250% 100%; animation: ns-shimmer 3s linear infinite; }
-.ne-rainbow { background-image: linear-gradient(90deg, #ff5f6d, #ffc371, #f9f871, #5bf2a2, #4facfe, #b06ab3, #ff5f6d); background-size: 300% 100%; animation: ns-shimmer 4s linear infinite; }
+.ne-shimmer { background-image: linear-gradient(100deg, var(--n1) 35%, var(--n2) 50%, var(--n1) 65%); background-size: 250% 100%; background-position: 40% 0; }
+.ne-rainbow { background-image: linear-gradient(90deg, #ff5f6d, #ffc371, #f9f871, #5bf2a2, #4facfe, #b06ab3, #ff5f6d); background-size: 300% 100%; }
+/* Brilho e Arco-íris mexem o fundo do texto, que o Chrome não anima fora da thread principal: cada nome animado era
+   redesenhado em todo quadro (trace: 3.164 repinturas em 6 s por um autor no chat, e o mouse respondia em ~85 ms).
+   Nas listas (chat, conversas, membros, amigos, call) o nome fica parado e só anima com o mouse em cima da linha;
+   no perfil, no cartão e no editor do estilo (um nome só) anima sempre. Sem "Animações", nunca. */
+html.anim :is(.msg, .ch, .mh-card, .mem, .frow, .tile, .an-card, .ns):hover :is(.ne-shimmer, .ne-rainbow),
+html.anim .ns:is(.ne-shimmer, .ne-rainbow):hover,
+html.anim :is(.popout, .modal, .pcard, .upbody, .mebody, .nstyle) :is(.ne-shimmer, .ne-rainbow) { animation: ns-shimmer 3s linear infinite; }
+html.anim :is(.msg, .ch, .mh-card, .mem, .frow, .tile, .an-card, .ns):hover .ne-rainbow,
+html.anim .ns.ne-rainbow:hover,
+html.anim :is(.popout, .modal, .pcard, .upbody, .mebody, .nstyle) .ne-rainbow { animation-duration: 4s; }
 @keyframes ns-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 /* editor do estilo do nome */
 .nstyle .nsgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin: 8px 0 16px; }

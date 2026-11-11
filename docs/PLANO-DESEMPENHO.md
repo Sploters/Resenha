@@ -103,6 +103,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       150 mais novas ao passar de 250 (`trimChat`; teste `scripts/chat-trim-test.mjs`). Depois, em 25 min: elementos
       oscilando entre 5,6 e 8,2 mil, memória JS ~4,5 MB, navegador ~1.280 MB e servidor 146–147 MB estáveis, SFU limpo.
       Testar mais longo (horas) numa máquina real ainda vale a pena.
+- [x] ★ **Trace real: INP 328 ms e mouse lento** (2026-11-11, `scripts/namefx-emoji-test.mjs`, CPU 6x). Dois traces do
+      Chrome mostraram: (1) quem usa nome **Arco-íris/Brilho** fazia o chat inteiro ser repintado em todo quadro — o efeito
+      anima `background-position`, que o Chrome não anima fora da thread principal (3.164 repinturas em 6 s por um autor;
+      até passar o mouse levava ~85 ms para aparecer). Agora o nome fica parado nas listas e só anima com o mouse em cima da
+      linha; no perfil, cartão e editor anima sempre. 50 nomes na tela: **8.817 → 0 repinturas** em 3 s parado.
+      (2) A 1ª abertura dos **emojis** era o INP: 144 ms de layout + 118 ms desenhando as letras coloridas. Emojis em blocos
+      de 5 linhas com `content-visibility` + fonte aquecida aos poucos com a aba parada: **328 → ~100 ms**. E o "Adicionar
+      amigo" aceita `@nome` e qualquer caixa (os 404 do console eram o nome não batendo).
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
 - [x] ★ **Dados grandes** (2026-11-11, `scripts/load/seed-big.mjs` + `scripts/perf-big.mjs`): 5.000 membros, 1.000 canais
       em 50 categorias, 8 cargos, 100 mil mensagens, 500 conversas diretas, 600 pessoas conectadas. Achados e corrigidos:
