@@ -18,6 +18,7 @@ import { createRemote } from './remote.js';
 import { mountStatic } from './static.js';
 import { createThumbs } from './thumbs.js';
 import { mountStorage } from './storage.js';
+import { mountMyMessages } from './mymessages.js';
 import { mountUploads } from './uploads.js';
 import { mountMedia } from './media.js';
 import { createReputation } from './reputation.js';
@@ -1337,6 +1338,8 @@ mountUploads(app, { auth, wrap, bad, clean, uploadDir: UPLOAD_DIR, maxUpload: MA
 mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
 // reputação (server/reputation.js): marcações de spam/ofensa de várias pessoas viram um soft-mute até a moderação analisar
 reputation.mount(app, { auth, wrap, bad, channelFor });
+// apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
+mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
 

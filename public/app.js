@@ -1,4 +1,5 @@
 import { nativeEnded } from './nativetest.js';
+import { openMyMessages } from './mymessages.js';
 import { setNewsActions, maybeShowNews, markSeen as markNewsSeen } from './changelog.js';
 import { openFxPicker, fxBadge } from './fxui.js';
 import { fxInfo } from './voicefx.js';
@@ -350,6 +351,13 @@ function onEvent(t, d) {
       const list = S.messages.get(d.channel_id); if (!list) break;
       const i = list.findIndex(m => m.id === d.id); if (i >= 0) list.splice(i, 1);
       if (S.view.cid === d.channel_id) renderMessages(true);
+      break;
+    }
+    case 'MESSAGE_DELETE_BULK': { // alguém apagou as próprias mensagens em massa (Privacidade → Apagar minhas mensagens)
+      const list = S.messages.get(d.channel_id); if (!list) break;
+      const gone = new Set(d.ids || []), n = list.length;
+      for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i].id)) list.splice(i, 1);
+      if (list.length !== n && S.view.cid === d.channel_id) renderMessages(true);
       break;
     }
   }
@@ -794,6 +802,7 @@ function guildMenu(e, g) {
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
     { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
+    { label: 'Apagar minhas mensagens neste servidor…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
     { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
     '-',
     can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
@@ -1089,6 +1098,7 @@ function channelMenu(e, g, c) {
       : c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Editar canal', fn: () => channelSettings(g, c) },
     can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
+    c.type === 0 && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },
     can(g.id, PERM.MANAGE_CHANNELS) && '-',
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Excluir canal', danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
@@ -1127,6 +1137,7 @@ const newsActions = {
   requests: () => { inboxTab = 'requests'; showInbox(); },
   servers: () => { const g = [...S.guilds.values()][0]; if (g) friendsInServer(g); else toast('Entre num servidor para ver quais amigos estão nele.'); },
   privacy: () => openSettings('privacy', ctxSettings()),
+  mymessages: () => openMyMessages(),
   sounds: () => openSettings('sounds', ctxSettings()),
   appearance: () => openSettings('appearance', ctxSettings()),
   storage: () => openSettings('storage', ctxSettings()),
@@ -1407,6 +1418,7 @@ function userMenu(e, uid, gid) {
       : rt === 0 && { label: 'Adicionar Amizade', fn: () => tryApi('POST', '/relationships', { username: user(uid).username }).then(r => r && toast('Pedido enviado')) },
     rt !== 2 ? { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${uid}`, { type: 2 }) } : { label: 'Desbloquear', fn: () => tryApi('DELETE', `/relationships/${uid}`) },
     { label: muted ? 'Desmutar' : 'Mute', fn: () => toggleLocalMute(uid) },
+    dmWith(uid) && { label: 'Apagar minhas mensagens na conversa…', fn: () => openMyMessages({ places: [dmWith(uid).id], title: user(uid).display_name }) },
     voice?.peers.has(uid) && '-',
     voice?.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
     voice?.peers.get(uid)?.screenAudioEl && { node: volumeControl(voice, uid, 'screen', 'Áudio da transmissão') },

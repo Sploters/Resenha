@@ -714,3 +714,26 @@ html.anim .mh-card:active { transform: scale(.98); }
 .fis-t b { cursor: pointer; color: var(--header); } .fis-t b:hover { text-decoration: underline; }
 .fis-t small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ib-req-t small.ib-req-d { white-space: normal; overflow: visible; line-height: 1.35; align-items: flex-start; } .ib-req-d .icon { margin-top: 2px; }
+
+/* Apagar minhas mensagens (public/mymessages.js) */
+.mm .mm-filters .seg { flex-wrap: wrap; }
+.mm .mm-range { display: flex; gap: 12px; } .mm .mm-range[hidden] { display: none; } .mm .mm-range .f { flex: 1; }
+.mm .mm-out { margin-top: 14px; border-top: 1px solid var(--bg-mod, rgba(127,127,127,.2)); padding-top: 12px; min-height: 60px; }
+.mm .mm-wait { color: var(--text-muted); padding: 12px 0; text-align: center; }
+.mm .mm-total { font-size: 15px; margin-bottom: 4px; } .mm .mm-total small { color: var(--text-muted); }
+.mm .mm-hint { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
+.mm .mm-places { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.mm .mm-place { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.mm .mm-place:hover { background: var(--bg-mod-hover, rgba(127,127,127,.12)); } .mm .mm-place.off { opacity: .5; }
+.mm .mm-pn { display: flex; flex-direction: column; min-width: 0; } .mm .mm-pn > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm .mm-pn small, .mm .mm-pc small { color: var(--text-muted); font-size: 11px; }
+.mm .mm-left { font-style: normal; font-size: 11px; color: var(--yellow, #f0b232); }
+.mm .mm-pc { display: flex; flex-direction: column; align-items: flex-end; }
+.mm .mm-sample { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; } .mm .mm-sample > small { color: var(--text-muted); }
+.mm .mm-msg { display: flex; gap: 8px; font-size: 13px; } .mm .mm-msg time { color: var(--text-muted); flex: none; font-size: 12px; }
+.mm .mm-msg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm .mm-prog { padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.mm .mm-bar { height: 8px; border-radius: 4px; background: var(--bg-mod, rgba(127,127,127,.2)); overflow: hidden; }
+.mm .mm-bar i { display: block; height: 100%; width: 0; background: var(--red, #da373c); transition: width .2s; }
+.modal .mf .btn[disabled] { opacity: .5; pointer-events: none; }
+.modal .mf .mm-dl { display: inline-flex; align-items: center; gap: 6px; }

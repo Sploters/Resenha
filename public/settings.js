@@ -21,6 +21,7 @@ import { newsPage } from './changelog.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
+import { openMyMessages } from './mymessages.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
@@ -99,7 +100,7 @@ function compactHints(pane) {
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
@@ -349,6 +350,7 @@ function privacyPage(reg) {
     section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
+    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apague de uma vez as mensagens que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período, por texto ou só as com arquivos. Mostra quantas e onde antes, deixa baixar uma cópia e inclui servidores de que você já saiu.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir'))),
     section('Usuários bloqueados'), blockedCard(),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));

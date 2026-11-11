@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-11-1', title: 'Apagar suas mensagens de uma vez',
+    items: [
+      { i: 'trash', t: 'Apagar minhas mensagens', d: 'Em Privacidade e segurança → Suas mensagens, apague de uma vez o que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período (últimas 24 h, mais de 30 dias, entre datas…), por texto ou só as com arquivos ou links. Antes de apagar você vê quantas são e onde, desmarca as conversas que quer manter e pode baixar uma cópia. Vale até para servidores de que você já saiu, e as fixadas ficam se você quiser.', try: 'mymessages' },
+      { i: 'dm', t: 'Direto do menu', d: 'Clique direito num canal, num servidor ou numa conversa → "Apagar minhas mensagens aqui" abre a mesma ferramenta já filtrada naquele lugar.' },
+      { i: 'image', t: 'Escolha de onde vêm os GIFs', d: 'Quando o servidor tem KLIPY e GIPHY, o rodapé do seletor de GIFs deixa trocar a fonte, e a escolha fica na conta. Se o serviço escolhido cair, o outro responde no lugar e o seletor avisa. (O Tenor não volta: o Google encerrou a API dele.)' },
+    ],
+  },
+  {
     id: '2026-11-10-6', title: 'Spoilers, pedidos e silêncio com exceção',
     items: [
       { i: 'eye', t: 'Spoiler em qualquer mensagem', d: 'Clique direito numa mensagem → "Marcar como spoiler só para mim" esconde texto e anexos só para você (ótimo em conversas diretas). Moderadores podem marcar a mensagem de outra pessoa como spoiler para o servidor todo, sem apagar e pedir para postar de novo; fica no registro de auditoria.' },
