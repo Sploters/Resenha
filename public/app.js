@@ -735,7 +735,8 @@ async function openGsGroup(g) {
   const k = gsKey(g); if (GS.open === k) { GS.open = null; return renderGS(); }
   GS.open = k; renderGS();
   if (GS.msgs[k]) return;
-  const list = await api('GET', `/search?q=${encodeURIComponent(GS.q.trim())}&${g.guild_id ? 'guild=' + g.guild_id : 'channel=' + g.channel_id}&sort=${GS.sort}`).catch(() => []);
+  const seq = GS.seq, list = await api('GET', `/search?q=${encodeURIComponent(GS.q.trim())}&${g.guild_id ? 'guild=' + g.guild_id : 'channel=' + g.channel_id}&sort=${GS.sort}`).catch(() => []);
+  if (seq !== GS.seq) return; // a busca mudou no meio: o resultado é da antiga
   GS.msgs[k] = list || []; renderGS();
 }
 // termos digitados (sem os filtros de:, tem:, em:) para destacar nos resultados
@@ -1285,9 +1286,11 @@ document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f' && ready) { e.preventDefault(); if (!S.searchOpen) toggleGlobalSearch(); else $('#gs-q')?.focus(); } });
 
 // =============== Perfil / menus de usuário ===============
+let profileSeq = 0; // clicar em A e logo em B: o cartão de A chegando depois não cobre o de B
 async function profile(anchor, uid, gid) {
   if (botOf(uid)) return openBot(anchor, uid);
-  const full = await tryApi('GET', `/users/${uid}`); if (!full) return;
+  const seq = ++profileSeq, full = await tryApi('GET', `/users/${uid}`); if (!full) return;
+  if (seq !== profileSeq) { mergeUser(full); return; }
   mergeUser(full);
   const u = full, m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const rt = relType(uid), isMe = uid === S.me.id;
@@ -1303,7 +1306,8 @@ async function profile(anchor, uid, gid) {
 }
 // perfil completo de outra pessoa (clicar na foto/banner do cartão): banner e dados à esquerda, atividade e itens em comum à direita
 async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum
-  const u = await tryApi('GET', `/users/${uid}`); if (!u) return;
+  const seq = ++profileSeq, u = await tryApi('GET', `/users/${uid}`); if (!u) return;
+  if (seq !== profileSeq) { mergeUser(u); return; }
   mergeUser(u);
   const m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const roles = g && m ? g.roles.filter(r => m.roles.includes(r.id)) : [];
@@ -1634,6 +1638,7 @@ async function loadChannel(cid) {
   msgs.onscroll = async () => {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
       msgs.dataset.loading = 1; const cur = S.messages.get(cid), newer = await tryApi('GET', `/channels/${cid}/messages?limit=50&after=${cur[cur.length - 1]?.id}`); delete msgs.dataset.loading;
+      if (S.messages.get(cid) !== cur || S.view.cid !== cid || !msgs.isConnected) return; // trocou de canal ou a lista foi refeita no meio
       if (newer?.length) { newer.forEach(x => mergeUser(x.author)); cur.push(...newer); renderMessages(true); }
       if (newer && newer.length < 50) { detached.delete(cid); $('#detached-bar')?.remove(); }
       return;
@@ -1642,6 +1647,8 @@ async function loadChannel(cid) {
     msgs.dataset.loading = 1;
     const list = S.messages.get(cid), older = await tryApi('GET', `/channels/${cid}/messages?limit=50&before=${list[0]?.id}`);
     delete msgs.dataset.loading; if (!older) return;
+    if (S.messages.get(cid) !== list) return; // a lista foi refeita no meio (pulo para uma mensagem, início do canal)
+    if (S.view.cid !== cid || !msgs.isConnected) { if (older.length < 50) S.loaded.set(cid, true); list.unshift(...older); return; } // guarda; desenha quando voltar
     if (older.length < 50) S.loaded.set(cid, true);
     list.unshift(...older); const prevH = msgs.scrollHeight;
     if (!prependMessages(cid, older)) renderMessages(false);
@@ -2059,8 +2066,10 @@ function msgDblClick(e, m) {
 async function jumpTo(mid) {
   let el = document.querySelector(`[data-mid="${mid}"]`);
   if (!el) {
-    const list = await tryApi('GET', `/channels/${S.view.cid}/messages?around=${mid}`); if (!list) return;
-    S.messages.set(S.view.cid, list); S.loaded.set(S.view.cid, false); renderMessages(false); el = document.querySelector(`[data-mid="${mid}"]`);
+    const cid = S.view.cid; // a resposta pode chegar depois de trocar de canal: não guarda as mensagens no canal errado
+    const list = await tryApi('GET', `/channels/${cid}/messages?around=${mid}`); if (!list || S.view.cid !== cid) return;
+    list.forEach(m => mergeUser(m.author));
+    S.messages.set(cid, list); S.loaded.set(cid, false); renderMessages(false); el = document.querySelector(`[data-mid="${mid}"]`);
   }
   if (el) { $('#msgs').stick = false; el.scrollIntoView({ block: 'center' }); el.classList.add('hl'); setTimeout(() => el.classList.remove('hl'), 2000); }
 }
@@ -2137,7 +2146,7 @@ function notifCard(e, { ch, g: srv }) {
 async function showPins(e) {
   const btn = e.currentTarget;
   if (topWasOpen) { topWasOpen = false; return closeFloating(); }
-  const list = await tryApi('GET', `/channels/${S.view.cid}/pins`); if (!list) return;
+  const cid = S.view.cid, list = await tryApi('GET', `/channels/${cid}/pins`); if (!list || S.view.cid !== cid || !btn.isConnected) return; // trocou de canal no meio
   const jump = (m) => { const ch = channelById(m.channel_id); closeFloating(); if (S.view.cid !== m.channel_id) { go(ch.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } else jumpTo(m.id); };
   const body = list.length ? h('div.pp-list', list.map(m => { const el = msgEl(m, null); el.querySelector('.toolbar')?.remove(); el.onclick = () => jump(m); return el; }))
     : h('div.pp-empty', h('div.pp-art', icon('pin', 40)), h('p', 'Este canal ainda não tem nenhuma mensagem fixada... por enquanto.'));
@@ -2145,10 +2154,12 @@ async function showPins(e) {
     h('div.pp-foot', h('b', 'Dica:'), h('span', S.view.kind === 'guild' ? 'Quem tem a permissão "Gerenciar mensagens" pode fixar uma mensagem pelo menu de contexto dela.' : 'Clique com o botão direito numa mensagem e escolha "Fixar mensagem".'))));
   pop.classList.add('pinspop'); anchorRight(pop, btn, 8);
 }
+let searchSeq = 0;
 async function doSearch(q) {
+  const seq = ++searchSeq;
   if (!q.trim()) return closeResults();
   const gid = S.view.kind === 'guild' ? S.view.gid : '';
-  const list = await tryApi('GET', `/search?q=${encodeURIComponent(q)}${gid ? '&guild=' + gid : ''}`); if (!list) return;
+  const list = await tryApi('GET', `/search?q=${encodeURIComponent(q)}${gid ? '&guild=' + gid : ''}`); if (!list || seq !== searchSeq) return; // chegou uma busca mais nova
   showResults(`${list.length} resultado(s)`, list);
   if (!list.length) $('#results')?.append(h('div.hintline', { style: { padding: '8px' } }, 'Dica: use de:nome, tem:imagem, tem:arquivo, tem:link ou em:canal para filtrar.'));
 }
@@ -3312,7 +3323,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

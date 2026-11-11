@@ -14,6 +14,9 @@ db.exec(`
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA temp_store = MEMORY;
+PRAGMA cache_size = -32000;
 CREATE TABLE IF NOT EXISTS users(
   id TEXT PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE NOT NULL, display_name TEXT,
   pass_hash TEXT NOT NULL, salt TEXT NOT NULL, avatar TEXT, banner_color TEXT, color TEXT,
@@ -43,9 +46,18 @@ export function newId() {
   if (ms === lastMs) seq++; else { seq = 0; lastMs = ms; }
   return (BigInt(ms) * 1000n + BigInt(seq % 1000)).toString();
 }
-export const all = (sql, ...p) => db.prepare(sql).all(...p);
-export const get = (sql, ...p) => db.prepare(sql).get(...p);
-export const run = (sql, ...p) => db.prepare(sql).run(...p);
+// consulta preparada guardada pelo texto: preparar de novo a cada chamada era ~4/5 do tempo de uma consulta pequena
+// (6,8 → 1,6 µs; o gateway faz várias por mensagem). Consultas montadas com listas (IN (?,?,…)) variam de texto, então
+// o cache tem teto: passou dele, recomeça do zero.
+const stmts = new Map();
+const stmt = (sql) => {
+  let s = stmts.get(sql);
+  if (!s) { if (stmts.size >= 1000) stmts.clear(); stmts.set(sql, s = db.prepare(sql)); }
+  return s;
+};
+export const all = (sql, ...p) => stmt(sql).all(...p);
+export const get = (sql, ...p) => stmt(sql).get(...p);
+export const run = (sql, ...p) => stmt(sql).run(...p);
 
 // ---- migrações incrementais (bancos já existentes continuam funcionando) ----
 const addCol = (t, c, d) => { try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); } catch { /* já existe */ } };
@@ -159,6 +171,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS game_icons(hash TEXT PRIMARY KEY, png BLOB N
 // amizades desfeitas pelo outro lado: aviso na caixa de entrada (Pedidos) de quem perdeu o amigo, por 30 dias
 db.exec(`CREATE TABLE IF NOT EXISTS friend_losses(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, other_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, at INTEGER NOT NULL, PRIMARY KEY(user_id, other_id));`);
 db.exec(`CREATE TABLE IF NOT EXISTS gif_favs(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, url TEXT NOT NULL, preview TEXT, w INTEGER DEFAULT 0, h INTEGER DEFAULT 0, title TEXT DEFAULT '', created_at INTEGER, PRIMARY KEY(user_id, url));`);
+// (2026-11-11: refeito com o plano de todas as 268 consultas; sobraram clipes do canal, anúncios LFG da conta e o admin)
 // índices das consultas do dia a dia que varriam a tabela inteira (achados com EXPLAIN QUERY PLAN em cada consulta do servidor):
 // montar cada servidor na abertura (cargos, canais, emojis, sons, membros), conversas privadas, sessões e convites; e
 // os filhos das exclusões em cascata (apagar canal/cargo/clipe não varre as tabelas filhas)
@@ -181,5 +194,8 @@ CREATE INDEX IF NOT EXISTS idx_clip_favs_clip ON clip_favs(clip_id);
 CREATE INDEX IF NOT EXISTS idx_activities_game ON activities(user_id, game_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_polls_open ON polls(ends_at) WHERE closed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_game_icons_used ON game_icons(used_at);
+CREATE INDEX IF NOT EXISTS idx_clips_channel ON clips(channel_id);
+CREATE INDEX IF NOT EXISTS idx_lfg_author ON lfg_posts(author_id);
+CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at, id);
 `);
 db.exec('PRAGMA optimize'); // o SQLite atualiza as estatísticas que usa para escolher os índices

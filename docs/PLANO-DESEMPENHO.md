@@ -33,12 +33,33 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `PRESENCE_SYNC` com quem está online. App antigo (sem `VIEW`) recebe como antes. Carga com 500 pessoas no mesmo
       servidor e 20% olhando: mensagens do gateway 789 mil → 655 mil (−17%), dados 597 → 536 MB, espalhar uma
       presença p95 9 → 2,4 ms; os avisos de presença caíram ~74%. Teste: `scripts/presence-test.mjs`.
-- [ ] Mesma ideia para "digitando…" e outros avisos que vão para o servidor inteiro sem ninguém olhando o canal
-      (o grosso do tráfego que sobrou na carga são as mensagens de chat, que precisam ir a todos pelas não lidas).
+- [x] ★ **"Digitando…" só para quem olha o servidor** (2026-11-11). Só aparece no chat e na prévia dos canais do
+      servidor na tela, então vai para quem mandou `VIEW` daquele servidor (e app antigo); conversa direta continua indo
+      ao outro lado sempre. Carga (`scripts/load/node-load.mjs`, agora com "digitando…" antes de cada
+      mensagem; 500 pessoas no mesmo servidor, 20% olhando, `SPEED=2`), junto com o cache de consultas e os limites
+      abaixo: mensagens do gateway **1,87 mi → 918 mil (−51%)**, dados 633 → 560 MB, CPU do servidor no teste inteiro
+      **62,8 → 35,4 s (−44%)**, `GET mensagens` p95 18 → 10 ms (no servidor 4,8 → 2,3 ms), entrega de mensagem p95
+      21 → 14 ms, READY p95 294 → 233 ms; 0 erros nos dois.
+      Os outros avisos que vão ao servidor inteiro (`VOICE_STATE`, `MESSAGE_UPDATE`, membros, cargos) são estado que o app
+      guarda: cortar exigiria sincronizar ao abrir o servidor, como o `PRESENCE_SYNC` — fica para depois.
 - [ ] READY menor: membros sob demanda.
-- [ ] Mais de um worker do mediasoup (hoje 1 núcleo para todas as salas).
-- [ ] SQLite: plano de todas as consultas, WAL e `synchronous`.
-- [ ] Limite no servidor para `VOICE_STATE` e outras mensagens repetidas de um cliente modificado.
+- [x] ★ **Mais de um worker do mediasoup** (2026-11-11, `server/sfu.js`). `SFU_WORKERS=N` (ou `auto`: núcleos, até 4);
+      padrão continua 1. Cada sala fica inteira num worker — o com menos gente quando a sala abre — e cada worker extra
+      escuta na própria porta (`RTC_EXTRA_PORT`, padrão 40011, 40012…; precisa estar aberta como a 40000). Worker que
+      morre: salas novas vão para os outros. `/api/sfu/load` mostra a CPU do mais carregado e `per_worker`. Teste:
+      `scripts/sfu-workers-test.mjs` (2 salas em 2 workers, voz chegando nas duas). Uma sala sozinha continua num núcleo
+      só (dividir uma sala entre workers, com `pipeToRouter`, fica para quando uma sala passar de 1 núcleo).
+- [x] ★ **SQLite** (2026-11-11). WAL e `synchronous=NORMAL` já estavam. Novo: consulta preparada guardada pelo texto
+      (`server/db.js`; preparar a cada chamada era ~4/5 do custo de uma consulta pequena: 6,8 → 1,6 µs), `busy_timeout`,
+      `temp_store=MEMORY`, cache de 32 MB. Plano (`EXPLAIN QUERY PLAN`) das 268 consultas do servidor: sobraram 3
+      varreduras que valiam índice — apagar canal varria `clips`, apagar conta varria `lfg_posts` e achar o admin varria
+      `users`. O resto que varre são buscas com `LIKE '%…%'` (limpeza de arquivos, busca de música), que não usam índice.
+- [x] ★ **Limite por conexão no gateway** (2026-11-11, `wsGate` em `server/index.js`). Balde de fichas por tipo e um
+      geral (300/s). Para estado (`VIEW`, `VOICE_STATE`, `CLIENT_INFO`, `ACTIVE`, `ACTIVITY_LOCAL`, `ROOM_CODE`), passando
+      do limite o último pedido é guardado e aplicado depois — o estado nunca fica errado; o resto é ignorado. 3.000
+      ignoradas em 10 s fecham a conexão (4008; o app reconecta). `VOICE_STATE` igual ao atual não é mais espalhado para o
+      servidor. Medido (`scripts/gateway-limits-test.mjs`): 60 trocas de mudo seguidas → 16 envios e o último vale; 41
+      `VIEW` → 5 sincronizações de presença; 50 "digitando…" → 4; 6.000 mensagens → conexão fechada, as outras de pé.
 
 ## App desktop
 - [ ] Jogo em tela cheia por cima da janela contar como "escondida" (o `lc-audio` sabe a janela da frente).
@@ -62,9 +83,15 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       Testar mais longo (horas) numa máquina real ainda vale a pena.
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
 - [ ] Dados grandes: servidor com 1.000 canais, 5.000 membros, 100 mil mensagens; 500 conversas diretas.
-- [ ] Conflitos: dois aparelhos/abas da mesma conta ao mesmo tempo; resposta antiga chegando depois e sobrescrevendo a
-      tela ao trocar rápido de servidor.
-- [ ] Abuso: inundação de mensagens pelo gateway, mensagens gigantes, textos que travam expressões regulares (markdown,
+- [x] ★ **Resposta antiga sobrescrevendo a tela** (2026-11-11, `scripts/stale-response-test.mjs`, respostas atrasadas de
+      propósito no navegador). Achados e corrigidos: (1) pular para uma mensagem (`jumpTo`, pelas fixadas/busca/resposta)
+      e trocar de canal antes da resposta **guardava as mensagens do canal antigo no canal novo**; (2) fixadas do canal
+      antigo abriam por cima do canal novo; (3) galeria de clipes: trocar de aba com outra carregando ignorava a aba nova e
+      mostrava a resposta velha; (4) busca do canal, grupo da busca global e cartão de perfil (clicar em A e logo em B):
+      a resposta mais lenta cobria a mais nova; (5) páginas do histórico chegando depois de trocar de canal. A → B → A
+      rápido já funcionava (o `api()` junta pedidos iguais em andamento). A versão anterior falha em 4 dos 8 testes.
+- [ ] Conflitos: dois aparelhos/abas da mesma conta ao mesmo tempo.
+- [ ] Abuso: ~~inundação de mensagens pelo gateway~~ (limite por conexão, acima), mensagens gigantes, textos que travam expressões regulares (markdown,
       `cleanLinks`).
 - [ ] Celular/navegador: aba congelada ou descartada voltando; voltar/avançar do navegador.
 - [ ] Orçamento de desempenho: comparar o JSON do `perf-audit`/`perf-stress` com limites a cada mudança.

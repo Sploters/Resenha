@@ -1680,6 +1680,30 @@ function pushDevices(uid) {
   const list = [...(conns.get(uid) || [])].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt }));
   dispatch([uid], 'DEVICES', { active: list });
 }
+// ---- limite por conexão (app modificado ou em laço por bug) ----
+// Cada mensagem do app custa ao servidor; algumas viram um envio para o servidor inteiro (VOICE_STATE) ou uma consulta
+// grande (VIEW manda quem está online). Balde de fichas por tipo e um geral: [fichas por segundo, acumulado máximo].
+// O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
+const WS_RATE = {
+  VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
+  TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  REMOTE_REQUEST: [1, 5], PING: [5, 10],
+};
+const WS_ALL = [300, 600];
+// tipos em que só importa o último valor: passando do limite, o último pedido é guardado e aplicado depois (o estado
+// não fica errado); os outros, passando do limite, são ignorados
+const WS_KEEP = new Set(['VIEW', 'VOICE_STATE', 'CLIENT_INFO', 'ACTIVE', 'ACTIVITY_LOCAL', 'ROOM_CODE']);
+const WS_FLOOD = 3000; // ignoradas em 10 s: fecha a conexão (o app reconecta sozinho)
+function wsGate(ws, t) {
+  const now = performance.now(), b = (ws.buckets ||= {});
+  const fill = (k, [rate, max]) => { const x = b[k] || (b[k] = { n: max, at: now }); x.n = Math.min(max, x.n + (now - x.at) / 1000 * rate); x.at = now; return x; };
+  const tot = fill('_', WS_ALL), one = WS_RATE[t] ? fill(t, WS_RATE[t]) : null;
+  if (tot.n >= 1 && (!one || one.n >= 1)) { tot.n--; if (one) one.n--; return 'ok'; }
+  if (WS_KEEP.has(t)) return 'later';
+  if (now - (ws.dropAt || 0) > 10000) { ws.dropAt = now; ws.drops = 0; }
+  if (++ws.drops > WS_FLOOD) { console.warn(`  gateway: conexão de ${ws.uid} fechada por excesso de mensagens (${t})`); ws.close(4008, 'Mensagens demais'); }
+  return 'drop';
+}
 wss.on('connection', (ws) => {
   const uid = ws.uid;
   const first = !conns.has(uid);
@@ -1693,7 +1717,23 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
-    const d = msg.d || {};
+    if (!msg || typeof msg.t !== 'string') return;
+    const v = wsGate(ws, msg.t);
+    if (v === 'drop') return;
+    if (v === 'later') { // estado (VIEW, VOICE_STATE…): não pode se perder; vale o último pedido, aplicado quando sobrar ficha
+      (ws.later ||= new Map()).set(msg.t, msg);
+      if (!ws.laterT) ws.laterT = setTimeout(function again() {
+        ws.laterT = null; if (ws.readyState !== 1) return;
+        for (const [t, m] of ws.later) { if (wsGate(ws, t, true) !== 'ok') continue; ws.later.delete(t); handle(m); }
+        if (ws.later.size) ws.laterT = setTimeout(again, 250);
+      }, 250);
+      return;
+    }
+    ws.later?.delete(msg.t); // chegou um mais novo e foi aplicado: o guardado ficou velho
+    handle(msg);
+  });
+  const handle = (msg) => {
+    const d = msg.d && typeof msg.d === 'object' ? msg.d : {};
     try {
       switch (msg.t) {
         case 'PING': send(ws, 'PONG', { n: d.n }); break; // medida de latência do cliente
@@ -1723,7 +1763,14 @@ wss.on('connection', (ws) => {
         }
         case 'TYPING': {
           const ch = get('SELECT * FROM channels WHERE id=?', String(d.channel_id));
-          if (canAccessChannel(uid, ch)) dispatch(channelAudience(ch).filter(x => x !== uid), 'TYPING', { channel_id: ch.id, user_id: uid });
+          if (!canAccessChannel(uid, ch)) break;
+          if (!ch.guild_id) { dispatch(channelAudience(ch).filter(x => x !== uid), 'TYPING', { channel_id: ch.id, user_id: uid }); break; }
+          // canal de servidor: "digitando…" só aparece no chat e na prévia dos canais desse servidor, então vai só para
+          // quem está olhando o servidor (VIEW) e para app antigo; antes ia para todos os membros (500 pessoas = 500 envios)
+          const to = [];
+          for (const w of viewers.get(ch.guild_id) || []) if (w.uid !== uid) to.push(w);
+          if (legacyConns.size) { const mem = new Set(guildMemberIds(ch.guild_id)); for (const w of legacyConns) if (w.uid !== uid && mem.has(w.uid)) to.push(w); }
+          sendRaw(to, 'TYPING', { channel_id: ch.id, user_id: uid });
           break;
         }
         case 'VOICE_JOIN': {
@@ -1846,7 +1893,7 @@ wss.on('connection', (ws) => {
         case 'VOICE_LEAVE': { const c = currentVoice(uid); if (c) leaveVoice(uid, c); break; }
         case 'VOICE_STATE': {
           const c = currentVoice(uid); if (!c) return;
-          const st = voice.get(c).get(uid);
+          const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
           for (const k of ['mute', 'deaf', 'video', 'screen']) if (typeof d[k] === 'boolean') st[k] = d[k];
           st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
@@ -1855,6 +1902,7 @@ wss.on('connection', (ws) => {
           { const a = acts.get(c); if (a?.spot && (!st.screen && a.spot === 's:' + uid || !st.video && a.spot === 'c:' + uid)) { a.spot = a.spotBy = null; roomSend(c, 'ROOM_STATE', actState(c)); } }
           if (!st.screen && watchers.has(c + ':' + uid)) { watchers.delete(c + ':' + uid); pushViewers(c, uid); }
           if (!st.screen) remote.onScreenOff(uid); // parou de transmitir: controle remoto acaba
+          if (JSON.stringify(vsObj(c, uid, st)) === before) break; // nada mudou: não manda para o servidor inteiro
           const ch = get('SELECT * FROM channels WHERE id=?', c);
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id });
           break;
@@ -1877,8 +1925,9 @@ wss.on('connection', (ws) => {
         }
       }
     } catch (e) { console.error('ws', e); }
-  });
+  };
   ws.on('close', () => {
+    clearTimeout(ws.laterT);
     const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);

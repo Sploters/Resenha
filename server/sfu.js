@@ -13,7 +13,11 @@ const MEDIA_CODECS = [
   { kind: 'video', mimeType: 'video/H264', clockRate: 90000, parameters: { 'packetization-mode': 1, 'profile-level-id': '42e01f', 'level-asymmetry-allowed': 1 } },
 ];
 
-let worker = null, webRtcServer = null;
+// Workers do mediasoup: cada um é um processo (1 núcleo). Cada sala fica inteira num worker (o com menos gente na hora
+// em que a sala abre). SFU_WORKERS=N (ou "auto": núcleos, até 4); padrão 1. Cada worker extra escuta numa porta própria
+// (RTC_EXTRA_PORT, padrão 40011, 40012…; 40001-40010 são da transmissão nativa) que precisa estar aberta como a 40000.
+const EXTRA_PORT = Number(process.env.RTC_EXTRA_PORT || 40011);
+const workers = []; // { worker, webRtcServer, port, dead, lastRu, peakCpu }
 // Piso da banda estimada de cada espectador. Sem ele o consumidor começa na camada MENOR (480x270) e leva 10-25 s (às vezes nunca) para subir,
 // porque a estimativa de banda no servidor fica em ~0,3-0,5 Mbps enquanto só a camada pequena é enviada. 0 desliga (internet muito lenta).
 const MIN_OUT_KBPS = process.env.SFU_MIN_OUT_KBPS != null ? Math.max(0, +process.env.SFU_MIN_OUT_KBPS || 0) : 6000;
@@ -21,43 +25,59 @@ const WEAK_KBPS = 800; // piso para quem mostrou perda (a camada leve da transmi
 const rooms = new Map(); // channelId -> { router, peers: Map<userId, Peer> }
 
 // IPs anunciados: RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN)
-function listenInfos() {
+function listenInfos(port) {
   const out = [];
   if (process.env.RTC_ANNOUNCED_IP) {
     const announcedAddress = process.env.RTC_ANNOUNCED_IP.split(',')[0].trim();
-    for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip: '0.0.0.0', announcedAddress, port: PORT });
+    for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip: '0.0.0.0', announcedAddress, port });
     return out;
   }
   const ips = process.env.RTC_IPS ? process.env.RTC_IPS.split(',').map(s => s.trim())
     : [...new Set(Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4').map(i => i.address))];
-  for (const ip of ips) for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip, port: PORT });
+  for (const ip of ips) for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip, port });
   return out;
 }
 
 export async function startSfu() {
   if (process.env.RTC === '0') return false;
-  try {
-    const ms = await import('mediasoup');
-    worker = await ms.createWorker({ logLevel: 'warn' });
-    worker.on('died', () => { console.error('  SFU: worker do mediasoup morreu; reinicie o servidor'); worker = null; });
-    const infos = listenInfos();
-    webRtcServer = await worker.createWebRtcServer({ listenInfos: infos });
-    console.log(`  SFU de voz ativo (mediasoup ${ms.version}) na porta ${PORT} UDP/TCP: ${[...new Set(infos.map(i => i.announcedAddress || i.ip))].join(', ')}`);
-    return true;
-  } catch (e) {
-    console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`);
-    worker?.close(); worker = webRtcServer = null;
-    return false;
+  const want = process.env.SFU_WORKERS === 'auto' ? Math.min(os.availableParallelism?.() || os.cpus().length, 4) : Math.max(1, Math.min(16, Number(process.env.SFU_WORKERS) || 1));
+  let ms;
+  try { ms = await import('mediasoup'); } catch (e) { console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`); return false; }
+  for (let i = 0; i < want; i++) {
+    const port = i === 0 ? PORT : EXTRA_PORT + i - 1;
+    let worker = null;
+    try {
+      worker = await ms.createWorker({ logLevel: 'warn' });
+      const infos = listenInfos(port), w = { worker, webRtcServer: await worker.createWebRtcServer({ listenInfos: infos }), port, dead: false, lastRu: null, peakCpu: 0 };
+      worker.on('died', () => { w.dead = true; console.error(`  SFU: worker do mediasoup da porta ${port} morreu${live().length ? ' (salas novas vão para os outros)' : '; reinicie o servidor'}`); });
+      workers.push(w);
+      if (i === 0) console.log(`  SFU de voz ativo (mediasoup ${ms.version}) na porta ${PORT} UDP/TCP: ${[...new Set(infos.map(x => x.announcedAddress || x.ip))].join(', ')}`);
+    } catch (e) {
+      worker?.close();
+      if (i === 0) { console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`); return false; }
+      console.log(`  (SFU: worker extra na porta ${port} não abriu: ${e.message}; seguindo com ${workers.length})`); break;
+    }
   }
+  if (workers.length > 1) console.log(`  SFU: ${workers.length} workers (portas ${workers.map(w => w.port).join(', ')})`);
+  return true;
 }
-export const sfuEnabled = () => !!(worker && webRtcServer);
+const live = () => workers.filter(w => !w.dead);
+export const sfuEnabled = () => live().length > 0;
+// worker para uma sala nova: o com menos gente agora (empate: menos salas)
+function pickWorker() {
+  const load = new Map(live().map(w => [w, [0, 0]]));
+  for (const r of rooms.values()) { const x = load.get(r.w); if (x) { x[0] += r.peers.size; x[1]++; } }
+  return [...load].sort((a, b) => a[1][0] - b[1][0] || a[1][1] - b[1][1])[0]?.[0];
+}
 
 async function roomFor(cid) {
   let r = rooms.get(cid);
+  if (r && r.w?.dead) { rooms.delete(cid); r = null; } // worker morreu: a sala recomeça noutro
   if (!r) {
-    r = { router: null, peers: new Map(), ready: null };
+    const w = pickWorker(); if (!w) throw new Error('SFU indisponível');
+    r = { router: null, peers: new Map(), ready: null, w };
     rooms.set(cid, r);
-    r.ready = worker.createRouter({ mediaCodecs: MEDIA_CODECS }).then(router => (r.router = router));
+    r.ready = w.worker.createRouter({ mediaCodecs: MEDIA_CODECS }).then(router => (r.router = router));
   }
   await r.ready;
   return r;
@@ -153,7 +173,7 @@ export async function sfuRequest(cid, uid, op, d) {
   switch (op) {
     case 'transport': {
       if ([...peer.transports.values()].filter(t => t.appData?.dir).length >= 2) throw new Error('transportes demais');
-      const t = await r.router.createWebRtcTransport({ webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, initialAvailableOutgoingBitrate: 8_000_000, appData: { dir: d.dir === 'send' ? 'send' : 'recv' } });
+      const t = await r.router.createWebRtcTransport({ webRtcServer: r.w.webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, initialAvailableOutgoingBitrate: 8_000_000, appData: { dir: d.dir === 'send' ? 'send' : 'recv' } });
       if (t.appData.dir === 'recv' && MIN_OUT_KBPS > 0) await t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { });
       peer.transports.set(t.id, t);
       return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters };
@@ -203,18 +223,25 @@ export async function sfuRequest(cid, uid, op, d) {
 // Para o painel de admin / diagnóstico
 export const sfuStats = () => ({ enabled: sfuEnabled(), rooms: rooms.size, peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0) });
 
-// Carga do worker único do mediasoup: CPU (% de um núcleo, entre duas amostras), memória e contagem de objetos.
+// Carga dos workers do mediasoup: CPU (% de um núcleo, entre duas amostras), memória e contagem de objetos.
 // Amostrado a cada 15 s; guarda o pico e as últimas amostras. Se o pico se aproximar de 100% de um núcleo, é hora de usar mais workers.
-const loadHist = []; let lastRu = null, peakCpu = 0;
+// Com vários workers: cpu = o do worker mais carregado (é ele que trava primeiro); "per_worker" traz cada um.
+const loadHist = []; let peakCpu = 0;
 async function sampleLoad() {
-  if (!worker) return null;
-  const ru = await worker.getResourceUsage(), now = Date.now();
-  let cpu = null;
-  if (lastRu) { const dt = now - lastRu.t, du = (ru.ru_utime + ru.ru_stime) - lastRu.cpu; cpu = dt > 0 ? +(du / dt * 100).toFixed(1) : null; } // ru_utime/ru_stime em ms (mediasoup): % de um núcleo
-  lastRu = { t: now, cpu: ru.ru_utime + ru.ru_stime };
+  const ws = live(); if (!ws.length) return null;
+  const now = Date.now(), per = [];
+  for (const w of ws) {
+    const ru = await w.worker.getResourceUsage();
+    let cpu = null;
+    if (w.lastRu) { const dt = now - w.lastRu.t, du = (ru.ru_utime + ru.ru_stime) - w.lastRu.cpu; cpu = dt > 0 ? +(du / dt * 100).toFixed(1) : null; } // ru_utime/ru_stime em ms (mediasoup): % de um núcleo
+    w.lastRu = { t: now, cpu: ru.ru_utime + ru.ru_stime };
+    if (cpu != null) w.peakCpu = Math.max(w.peakCpu, cpu);
+    per.push({ port: w.port, cpu, rssMB: Math.round(ru.ru_maxrss / 1024), rooms: [...rooms.values()].filter(r => r.w === w).length, peers: [...rooms.values()].filter(r => r.w === w).reduce((n, r) => n + r.peers.size, 0) });
+  }
   let transports = 0, producers = 0, consumers = 0;
   for (const r of rooms.values()) for (const p of r.peers.values()) { transports += p.transports.size; producers += p.producers.size; consumers += p.consumers.size; }
-  const smp = { t: now, cpu, rssMB: Math.round(ru.ru_maxrss / 1024), rooms: rooms.size, peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0), transports, producers, consumers };
+  const cpus = per.map(x => x.cpu).filter(x => x != null), cpu = cpus.length ? Math.max(...cpus) : null;
+  const smp = { t: now, cpu, rssMB: per.reduce((n, x) => n + x.rssMB, 0), rooms: rooms.size, peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0), transports, producers, consumers, ...(per.length > 1 ? { per_worker: per } : {}) };
   if (cpu != null) peakCpu = Math.max(peakCpu, cpu);
   loadHist.push(smp); if (loadHist.length > 240) loadHist.shift();
   return smp;
@@ -222,5 +249,5 @@ async function sampleLoad() {
 setInterval(() => { sampleLoad().catch(() => { }); }, 15000).unref();
 export async function sfuLoad() {
   const cur = await sampleLoad();
-  return { enabled: sfuEnabled(), workers: worker ? 1 : 0, current: cur, peakCpuPercent: peakCpu, history: loadHist.slice(-40) };
+  return { enabled: sfuEnabled(), workers: live().length, current: cur, peakCpuPercent: peakCpu, history: loadHist.slice(-40) };
 }
