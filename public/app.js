@@ -525,6 +525,7 @@ document.addEventListener('settings-closed', () => { if (!ready || chNameKey() =
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 function applyRoute(first) {
+  queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
   const clipId = /^#\/clip\/(\d+)/.exec(location.hash)?.[1];
   if (clipId) { history.replaceState(null, '', routeBack); openClip(clipId); if (!first && S.view.gid) return; }
   routeBack = location.hash || '#/@me';
@@ -2759,10 +2760,27 @@ function layoutMenu(e) {
 // pausa automática: o vídeo de uma transmissão que não está à vista (quadro oculto, rolado para fora, janela minimizada) pausa no servidor após 4 s
 const tileVis = new Map(), pauseTimers = new Map();
 const visObs = new IntersectionObserver((es) => { for (const en of es) tileVis.set(en.target.dataset.sid, en.isIntersecting); applyVisibility(); }, { threshold: 0.05 });
+// câmeras: o tamanho do quadro (ResizeObserver, sem forçar layout) escolhe a camada do simulcast; fora de vista, pausa
+const camVis = new Map(), camW = new Map(), camTimers = new Map();
+const camObs = new IntersectionObserver((es) => { for (const en of es) camVis.set(en.target.dataset.uid, en.isIntersecting); applyCamFlow(); }, { threshold: 0.05 });
+const camSize = new ResizeObserver((es) => { for (const en of es) camW.set(en.target.dataset.uid, en.contentRect.width); applyCamFlow(); });
+const camLayerFor = (w) => { const px = w * Math.min(2, window.devicePixelRatio || 1); return px <= 400 ? 0 : px <= 800 ? 1 : 2; }; // camadas: 1/4, 1/2 e cheia de ~1280
+function applyCamFlow() {
+  if (!voice?.active || !voice.sfu?.ready) return;
+  const inStage = S.view.cid === voice.channelId, keep = S.prefs.autoPause === false || !!document.pictureInPictureElement;
+  for (const [uid, p] of voice.peers) {
+    if (![...p.consumers.values()].includes('cam')) continue;
+    const show = !S.prefs.hiddenVideo?.[uid] && (keep || (inStage && !document.hidden && camVis.get(uid) === true));
+    if (camW.has(uid)) voice.camFlow(uid, { layer: camLayerFor(camW.get(uid)) });
+    if (show) { clearTimeout(camTimers.get(uid)); camTimers.delete(uid); voice.camFlow(uid, { paused: false }); }
+    else if (!camTimers.has(uid) && !p.camPaused) camTimers.set(uid, setTimeout(() => { camTimers.delete(uid); voice.camFlow(uid, { paused: true }); }, 4000));
+  }
+}
 function observeTiles() {
-  visObs.disconnect(); tileVis.clear();
+  visObs.disconnect(); tileVis.clear(); camObs.disconnect(); camSize.disconnect(); camVis.clear();
   document.querySelectorAll('#stage .tile.screen[data-sid]').forEach(t => visObs.observe(t));
-  applyVisibility();
+  document.querySelectorAll('#stage .tile.utile[data-uid]').forEach(t => { if (t.dataset.uid !== S.me.id && t.querySelector('video')) { camObs.observe(t); camSize.observe(t); } });
+  applyVisibility(); applyCamFlow();
 }
 function applyVisibility() {
   if (!voice?.active) return;
@@ -2775,7 +2793,7 @@ function applyVisibility() {
   }
   for (const uid of [...(voice.autoPaused || [])]) if (!S.watching.has(uid)) voice.autoPaused.delete(uid); // parou de assistir: nada a retomar
 }
-document.addEventListener('visibilitychange', applyVisibility);
+document.addEventListener('visibilitychange', () => { applyVisibility(); applyCamFlow(); });
 document.addEventListener('fullscreenchange', applyVisibility);
 let lastTw = null; // tamanho calculado na última vez: a grade redesenhada já nasce com ele (sem piscar)
 // palco estreito (painel de chat aberto, janela pequena): os botões da transmissão sobem para uma linha própria acima da barra, sem sobrepor os botões da chamada
@@ -2808,7 +2826,7 @@ let vuiQ = 0; // 1 = só as falas, 2 = completo
 function voiceUpdate(speakOnly) {
   const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
   const first = !vuiQ; vuiQ = want;
-  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); });
+  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) applyCamFlow(); }); // câmera nova com a sala fora da tela também pausa
 }
 // aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
 let speakStale = false;

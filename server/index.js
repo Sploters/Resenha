@@ -881,17 +881,28 @@ app.get('/api/inbox', auth, wrap((req, res) => {
     return { ...messageObj(r), guild_id: r.guild_id, channel_name: r.channel_name, kind: r.kind, unread: !rs || rs.last_id < r.id };
   }));
 }));
-function saveMentions(m, ch, content) { // grava quem deve ver esta mensagem na caixa de entrada
-  run("DELETE FROM mentions WHERE message_id=? AND kind<>'reply'", m.id);
-  const everyone = /@everyone|@here/.test(content) && ch.guild_id;
-  const ids = everyone ? channelAudience(ch) : [...content.matchAll(/<@(\d+)>/g)].map(x => x[1]);
-  for (const id of new Set(ids)) if (id !== m.author_id) run('INSERT OR IGNORE INTO mentions VALUES(?,?,?)', m.id, id, everyone ? 'everyone' : 'mention');
+// Quem a mensagem marca: só contas que estão no canal (no máximo 50 por mensagem). @everyone/@here de quem não modera
+// notifica no máximo 1 vez a cada 5 min por servidor: sem isso, 5 mensagens por segundo com @everyone num servidor de
+// 5.000 pessoas gravavam 25 mil linhas na caixa de entrada por segundo (a mensagem continua indo; só não notifica).
+const everyoneAt = new Map(); // `${gid}:${uid}` -> última @everyone que notificou
+setInterval(() => { const old = Date.now() - 300e3; for (const [k, t] of everyoneAt) if (t < old) everyoneAt.delete(k); }, 60e3).unref();
+function resolveMentions(content, ch, authorId, fresh = true) {
+  if (ch.guild_id && /@everyone|@here/.test(content)) {
+    const k = ch.guild_id + ':' + authorId, mod = can(ch.guild_id, authorId, P.MANAGE_MESSAGES) || can(ch.guild_id, authorId, P.MODERATE);
+    if (mod || !fresh || Date.now() - (everyoneAt.get(k) || 0) > 300e3) { if (fresh && !mod) everyoneAt.set(k, Date.now()); return { everyone: true, ids: channelAudience(ch) }; }
+  }
+  const want = [...new Set([...content.matchAll(/<@(\d{1,24})>/g)].map(x => x[1]))].slice(0, 50);
+  const isIn = ch.guild_id ? (id) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, id)
+    : (id) => !!get('SELECT 1 x FROM dm_participants WHERE channel_id=? AND user_id=?', ch.id, id);
+  return { everyone: false, ids: want.filter(isIn) };
 }
-function mentionedIds(content, ch) {
-  const ids = new Set();
-  for (const m of content.matchAll(/<@(\d+)>/g)) ids.add(m[1]);
-  if (/@everyone|@here/.test(content)) return channelAudience(ch);
-  return [...ids];
+function saveMentions(m, ch, mn) { // grava quem deve ver esta mensagem na caixa de entrada (uma transação: 5.000 linhas levam ms, não segundos)
+  db.exec('BEGIN');
+  try {
+    run("DELETE FROM mentions WHERE message_id=? AND kind<>'reply'", m.id);
+    for (const id of mn.ids) if (id !== m.author_id) run('INSERT OR IGNORE INTO mentions VALUES(?,?,?)', m.id, id, mn.everyone ? 'everyone' : 'mention');
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
@@ -918,16 +929,19 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
     const other = all('SELECT user_id FROM dm_participants WHERE channel_id=? AND user_id<>?', ch.id, req.uid)[0];
     if (other && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=2', other.user_id, req.uid)) return bad(res, 'Você não pode enviar mensagens para este usuário', 403);
   }
+  // resposta: só a uma mensagem que existe neste canal (antes qualquer texto era guardado, até 1 MB)
+  const replyTo = req.body.reply_to && /^\d{1,24}$/.test(String(req.body.reply_to)) && get('SELECT 1 x FROM messages WHERE id=? AND channel_id=?', String(req.body.reply_to), ch.id) ? String(req.body.reply_to) : null;
   const id = newId();
   run('INSERT INTO messages(id,channel_id,author_id,content,created_at,reply_to,attachments) VALUES(?,?,?,?,?,?,?)',
-    id, ch.id, req.uid, content, Date.now(), req.body.reply_to ? String(req.body.reply_to) : null, JSON.stringify(atts));
+    id, ch.id, req.uid, content, Date.now(), replyTo, JSON.stringify(atts));
   run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ch.id, id);
   const row = get('SELECT * FROM messages WHERE id=?', id);
-  saveMentions(row, ch, content);
+  const mn = resolveMentions(content, ch, req.uid);
+  saveMentions(row, ch, mn);
   recordClipShares(row, req.uid);
   const rep = row.reply_to && get('SELECT author_id FROM messages WHERE id=? AND channel_id=?', row.reply_to, ch.id);
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
-  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mentionedIds(content, ch) };
+  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mn.ids };
   dispatch(channelAudience(ch), 'MESSAGE_CREATE', msg);
   dispatch([req.uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: true, tab: req.get('x-lc-tab') || null }); // respondeu num aparelho: lido em todos
   res.json(ch.guild_id && reputation.slowWait(ch.guild_id, req.uid) ? { ...msg, slow_wait: reputation.slowWait(ch.guild_id, req.uid) } : msg);
@@ -941,7 +955,8 @@ app.patch('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   if (!content.trim()) return bad(res, 'Mensagem vazia');
   if (get('SELECT 1 x FROM polls WHERE message_id=?', m.id)) return bad(res, 'Enquetes não podem ser editadas');
   run('UPDATE messages SET content=?,edited_at=? WHERE id=?', content, Date.now(), m.id);
-  saveMentions(m, ch, content);
+  // editar para pôr @everyone conta como uma nova @everyone; editar uma que já notificava mantém
+  saveMentions(m, ch, resolveMentions(content, ch, req.uid, !/@everyone|@here/.test(m.content || '')));
   dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
   res.json({});
 }));

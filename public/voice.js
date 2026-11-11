@@ -504,8 +504,10 @@ export class Voice {
       if (source === 'mic') this.attachAudio(p, stream, 'mic');
       else if (source === 'screenaudio') this.attachAudio(p, stream, 'screen');
       else { p.streams[source] = stream; c.track.onmute = c.track.onunmute = () => this.onUpdate(); }
+      if (source === 'cam') await this.sfuReq('layers', { consumer_id: c.id, spatial: p.camLayer ?? 1 }).catch(() => { }); // antes do 1º quadro: sem isso chegava a camada cheia
       const held = (source === 'screen' || source === 'screenaudio') && this.closedStreams.has(user_id) // transmissão fechada: nem baixa o vídeo
-        || source === 'mic' && s.voiceOff; // ensurdecido com a janela escondida (syncVoiceFlow)
+        || source === 'mic' && s.voiceOff // ensurdecido com a janela escondida (syncVoiceFlow)
+        || source === 'cam' && p.camPaused; // quadro da câmera fora de vista (camFlow)
       if (!held) await this.sfuReq('resume', { consumer_id: c.id });
       this.onUpdate();
     } catch (e) { console.warn('consume', e); s.seen.delete(producer_id); }
@@ -685,6 +687,15 @@ export class Voice {
     const pref = this.layerPref?.[uid]; if (pref === 0 || pref === 1 || pref === 2) spatial = pref; // escolha manual do painel de qualidade vence a automática
     const p = this.peers.get(uid); if (!p || !this.sfu?.ready || p.layer === spatial) return; p.layer = spatial;
     for (const [id, src] of p.consumers) if (src === 'screen') this.sfuReq('layers', { consumer_id: id, spatial }).catch(() => { });
+  }
+  // câmera de cada pessoa (SFU): a camada do simulcast que cabe no quadro em que aparece (0 = 1/4, 1 = metade, 2 = cheia)
+  // e pausa no servidor quando o quadro não está à vista. Antes toda câmera chegava na camada cheia (~2 Mbps), mesmo numa
+  // miniatura ou com a sala fora da tela.
+  camFlow(uid, { layer, paused } = {}) {
+    const p = this.peers.get(uid); if (!p || !this.sfu?.ready) return;
+    const ids = [...p.consumers].filter(([, src]) => src === 'cam').map(([id]) => id);
+    if (layer !== undefined && p.camLayer !== layer) { p.camLayer = layer; for (const id of ids) this.sfuReq('layers', { consumer_id: id, spatial: layer }).catch(() => { }); }
+    if (paused !== undefined && !!p.camPaused !== paused) { p.camPaused = paused; for (const id of ids) this.sfuReq('pause', { consumer_id: id, paused }).catch(() => { }); }
   }
   // qualidade escolhida para uma transmissão: 'auto' | 0 | 1 | 2 (camada simulcast)
   setLayerPref(uid, v) {
