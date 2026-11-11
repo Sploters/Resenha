@@ -893,7 +893,7 @@ const chIcon = (c) => icon(c.type === 2 ? 'voice' : 'hash', 20);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
-  const keepScroll = $('#side-list')?.scrollTop || 0;
+  const keepScroll = sideScroll; // guardada pelo evento de scroll: ler scrollTop aqui forçava layout
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inMessages()) {
@@ -952,11 +952,20 @@ function renderSide() {
   const pinned = uaPinned();
   const area = h('div#user-area' + (pinned ? '' : '.ua-col'), voice?.active && h('div.ua-vp', voicePanel()), userbar());
   side.replaceChildren(head, list, area);
-  const vp = area.querySelector('.ua-vp');
-  $('#app').style.setProperty('--ua-h', area.offsetHeight + 'px'); // a barra dos servidores reserva espaço pro seu perfil
-  $('#app').style.setProperty('--ua-side-h', (pinned || vp ? area.offsetHeight : 0) + 'px'); // barra solta: a lista ganha a altura toda
-  list.scrollTop = keepScroll;
+  list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true });
+  // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
+  // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
+  uaObs.disconnect(); uaObs.observe(area);
+  if (keepScroll) list.scrollTop = keepScroll;
 }
+let sideScroll = 0;
+const uaObs = new ResizeObserver(() => {
+  const area = document.getElementById('user-area'); if (!area) return;
+  uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
+  const hgt = area.offsetHeight, open = !area.classList.contains('ua-col') || !!area.querySelector('.ua-vp');
+  $('#app').style.setProperty('--ua-h', hgt + 'px'); // a barra dos servidores reserva espaço pro seu perfil
+  $('#app').style.setProperty('--ua-side-h', (open ? hgt : 0) + 'px'); // barra solta: a lista ganha a altura toda
+});
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
 // abas Mensagens | Amigos no topo da lista
