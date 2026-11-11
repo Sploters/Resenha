@@ -60,6 +60,15 @@ applyTheme();
 let ws, voice, retry = 0, ready = false, pendingInvite = null;
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
+// qual servidor esta tela mostra (null: nenhum, ou janela escondida): o servidor só manda a presença dos membros dele
+// para quem está olhando (e manda quem está online ao abrir). Reenviado a cada conexão nova (sentView volta a undefined).
+let sentView;
+function syncView() {
+  if (!ready || ws?.readyState !== 1) return;
+  const want = document.hidden ? null : (S.view.gid && S.view.gid !== '@me' && S.guilds.has(S.view.gid) ? S.view.gid : null);
+  if (want !== sentView) { sentView = want; gwSend('VIEW', { guild_id: want }); }
+}
+document.addEventListener('visibilitychange', () => syncView());
 initMusic(gwSend);
 let musicLit = false; // acende o botão de música quando o bot começa/para de tocar (só redesenha se mudou)
 let musicTrack = ''; // faixa atual: o cartão do bot na sala e na lista de canais mostra o que está tocando
@@ -236,7 +245,7 @@ function onEvent(t, d) {
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       e2eeLoad(true);
-      if (!ready) buildShell(); ready = true;
+      if (!ready) buildShell(); ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
@@ -259,20 +268,20 @@ function onEvent(t, d) {
       break;
     }
     case 'USER_DELETE': { S.rels.delete(d.id); renderMembers(); renderSide(); if (S.view.kind === 'home') renderMain(); break; }
-    case 'USER_UPDATE': {
-      const old = S.users.get(d.id), presence = !!old && presenceOnly(old, d);
-      S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
-      for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
-      for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
-      // só status/aparelho mudou (o caso comum: alguém entrou ou saiu): as mensagens não mostram status, e a lista de canais
-      // de um servidor só mostra quem está em sala. Antes cada entrada/saída redesenhava o chat e a lista lateral inteiros.
-      const g = guild(S.view.gid);
-      if (!presence || d.id === S.me.id || !g || S.voice.has(d.id)) renderSide();
-      if (!g || g.members.has(d.id)) renderMembers();
-      if (!presence) refreshAuthors(d.id);
-      if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
+    case 'USER_UPDATE': applyUser(d); break;
+    // presença pequena (servidor novo): só status e aparelhos; ver broadcastStatus no servidor
+    case 'PRESENCE': { const old = S.users.get(d.id); if (old && (old.status !== d.status || String(old.platforms || '') !== String(d.platforms || ''))) applyUser({ ...old, status: d.status, platforms: d.platforms || [] }); break; }
+    case 'PRESENCE_SYNC': { // abriu um servidor: quem está online nele agora (o resto, offline)
+      const g = S.guilds.get(d.guild_id); if (!g) break;
+      const on = new Map((d.online || []).map(([id, st, pl]) => [id, { st, pl: pl || [] }])); let n = 0;
+      for (const id of g.members.keys()) {
+        const u = S.users.get(id), w = on.get(id) || { st: 'offline', pl: [] }; if (!u || (u.status === w.st && String(u.platforms || '') === String(w.pl))) continue;
+        applyUser({ ...u, status: w.st, platforms: w.pl }, true); n++;
+      }
+      if (n) { renderSide(); renderMembers(); }
       break;
     }
+
     case 'GUILD_CREATE': ingestGuild(d); renderRail(); if (!S.view.gid || S.view.gid === 'new') go(d.id); else { renderSide(); } break;
     case 'GUILD_UPDATE': Object.assign(S.guilds.get(d.id) || {}, d); renderRail(); renderSide(); break;
     case 'GUILD_DELETE': {
@@ -970,6 +979,7 @@ function renderSide() {
   // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
   uaObs.disconnect(); uaObs.observe(area);
+  syncView();
 }
 let sideScroll = 0;
 const uaObs = new ResizeObserver(() => {
@@ -1662,6 +1672,20 @@ function appendMessage(m) {
   const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null); mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700);
   box.append(mel);
   if (near) { box.stick = true; box.scrollTop = box.scrollHeight; }
+}
+function applyUser(d, quiet) { // quiet: muitos de uma vez (PRESENCE_SYNC), quem chamou redesenha
+  const old = S.users.get(d.id), presence = !!old && presenceOnly(old, d);
+  S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
+  for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
+  for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
+  // só status/aparelho mudou (o caso comum: alguém entrou ou saiu): as mensagens não mostram status, e a lista de canais
+  // de um servidor só mostra quem está em sala. Antes cada entrada/saída redesenhava o chat e a lista lateral inteiros.
+  if (quiet) return;
+  const g = guild(S.view.gid);
+  if (!presence || d.id === S.me.id || !g || S.voice.has(d.id)) renderSide();
+  if (!g || g.members.has(d.id)) renderMembers();
+  if (!presence) refreshAuthors(d.id);
+  if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
 }
 const PRESENCE_KEYS = new Set(['status', 'platforms']);
 function presenceOnly(a, b) { for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (!PRESENCE_KEYS.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false; return true; }

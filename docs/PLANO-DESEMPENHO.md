@@ -27,7 +27,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
 - [ ] Medir a gravação contínua dos clipes (F8) e a cifra quadro a quadro das chamadas protegidas.
 
 ## Rede e servidor
-- [ ] ★ **Presença só para quem está olhando o servidor** (mais amigos e conversas diretas), em vez de todos os membros.
+- [x] ★ **Presença só para quem está olhando o servidor** (2026-11-11). O app manda `VIEW` (servidor na tela; nenhum
+      com a janela escondida); entrar/sair/trocar de aparelho vira um `PRESENCE` pequeno (id, status, aparelhos) para a
+      própria pessoa, amigos, conversas diretas e quem está olhando um servidor dela; ao abrir um servidor chega
+      `PRESENCE_SYNC` com quem está online. App antigo (sem `VIEW`) recebe como antes. Carga com 500 pessoas no mesmo
+      servidor e 20% olhando: mensagens do gateway 789 mil → 655 mil (−17%), dados 597 → 536 MB, espalhar uma
+      presença p95 9 → 2,4 ms; os avisos de presença caíram ~74%. Teste: `scripts/presence-test.mjs`.
+- [ ] Mesma ideia para "digitando…" e outros avisos que vão para o servidor inteiro sem ninguém olhando o canal
+      (o grosso do tráfego que sobrou na carga são as mensagens de chat, que precisam ir a todos pelas não lidas).
 - [ ] READY menor: membros sob demanda.
 - [ ] Mais de um worker do mediasoup (hoje 1 núcleo para todas as salas).
 - [ ] SQLite: plano de todas as consultas, WAL e `synchronous`.

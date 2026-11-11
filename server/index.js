@@ -259,6 +259,50 @@ function sharedAudience(uid) {
   for (const r of all('SELECT p2.user_id FROM dm_participants p1 JOIN dm_participants p2 ON p1.channel_id=p2.channel_id WHERE p1.user_id=?', uid)) ids.add(r.user_id);
   return [...ids];
 }
+// ---- presença (entrou/saiu/trocou de aparelho) só para quem vai mostrar ----
+// Antes cada entrada/saída mandava o perfil inteiro para todos os membros de todos os servidores da pessoa. Agora o app
+// avisa qual servidor está olhando (VIEW; nenhum com a janela escondida) e o aviso, pequeno (PRESENCE), vai para: a
+// própria pessoa, amigos, conversas diretas e quem está olhando um servidor dela. Ao abrir um servidor, o app recebe
+// quem está online nele (PRESENCE_SYNC). Conexão que nunca mandou VIEW (app antigo aberto durante uma atualização)
+// continua recebendo tudo como antes (USER_UPDATE).
+const viewers = new Map(); // guildId -> Set<ws>
+function setView(ws, gid) {
+  if (ws.view !== undefined && ws.view !== null) { const v = viewers.get(ws.view); v?.delete(ws); if (v && !v.size) viewers.delete(ws.view); }
+  ws.view = gid;
+  if (gid) (viewers.get(gid) || viewers.set(gid, new Set()).get(gid)).add(ws);
+}
+const dropViewers = (gid) => { for (const ws of [...(viewers.get(gid) || [])]) setView(ws, null); }; // servidor apagado
+function presenceSync(ws, gid) {
+  const rows = all('SELECT u.* FROM members m JOIN users u ON u.id=m.user_id WHERE m.guild_id=?', gid), out = [];
+  for (const u of rows) { const st = statusFor(ws.uid, u); if (st !== 'offline') out.push([u.id, st, platformsFor(ws.uid, u)]); }
+  send(ws, 'PRESENCE_SYNC', { guild_id: gid, online: out });
+}
+function sendRaw(list, type, d) { // como o dispatch, mas para conexões escolhidas
+  let raw = null;
+  for (const ws of list) { if (ws.readyState !== 1) continue; if (ws.bufferedAmount > 8 << 20) { ws.terminate(); continue; } raw ||= Buffer.from(JSON.stringify({ t: type, d })); ws.send(raw, { binary: false, compress: false }); }
+}
+function broadcastStatus(uid) {
+  const t0 = performance.now(), u = getUser(uid); if (!u) return;
+  platKey.set(uid, platformsOf(u).join());
+  const direct = new Set([uid]);
+  for (const r of all('SELECT other_id FROM relationships WHERE user_id=?', uid)) direct.add(r.other_id);
+  for (const r of all('SELECT p2.user_id FROM dm_participants p1 JOIN dm_participants p2 ON p1.channel_id=p2.channel_id WHERE p1.user_id=?', uid)) direct.add(r.user_id);
+  const gids = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => r.guild_id);
+  const targets = new Set(), legacy = new Set();
+  for (const id of direct) for (const ws of conns.get(id) || []) (ws.view === undefined ? legacy : targets).add(ws);
+  for (const gid of gids) for (const ws of viewers.get(gid) || []) targets.add(ws);
+  if (legacyConns.size) { // app antigo: todos os membros dos servidores dela, como antes
+    const members = new Set(gids.length ? all(`SELECT DISTINCT user_id FROM members WHERE guild_id IN (${gids.map(() => '?').join(',')})`, ...gids).map(r => r.user_id) : []);
+    for (const ws of legacyConns) if (members.has(ws.uid)) legacy.add(ws);
+  }
+  const by = (ws) => privacy.restricted(uid) && !privacy.presenceVisible(ws.uid, uid);
+  const real = { id: uid, status: realStatus(u), platforms: platformsOf(u) }, hidden = { id: uid, status: 'offline', platforms: [] };
+  const tv = [...targets], lv = [...legacy];
+  sendRaw(tv.filter(w => !by(w)), 'PRESENCE', real); sendRaw(tv.filter(by), 'PRESENCE', hidden);
+  if (lv.length) { const pu = pubUser(u); invalidateFor('USER_UPDATE', pu); sendRaw(lv.filter(w => !by(w)), 'USER_UPDATE', { ...pu, ...real }); sendRaw(lv.filter(by), 'USER_UPDATE', { ...pu, ...hidden }); }
+  mountPerf.time?.(`WS aviso de presença (${tv.length + lv.length > 500 ? '500+' : tv.length + lv.length > 100 ? '100+' : '<100'} conexões)`, performance.now() - t0);
+}
+const legacyConns = new Set(); // conexões que ainda não mandaram VIEW
 const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAudience(uid), u = getUser(uid), pu = pubUser(u); if (!u) return;
   platKey.set(uid, platformsOf(u).join());
   if (!privacy.restricted(uid)) dispatch(to, 'USER_UPDATE', pu);
@@ -426,7 +470,7 @@ app.post('/api/me/delete', auth, wrap((req, res) => {
   const u = getUser(req.uid);
   if (hashPw(String(req.body.password || ''), u.salt) !== u.pass_hash) return bad(res, 'Senha incorreta', 403);
   for (const g of all('SELECT id FROM guilds WHERE owner_id=?', u.id)) {
-    const ids = guildMemberIds(g.id); run('DELETE FROM guilds WHERE id=?', g.id); dispatch(ids, 'GUILD_DELETE', { id: g.id });
+    const ids = guildMemberIds(g.id); run('DELETE FROM guilds WHERE id=?', g.id); dispatch(ids, 'GUILD_DELETE', { id: g.id }); dropViewers(g.id);
   }
   for (const [cid, m] of voice) if (m.has(u.id)) leaveVoice(u.id, cid);
   const audience = sharedAudience(u.id);
@@ -469,7 +513,7 @@ app.delete('/api/guilds/:id', auth, wrap((req, res) => {
   const ids = guildMemberIds(g.id);
   for (const [cid, m] of voice) for (const u of [...m.keys()]) if (get('SELECT 1 x FROM channels WHERE id=? AND guild_id=?', cid, g.id)) leaveVoice(u, cid);
   run('DELETE FROM guilds WHERE id=?', g.id);
-  dispatch(ids, 'GUILD_DELETE', { id: g.id });
+  dispatch(ids, 'GUILD_DELETE', { id: g.id }); dropViewers(g.id);
   res.json({});
 }));
 function removeMember(gid, uid, kicked) {
@@ -479,6 +523,7 @@ function removeMember(gid, uid, kicked) {
   run('DELETE FROM members WHERE guild_id=? AND user_id=?', gid, uid);
   dispatch(ids, 'MEMBER_REMOVE', { guild_id: gid, user_id: uid });
   dispatch([uid], 'GUILD_DELETE', { id: gid, kicked });
+  for (const ws of conns.get(uid) || []) if (ws.view === gid) setView(ws, null); // fora do servidor: para de receber a presença dele
 }
 app.delete('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
   const gid = req.params.id, target = req.params.uid === 'me' ? req.uid : req.params.uid;
@@ -1630,7 +1675,7 @@ function dropStaleVoice(uid, ws) {
 // aparelhos da conta em uso agora: cada conexão sabe se OUTRA está ativa (e de que tipo) — quem está no PC lendo não
 // recebe a notificação no celular; quando o PC sai do foco, o celular volta a avisar na hora
 // mudou o conjunto de plataformas (abriu o celular com o PC ligado, fechou o navegador…): avisa quem vê a presença
-function pushPlatforms(uid) { const u = getUser(uid); if (u && conns.has(uid) && platKey.get(uid) !== platformsOf(u).join()) broadcastPresence(uid); }
+function pushPlatforms(uid) { const u = getUser(uid); if (u && conns.has(uid) && platKey.get(uid) !== platformsOf(u).join()) broadcastStatus(uid); }
 function pushDevices(uid) {
   const list = [...(conns.get(uid) || [])].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt }));
   dispatch([uid], 'DEVICES', { active: list });
@@ -1639,11 +1684,11 @@ wss.on('connection', (ws) => {
   const uid = ws.uid;
   const first = !conns.has(uid);
   if (first) conns.set(uid, new Set());
-  conns.get(uid).add(ws);
+  conns.get(uid).add(ws); legacyConns.add(ws);
   ws.alive = true; ws.on('pong', () => (ws.alive = true));
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
-  if (first) { broadcastPresence(uid); activity.poke(); }
+  if (first) { broadcastStatus(uid); activity.poke(); }
   if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
 
   ws.on('message', (raw) => {
@@ -1652,6 +1697,14 @@ wss.on('connection', (ws) => {
     try {
       switch (msg.t) {
         case 'PING': send(ws, 'PONG', { n: d.n }); break; // medida de latência do cliente
+        case 'VIEW': { // servidor que o app está mostrando (null: nenhum / janela escondida) — ver broadcastStatus
+          const gid = d.guild_id ? String(d.guild_id) : null;
+          const ok = gid && get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid) ? gid : null;
+          legacyConns.delete(ws);
+          if (ws.view === ok) break;
+          setView(ws, ok); if (ok) presenceSync(ws, ok);
+          break;
+        }
         case 'ACTIVE': { // este aparelho está em uso (janela em foco e mexendo) ou não: os outros seguram as notificações
           const on = !!d.active, kind = ['desktop', 'mobile', 'web'].includes(d.kind) ? d.kind : 'web';
           if (ws.active === on && ws.devKind === kind) break;
@@ -1826,10 +1879,10 @@ wss.on('connection', (ws) => {
     } catch (e) { console.error('ws', e); }
   });
   ws.on('close', () => {
-    const set = conns.get(uid); set?.delete(ws);
+    const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);
-    if (set && !set.size) { conns.delete(uid); broadcastPresence(uid); }
+    if (set && !set.size) { conns.delete(uid); broadcastStatus(uid); }
     else { if (ws.active) pushDevices(uid); pushPlatforms(uid); }
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou
   });
