@@ -56,5 +56,6 @@ export function swapIcon(btn, key, state) {
 // desligadas ou com vídeo na tela (transmissões: a captura do quadro pesa e pisca), só troca.
 export function viewTransition(fn) {
   if (!animOn() || !document.startViewTransition || document.querySelector('#stage video, .livepip video, .fsbox')) return fn();
-  try { document.startViewTransition(fn); } catch { fn(); }
+  // trocar de canal rápido pula a transição anterior: o aviso "Transition was skipped" não é erro (antes virava promessa rejeitada sem tratamento)
+  try { const t = document.startViewTransition(fn); t.ready?.catch(() => { }); t.finished?.catch(() => { }); } catch { fn(); }
 }

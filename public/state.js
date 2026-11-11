@@ -1,7 +1,8 @@
-import { h, icon, EMOJIS, setHour12 } from './util.js';
+import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
+import { e2eeOutgoing, decryptDeep } from './e2ee.js';
 
 export const PERM = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256 };
 export const PERM_LABELS = [
@@ -120,6 +121,19 @@ export function relite(remote, local) {
   }
 }
 export const desktop = window.lcDesktop || null; // ponte do app Electron (preload)
+// App desktop: a janela roda sem desaceleração (backgroundThrottling: false, para voz, atalhos e clipes não atrasarem) e, com
+// isso, o Electron nunca marca a página como escondida: minimizada ou na bandeja ela seguia "visível" — baixando o vídeo da
+// transmissão assistida, medindo ping 1x/s, desenhando quem fala. O app (desde a 1.0.25) avisa o estado real da janela e
+// aqui document.hidden/visibilityState passam a refletir isso; todo o resto do app já reage a 'visibilitychange'.
+if (desktop?.onWindowState) {
+  const H = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden'), V = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  let winHidden = false;
+  if (H?.get && V?.get) {
+    Object.defineProperty(document, 'hidden', { configurable: true, get() { return winHidden || H.get.call(this); } });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get() { return winHidden ? 'hidden' : V.get.call(this); } });
+    desktop.onWindowState((st) => { const h = !!st?.hidden; if (h === winHidden) return; winHidden = h; document.dispatchEvent(new Event('visibilitychange')); });
+  }
+}
 export function applyTheme() {
   const r = document.documentElement;
   const grad = themeDef(S.prefs.theme, S.prefs.customThemes);
@@ -131,7 +145,7 @@ export function applyTheme() {
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
-  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12);
+  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));
@@ -159,13 +173,19 @@ export async function api(method, path, body) {
 // id desta aba/janela (sobrevive ao F5): o servidor reconhece a conexão antiga da mesma aba (sai da sala de voz na hora)
 // e manda os avisos de "lido"/configurações só para os OUTROS aparelhos saberem de onde veio a mudança
 export const tabId = (() => { try { let t = sessionStorage.getItem('lc_tab'); if (!t) sessionStorage.setItem('lc_tab', t = Math.random().toString(36).slice(2, 12)); return t; } catch { return Math.random().toString(36).slice(2, 12); } })();
+const MSG_PATH = /^\/channels\/(\d+)\/messages(?:\/\d+)?$/;
 async function request(method, path, body) {
+  // conversa direta protegida: o texto sai daqui já cifrado (public/e2ee.js); o que volta cifrado é aberto antes de usar
+  const mp = (method === 'POST' || method === 'PATCH') && body && !(body instanceof Blob) && MSG_PATH.exec(path);
+  if (mp) body = await e2eeOutgoing(mp[1], body);
   const opt = { method, headers: { Authorization: 'Bearer ' + (S.token || ''), 'X-LC-Tab': tabId } };
   if (body instanceof Blob) { opt.body = body; opt.headers['Content-Type'] = body.type || 'application/octet-stream'; }
   else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
   const t0 = performance.now();
   const r = await fetch('/api' + path, opt);
-  const data = await r.json().catch(() => ({}));
+  const txt = await r.text().catch(() => '');
+  let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = {}; }
+  if (r.ok && txt.includes('"e2ee:1:')) await decryptDeep(data).catch(() => { });
   const ms = performance.now() - t0; if (ms > 300 && S.apiSlow.length < 40) S.apiSlow.push({ r: method + ' /api' + path, ms: Math.round(ms) });
   if (!r.ok) { const e = new Error(data.error || 'Erro ' + r.status); e.status = r.status; e.data = data; throw e; }
   return data;
@@ -320,10 +340,11 @@ export function beep() {
   if (!S.prefs.sounds || S.prefs.soundsMuted) return;
   const vol = (S.prefs.soundVolume ?? 80) / 100 * (S.prefs.notifVolume ?? 100) / 100; if (vol <= 0) return;
   try {
-    actx ||= new (window.AudioContext || window.webkitAudioContext)();
+    actx ||= new (window.AudioContext || window.webkitAudioContext)(); actx.resume?.();
     const o = actx.createOscillator(), g = actx.createGain();
     o.frequency.value = 880; o.type = 'sine'; g.gain.setValueAtTime(.12 * vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .25);
     o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + .25);
+    clearTimeout(actx._nap); actx._nap = setTimeout(() => { if (actx.state === 'running') actx.suspend().catch(() => { }); }, 3000); // dorme sem som tocando
   } catch { }
 }
 // ---------- aparelhos da conta (sincronização entre PC e celular) ----------
@@ -338,7 +359,7 @@ export function notify(title, body, onclick, tag) {
   if (!S.prefs.desktopNotif || !('Notification' in window) || Notification.permission !== 'granted') return;
   if (quietHere()) return;
   // silent: o som do aviso é o do app (com o volume das notificações), não o do sistema por cima
-  const n = new Notification(title, { body: body.slice(0, 140), silent: true, ...(tag ? { tag: 'lc-' + tag } : {}) });
+  const n = new Notification(title, { body: plainTs(body).slice(0, 140), silent: true, ...(tag ? { tag: 'lc-' + tag } : {}) });
   n.onclick = () => { window.focus(); onclick?.(); n.close(); };
   if (tag) { const set = openNotifs.get(tag) || openNotifs.set(tag, new Set()).get(tag); set.add(n); n.onclose = () => { set.delete(n); if (!set.size) openNotifs.delete(tag); }; }
   return n;

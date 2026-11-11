@@ -482,7 +482,7 @@ html.anim #lightbox.viewer .vimg img { animation: lc-zoom .26s cubic-bezier(.2, 
 html.anim .vnav, html.anim .vtools .ibtn { transition: background .15s, transform .15s, opacity .15s; } html.anim .vnav:hover { transform: translateY(-50%) scale(1.1); }
 html.anim .msg { transition: background .15s; }
 html.anim .msg .av, html.anim .avatar.clickable, html.anim .avatar.zoomable { transition: opacity .15s, filter .2s, transform .2s; }
-html.anim .tile { transition: box-shadow .2s; }
+/* .tile sem transição no box-shadow: o anel de fala liga/desliga várias vezes por segundo e cada troca repintava a tela por 0,2 s */
 html.anim .ncard, html.anim .avopt, html.anim .sbsnd, html.anim .vwrow, html.anim #home .tab, html.anim .ct-tab, html.anim .chip { transition: background .15s, border-color .2s, color .15s, transform .15s, box-shadow .2s; }
 html.anim .ncard:hover, html.anim .avopt:hover { transform: translateY(-2px); } html.anim .ncard:active, html.anim .avopt:active { transform: scale(.97); }
 html.anim .switch, html.anim .switch::after, html.anim .switch i { transition: background .2s, transform .2s; }
@@ -1535,3 +1535,8 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .favlist .fav-drop:not(:empty) { padding: 6px; border: 1px dashed var(--divider, rgba(127,127,127,.3)); margin-bottom: 6px; }
 .ch .favmark { display: inline-flex; margin-left: 4px; color: var(--yellow, #f0b232); opacity: .8; } .ch .favmark svg { fill: currentColor; }
 .rail-item.fav-btn svg { fill: var(--yellow, #f0b232); }
+.gifpicker .gfoot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.gifpicker .gfoot .gwarn { color: var(--yellow, #f0b232); }
+.gifpicker .gfoot .gsrc { margin-left: auto; display: inline-flex; gap: 2px; background: var(--bg-ter, rgba(127,127,127,.15)); border-radius: 6px; padding: 2px; }
+.gifpicker .gfoot .gsrc button { border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.gifpicker .gfoot .gsrc button.on { background: var(--bg-float, #fff2); color: var(--text); }

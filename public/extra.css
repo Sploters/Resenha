@@ -40,7 +40,7 @@ body { background: var(--bg-tert); }
 #stage .grid { align-content: center; }
 #stage .spot { flex: 1; min-height: 0; display: flex; padding: 12px 12px 0; } #stage .spot .tile { max-width: none; flex: 1; aspect-ratio: auto; }
 #stage .strip { display: flex; gap: 10px; padding: 10px 12px 0; overflow-x: auto; flex: none; height: 120px; } #stage .strip .tile { flex: 0 0 170px; min-width: 0; aspect-ratio: 16/9; } #stage .strip .tile .avatar { width: 56px !important; height: 56px !important; font-size: 24px !important; }
-.tile { cursor: pointer; transition: box-shadow .12s; } .tile.speaking { box-shadow: 0 0 0 3px var(--green); border-color: var(--green); }
+.tile { cursor: pointer; } /* sem transição no anel de fala: cada troca repintava a tela ~8 vezes */ .tile.speaking { box-shadow: 0 0 0 3px var(--green); border-color: var(--green); }
 .tile .avatar.speaking { box-shadow: none; }
 .tile .tctl { position: absolute; right: 8px; top: 8px; display: none; gap: 8px; align-items: center; background: rgba(0,0,0,.6); border-radius: 6px; padding: 2px 6px; color: #fff; } .tile:hover .tctl { display: flex; } .tctl input { width: 90px; }
 .tile .sinfo { margin-left: 6px; opacity: .8; font-size: 12px; }

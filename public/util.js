@@ -177,6 +177,7 @@ const I = {
   bolt: 'M11 21h-1l1-7H7.5c-.88 0-.33-.75-.31-.78C8.48 10.94 10.42 7.54 13.01 3h1l-1 7h3.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21Z',
   poll: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2ZM9 17H7v-7h2Zm4 0h-2V7h2Zm4 0h-2v-4h2Z',
   dot: 'M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z',
+  devphone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm0 2v14h10V4Zm3.5 15h3v1.5h-3Z',
   live: { parts: ['M12 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z', 'M7.05 7.05 5.64 5.64a9 9 0 0 0 0 12.72l1.41-1.41a7 7 0 0 1 0-9.9ZM16.95 7.05l1.41-1.41a9 9 0 0 1 0 12.72l-1.41-1.41a7 7 0 0 0 0-9.9Z'] },
 };
 // emoji escolhido para um som do soundboard; sem escolha (ou o 🔊 que era colocado sozinho antes) mostra o ícone de alto-falante
@@ -234,6 +235,14 @@ export function avatar(u, size = 40, opts = {}) {
 // ---- tempo ----
 const pad = (n) => String(n).padStart(2, '0');
 let H12 = false; export const setHour12 = (v) => { H12 = !!v; };
+// ---- de onde a pessoa está conectada: ícones ao lado do nome (somem com o status offline/escondido) ----
+export const PLAT_TXT = { desktop: 'No app para computador', mobile: 'No celular', web: 'No navegador' };
+const PLAT_ICON = { desktop: 'screen', mobile: 'devphone', web: 'globe' };
+let PLAT_ON = true; export const setPlatformIcons = (v) => { PLAT_ON = v !== false; };
+export function platformIcons(u, size = 14) {
+  const ps = u?.platforms; if (!PLAT_ON || !ps?.length || !u.status || u.status === 'offline') return null;
+  return h('span.plats', { title: ps.map(p => PLAT_TXT[p]).join(' · '), 'aria-label': ps.map(p => PLAT_TXT[p]).join(', ') }, ps.map(p => icon(PLAT_ICON[p], size)));
+}
 export const clock = (t) => { const d = new Date(+t); if (H12) return `${d.getHours() % 12 || 12}:${pad(d.getMinutes())} ${d.getHours() < 12 ? 'AM' : 'PM'}`; return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 export function stamp(t) {
   const d = new Date(+t), n = new Date(), y = new Date(Date.now() - 864e5);
@@ -246,6 +255,75 @@ export const dayLabel = (t) => new Date(+t).toLocaleDateString('pt-BR', { day: '
 export const sameDay = (a, b) => new Date(+a).toDateString() === new Date(+b).toDateString();
 export const bytes = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' KB' : n + ' B';
 
+// ---- horário que se ajusta para quem lê: <t:SEGUNDOS:FORMATO> ----
+// t 21:30 · T 21:30:15 · d 11/11/2026 · D 11 de novembro de 2026 · f (padrão) com a hora · F com o dia da semana · R "em 2 horas"
+export const TS_FORMATS = [['R', 'Relativo'], ['t', 'Hora'], ['T', 'Hora com segundos'], ['d', 'Data curta'], ['D', 'Data'], ['f', 'Data e hora'], ['F', 'Dia da semana, data e hora']];
+const RTF = typeof Intl !== 'undefined' && Intl.RelativeTimeFormat ? new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' }) : null;
+export function relTime(ms) {
+  const diff = (ms - Date.now()) / 1000, a = Math.abs(diff);
+  const [v, u] = a < 45 ? [diff, 'second'] : a < 2700 ? [diff / 60, 'minute'] : a < 79200 ? [diff / 3600, 'hour'] : a < 2160000 ? [diff / 86400, 'day'] : a < 26e6 ? [diff / 2592000, 'month'] : [diff / 31536000, 'year'];
+  return RTF ? RTF.format(Math.round(v), u) : new Date(ms).toLocaleString('pt-BR');
+}
+export function tsText(sec, f = 'f') {
+  const t = sec * 1000, d = new Date(t); if (!isFinite(d)) return '?';
+  const secs = H12 ? clock(t).replace(' ', ':' + pad(d.getSeconds()) + ' ') : clock(t) + ':' + pad(d.getSeconds());
+  switch (f) {
+    case 'R': return relTime(t);
+    case 't': return clock(t);
+    case 'T': return secs;
+    case 'd': return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    case 'D': return dayLabel(t);
+    case 'F': return `${d.toLocaleDateString('pt-BR', { weekday: 'long' })}, ${dayLabel(t)} às ${clock(t)}`;
+    default: return `${dayLabel(t)} às ${clock(t)}`;
+  }
+}
+const tsHtml = (sec, f) => `<span class="md-ts" data-ts="${sec}" data-f="${f}" title="${esc(tsText(sec, 'F'))} (no seu horário)">${esc(tsText(sec, f))}</span>`;
+// relativos ("há 5 minutos") andam sozinhos
+setInterval(() => { for (const el of document.querySelectorAll('.md-ts[data-f="R"]')) { const x = relTime(+el.dataset.ts * 1000); if (el.textContent !== x) el.textContent = x; } }, 20e3);
+// texto simples (notificações, respostas, prévias): o carimbo vira o horário de quem lê
+export const plainTs = (s) => String(s || '').replace(/<t:(-?\d{1,12})(?::([tTdDfFR]))?>/g, (_, sec, f) => tsText(+sec, f || 'f'));
+
+// ---- links sem rastreio: tira utm_*, fbclid, si= etc. antes de enviar ----
+const TRACK_ANY = /^(utm_\w+|fbclid|gclid|gclsrc|dclid|gbraid|wbraid|msclkid|mc_cid|mc_eid|yclid|ttclid|twclid|igshid|igsh|_hsenc|_hsmi|__hs\w+|mkt_tok|oly_anon_id|oly_enc_id|rb_clickid|s_cid|vero_id|vero_conv|wickedid|srsltid|_gl|ref_src|ref_url|sms_ss|awc|epik|li_fat_id|__s|ss_source|ss_campaign_id)$/i;
+const TRACK_SITE = [
+  [/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/, /^(si|feature|pp|embeds_referring_euri|source_ve_path)$/],
+  [/(^|\.)spotify\.(com|link)$/, /^(si|context|nd|_branch_match_id|_branch_referrer|utm_\w+)$/],
+  [/(^|\.)(twitter\.com|x\.com)$/, /^(s|t|ref_src|ref_url|src)$/],
+  [/(^|\.)(instagram\.com|threads\.net|threads\.com)$/, /^(igsh|igshid|xmt|slof)$/],
+  [/(^|\.)tiktok\.com$/, /^(_t|_r|_d|is_from_webapp|sender_device|sender_web_id|share_app_id|share_item_id|share_link_id|social_sharing|tt_from|u_code|timestamp|checksum|is_copy_url|web_id|user_id|sec_user_id|share_author_id|utm_\w+)$/],
+  [/(^|\.)reddit\.com$/, /^(share_id|rdt|correlation_id|ref|ref_source|ref_campaign|context)$/],
+  [/(^|\.)amazon\.[a-z.]+$/, /^(ref|ref_|pd_rd_\w+|pf_rd_\w+|psc|content-id|crid|sprefix|qid|sr|dib|dib_tag|_encoding|linkCode|linkId|tag|th|social_share|starsLeft|skipTwisterOG|smid|spIA|sp_csd|camp|creative|creativeASIN|ascsubtag)$/],
+  [/(^|\.)google\.[a-z.]+$/, /^(ved|ei|sa|usg|sxsrf|gs_lcp|gs_lp|gs_lcrp|sclient|oq|aqs|sourceid|uact|bih|biw|iflsig|rlz|sca_esv|sca_upv|dpr|stick)$/],
+  [/(^|\.)linkedin\.com$/, /^(trk|trkInfo|lipi|originalSubdomain|trackingId|refId|midToken|midSig|eid|otpToken)$/],
+  [/(^|\.)(facebook\.com|fb\.watch|fb\.com)$/, /^(mibextid|rdid|sfnsn|__tn__|__cft__\[0\]|eid|hc_ref|fref|paipv|extid)$/],
+  [/(^|\.)aliexpress\.[a-z.]+$/, /^(spm|scm|scm_id|scm-url|algo_pvid|algo_exp_id|pdp_npi|pdp_ext_f|aff_\w+|sk|gatewayAdapt|_randl_shipto|btsid|ws_ab_test|utparam|gps-id|terminal_id|pvid|af|cv|cn|dp|tt|mall_affr|srcSns|businessType|platform|social_params|shareId|bizType|tracelog)$/],
+  [/(^|\.)shopee\.[a-z.]+$/, /^(sp_atk|xptdk|smtt|uls_trackid|mmp_pid|share_channel_code|is_from_login)$/],
+  [/(^|\.)mercadoli(vre|bre)\.[a-z.]+$/, /^(tracking_id|matt_\w+|searchVariation|position|search_layout|type|sid|reco_\w+|c_id|c_uid|c_element_order|c_element_id|c_campaign|c_label|c_container_id|c_tracking_id|c_global_position|deal_print_id|polycard_client|wid|is_advertising|ad_domain|ad_position|ad_click_id|ref|forceInApp)$/],
+  [/(^|\.)(twitch\.tv)$/, /^(tt_medium|tt_content|sr)$/],
+  [/(^|\.)(soundcloud\.com)$/, /^(si|ref|p|c)$/],
+  [/(^|\.)(pinterest\.[a-z.]+|pin\.it)$/, /^(invite_code|sender|sfo|mweb_unauth_id)$/],
+];
+// mexe só na busca do link (o resto fica como foi escrito, sem recodificar); código entre crases fica de fora
+export function cleanLinks(text) {
+  return String(text).split(/(```[\s\S]*?```|`[^`\n]+`)/).map((part, i) => i % 2 ? part : part.replace(/https?:\/\/[^\s<>]+/g, (raw) => {
+    const [, u, tail] = raw.match(/^(.*?)([.,;:!?)\]'"]*)$/);
+    let host; try { host = new URL(u).hostname.toLowerCase(); } catch { return raw; }
+    const q = u.indexOf('?'), hashAt = u.indexOf('#', q < 0 ? 0 : q);
+    let base = q < 0 ? (hashAt < 0 ? u : u.slice(0, hashAt)) : u.slice(0, q);
+    const query = q < 0 ? '' : u.slice(q + 1, hashAt < 0 ? undefined : hashAt), hash = hashAt < 0 ? '' : u.slice(hashAt);
+    const site = TRACK_SITE.filter(([h]) => h.test(host)).map(([, r]) => r);
+    let changed = false;
+    if (/(^|\.)amazon\./.test(host) && /\/ref=[^/]*$/.test(base)) { base = base.replace(/\/ref=[^/]*$/, ''); changed = true; }
+    const kept = !query ? [] : query.split('&').filter(kv => {
+      if (!kv) return false;
+      let k = kv.split('=')[0]; try { k = decodeURIComponent(k.replace(/\+/g, ' ')); } catch { }
+      const drop = TRACK_ANY.test(k) || site.some(r => r.test(k)); if (drop) changed = true; return !drop;
+    });
+    if (!changed) return raw;
+    return base + (kept.length ? '?' + kept.join('&') : '') + hash + tail;
+  })).join('');
+}
+
 // ---- markdown estilo Discord (sempre escapa primeiro) ----
 export function md(src, ctx = {}) {
   const store = [];
@@ -254,6 +332,8 @@ export function md(src, ctx = {}) {
   s = s.replace(/```(?:[\w+-]*\n)?([\s\S]*?)```/g, (_, c) => keep(`<pre class="md-pre">${esc(c.replace(/\n$/, ''))}</pre>`));
   s = s.replace(/`([^`\n]+)`/g, (_, c) => keep(`<span class="md-code">${esc(c)}</span>`));
   s = esc(s);
+  // <t:1731350000:R> etc.: horário que cada um vê no próprio fuso e formato (relativo se atualiza sozinho)
+  s = s.replace(/&lt;t:(-?\d{1,12})(?::([tTdDfFR]))?&gt;/g, (_, sec, f = 'f') => keep(tsHtml(+sec, f)));
   s = s.replace(/&lt;@(\d+)&gt;/g, (_, id) => { const n = ctx.userName?.(id); return n ? `<span class="mention" data-uid="${id}">@${esc(n)}</span>` : '<span class="mention">@desconhecido</span>'; });
   s = s.replace(/&lt;:(\w+):(\d+)&gt;/g, (_, name, id) => { const u = ctx.emojiUrl?.(id); return u ? `<img class="cemoji" src="${esc(u)}" alt=":${name}:" title=":${name}:">` : `:${name}:`; });
   s = s.replace(/:([a-z0-9_+-]+):/g, (m, n) => SHORT[n] || m);

@@ -6,6 +6,41 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-11-5', title: 'Mais leve na chamada e em segundo plano',
+    items: [
+      { i: 'bolt', t: 'Tela da chamada bem mais leve', d: 'O anel verde de quem fala não fica mais piscando a cada sílaba nem repintando a tela: em PCs mais simples, só deixar a chamada aberta gastava até metade do processador.' },
+      { i: 'mic', t: 'Mutado gasta menos', d: 'Com o microfone mutado, a redução de ruído por IA para de trabalhar. Ensurdecido com a janela minimizada, o servidor nem manda a voz dos outros (volta na hora ao abrir a janela).' },
+      { i: 'screen', t: 'App minimizado de verdade', d: 'Com o app do computador minimizado ou na bandeja, o vídeo da transmissão que você assiste pausa (o áudio continua) e o app para de desenhar o que ninguém está vendo. Precisa do app 1.0.25.' },
+      { i: 'video', t: 'Clique duplo sem câmera extra', d: 'Clicar duas vezes na câmera ou na transmissão não abre mais uma câmera escondida que ficava ligada, e clicar em várias salas de voz seguidas sempre termina na última.' },
+    ],
+  },
+  {
+    id: '2026-11-11-4', title: 'Ideias que vieram dos mods',
+    items: [
+      { i: 'link', t: 'Links sem rastreio', d: 'Ao enviar ou editar, os links do YouTube, Spotify, Instagram, TikTok, X, Amazon, Mercado Livre, Shopee e outros perdem o que só serve para rastrear quem compartilhou (utm_, fbclid, si=…). O link abre a mesma coisa e o tempo do vídeo continua. Dá para desligar em Recursos extras.', try: 'extras' },
+      { i: 'clock', t: 'Horário que cada um vê no seu fuso', d: 'No + do campo de mensagem → Inserir horário: escolha o dia e a hora e o formato ("em 2 horas", "21:30", "quarta-feira, 11 de novembro…"). Cada pessoa vê no próprio horário e formato, e o relativo vai se atualizando sozinho.' },
+      { i: 'reply', t: 'Responder e editar mais rápido', d: 'Duplo clique na sua mensagem abre a edição; na de outra pessoa, começa a resposta. No campo, Ctrl + ↑ e Ctrl + ↓ escolhem a mensagem que você vai responder sem tirar a mão do teclado.' },
+      { i: 'globe', t: 'De onde cada um está', d: 'Ícones ao lado do nome mostram se a pessoa está no app do computador, no celular ou no navegador, na lista de membros, nas conversas e no perfil. Quem está invisível ou esconde a presença de você não mostra nada.' },
+      { i: 'users', t: 'Aviso de amizade desfeita', d: 'Quando alguém desfaz a amizade com você, aparece um aviso, mesmo que tenha sido com o app fechado. Os avisos ficam 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. E ser removido de um servidor agora sempre avisa qual foi.', try: 'requests' },
+    ],
+  },
+  {
+    id: '2026-11-11-3', title: 'Conversas protegidas de ponta a ponta',
+    items: [
+      { i: 'lock', t: 'Criptografia de ponta a ponta nas conversas diretas', d: 'Ative em Privacidade e segurança com uma frase que só você sabe. Quando a outra pessoa também ativar, a conversa fica protegida: o que vocês mandam é cifrado no seu aparelho e só abre no seu e no dela, e o servidor guarda só dados embaralhados. O cadeado no topo da conversa mostra o número de segurança para vocês compararem e avisa se a chave da pessoa mudar.', try: 'privacy' },
+      { i: 'file', t: 'Arquivos e mensagens de voz também', d: 'Fotos, vídeos, documentos e mensagens de voz enviados numa conversa protegida são cifrados antes de sair do aparelho: o servidor não sabe nem o nome nem o tipo do arquivo.' },
+      { i: 'phone', t: 'Chamadas protegidas', d: 'Ligações de voz e vídeo e transmissões de tela numa conversa protegida são cifradas quadro a quadro no aparelho: o servidor repassa sem conseguir ouvir nem ver.' },
+    ],
+  },
+  {
+    id: '2026-11-11-1', title: 'Apagar suas mensagens de uma vez',
+    items: [
+      { i: 'trash', t: 'Apagar minhas mensagens', d: 'Em Privacidade e segurança → Suas mensagens, apague de uma vez o que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período (últimas 24 h, mais de 30 dias, entre datas…), por texto ou só as com arquivos ou links. Antes de apagar você vê quantas são e onde, desmarca as conversas que quer manter e pode baixar uma cópia. Vale até para servidores de que você já saiu, e as fixadas ficam se você quiser.', try: 'mymessages' },
+      { i: 'dm', t: 'Direto do menu', d: 'Clique direito num canal, num servidor ou numa conversa → "Apagar minhas mensagens aqui" abre a mesma ferramenta já filtrada naquele lugar.' },
+      { i: 'image', t: 'Escolha de onde vêm os GIFs', d: 'Quando o servidor tem KLIPY e GIPHY, o rodapé do seletor de GIFs deixa trocar a fonte, e a escolha fica na conta. Se o serviço escolhido cair, o outro responde no lugar e o seletor avisa. (O Tenor não volta: o Google encerrou a API dele.)' },
+    ],
+  },
+  {
     id: '2026-11-10-6', title: 'Spoilers, pedidos e silêncio com exceção',
     items: [
       { i: 'eye', t: 'Spoiler em qualquer mensagem', d: 'Clique direito numa mensagem → "Marcar como spoiler só para mim" esconde texto e anexos só para você (ótimo em conversas diretas). Moderadores podem marcar a mensagem de outra pessoa como spoiler para o servidor todo, sem apagar e pedir para postar de novo; fica no registro de auditoria.' },

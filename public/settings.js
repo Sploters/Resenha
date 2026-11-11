@@ -1,4 +1,4 @@
-import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce } from './util.js';
+import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
 import { S, api, tryApi, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
@@ -21,6 +21,8 @@ import { newsPage } from './changelog.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
+import { openMyMessages } from './mymessages.js';
+import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
@@ -99,10 +101,10 @@ function compactHints(pane) {
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
-  ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
+  ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
 const NAV_ICONS = { storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
@@ -337,6 +339,31 @@ function presenceCard() {
     h('div.pv-sub', h('b', 'Esconder de pessoas específicas'), chips('deny', 'Ninguém. Útil para colegas de trabalho, por exemplo.')));
   draw(); return card(box);
 }
+// criptografia de ponta a ponta das conversas diretas (public/e2ee.js)
+function e2eeCard(reg) {
+  const box = card();
+  const kidTxt = (k) => k ? k.kid.slice(0, 20).match(/.{4}/g).join(' ') : '';
+  const draw = () => {
+    const st = e2eeState(), k = myFingerprintKey(), redraw = () => draw();
+    const limits = note('Protege as conversas diretas entre duas pessoas: mensagens, edições, arquivos, mensagens de voz e chamadas (voz, vídeo e tela) são cifrados no seu aparelho e só abrem no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda e repassa só dados embaralhados. Ainda não entram: reações e grupos. Busca e tradução não funcionam nas conversas protegidas, a transmissão a 120 FPS fica desligada nelas, e o servidor continua sabendo quem conversa com quem, quando e o tamanho dos arquivos.');
+    if (st === 'unsupported') return box.replaceChildren(note('Este navegador não oferece a criptografia (ela precisa do endereço com https://, ou do app desktop).'));
+    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase que só você sabe. Quando a outra pessoa também tiver ativado, as mensagens novas da conversa passam a ser protegidas sozinhas.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
+    if (st === 'locked') return box.replaceChildren(
+      row('Trancada neste aparelho', 'Suas chaves existem, mas este aparelho ainda não tem a frase. Sem ela as mensagens protegidas aparecem trancadas e você não consegue enviar nas conversas protegidas.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
+      row('Esqueci a frase', 'Apaga suas chaves para começar de novo. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
+    box.replaceChildren(
+      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: as pessoas voltam a te mandar mensagens sem criptografia. As protegidas antigas continuam abrindo.' : 'Ligado: as conversas com quem também ativou são protegidas. Clique no cadeado no topo da conversa para conferir o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
+      k && h('div.perm', h('div.rt', 'Sua chave'), h('code.e2-kid', { title: 'Identificador da sua chave pública' }, kidTxt(k))),
+      row('Trocar a frase', 'Muda só a frase que tranca as chaves; as conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
+      row('Trocar de chave', 'Começa a usar um par de chaves novo nas próximas mensagens (as antigas continuam abrindo).', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
+      row('Trancar neste aparelho', 'Esquece a chave aberta aqui (ex.: computador emprestado). Para ler de novo, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
+      row('Esqueci a frase', 'Apaga todas as suas chaves. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
+      limits);
+  };
+  if (!e2eeSupported()) draw(); else { box.replaceChildren(h('div.hintline.keep', 'Carregando…')); e2eeLoad().then(draw); }
+  const on = () => draw(); document.addEventListener('e2ee-changed', on); reg?.(() => document.removeEventListener('e2ee-changed', on));
+  return box;
+}
 function privacyPage(reg) {
   const sessions = h('div');
   const draw = async () => {
@@ -349,6 +376,8 @@ function privacyPage(reg) {
     section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
+    section('Criptografia de ponta a ponta'), e2eeCard(reg),
+    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apague de uma vez as mensagens que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período, por texto ou só as com arquivos. Mostra quantas e onde antes, deixa baixar uma cópia e inclui servidores de que você já saiu.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir'))),
     section('Usuários bloqueados'), blockedCard(),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
@@ -396,6 +425,10 @@ function appearancePage() {
     hint('Clique direito numa mensagem → Traduzir. No compositor, o botão de tradução converte o rascunho. O texto passa pelo servidor, que usa o tradutor configurado (LIBRETRANSLATE_URL ou Google).'));
 }
 // ============================ Recursos extras (inspirados em plugins) ============================
+function linkDemo() { // antes → depois da limpeza dos links
+  const ex = ['https://youtu.be/dQw4w9WgXcQ?si=Ab12Cd34&t=42', 'https://open.spotify.com/track/4uLU6hMC?si=9f8e7d6c5b', 'https://loja.com/produto?id=7&utm_source=insta&fbclid=IwAR0x'];
+  return h('div.chdemo', ex.map(u => h('div.chdemo-row', h('span.from', u), h('span.arrow', '→'), h('b', cleanLinks(u)))));
+}
 function extrasPage(ctx) {
   const P = S.prefs, set = (k, after) => (v) => { P[k] = v; save(); after?.(); };
   // nomes de canais: prévia ao vivo com exemplos
@@ -414,6 +447,17 @@ function extrasPage(ctx) {
   drawVols();
   return h('div', h('h2', 'Recursos extras'),
     hint('Recursos inspirados em plugins populares da comunidade, feitos do zero para a Resenha.'),
+    section('Mensagens'),
+    card(
+      row('Tirar rastreio dos links ao enviar', 'Remove de links do YouTube, Spotify, Instagram, TikTok, X, Amazon, Mercado Livre, Shopee e outros o que só serve para rastrear quem compartilhou (utm_, fbclid, si=…). O link continua abrindo a mesma coisa; o tempo do vídeo (t=) e a playlist ficam.', toggle(P.cleanLinks !== false, set('cleanLinks'))),
+      linkDemo(),
+      row('Duplo clique para editar ou responder', 'Duplo clique na sua mensagem abre a edição; na de outra pessoa, começa a resposta. Links, imagens, vídeos e reações continuam com o clique normal.', toggle(P.dblClickMsg !== false, set('dblClickMsg'))),
+      row('Ctrl + ↑ / ↓ para escolher a mensagem a responder', 'No campo de mensagem: Ctrl + ↑ sobe para a mensagem anterior, Ctrl + ↓ desce; passar da última cancela a resposta. Esc também cancela.', toggle(P.quickReply !== false, set('quickReply')))),
+    hint('Para marcar um horário que cada um vê no próprio fuso, use o + do campo de mensagem → Inserir horário (ou escreva <t:SEGUNDOS:R>).'),
+    section('Pessoas'),
+    card(
+      row('Mostrar de onde cada um está conectado', 'Ícones ao lado do nome na lista de membros, nas conversas e no perfil: app para computador, celular ou navegador. Quem aparece offline para você (invisível ou com a presença escondida) não mostra nada.', toggle(P.platformIcons !== false, set('platformIcons', () => document.dispatchEvent(new Event('prefs-changed-elsewhere'))))),
+      row('Avisar quando alguém desfizer a amizade', 'Mostra um aviso na hora e guarda por 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. Também vale se aconteceu com o app fechado.', toggle(P.friendLossNotice !== false, set('friendLossNotice')))),
     section('Visualizador de imagens'),
     card(
       toggleCards([
@@ -665,7 +709,7 @@ function notificationsPage() {
 const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS' };
 function keysPage() {
   const cap = (key, label, desktopKey) => captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs[key] || KEY_DEFAULTS[key], (c) => { S.prefs[key] = c; save(); if (desktop && desktopKey) desktop.setSettings({ [desktopKey]: comboToAccel(c) }); }, { combo: true });
-  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Esc', 'Cancelar resposta / fechar'], ['Shift + Enter', 'Quebra de linha']];
+  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Ctrl + ↑ / ↓', 'Escolher a mensagem a responder'], ['Esc', 'Cancelar resposta / fechar'], ['Shift + Enter', 'Quebra de linha']];
   return h('div', h('h2', 'Atalhos'),
     card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', cap('keyMute', '', 'hotkeyMute')),
       row('Ensurdecer / ativar áudio', null, cap('keyDeafen', '', 'hotkeyDeafen')),

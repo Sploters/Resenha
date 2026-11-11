@@ -1,7 +1,7 @@
 // GIFs: seletor no campo de mensagem (busca, Em alta, Favoritos, Do grupo) e o GIF dentro da mensagem.
 // O GIF vai como o próprio link na mensagem; o servidor só busca a lista (KLIPY ou GIPHY) e guarda os favoritos.
 import { h, icon } from './util.js';
-import { S, api, toast, closeFloating } from './state.js';
+import { S, api, toast, closeFloating, savePrefs } from './state.js';
 import { liteOn } from './lite.js';
 
 let meta = null, favs = null; // favs: Map url -> gif
@@ -50,7 +50,9 @@ export function gifEl(url, onOpen) {
 export async function gifPicker(anchor, onPick) {
   closeFloating();
   await loadMeta(); await loadFavs();
-  const hasProv = !!meta.provider;
+  const hasProv = !!meta.provider, provs = meta.providers || (meta.provider ? [{ name: meta.provider, label: meta.label }] : []);
+  let src = provs.some(p => p.name === S.prefs.gifSource) ? S.prefs.gifSource : provs[0]?.name; // fonte escolhida (fica na conta)
+  const labelOf = (n) => provs.find(p => p.name === n)?.label || n;
   let tab = hasProv ? 'trend' : 'favs', q = '', page = 1, more = false, busy = false, seq = 0, items = [];
   const input = h('input', { placeholder: hasProv ? 'Pesquisar GIFs' : 'Pesquisar nos favoritos e do grupo', oninput: () => { clearTimeout(input._t); input._t = setTimeout(() => { q = input.value.trim(); load(true); }, 350); } });
   const tabs = h('div.gtabs'), grid = h('div.ggrid'), foot = h('div.gfoot');
@@ -72,8 +74,8 @@ export async function gifPicker(anchor, onPick) {
     const my = ++seq; busy = true;
     try {
       let list = [];
-      if (q && hasProv) { const r = await api('GET', `/gifs/search?q=${encodeURIComponent(q)}&page=${page}`); list = r.gifs; more = r.more; }
-      else if (tab === 'trend' && hasProv && !q) { const r = await api('GET', `/gifs/trending?page=${page}`); list = r.gifs; more = r.more; }
+      if (q && hasProv) { const r = await api('GET', `/gifs/search?q=${encodeURIComponent(q)}&page=${page}&src=${src}`); list = r.gifs; more = r.more; credit(r); }
+      else if (tab === 'trend' && hasProv && !q) { const r = await api('GET', `/gifs/trending?page=${page}&src=${src}`); list = r.gifs; more = r.more; credit(r); }
       else {
         const src = tab === 'group' ? (await api('GET', '/gifs/group')).gifs : [...favs.values()];
         const f = q.toLowerCase(); list = q ? src.filter(g => (g.title || '').toLowerCase().includes(f) || g.url.toLowerCase().includes(f)) : src; more = false;
@@ -85,7 +87,16 @@ export async function gifPicker(anchor, onPick) {
     finally { if (my === seq) busy = false; }
   }
   grid.addEventListener('scroll', () => { if (more && !busy && grid.scrollTop + grid.clientHeight > grid.scrollHeight - 300) { page++; load(false); } });
-  foot.replaceChildren(hasProv ? h('span', 'GIFs por ', h('b', meta.label)) : h('span', 'Busca de GIFs desligada no servidor (falta a chave do serviço de GIFs).'));
+  // rodapé: crédito do serviço que respondeu e, com mais de um, a troca de fonte; se o escolhido falhou, o aviso
+  function credit(r) {
+    if (!hasProv) return foot.replaceChildren(h('span', 'Busca de GIFs desligada no servidor (falta a chave do serviço de GIFs).'));
+    const used = r?.source || src;
+    foot.replaceChildren(h('span', 'GIFs por ', h('b', labelOf(used))),
+      r?.fallback && h('span.gwarn', { title: r.reason || '' }, ` · ${labelOf(r.fallback)} fora do ar agora`),
+      provs.length > 1 && h('span.gsrc', provs.map(p => h('button' + (p.name === src ? '.on' : ''), { type: 'button', title: `Buscar na ${p.label}`, onclick: (e) => {
+        e.stopPropagation(); if (p.name === src) return; src = p.name; S.prefs.gifSource = src; savePrefs(); if (q || tab === 'trend') load(true); else credit(); } }, p.label))));
+  }
+  credit();
   const el = h('div.emoji-picker.gifpicker', input, tabs, grid, foot);
   document.getElementById('layer').append(el);
   const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();

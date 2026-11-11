@@ -55,8 +55,8 @@ export async function createMic(prefs, ctx) {
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
   const out = { raw, nodes, error: null, processed: false };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
-  let last = src;
-  const chain = (n) => { last.connect(n); nodes.push(n); last = n; };
+  let last = src, first = null;
+  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
   try {
     if (mode === 'rnnoise' || mode === 'gtcrn') {
       nsLib ||= await import(`${NS}/index.js`);
@@ -94,6 +94,10 @@ export async function createMic(prefs, ctx) {
     if (on === looping) return; looping = on;
     try { if (on) { g.connect(mono); merger.connect(ctx.destination); } else { g.disconnect(mono); merger.disconnect(ctx.destination); } } catch { }
   };
+  // mutado: o microfone sai da cadeia e a IA de ruído (RNNoise/GTCRN, na thread de áudio) para de processar — sem entrada
+  // os nós de ruído não fazem nada. O que sai para a sala é silêncio de qualquer jeito (trilha desligada).
+  let idle = false;
+  out.setIdle = (on) => { if (!first || on === idle) return; idle = on; try { on ? src.disconnect(first) : src.connect(first); } catch { } };
   out.dispose = () => {
     out.setLoopback(false);
     for (const n of nodes) { try { n.port?.postMessage('destroy'); } catch { } try { n.disconnect(); } catch { } }
@@ -110,6 +114,7 @@ export class Voice {
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
     this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null;
+    document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
   }
   get active() { return !!this.channelId; }
   getCtx() { this.ctx ||= newAudioContext(); this.ctx.resume?.(); return this.ctx; }
@@ -140,7 +145,7 @@ export class Voice {
       const old = this.micGraph; if (await this.buildMic() === false) return;
       const track = this.mic.getAudioTracks()[0];
       if (this.sfu) await this.sfuProduce('mic', track);
-      else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = p.pc.addTrack(track, this.mic); }
+      else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
       void old;
     } catch (e) { this.error = e.message; }
     this.onUpdate();
@@ -153,22 +158,43 @@ export class Voice {
     this.leave({ silent: true }); this.muted = muted; this.deafened = deafened;
     return this.join(cid, { silent: true });
   }
-  async join(channelId, { silent = false } = {}) {
-    if (this.channelId === channelId) return;
+  // Cliques seguidos em salas diferentes (ou sair enquanto entra): só a ÚLTIMA entrada vale. Antes as entradas corriam
+  // juntas — terminava fora de qualquer sala, com o medidor de fala (100 ms) e um microfone a mais ligados à toa.
+  join(channelId, opts) {
+    if (this._joinTo === channelId) return this._joinP; // mesma sala já entrando: o segundo clique não faz nada
+    if (this.channelId === channelId && !this._joinTo) return Promise.resolve();
     if (this.channelId) this.leave();
+    const gen = this._joinGen = (this._joinGen || 0) + 1; this._joinTo = channelId;
+    const done = () => { if (this._joinGen === gen) this._joinTo = this._joinP = null; };
+    return (this._joinP = this.joinNow(channelId, opts || {}, gen).finally(done));
+  }
+  async joinNow(channelId, { silent = false }, gen) {
+    const stale = () => {
+      if (gen === this._joinGen) return false;
+      // ninguém mais entrando nem na sala: o microfone que esta entrada montou não fica ligado
+      if (!this._joinTo && !this.channelId) { this.micGraph?.dispose(); this.micGraph = null; this.mic = null; this.analysers.delete(this.myId); }
+      return true;
+    };
     this.error = null;
+    // conversa direta protegida (public/e2ee.js): a chamada também vai cifrada de ponta a ponta; trancada = não entra
+    const pre = await this.beforeJoin?.(channelId).catch((e) => ({ error: e.message }));
+    if (stale()) return;
+    if (pre?.error) { this.error = pre.error; return; }
+    this.e2ee = pre?.key || null;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error(location.protocol === 'http:' && !isSecureContext
         ? `Microfone indisponível: abra https://${location.hostname}:3443 (aceite o aviso do certificado) ou use o aplicativo desktop.`
         : 'Microfone indisponível neste navegador.');
       await this.buildMic();
     } catch (e) { this.mic = null; this.error = e.message || 'Não foi possível acessar o microfone (entrando como ouvinte).'; }
+    if (stale()) return;
     this.channelId = channelId; this.joinedAt = Date.now();
-    this.timer = setInterval(() => this.poll(), 100);
+    clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
     this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
   }
   leave({ silent = false } = {}) {
+    if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
@@ -176,14 +202,18 @@ export class Voice {
     this.send('VOICE_LEAVE', {});
     this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
+    this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
     this.micGraph?.dispose(); this.micGraph = null;
     this.stopAppAudio(); // programa de áudio do jogo também para
     const c = this._clipMe; if (c) { c.src?.disconnect(); c.node?.stop(); c.dest.stream.getTracks().forEach(t => t.stop()); } this._clipSb?.stream.getTracks().forEach(t => t.stop()); this._clipMe = this._clipSb = null; // áudio dos clipes
     for (const s of [this.cam, this.screen]) s?.getTracks().forEach(t => t.stop());
     this.mic = this.cam = this.screen = null; this.channelId = null; this.speaking.clear();
     for (const a of this.analysers.values()) a.src.disconnect(); this.analysers.clear();
-    clearInterval(this.timer); this.onUpdate();
+    clearInterval(this.timer); this.timer = null; this.sleepCtx(); this.onUpdate();
   }
+  // fora da call o contexto de áudio da voz fica suspenso: rodando, ele mantém a thread de áudio e a saída de som
+  // processando silêncio o tempo todo (~2-4% de CPU num PC comum). getCtx() acorda de novo quando precisar.
+  sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
   onJoined({ channel_id, peers, sfu }) {
     if (channel_id !== this.channelId) return;
     if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
@@ -212,9 +242,12 @@ export class Voice {
     this.sfu = sfu;
     const transport = async (dir) => {
       const info = await this.sfuReq('transport', { dir });
-      const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice });
+      const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
       t.on('connectionstatechange', (s) => { if (s === 'failed') t.restartIce?.(); this.onUpdate(true); });
+      // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
+      // Chromium não entrega mais os quadros ao worker)
+      if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
       if (dir === 'send') t.on('produce', ({ kind, rtpParameters, appData }, ok, fail) =>
         this.sfuReq('produce', { transport_id: t.id, kind, rtpParameters, source: appData.source }).then(ok, fail));
       return t;
@@ -223,7 +256,7 @@ export class Voice {
     if (this.sfu !== sfu) return;
     const { producers } = await this.sfuReq('producers');
     if (this.sfu !== sfu) return;
-    sfu.ready = true;
+    sfu.ready = true; this.syncVoiceFlow(); // já entra ensurdecido e escondido: nem começa a receber as vozes
     for (const p of producers) this.onSfuProducer(p);
     // o que já estava ligado antes de conectar
     if (this.mic) await this.sfuProduce('mic', this.mic.getAudioTracks()[0]);
@@ -269,11 +302,12 @@ export class Voice {
       // começa já perto do bitrate alvo: com a partida baixa o Chromium só liga as camadas grandes depois de minutos
       opts.codecOptions = { videoGoogleStartBitrate: Math.round(bitrateFor(this.screenOpts?.res || 1080, this.screenOpts?.fps || 30, this.screenOpts?.bitrate) * 0.8 / 1000) };
       // placa de vídeo codifica H.264 sem pesar na CPU (que o jogo está usando); sem hardware fica o VP8 com camadas temporais
-      if (await this.hwH264()) {
+      if (!this.e2ee && await this.hwH264()) {
         const c = s.device.rtpCapabilities.codecs.find(x => x.mimeType.toLowerCase() === 'video/h264' && /^64/.test(String(x.parameters?.['profile-level-id']).toLowerCase()));
         if (c) { opts.codec = c; opts.encodings = this.sfuEncodings('screen', false); }
       }
     }
+    if (this.e2ee) { delete opts.codec; opts.onRtpSender = (sender) => this.e2eeAttach(sender, 'enc'); } // protegida: só VP8 (o H.264 não aceita quadro cifrado); a cifra entra antes do primeiro quadro sair
     let p;
     try { p = await s.send.produce(opts); }
     catch (e) { // codec/camadas recusados: tenta de novo no padrão
@@ -430,6 +464,25 @@ export class Voice {
       await p.rtpSender.setParameters(prm);
     } catch (e) { console.warn('screen params', e); }
   }
+  // ---- chamada protegida: cada envio/recebimento passa pelo worker que cifra/decifra os quadros (e2ee-worker.js) ----
+  e2eeLegacy() { return !!this.e2ee && !window.RTCRtpScriptTransform; } // Chromium sem RTCRtpScriptTransform: createEncodedStreams
+  e2eeAttach(t, op) {
+    if (!this.e2ee || !t || t._e2) return t;
+    if (!this.e2eeWorker) {
+      this.e2eeWorker = new Worker('/e2ee-worker.js');
+      this.e2eeWorker.onmessage = (e) => { if (e.data?.stats) this.e2eeWorkerStats = e.data.stats; };
+    }
+    t._e2 = true;
+    if (window.RTCRtpScriptTransform) t.transform = new RTCRtpScriptTransform(this.e2eeWorker, { op, key: this.e2ee });
+    else if (t.createEncodedStreams) { const { readable, writable } = t.createEncodedStreams(); this.e2eeWorker.postMessage({ op, key: this.e2ee, readable, writable }, [readable, writable]); }
+    return t;
+  }
+  // malha P2P: o receptor da mesma linha também precisa da cifra ANTES da negociação (o Chromium ignora a que entra depois)
+  p2pAdd(pc, track, stream) {
+    const snd = this.e2eeAttach(pc.addTrack(track, stream), 'enc');
+    if (this.e2ee) this.e2eeAttach(pc.getTransceivers().find(t => t.sender === snd)?.receiver, 'dec');
+    return snd;
+  }
   ensurePeer(uid) {
     let p = this.peers.get(uid);
     if (!p) this.peers.set(uid, p = { uid, streams: {}, meta: {}, audioEl: null, screenAudioEl: null, senders: {}, consumers: new Map() });
@@ -443,6 +496,7 @@ export class Voice {
       const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
       const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters });
       if (this.sfu !== s) return c.close();
+      this.e2eeAttach(c.rtpReceiver, 'dec');
       if (s.closedEarly?.delete(r.id)) { c.close(); s.seen.delete(producer_id); return; } // a transmissão acabou enquanto preparava
       const p = this.ensurePeer(user_id), stream = new MediaStream([c.track]);
       s.consumers.set(c.id, { c, uid: user_id, source });
@@ -450,7 +504,8 @@ export class Voice {
       if (source === 'mic') this.attachAudio(p, stream, 'mic');
       else if (source === 'screenaudio') this.attachAudio(p, stream, 'screen');
       else { p.streams[source] = stream; c.track.onmute = c.track.onunmute = () => this.onUpdate(); }
-      const held = (source === 'screen' || source === 'screenaudio') && this.closedStreams.has(user_id); // transmissão fechada: nem baixa o vídeo
+      const held = (source === 'screen' || source === 'screenaudio') && this.closedStreams.has(user_id) // transmissão fechada: nem baixa o vídeo
+        || source === 'mic' && s.voiceOff; // ensurdecido com a janela escondida (syncVoiceFlow)
       if (!held) await this.sfuReq('resume', { consumer_id: c.id });
       this.onUpdate();
     } catch (e) { console.warn('consume', e); s.seen.delete(producer_id); }
@@ -460,6 +515,7 @@ export class Voice {
     const s = this.sfu; if (!s?.ready) throw new Error('A voz ainda não conectou ao servidor');
     const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
     const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters });
+    this.e2eeAttach(c.rtpReceiver, 'dec');
     await this.sfuReq('resume', { consumer_id: c.id });
     return { track: c.track, consumer: c, close: () => { try { c.close(); } catch { } } };
   }
@@ -477,7 +533,7 @@ export class Voice {
 
   connect(uid, initiator) {
     if (this.peers.has(uid)) return this.peers.get(uid);
-    const pc = new RTCPeerConnection({ iceServers: this.ice });
+    const pc = new RTCPeerConnection({ iceServers: this.ice, ...(this.e2eeLegacy() ? { encodedInsertableStreams: true } : {}) });
     const p = { uid, pc, polite: this.myId > uid, making: false, ignore: false, streams: {}, meta: {}, audioEl: null, screenAudioEl: null, senders: {} };
     this.peers.set(uid, p);
     pc.onicecandidate = (e) => e.candidate && this.send('VOICE_SIGNAL', { to: uid, data: { cand: e.candidate } });
@@ -486,6 +542,7 @@ export class Voice {
       catch (e) { console.warn('negotiation', e); } finally { p.making = false; }
     };
     pc.ontrack = (e) => {
+      this.e2eeAttach(e.receiver, 'dec');
       const stream = e.streams[0] || new MediaStream([e.track]);
       if (e.track.kind === 'audio') this.attachAudio(p, stream, p.meta[stream.id] === 'screen' ? 'screen' : 'mic');
       else {
@@ -502,10 +559,10 @@ export class Voice {
     return p;
   }
   addLocalTracks(p) {
-    const add = (stream, kind) => stream?.getTracks().forEach(t => { p.senders[kind + t.kind] = p.pc.addTrack(t, stream); });
+    const add = (stream, kind) => stream?.getTracks().forEach(t => { p.senders[kind + t.kind] = this.p2pAdd(p.pc, t, stream); });
     add(this.mic, 'mic'); add(this.cam, 'cam'); add(this.screen, 'screen'); this.tuneAudio(p);
     // sem microfone (ouvinte): garante uma linha de áudio só-recepção para a negociação acontecer e a pessoa ouvir os outros
-    if (!this.mic && !p.pc.getTransceivers().length) p.pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (!this.mic && !p.pc.getTransceivers().length) { const tr = p.pc.addTransceiver('audio', { direction: 'recvonly' }); this.e2eeAttach(tr.sender, 'enc'); this.e2eeAttach(tr.receiver, 'dec'); }
     if (this.screen) this.tuneSender(p, 'screenvideo', 'screen'); if (this.cam) this.tuneSender(p, 'camvideo', 'cam');
   }
   async setLocal(pc) {
@@ -784,7 +841,9 @@ export class Voice {
       let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
       a.level = peak / 128;
       const mine = uid === this.myId;
-      const on = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || !this.micEnabled()));
+      const loud = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || !this.micEnabled()));
+      const now = performance.now(); if (loud) a.at = now;
+      const on = loud || (a.at > 0 && now - a.at < 300 && !(mine && (this.muted || this.deafened)));
       if (on !== this.speaking.has(uid)) { on ? this.speaking.add(uid) : this.speaking.delete(uid); changed = true; }
     }
     if (changed) this.onUpdate(true);
@@ -792,22 +851,45 @@ export class Voice {
   }
 
   micEnabled() { return this.prefs.inputMode !== 'ptt' || this.ptt; }
-  applyMute() { this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && this.micEnabled())); }
+  applyMute() {
+    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && this.micEnabled()));
+    this.micGraph?.setIdle?.((this.muted || this.deafened) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
+  }
+  holdMic(on) { this.micHold = Math.max(0, (this.micHold || 0) + (on ? 1 : -1)); this.applyMute(); }
   setPtt(down) { if (this.ptt === down) return; this.ptt = down; this.applyMute(); this.onUpdate(true); }
   toggleMute() { const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
   toggleDeaf() { this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
   afterAudioChange() { this.applyMute(); for (const uid of this.peers.keys()) this.applyVolume(uid); this.sendState(); this.onUpdate(); }
-  sendState() { if (!this.channelId) return; this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
+  // várias mudanças na mesma rodada (mutar + câmera, atalho repetido) viram UMA mensagem ao servidor, com o estado final
+  sendState() { if (!this.channelId || this._stQ) return; this._stQ = true; queueMicrotask(() => { this._stQ = false; this.sendStateNow(); }); }
+  // Ensurdecido e com a janela escondida/minimizada, ninguém ouve nem vê quem fala: o servidor para de mandar a voz dos outros
+  // (~40 kbps e uma decodificação Opus por pessoa falando). Volta na hora ao reabrir a janela ou ao desensurdecer.
+  // Transmitindo, não pausa (o clipe com F8 leva a voz da sala).
+  syncVoiceFlow() {
+    const s = this.sfu; if (!s?.ready) return;
+    const off = this.deafened && document.hidden && !this.screen;
+    if (!!s.voiceOff === off) return; s.voiceOff = off;
+    for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
+  }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
 
-  async toggleCam() {
+  // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
+  // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)
+  // Parar continua imediato; a trava só vale enquanto abre.
+  once(key, fn) { if (this[key]) return this[key]; const p = this[key] = fn(); p.finally(() => { if (this[key] === p) this[key] = null; }).catch(() => { }); return p; }
+  toggleCam() { return this.cam ? Promise.resolve(this.stopLocal('cam')) : this.once('_camBusy', () => this.toggleCamNow()); }
+  async toggleCamNow() {
     if (this.cam) return this.stopLocal('cam');
+    const cid = this.channelId;
     try {
       this.cam = await navigator.mediaDevices.getUserMedia({ video: { deviceId: this.prefs.videoId ? { exact: this.prefs.videoId } : undefined, height: { ideal: +(this.prefs.camRes || 720) }, width: { ideal: Math.round(+(this.prefs.camRes || 720) * 16 / 9) }, frameRate: { ideal: +(this.prefs.camFps || 30) } } });
     } catch (e) { throw new Error('Não foi possível acessar a câmera: ' + (e.message || e.name)); }
+    if (!this.channelId || this.channelId !== cid) { this.cam?.getTracks().forEach(t => t.stop()); this.cam = null; return; } // saiu da sala enquanto abria
     this.publish('cam', this.cam); playSound('camOn');
   }
   // opts: { res: 720|1080|1440|'source', fps: 15|30|60, audio: bool, hint: 'motion'|'detail' }
-  async toggleScreen(opts) {
+  toggleScreen(opts) { return this.screen ? Promise.resolve(this.stopLocal('screen')) : this.once('_scrBusy', () => this.toggleScreenNow(opts)); }
+  async toggleScreenNow(opts) {
     if (this.screen) return this.stopLocal('screen');
     opts = { res: 1080, fps: 30, audio: true, hint: 'motion', ...opts };
     const video = { frameRate: { ideal: +opts.fps, max: +opts.fps }, cursor: opts.cursor === false ? 'never' : 'always' };
@@ -871,7 +953,7 @@ export class Voice {
     if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap;
   }
-  async wantNative(o) { return +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
+  async wantNative(o) { return !this.e2ee && +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
   previewOnly(vt, on) {
     if (!vt) return;
     const o = this.screenOpts || {};
@@ -953,7 +1035,7 @@ export class Voice {
       (kind === 'screen' ? this.sfuPublishScreen() : this.sfuProduce(kind, stream.getVideoTracks()[0])).catch(e => { console.warn('produce', e); this.error = e.message; this.onUpdate(); });
     } else for (const p of this.peers.values()) {
       this.sendMeta(p.uid);
-      stream.getTracks().forEach(t => { p.senders[kind + t.kind] = p.pc.addTrack(t, stream); });
+      stream.getTracks().forEach(t => { p.senders[kind + t.kind] = this.p2pAdd(p.pc, t, stream); });
       this.tuneSender(p, kind + 'video', kind);
     }
     this.sendState(); this.onUpdate();
@@ -1026,5 +1108,6 @@ export function playTone(kind, volume = .15) {
       o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(volume, at); g.gain.exponentialRampToValueAtTime(.001, at + .14);
       o.connect(g).connect(ctx.destination); o.start(at); o.stop(at + .15);
     }
+    clearTimeout(ctx._nap); ctx._nap = setTimeout(() => { if (ctx.state === 'running') ctx.suspend().catch(() => { }); }, 4000); // dorme sem som tocando
   } catch { }
 }

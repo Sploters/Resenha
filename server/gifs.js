@@ -1,6 +1,8 @@
 // GIFs no chat: busca e "em alta" num serviço de GIFs (KLIPY, gratuito; ou GIPHY), favoritos por pessoa e os GIFs
 // que já passaram pelos chats que a pessoa vê. O servidor só busca e repassa a lista: o GIF em si vem direto do serviço.
 // Chave: KLIPY_API_KEY / GIPHY_API_KEY (variável de ambiente) ou o arquivo klipy.key / giphy.key na pasta de dados.
+// Com as duas chaves, cada pessoa escolhe a fonte no seletor (fica na conta) e, se uma cair ou recusar, a outra
+// responde no lugar (o app avisa). O Tenor não entra: a API dele foi encerrada pelo Google em 2026.
 // Sem chave: o seletor mostra só Favoritos e "Do grupo".
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,33 +53,44 @@ const PROVIDERS = {
 
 export function mountGifs(app, d) {
   const { auth, wrap, bad, all, run, get, canSeeChannel, dataDir, clean } = d;
-  const klipy = readKey(dataDir, 'klipy.key', 'KLIPY_API_KEY'), giphy = readKey(dataDir, 'giphy.key', 'GIPHY_API_KEY');
-  const prov = klipy ? { ...PROVIDERS.klipy, key: klipy, name: 'klipy' } : giphy ? { ...PROVIDERS.giphy, key: giphy, name: 'giphy' } : null;
-  if (prov) console.log(`  GIFs: ${prov.label}`);
+  const keys = { klipy: readKey(dataDir, 'klipy.key', 'KLIPY_API_KEY'), giphy: readKey(dataDir, 'giphy.key', 'GIPHY_API_KEY') };
+  const provs = Object.keys(PROVIDERS).filter(n => keys[n]).map(n => ({ ...PROVIDERS[n], key: keys[n], name: n }));
+  const prov = provs[0] || null; // padrão: KLIPY se houver, senão GIPHY
+  if (provs.length) console.log(`  GIFs: ${provs.map(p => p.label).join(' + ')}`);
   const cache = new Map(); // url -> { t, data }
   const hits = new Map(); // uid -> [tempos] (limite por pessoa)
   const limited = (uid) => { const now = Date.now(), a = (hits.get(uid) || []).filter(t => now - t < 60000); a.push(now); hits.set(uid, a); return a.length > 40; };
 
-  async function fetchList(kind, q, page, uid) {
+  async function fetchFrom(pv, kind, q, page, uid) {
     const cust = crypto.createHash('sha256').update('lc:' + uid).digest('hex').slice(0, 24); // id anônimo por pessoa (pedido do serviço)
-    const url = prov.url(prov.key, kind, q, page, cust), ck = kind + '|' + q + '|' + page;
+    const url = pv.url(pv.key, kind, q, page, cust), ck = pv.name + '|' + kind + '|' + q + '|' + page;
     const c = cache.get(ck); if (c && Date.now() - c.t < 10 * 60000) return c.data;
     const r = await fetch(url, { signal: AbortSignal.timeout(7000), headers: { accept: 'application/json' } });
-    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'chave do serviço de GIFs recusada' : 'serviço de GIFs respondeu ' + r.status);
-    const { list, more } = prov.items(await r.json());
-    const data = { gifs: list.map(it => { try { return prov.norm(it); } catch { return null; } }).filter(Boolean), more: !!more, page };
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? `chave da ${pv.label} recusada` : `${pv.label} respondeu ${r.status}`);
+    const { list, more } = pv.items(await r.json());
+    const data = { gifs: list.map(it => { try { return pv.norm(it); } catch { return null; } }).filter(Boolean), more: !!more, page, source: pv.name };
     cache.set(ck, { t: Date.now(), data }); if (cache.size > 300) cache.delete(cache.keys().next().value);
     return data;
+  }
+  // a fonte escolhida primeiro; se falhar, as outras (a resposta diz qual respondeu e por que trocou)
+  async function fetchList(kind, q, page, uid, want) {
+    const order = [...provs].sort((a, b) => (b.name === want) - (a.name === want));
+    let err;
+    for (const pv of order) {
+      try { const d = await fetchFrom(pv, kind, q, page, uid); return pv === order[0] ? d : { ...d, fallback: order[0].name, reason: err.message }; }
+      catch (e) { err ||= e; }
+    }
+    throw err;
   }
   const listRoute = (kind) => (req, res) => {
     if (!prov) return res.json({ gifs: [], more: false, page: 1, disabled: true });
     if (limited(req.uid)) return bad(res, 'Muitas buscas seguidas, espere um pouco', 429);
     const q = clean(req.query.q, 80) || '', page = Math.max(1, Math.min(50, +req.query.page || 1));
     if (kind === 'search' && !q.trim()) return res.json({ gifs: [], more: false, page });
-    fetchList(kind, q.trim(), page, req.uid).then(x => res.json(x), e => bad(res, 'Não consegui buscar GIFs: ' + e.message, 502));
+    fetchList(kind, q.trim(), page, req.uid, String(req.query.src || '')).then(x => res.json(x), e => bad(res, 'Não consegui buscar GIFs: ' + e.message, 502));
   };
 
-  app.get('/api/gifs/meta', auth, (req, res) => res.json({ provider: prov?.name || null, label: prov?.label || null }));
+  app.get('/api/gifs/meta', auth, (req, res) => res.json({ provider: prov?.name || null, label: prov?.label || null, providers: provs.map(p => ({ name: p.name, label: p.label })) }));
   app.get('/api/gifs/trending', auth, listRoute('trending'));
   app.get('/api/gifs/search', auth, listRoute('search'));
 

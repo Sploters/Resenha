@@ -1,4 +1,5 @@
 import { nativeEnded } from './nativetest.js';
+import { openMyMessages } from './mymessages.js';
 import { setNewsActions, maybeShowNews, markSeen as markNewsSeen } from './changelog.js';
 import { openFxPicker, fxBadge } from './fxui.js';
 import { fxInfo } from './voicefx.js';
@@ -6,7 +7,8 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
+import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
+import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
@@ -45,6 +47,7 @@ import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, act
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
+import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify, callKey, protectFiles, encryptFile, openFile, openedFileUrl } from './e2ee.js';
 import { rumReady } from './rum.js';
 import { viewTransition, stagger, swapIcon } from './motion.js';
 // tela de entrar: só para quem não está logado
@@ -103,7 +106,7 @@ function botTile(v, gid) {
 // Redesenhos pedidos por eventos do servidor (alguém mudou de status, entrou na sala…) viram um só por quadro: quando o
 // servidor reinicia e todo mundo reconecta, eram centenas de redesenhos da lista lateral e de membros seguidos.
 // Fora de eventos (cliques, navegação) o redesenho continua na hora.
-let inEvent = false;
+let inEvent = false, evQ = null;
 const queuedRenders = new Set();
 const deferRender = (fn) => {
   if (!inEvent) return false;
@@ -160,11 +163,18 @@ setInterval(async () => {
 function connect() {
   clearTimeout(connect.t);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}`);
-  ws.onmessage = (e) => { const { t, d } = JSON.parse(e.data); inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
+  ws.onmessage = (e) => {
+    const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
+    // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
+    const enc = e.data.includes('"e2ee:1:');
+    if (!enc && !evQ) return run();
+    const p = (evQ || Promise.resolve()).then(() => enc && decryptDeep(d)).catch(() => { }).then(run);
+    evQ = p; p.then(() => { if (evQ === p) evQ = null; });
+  };
   ws.onopen = () => {
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
-    const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent });
+    const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent, kind: devKind() });
     lastActive = null; reportActive(); // conta para os outros aparelhos se este está em uso
     refreshDesktopVersion().then(v => { if (v !== sent) gwSend('CLIENT_INFO', { desktop: v }); });
   };
@@ -200,10 +210,19 @@ function onEvent(t, d) {
       for (const v of d.dm_voice || []) S.voice.set(v.user_id, v);
       for (const dm of d.dms) { S.dms.set(dm.id, dm); dm.recipients.forEach(u => S.users.set(u.id, u)); }
       for (const r of d.relationships) { S.rels.set(r.user.id, r); S.users.set(r.user.id, r.user); }
+      S.friendLosses = d.friend_losses || []; S.friendLosses.forEach(x => mergeUser(x.user)); noticeFriendLosses(S.friendLosses.filter(x => x.at > seenLoss()));
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
-      if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: (speakOnly) => renderVoiceUI(speakOnly) });
+      if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate });
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
+      // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
+      voice.beforeJoin = async (cid) => {
+        const ch = channelById(cid); if (ch?.type !== 1) return null;
+        const r = await callKey(ch);
+        if (r.mode === 'locked' && r.peer) return { error: 'Esta conversa é protegida: desbloqueie a criptografia neste aparelho (Configurações → Privacidade e segurança) para ligar.' };
+        if (r.key) toast('Chamada protegida de ponta a ponta');
+        return r.key ? { key: r.key } : null;
+      };
       voice.onAutoAdjust = (msg) => toast(msg);
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
@@ -216,6 +235,7 @@ function onEvent(t, d) {
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
+      e2eeLoad(true);
       if (!ready) buildShell(); ready = true;
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
@@ -252,7 +272,8 @@ function onEvent(t, d) {
       const g = S.guilds.get(d.id);
       if (g) for (const [uid, v] of S.voice) if (g.channels.some(c => c.id === v.channel_id)) { S.voice.delete(uid); if (uid === S.me.id) voice.leave(); }
       S.guilds.delete(d.id); renderRail();
-      if (S.view.gid === d.id) { if (d.kicked) toast('Você foi removido do servidor.', true); go('@me'); }
+      if (d.kicked) toast(g ? `Você foi removido do servidor ${g.name}.` : 'Você foi removido do servidor.', true); // avisa mesmo olhando outro lugar
+      if (S.view.gid === d.id) go('@me');
       break;
     }
     case 'CHANNEL_CREATE': { const g = guild(d.guild_id); if (g) { g.channels.push(d); g.channels.sort((a, b) => a.position - b.position); renderSide(); } break; }
@@ -271,12 +292,20 @@ function onEvent(t, d) {
     case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until, softmute_until: d.softmute_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); if (d.user_id === S.me.id && S.view.gid === d.guild_id) renderSoftmute(); } break; }
     case 'ROLE_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.roles.findIndex(r => r.id === d.role.id); if (i >= 0) g.roles[i] = d.role; else g.roles.push(d.role); g.roles.sort((a, b) => b.position - a.position); renderMembers(); } break; }
     case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
+    case 'FRIEND_LOST': {
+      mergeUser(d.user);
+      S.friendLosses = [d, ...(S.friendLosses || []).filter(x => x.user.id !== d.user.id)];
+      noticeFriendLosses([d]); refreshInboxRequests();
+      break;
+    }
+    case 'FRIEND_LOSSES': { S.friendLosses = d.list || []; S.friendLosses.forEach(x => mergeUser(x.user)); refreshInboxRequests(); break; }
     case 'RELATIONSHIP': {
       mergeUser(d.user);
       if (!d.type) S.rels.delete(d.user.id); else S.rels.set(d.user.id, d);
       if (d.type === 3) { toast(`${d.user.display_name} enviou um pedido de amizade`); if (alertAllowed('dm')) playSound('friend'); }
       renderRail(); updateTitle(); if (S.view.kind === 'home') { renderMain(); renderSide(); }
-      if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); // caixa de entrada aberta em Pedidos: atualiza
+      if (d.type === 1 && S.friendLosses?.some(x => x.user.id === d.user.id)) S.friendLosses = S.friendLosses.filter(x => x.user.id !== d.user.id); // voltaram a ser amigos
+      refreshInboxRequests(); // caixa de entrada aberta em Pedidos: atualiza
       break;
     }
     case 'VOICE_STATE': {
@@ -337,6 +366,7 @@ function onEvent(t, d) {
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
     }
     case 'MESSAGE_CREATE': onMessage(d); break;
+    case 'E2EE_KEY': onE2eeKey(d); break;
     case 'READ_STATE': onReadState(d); break; // lido em outro aparelho (ou nesta conta por outra aba)
     case 'SETTINGS_UPDATE': onSettingsSync(d); break;
     case 'DEVICES': S.devices = (d.active || []).filter(x => x.tab !== tabId); break;
@@ -352,12 +382,19 @@ function onEvent(t, d) {
       if (S.view.cid === d.channel_id) renderMessages(true);
       break;
     }
+    case 'MESSAGE_DELETE_BULK': { // alguém apagou as próprias mensagens em massa (Privacidade → Apagar minhas mensagens)
+      const list = S.messages.get(d.channel_id); if (!list) break;
+      const gone = new Set(d.ids || []), n = list.length;
+      for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i].id)) list.splice(i, 1);
+      if (list.length !== n && S.view.cid === d.channel_id) renderMessages(true);
+      break;
+    }
   }
 }
 
 // perfil vindo de mensagens, cartões e listas: o status de verdade só chega por presença (READY e USER_UPDATE). Quem escolheu
 // esconder a presença vai como offline nesses dados genéricos; quem pode ver não perde o status certo que já tem.
-const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status } : u); };
+const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status, platforms: old.platforms ?? u.platforms } : u); };
 const detached = new Set(); // canais em que estou vendo o início do histórico (sem as mensagens recentes)
 function onMessage(m) {
   const list = S.messages.get(m.channel_id), gap = detached.has(m.channel_id);
@@ -794,6 +831,7 @@ function guildMenu(e, g) {
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
     { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
+    { label: 'Apagar minhas mensagens neste servidor…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
     { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
     '-',
     can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
@@ -946,7 +984,7 @@ const shortWhen = (t) => { if (!t) return ''; const d = new Date(+t), now = new 
 function dmRow(dm, pin) {
   const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id];
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
-    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), un > 0 && h('span.pill', un),
+    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), platformIcons(u, 13), un > 0 && h('span.pill', un),
     pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 22)));
 }
 // tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
@@ -957,7 +995,7 @@ function messagesHome() {
   if (!dms.length) return h('div.empty.msgs-empty', { style: { margin: 'auto' } }, icon('dm', 56), h('h2', 'Suas mensagens'), h('p', 'Converse em particular com seus amigos.'), newBtn);
   const preview = (dm) => {
     const lm = dm.last_message; if (!lm) return 'Nenhuma mensagem ainda';
-    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = (lm.content || '').replace(/\s+/g, ' ').trim();
+    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = plainTs(lm.content || '').replace(/\s+/g, ' ').trim();
     return who + (txt || (lm.attachment ? 'Anexo' : '…'));
   };
   const card = (dm) => {
@@ -1089,6 +1127,7 @@ function channelMenu(e, g, c) {
       : c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Editar canal', fn: () => channelSettings(g, c) },
     can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
+    c.type === 0 && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },
     can(g.id, PERM.MANAGE_CHANNELS) && '-',
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Excluir canal', danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
@@ -1127,10 +1166,12 @@ const newsActions = {
   requests: () => { inboxTab = 'requests'; showInbox(); },
   servers: () => { const g = [...S.guilds.values()][0]; if (g) friendsInServer(g); else toast('Entre num servidor para ver quais amigos estão nele.'); },
   privacy: () => openSettings('privacy', ctxSettings()),
+  mymessages: () => openMyMessages(),
   sounds: () => openSettings('sounds', ctxSettings()),
   appearance: () => openSettings('appearance', ctxSettings()),
   storage: () => openSettings('storage', ctxSettings()),
   lite: () => openSettings('lite', ctxSettings()),
+  extras: () => openSettings('extras', ctxSettings()),
   stream: () => openSettings('stream', ctxSettings()),
   poll: () => { const ch = channelById(S.view.cid); if (ch && $('#composer')) pollModal(ch); else toast('Abra um chat e use o + do campo de mensagem → "Criar enquete".'); },
   settings: () => openSettings('news', ctxSettings()),
@@ -1407,6 +1448,7 @@ function userMenu(e, uid, gid) {
       : rt === 0 && { label: 'Adicionar Amizade', fn: () => tryApi('POST', '/relationships', { username: user(uid).username }).then(r => r && toast('Pedido enviado')) },
     rt !== 2 ? { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${uid}`, { type: 2 }) } : { label: 'Desbloquear', fn: () => tryApi('DELETE', `/relationships/${uid}`) },
     { label: muted ? 'Desmutar' : 'Mute', fn: () => toggleLocalMute(uid) },
+    dmWith(uid) && { label: 'Apagar minhas mensagens na conversa…', fn: () => openMyMessages({ places: [dmWith(uid).id], title: user(uid).display_name }) },
     voice?.peers.has(uid) && '-',
     voice?.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
     voice?.peers.get(uid)?.screenAudioEl && { node: volumeControl(voice, uid, 'screen', 'Áudio da transmissão') },
@@ -1447,6 +1489,7 @@ function renderMain() {
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
       vc && h('div#vc-layout-slot'),
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
+        dm && h('button#e2-btn.ibtn.e2-off', { title: 'Criptografia de ponta a ponta', 'aria-label': 'Criptografia de ponta a ponta', onclick: () => e2eeClick(ch) }, icon('lock')),
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
@@ -1460,13 +1503,45 @@ function renderMain() {
       vc && h('div#vcall', top, h('div#stage')),
       chatOpen && h('div#chat' + (vc ? '.side' : ''),
         vc && h('div.vchead', h('span.vcico', icon('dm', 20)), h('span.vctitle', { title: ch.name }, chName(ch)), h('button.ibtn', { title: 'Fechar chat', onclick: () => toggleVcChat(ch) }, icon('x'))),
-        inCall && h('div#stage.dmstage'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
+        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
       !dm && !vc && S.membersOpen && h('div#members'),
       dm && S.prefs.dmPanel !== false && h('div#dmpanel'))].filter(Boolean));
   if (dm && S.prefs.dmPanel !== false) renderDmPanel(peer.id);
+  if (dm) paintE2ee(ch);
   if (chatOpen) { stickToBottom($('#msgs')); loadChannel(ch.id); }
   renderMembers(); if (vc || inCall) renderVoiceUI();
 }
+// ---------- criptografia de ponta a ponta da conversa direta (public/e2ee.js) ----------
+// cadeado no topo, faixa acima das mensagens (desbloquear / chave mudou) e o texto do compositor
+async function paintE2ee(ch) {
+  const st = await convoState(ch); if (S.view.cid !== ch.id) return;
+  const btn = $('#e2-btn'), bar = $('#e2-bar'), ta = $('#composer textarea'); if (!btn) return;
+  const peer = dmPeer(ch), name = user(peer.id).display_name, changed = st.peer && keyChangedSinceVerify(peer.id, st.peer.kid), ok = st.peer && isVerified(peer.id, st.peer.kid);
+  btn.className = 'ibtn e2-' + st.mode + (changed ? ' e2-changed' : ok ? ' e2-ok' : '');
+  btn.hidden = st.mode === 'none';
+  btn.title = { on: changed ? `A chave de segurança de ${name} mudou — confira o número de segurança` : ok ? 'Protegida de ponta a ponta · verificada' : 'Protegida de ponta a ponta · clique para conferir o número de segurança',
+    locked: 'Conversas protegidas trancadas neste aparelho — clique para desbloquear', 'peer-off': `${name} ainda não ativou a criptografia de ponta a ponta: as mensagens vão sem ela`,
+    off: 'Sem criptografia de ponta a ponta — clique para ativar' }[st.mode] || '';
+  if (ta) ta.placeholder = st.mode === 'on' ? `Mensagem protegida para @${name}` : `Conversar em @${name}`;
+  if (!bar) return;
+  const show = (...k) => { bar.classList.remove('hidden'); bar.replaceChildren(icon('lock', 16), ...k); };
+  if (st.mode === 'locked') show(h('span', st.peer ? 'Esta conversa é protegida. Desbloqueie neste aparelho para ler e enviar mensagens.' : 'Suas mensagens protegidas estão trancadas neste aparelho.'), h('button.btn.sm', { onclick: () => unlockModal() }, 'Desbloquear'));
+  else if (changed) show(h('span', `A chave de segurança de ${name} mudou (aparelho novo ou chave trocada). Confira o número de segurança de novo.`), h('button.btn.sm', { onclick: () => safetyModal(ch, () => paintE2ee(ch)) }, 'Conferir'));
+  else { bar.classList.add('hidden'); bar.replaceChildren(); }
+}
+async function e2eeClick(ch) {
+  const st = await convoState(ch);
+  if (st.mode === 'on') return safetyModal(ch, () => paintE2ee(ch));
+  if (st.mode === 'locked') return unlockModal();
+  if (st.mode === 'off') return setupModal();
+  if (st.mode === 'peer-off') toast(`${user(dmPeer(ch).id).display_name} ainda não ativou a criptografia de ponta a ponta. Quando ativar, as mensagens novas desta conversa passam a ser protegidas sozinhas.`);
+}
+// desbloqueou/ativou/trocou de chave: recarrega as conversas que tinham mensagens trancadas e atualiza o cadeado
+document.addEventListener('e2ee-changed', () => {
+  for (const [cid, list] of S.messages) if (list.some(m => typeof m.e2ee === 'string')) { if (S.view.cid === cid) detached.add(cid); else { S.messages.delete(cid); S.loaded.delete(cid); } }
+  const ch = S.view.cid && channelById(S.view.cid);
+  if (ch?.type === 1) { if (detached.has(ch.id)) renderMain(); else paintE2ee(ch); }
+});
 // painel à direita da conversa: o cartão de perfil da pessoa (com servidores em comum e ações)
 async function renderDmPanel(uid) {
   const box = $('#dmpanel'); if (!box) return;
@@ -1579,17 +1654,19 @@ function msgEl(m, prev) {
   if (flaggedMap.has(m.id) && !m._show) return h('div.msg.flagged', { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) }, icon('shield', 16),
     h('span', `Você marcou esta mensagem de ${nameOf(m.author_id, gid)} como ${flaggedMap.get(m.id) === 'spam' ? 'spam' : 'ofensiva'}. `),
     h('button.btn.link.sm', { onclick: () => { m._show = true; refreshMsg(m); } }, 'Mostrar'));
-  const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) });
+  const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : '') + (S.replyTo?.id === m.id ? '.qr-target' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m), ondblclick: (e) => msgDblClick(e, m) });
   if (!grouped) el.append(h('div.av', { onclick: (e) => profile(e.currentTarget, m.author_id, gid) }, avatar(a, 40, { status: false })));
   else el.append(h('div.time-s', clock(m.created_at)));
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
-    m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', inviteText(themeText(m.reply.content)) || 'Clique para ver o anexo')]));
-  if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12))));
+    m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', plainTs(inviteText(themeText(m.reply.content))) || 'Clique para ver o anexo')]));
+  if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
     const ta = h('textarea', { value: m.content, rows: 1, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m, ta.value); } if (e.key === 'Escape') { S.editing = null; renderMessages(true); } } });
     el.append(h('div.edit-box', ta, h('div.edit-hint', 'esc para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); S.editing = null; renderMessages(true); } }, 'cancelar'), ' • enter para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); saveEdit(m, ta.value); } }, 'salvar'))));
     setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+  } else if (typeof m.e2ee === 'string') { // protegida e não abriu aqui (trancada neste aparelho, chave apagada ou adulterada)
+    el.append(h('div.body.e2-locked', h('span', m.content), m.e2ee === 'locked' && h('button.btn.link.sm', { onclick: () => unlockModal() }, 'Desbloquear')));
   } else if (m.content) {
     const body = h('div.body'), shared = THEME_CODE_RE.test(m.content) && decodeTheme(m.content), invites = inviteCodes(m.content), calls = callCodes(m.content);
     let shown = shared ? stripThemeCodes(m.content) : m.content; // o código do tema não aparece, só o bloco
@@ -1621,7 +1698,7 @@ function msgEl(m, prev) {
   el.append(h('div.toolbar',
     h('button', { title: 'Reagir', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em, true)) }, icon('smile', 18)),
     h('button', { title: 'Responder', onclick: () => setReply(m) }, icon('reply', 18)),
-    mine && !m.poll && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
+    mine && !m.poll && typeof m.e2ee !== 'string' && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
     (mine || (gid && can(gid, PERM.MANAGE_MESSAGES))) && h('button.tdel', { title: 'Excluir (Shift: sem confirmar)', onclick: (e) => deleteMenu(e, m) }, icon('trash', 18)),
     h('button', { title: 'Mais', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); msgMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom }, m); } }, icon('more', 18))));
   return el;
@@ -1699,9 +1776,10 @@ function shareThemePicker(ch) {
 }
 function plusMenu(e, ch, fileIn) {
   const r = e.currentTarget.getBoundingClientRect();
-  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 118 }, [
+  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 157 }, [
     { label: 'Enviar arquivo', fn: () => fileIn.click() },
     { label: 'Criar enquete', fn: () => pollModal(ch) },
+    { label: 'Inserir horário', fn: () => { const ta = $('#composer textarea'); if (ta) timestampModal(ta); } },
     { label: 'Compartilhar tema', fn: () => shareThemePicker(ch) },
   ]);
 }
@@ -1714,6 +1792,20 @@ function reactionFace(e) {
 const isImg = (f) => /^(png|jpe?g|gif|webp|avif|bmp)$/.test((f.name.split('.').pop() || '').toLowerCase());
 // imagens da mesma mensagem viram uma grade; cada anexo tem uma lixeira ao passar o mouse
 function appendAttachments(el, m, canDel) {
+  // anexos protegidos de ponta a ponta: baixa e abre no aparelho quando a mensagem aparece (imagens, áudio, voz e vídeos
+  // até 50 MB); os maiores e os outros arquivos abrem no clique. Sem a chave (trancado neste aparelho) só o aviso.
+  if (m.attachments?.some(f => f.enc || f.e2ee)) {
+    const auto = (f) => f.e2ee && !f.expired && f.size <= 50 * 1048576 && (f.voice || /^(image|audio|video)\//.test(f.type));
+    const waiting = m.attachments.filter(f => auto(f) && !openedFileUrl(f));
+    if (waiting.length) {
+      const ph = h('div.e2-files', icon('lock', 16), h('span', 'Abrindo arquivo protegido…')); el.append(ph);
+      const io = new IntersectionObserver((es) => { if (!es.some(e => e.isIntersecting)) return; io.disconnect();
+        Promise.all(waiting.map(openFile)).then(() => { const tmp = h('div'); appendAttachments(tmp, m, canDel); ph.replaceWith(...tmp.childNodes); },
+          () => ph.replaceChildren(icon('lock', 16), h('span', 'Não foi possível abrir o arquivo protegido'))); }, { rootMargin: '400px' });
+      io.observe(ph); return;
+    }
+    m = { ...m, attachments: m.attachments.map(f => (f.e2ee && openedFileUrl(f) ? { ...f, url: openedFileUrl(f) } : f)) };
+  }
   const atts = (m.attachments || []).map((f, i) => ({ f, i }));
   const del = (f, i) => canDel && h('button.adel', { title: 'Remover anexo (Shift: sem confirmar)', onclick: async (e) => {
     e.stopPropagation();
@@ -1779,7 +1871,16 @@ function shareClipModal(c) {
   draw(); setTimeout(() => q.focus());
 }
 function attachEl(f) {
-  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url;
+  if (f.enc && !f.e2ee && !f.expired) return h('div.file.e2-file', icon('lock', 32), h('div', h('div.fn', 'Arquivo protegido'), h('div.fs', 'Desbloqueie a criptografia neste aparelho para abrir'))); // trancado aqui
+  if (f.e2ee && !f.expired && !f.url.startsWith('blob:')) { // protegido, grande ou não é mídia: abre no clique
+    const go = async (b, play) => { b.disabled = true; try { const u = await openFile(f); if (play) box.replaceWith(attachEl({ ...f, url: u })); else { const a = h('a', { href: u, download: f.name }); a.click(); } } catch (e) { toast(e.message, true); } b.disabled = false; };
+    const isMedia = /^(video|audio)\//.test(f.type);
+    const box = h('div.file.e2-file', icon('lock', 32), h('div', h('div.fn', f.name), h('div.fs', bytes(f.size) + ' · protegido')),
+      isMedia && h('button.btn.sm', { style: { marginLeft: 'auto' }, onclick: (e) => go(e.currentTarget, true) }, 'Abrir'),
+      h('button.ibtn', { title: 'Baixar', style: { marginLeft: isMedia ? '4px' : 'auto' }, onclick: (e) => go(e.currentTarget, false) }, icon('dl')));
+    return box;
+  }
+  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url, dl = url.startsWith('blob:') ? url : url + '?download=1';
   // apagado para liberar espaço (Configurações → Armazenamento / expiração do servidor): a conversa continua fazendo sentido
   if (f.expired) return h('div.file.expired', { title: 'Apagado em ' + new Date(f.expired).toLocaleDateString('pt-BR') }, icon('file', 32), h('div', h('div.fn', f.name), h('div.fs', 'Arquivo expirado' + (f.size ? ' • ' + bytes(f.size) : ''))));
   if (f.voice) return voiceEl(f);
@@ -1787,7 +1888,7 @@ function attachEl(f) {
   // o vídeo só baixa no play (antes cada vídeo do chat começava a baixar ao abrir o canal); a miniatura vem do servidor
   if (/^(mp4|webm|mov|m4v)$/.test(ext)) { const poster = thumbUrl(url), box = fsVideo({ src: url, preload: 'none', ...(poster ? { poster } : {}) }); prepVideo(box, poster); return h('div.attach', box); }
   if (/^(mp3|ogg|wav|m4a)$/.test(ext)) return h('div.attach', h('audio', { src: url, controls: true, preload: 'none' }));
-  return h('div.file', icon('file', 32), h('div', h('a.fn', { href: url + '?download=1', download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: url + '?download=1', download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
+  return h('div.file', icon('file', 32), h('div', h('a.fn', { href: dl, download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: dl, download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
 }
 function msgMenu(e, m) {
   const ch = channelById(m.channel_id), gid = ch.guild_id, mine = m.author_id === S.me.id, mod = gid && can(gid, PERM.MANAGE_MESSAGES) || (!gid && false);
@@ -1797,7 +1898,7 @@ function msgMenu(e, m) {
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
-    m.content && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) },
+    m.content && !m.e2ee && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) }, // protegida: traduzir mandaria o texto para fora
     mine && !m.poll && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
     ...(m.type === 1 ? [] : spoilerItems(m, mine, mod)),
@@ -1847,10 +1948,32 @@ function refreshMsg(m) {
 const react = (m, emoji, add) => tryApi(add ? 'PUT' : 'DELETE', `/channels/${m.channel_id}/messages/${m.id}/reactions/${encodeURIComponent(emoji)}`);
 async function saveEdit(m, text) {
   if (!text.trim()) return;
+  if (S.prefs.cleanLinks !== false) text = cleanLinks(text);
   S.editing = null; if (text !== m.content) await tryApi('PATCH', `/channels/${m.channel_id}/messages/${m.id}`, { content: text });
   renderMessages(true);
 }
 function setReply(m) { S.replyTo = m; renderReplyBar(); $('#composer textarea')?.focus(); }
+// Ctrl+↑ / Ctrl+↓ no campo: escolhe a mensagem a responder sem tirar a mão do teclado (passar da última cancela)
+function quickReply(ch, dir) {
+  const list = (S.messages.get(ch.id) || []).filter(m => m.type !== 1 && !String(m.id).startsWith('tmp-') && m.channel_id === ch.id);
+  if (!list.length) return;
+  const cur = S.replyTo ? list.findIndex(x => x.id === S.replyTo.id) : -1;
+  const n = (cur < 0 ? list.length : cur) + dir;
+  document.querySelectorAll('#msgs .msg.qr-target').forEach(x => x.classList.remove('qr-target'));
+  if (n >= list.length) { S.replyTo = null; renderReplyBar(); return; }
+  const m = list[Math.max(0, n)]; setReply(m);
+  const el = document.querySelector(`#msgs [data-mid="${m.id}"]`);
+  if (el) { el.classList.add('qr-target'); el.scrollIntoView({ block: 'nearest' }); }
+}
+// duplo clique numa mensagem: a sua abre a edição, a dos outros vira resposta (links, mídia, botões e reações ficam de fora)
+function msgDblClick(e, m) {
+  if (S.prefs.dblClickMsg === false || String(m.id).startsWith('tmp-') || typeof m.e2ee === 'string') return;
+  if (e.target.closest('a, button, img, video, audio, canvas, textarea, input, select, .reactions, .react, .spoiler, .fsvid, .mention, .author, .av, .reply-ref, .md-pre, .md-code, .edit-box, [contenteditable]')) return;
+  if (S.editing === m.id) return;
+  getSelection()?.removeAllRanges(); // o duplo clique selecionava uma palavra
+  if (m.author_id === S.me.id && m.content) { S.editing = m.id; renderMessages(true); }
+  else if ($('#composer textarea')) setReply(m);
+}
 async function jumpTo(mid) {
   let el = document.querySelector(`[data-mid="${mid}"]`);
   if (!el) {
@@ -2014,6 +2137,33 @@ async function showInbox(e) {
 const reqWhen = (t) => { if (!t) return 'data desconhecida'; const d = new Date(t), min = (Date.now() - t) / 60000;
   const rel = min < 1 ? 'agora' : min < 60 ? `há ${Math.floor(min)} min` : min < 1440 ? `há ${Math.floor(min / 60)} h` : min < 2880 ? 'ontem' : `há ${Math.floor(min / 1440)} dias`;
   return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${rel}`; };
+// amizade desfeita pelo outro lado: aviso na hora (ou na próxima abertura, se aconteceu com o app fechado) e lista em Pedidos
+const LOSS_SEEN = 'lc_fl_seen';
+const seenLoss = () => { try { return +localStorage.getItem(LOSS_SEEN + ':' + S.me.id) || 0; } catch { return 0; } };
+function noticeFriendLosses(list) {
+  if (!list.length) return;
+  try { localStorage.setItem(LOSS_SEEN + ':' + S.me.id, String(Math.max(seenLoss(), ...list.map(x => x.at)))); } catch { }
+  if (S.prefs.friendLossNotice === false) return;
+  const names = list.map(x => user(x.user.id).display_name);
+  toast(names.length === 1 ? `${names[0]} desfez a amizade com você` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ` e mais ${names.length - 2}` : ''} desfizeram a amizade com você`);
+}
+function refreshInboxRequests() { if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); }
+function friendLossRows(redraw) {
+  const list = S.prefs.friendLossNotice === false ? [] : (S.friendLosses || []);
+  if (!list.length) return [];
+  const row = (x) => {
+    const u = user(x.user.id), rt = S.rels.get(u.id)?.type;
+    return h('div.ib-req.ib-lost', { 'data-uid': u.id },
+      h('div.ib-req-av', { onclick: (e) => profile(e.currentTarget, u.id) }, avatar(u, 40, { status: false })),
+      h('div.ib-req-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id) }, u.display_name), h('small', '@' + u.username),
+        h('small.ib-req-d', icon('clock', 12), 'Desfez a amizade ' + reqWhen(x.at).replace(/^(\d)/, 'em $1'))),
+      h('div.ib-req-b',
+        !rt && h('button.btn.grey.sm', { title: 'Mandar pedido de amizade de novo', onclick: (e) => busy(e.currentTarget, tryApi('POST', '/relationships', { username: u.username }).then(() => toast('Pedido enviado'))) }, 'Mandar pedido'),
+        rt === 4 && h('small.mut', 'Pedido enviado'),
+        h('button.ib-btn', { title: 'Dispensar', 'aria-label': 'Dispensar aviso', onclick: (e) => busy(e.currentTarget, tryApi('DELETE', `/friend-losses/${u.id}`).then(() => setTimeout(redraw, 150))) }, icon('x', 16))));
+  };
+  return [h('div.ib-req-h.ib-lost-h', h('span', `Desfizeram a amizade — ${list.length}`), h('button.btn.link.sm', { onclick: () => tryApi('DELETE', '/friend-losses').then(() => setTimeout(redraw, 150)) }, 'Dispensar todos')), ...list.map(row)];
+}
 function friendRequests(redraw, empty) {
   const byNew = (a, b) => (b.since || 0) - (a.since || 0);
   const inc = [...S.rels.values()].filter(r => r.type === 3).sort(byNew), out = [...S.rels.values()].filter(r => r.type === 4).sort(byNew);
@@ -2031,10 +2181,12 @@ function friendRequests(redraw, empty) {
         h('button.ib-btn', { title: 'Mais', onclick: (e) => menu(e, [{ label: 'Mandar mensagem', fn: () => { closeFloating(); openDM(u.id); } }, { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${u.id}`, { type: 2 }).then(redraw) }]) }, icon('more', 16)))
         : h('div.ib-req-b', h('button.btn.grey.sm', { onclick: (e) => act(e.currentTarget, tryApi('DELETE', `/relationships/${u.id}`)) }, 'Cancelar')));
   };
-  if (!inc.length && !out.length) return [empty('Nenhum pedido', 'Os pedidos de amizade que você receber aparecem aqui, com a data de cada um.')];
+  const lost = friendLossRows(redraw);
+  if (!inc.length && !out.length) return lost.length ? lost : [empty('Nenhum pedido', 'Os pedidos de amizade que você receber aparecem aqui, com a data de cada um.')];
   return [
     h('div.ib-req-h', `Recebidos — ${inc.length}`), ...(inc.length ? inc.map(r => row(r, true)) : [h('div.ib-req-none', 'Nenhum pedido recebido esperando resposta.')]),
     out.length > 0 && h('div.ib-req-h', `Enviados — ${out.length}`), ...out.map(r => row(r, false)),
+    ...lost,
   ].filter(Boolean);
 }
 function closeResults() { $('#results')?.remove(); markResultBtns(); }
@@ -2063,6 +2215,7 @@ function composer(ch, label) {
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(ta, ch); setTimeout(grow); }
     else if (e.key === 'Escape') { if (ac) ac.remove(); else if (S.replyTo) { S.replyTo = null; renderReplyBar(); } }
+    else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && S.prefs.quickReply !== false) { e.preventDefault(); quickReply(ch, e.key === 'ArrowUp' ? -1 : 1); }
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
   // GIF, emoji e gravar voz num botão só: abre uma fileira com os três ícones (o nome aparece ao passar o mouse)
@@ -2105,6 +2258,7 @@ function composer(ch, label) {
 }
 function renderReplyBar() {
   const bar = $('#reply-bar'); if (!bar) return;
+  document.querySelectorAll('#msgs .msg.qr-target').forEach(x => { if (x.dataset.mid !== S.replyTo?.id) x.classList.remove('qr-target'); });
   if (!S.replyTo) return bar.classList.add('hidden');
   bar.classList.remove('hidden'); bar.replaceChildren(h('span', 'Respondendo a ', h('b', nameOf(S.replyTo.author_id, channelById(S.replyTo.channel_id)?.guild_id))), h('button.ibtn', { style: { width: '20px', height: '20px' }, onclick: () => { S.replyTo = null; renderReplyBar(); } }, icon('x', 14)));
 }
@@ -2130,7 +2284,7 @@ async function compressImage(file) {
   } catch { return file; }
 }
 async function addFile(file) {
-  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }; S.pending.push(item); renderPendingPrev();
+  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }, cid = S.view.cid; S.pending.push(item); renderPendingPrev();
   const pct = (stage) => (f) => { const p = Math.floor(f * 100); if (p !== item.pct || item.stage !== stage) { item.pct = p; item.stage = stage; renderPendingPrev(); } };
   try {
     file = await compressImage(file); Object.assign(item, { name: file.name, size: file.size, file });
@@ -2144,8 +2298,11 @@ async function addFile(file) {
       Object.assign(item, { name: file.name, size: file.size, file });
       toast(`Vídeo comprimido: ${bytes(before)} → ${bytes(file.size)}`);
     }
-    const r = await uploadFile(file, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
-    Object.assign(item, r, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
+    let up = file;
+    if (await protectFiles(cid)) { const x = await encryptFile(file); up = x.file; item.e2ee = x.meta; } // conversa protegida: sobe cifrado (public/e2ee.js)
+    if (item.ctrl.signal.aborted) return;
+    const r = await uploadFile(up, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
+    Object.assign(item, r, item.e2ee ? { name: file.name, size: file.size } : {}, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
   } catch (e) { if (!item.ctrl.signal.aborted) toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
   renderPendingPrev();
 }
@@ -2185,11 +2342,12 @@ async function sendMsg(ta, ch) {
   if (S.pending.some(p => p.state === 'up')) return toast('Aguarde o envio dos anexos…');
   if (!content.trim() && !atts.length) return;
   const typed = content; content = resolveMentions(ta, content);
+  if (S.prefs.cleanLinks !== false) content = cleanLinks(content); // tira utm_*, fbclid, si=… dos links
   if (/^\$[a-z]{2,3}(-[A-Z]{2})?\s/.test(content)) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
   ta.value = ''; $('.ac')?.remove();
-  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type }) => ({ url, name, size, type })) };
+  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee }) => ({ url, name, size, type, ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {
@@ -2266,7 +2424,7 @@ function renderMembers() {
     const vc = !offline && inVoice(u.id);
     return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
       avatar(u, 32, { ring: 'var(--bg-sec)' }),
-      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12))), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
+      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
       vc && h('span.mem-vc', { title: 'Em chamada: ' + chName(vc) }, icon('voice', 14)));
   };
   const head = (k, name, color, list) => {
@@ -2531,9 +2689,21 @@ function autoClosed() {
   }
   for (const k of [...seenLive]) if (!now.has(k)) seenLive.delete(k);
 }
+// pedidos seguidos na mesma rodada (mutar 10x pelo atalho, entrar + câmera + estado) viram UM redesenho, com o estado final.
+// Antes cada um redesenhava a lista lateral e o palco inteiros na hora (~400 elementos por vez).
+let vuiQ = 0; // 1 = só as falas, 2 = completo
+function voiceUpdate(speakOnly) {
+  const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
+  const first = !vuiQ; vuiQ = want;
+  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); });
+}
+// aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
+let speakStale = false;
+document.addEventListener('visibilitychange', () => { if (!document.hidden && speakStale && voice) { speakStale = false; renderVoiceUI(true); } });
 function renderVoiceUI(speakOnly) {
   if (!voice?.active || voice.screen) hideGameOffer();
   if (speakOnly) {
+    if (document.hidden) { speakStale = true; return; }
     // só as classes de "falando"; o ping já é medido 1x por segundo (antes cada fala disparava uma medição extra)
     document.querySelectorAll('.tile[data-uid],.avatar[data-uid]').forEach(e => { const u = e.dataset.uid; e.classList.toggle('speaking', voice.speaking.has(u)); e.classList.toggle('sbplay', voice.sbActive.has(u)); });
     return;
@@ -2885,7 +3055,9 @@ function updatePing() {
     document.dispatchEvent(new Event('ping-sample'));
   });
 }
-setInterval(() => (voice?.active ? updatePing() : (pingHist.length = 0)), 1000);
+// janela escondida/minimizada: mede a cada 5 s em vez de 1 s (ninguém está olhando o selo; o gráfico só fica mais espaçado)
+let pingTick = 0;
+setInterval(() => (voice?.active ? (!document.hidden || ++pingTick % 5 === 0) && updatePing() : (pingHist.length = 0)), 1000);
 // qualidade da voz: selo no painel (nível atual) e ajuste automático a cada 3 s
 const isAutoAbr = () => S.prefs.voiceBitrate === 'auto' || S.prefs.voiceBitrate == null;
 const abrEl = () => { const el = h('button#vp-abr.abr', { onclick: (e) => openAbrPicker(e.currentTarget) }); paintAbr(el); return el; };

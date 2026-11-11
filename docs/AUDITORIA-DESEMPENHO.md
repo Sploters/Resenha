@@ -57,3 +57,56 @@ Medido (`node scripts/clips-chat-test.mjs`, 12 clipes reais de ~3 MB + 1 vídeo 
   nome quando é único no servidor).
 - Mensagem de clipe no chat = cartão leve (miniatura, título, "Ver na galeria"); o vídeo toca ali mesmo ao clicar.
 - Vídeos comuns no chat: `preload=none` + miniatura. Galeria: miniaturas; o vídeo só baixa ao passar o mouse (prévia).
+
+## Estresse, segundo plano e mutado (2026-11-11)
+Medido com `node scripts/perf-stress.mjs <rótulo>`: cada pessoa num navegador separado, CPU da **árvore de processos inteira**
+(inclui a thread de áudio, onde roda a IA de ruído, e o compositor — que o "TaskDuration" da página não enxerga), rede
+WebRTC e mensagens do gateway. Call de 3 com RNNoise; Chromium sem placa de vídeo (compositor em software, o pior caso).
+Aba escondida simulada pelo `document.hidden`.
+
+| Medida (alice, % de um núcleo) | Antes | Depois |
+|---|---|---|
+| Olhando a tela da call (2 pessoas, só voz) | 73–103% | **23–26%** |
+| Call, mutado (sem olhar a tela) | 13,6% | **7,4%** (a IA de ruído para) |
+| Call ensurdecido + janela escondida | 24% e 133 kbps chegando | **10%** e **0 kbps** chegando |
+| Depois de sair da call | contexto de áudio rodando | **2%**, nenhum contexto de áudio rodando |
+| Mutar 100x + ensurdecer 51x seguidos | 181 mensagens ao servidor, ~55 mil elementos criados | **31 mensagens**, ~0 |
+| Servidor, 500 pessoas no mesmo servidor (`scripts/load/node-load.mjs`) | — | API p95 ≤ 19 ms, event loop p99 36 ms, 0 erros |
+
+### O que foi corrigido
+1. **Tela da call repintando sem parar** (o maior gasto): o anel verde de quem fala tinha transição de 0,12–0,2 s no
+   `box-shadow` (`extra.css`, `features.css`) e o indicador ligava/desligava a cada pausa entre sílabas. Cada troca repintava
+   a página inteira por ~8 quadros; com 2–3 pessoas falando era repintura contínua. Agora o anel troca sem transição e
+   "falando" só desliga depois de 300 ms de silêncio (`voice.js` `poll`), como no Discord.
+2. **IA de ruído processando com o microfone mutado**: mutado (ou ensurdecido), o microfone sai da cadeia
+   (`createMic` → `setIdle`) e o RNNoise/GTCRN fica sem entrada — esses nós não fazem nada sem entrada. O teste de microfone
+   do painel rápido mantém a cadeia ligada enquanto está aberto (`voice.holdMic`).
+3. **Ensurdecido com a janela escondida**: o servidor para de mandar a voz dos outros (consumers de `mic` pausados,
+   `voice.syncVoiceFlow`); volta na hora ao mostrar a janela ou desensurdecer. Transmitindo não pausa (o clipe leva a voz).
+4. **Contextos de áudio rodando à toa**: o da voz é suspenso ao sair da call; os dos sons da interface (`sounds.js`,
+   `state.js` `beep`, `voice.js` `playTone`) dormem 3–4 s depois do último som. Rodando, cada um mantém a thread de áudio e
+   a saída de som processando silêncio.
+5. **Entrar em salas com cliques seguidos** (corrida): `join(A)` seguido de `join(B)` antes de o primeiro terminar
+   deixava a pessoa **fora de qualquer sala**, com o medidor de fala (100 ms) e um microfone a mais ligados. Agora só a
+   última entrada vale e sair cancela uma entrada em andamento.
+6. **Câmera/tela abertas em dobro**: clicar de novo enquanto a câmera abria abria outra; só a última ficava no app e as
+   outras continuavam ligadas (luz da câmera acesa) até fechar o app — 10 cliques = 9 câmeras vazadas. Agora é um pedido
+   de cada vez (`voice.once`); câmera que termina de abrir depois de sair da sala é fechada.
+7. **Mutar/ensurdecer em sequência**: cada toque redesenhava a lista lateral e o palco inteiros na hora e mandava um
+   `VOICE_STATE`. Agora mudanças na mesma rodada viram um redesenho (`voiceUpdate`) e uma mensagem (`sendState`).
+8. **Janela escondida**: quem está falando não é desenhado (um redesenho ao voltar) e o ping é medido a cada 5 s em vez de 1 s.
+9. **App desktop minimizado/na bandeja era tratado como visível**: com `backgroundThrottling: false` o Electron nunca marca a
+   página como escondida, então nada do que depende de `document.hidden` valia no app — inclusive a pausa do vídeo da
+   transmissão assistida fora de vista (a banda inteira da transmissão continuava chegando com a janela minimizada).
+   Desde o app **1.0.25** o processo principal avisa o estado real da janela (`win-state`) e `state.js` faz
+   `document.hidden` refletir isso. Versões anteriores do app seguem como antes.
+10. Trocar de canal rápido gerava promessas rejeitadas ("Transition was skipped") sem tratamento (`motion.js`).
+
+### O que foi verificado e está bem
+- Trocar de canal 50x, entrar/sair 15x, trocar o filtro de ruído 20x e ligar/desligar a transmissão 6x: depois da coleta
+  de lixo, elementos e ouvintes voltam ao normal; no servidor sobram exatamente os transportes/producers/consumers esperados
+  (e zero depois que todos saem).
+- Parado fora da call: 0,6% de CPU e 0,1 mensagem/s do gateway; escondido, nenhuma.
+- Rajada de 120 mensagens em ~1,7 s: 0,4 s de CPU para quem está com o canal aberto, 0,2 s com a aba escondida.
+- Ainda pesa (de propósito): a call com a tela aberta ainda desenha o anel de fala e o relógio; assistir transmissão
+  decodifica vídeo. Numa máquina com placa de vídeo o compositor custa bem menos do que nesta medição.

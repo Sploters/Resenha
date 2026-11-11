@@ -714,3 +714,73 @@ html.anim .mh-card:active { transform: scale(.98); }
 .fis-t b { cursor: pointer; color: var(--header); } .fis-t b:hover { text-decoration: underline; }
 .fis-t small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ib-req-t small.ib-req-d { white-space: normal; overflow: visible; line-height: 1.35; align-items: flex-start; } .ib-req-d .icon { margin-top: 2px; }
+
+/* Apagar minhas mensagens (public/mymessages.js) */
+.mm .mm-filters .seg { flex-wrap: wrap; }
+.mm .mm-range { display: flex; gap: 12px; } .mm .mm-range[hidden] { display: none; } .mm .mm-range .f { flex: 1; }
+.mm .mm-out { margin-top: 14px; border-top: 1px solid var(--bg-mod, rgba(127,127,127,.2)); padding-top: 12px; min-height: 60px; }
+.mm .mm-wait { color: var(--text-muted); padding: 12px 0; text-align: center; }
+.mm .mm-total { font-size: 15px; margin-bottom: 4px; } .mm .mm-total small { color: var(--text-muted); }
+.mm .mm-hint { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
+.mm .mm-places { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.mm .mm-place { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.mm .mm-place:hover { background: var(--bg-mod-hover, rgba(127,127,127,.12)); } .mm .mm-place.off { opacity: .5; }
+.mm .mm-pn { display: flex; flex-direction: column; min-width: 0; } .mm .mm-pn > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm .mm-pn small, .mm .mm-pc small { color: var(--text-muted); font-size: 11px; }
+.mm .mm-left { font-style: normal; font-size: 11px; color: var(--yellow, #f0b232); }
+.mm .mm-pc { display: flex; flex-direction: column; align-items: flex-end; }
+.mm .mm-sample { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; } .mm .mm-sample > small { color: var(--text-muted); }
+.mm .mm-msg { display: flex; gap: 8px; font-size: 13px; } .mm .mm-msg time { color: var(--text-muted); flex: none; font-size: 12px; }
+.mm .mm-msg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm .mm-prog { padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.mm .mm-bar { height: 8px; border-radius: 4px; background: var(--bg-mod, rgba(127,127,127,.2)); overflow: hidden; }
+.mm .mm-bar i { display: block; height: 100%; width: 0; background: var(--red, #da373c); transition: width .2s; }
+.modal .mf .btn[disabled] { opacity: .5; pointer-events: none; }
+.modal .mf .mm-dl { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- criptografia de ponta a ponta nas conversas diretas (public/e2ee.js) ---------- */
+#e2-btn.e2-on { color: var(--green); } #e2-btn.e2-on.e2-ok { color: var(--green); } #e2-btn.e2-on.e2-changed, #e2-btn.e2-locked { color: var(--yellow); }
+#e2-btn.e2-off, #e2-btn.e2-peer-off { opacity: .45; } #e2-btn.e2-off:hover, #e2-btn.e2-peer-off:hover { opacity: 1; }
+#e2-btn.e2-on.e2-ok::after { content: ''; position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--green); border: 2px solid var(--bg-pri); transform: translate(8px, 8px); }
+#e2-btn { position: relative; }
+#e2-bar { display: flex; align-items: center; gap: 10px; margin: 8px 16px 0; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--yellow) 14%, var(--bg-sec)); color: var(--text-strong); font-size: 14px; flex: none; }
+#e2-bar.hidden { display: none; } #e2-bar > span { flex: 1; } #e2-bar svg { color: var(--yellow); flex: none; }
+.msg .e2-ic { color: var(--green); display: inline-flex; margin-left: 6px; vertical-align: -1px; opacity: .8; }
+.msg .body.e2-locked { color: var(--text-muted); font-style: italic; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.e2-safety .e2-nums { display: grid; grid-template-columns: repeat(4, auto); justify-content: center; gap: 10px 18px; padding: 16px; border-radius: 8px; background: var(--bg-tert); }
+.e2-safety .e2-nums code { font: 600 20px/1.2 Consolas, "Cascadia Mono", monospace; letter-spacing: 1px; color: var(--text-strong); }
+.e2-small { font-size: 13px; color: var(--text-muted); margin: 12px 0 0; }
+.e2-form .e2-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.e2-form .e2-show { font-size: 13px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.e2-warn, .css-warn { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; color: var(--text-muted); margin: 12px 0 0; } .e2-warn svg, .css-warn svg { color: var(--yellow); flex: none; margin-top: 2px; }
+.e2-err { min-height: 18px; margin-top: 8px; font-size: 13px; color: var(--red); }
+code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text-strong); background: var(--bg-tert); padding: 4px 8px; border-radius: 4px; }
+@media (max-width: 560px) { .e2-safety .e2-nums { grid-template-columns: repeat(3, auto); } .e2-safety .e2-nums code { font-size: 17px; } }
+
+.e2-files { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 10px 14px; border-radius: 8px; background: var(--bg-sec); color: var(--text-muted); font-size: 14px; }
+.e2-files svg, .file.e2-file > svg { color: var(--green); }
+
+/* ---- horário que se ajusta para quem lê (<t:…>) ---- */
+.md-ts { background: var(--bg-mod-sel); border-radius: 3px; padding: 0 3px; cursor: help; white-space: nowrap; }
+.ts-modal input[type=datetime-local] { width: 100%; }
+.ts-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.ts-fmts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.ts-fmt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 6px; border: 2px solid transparent; background: var(--bg-sec); color: var(--text); cursor: pointer; min-width: 0; }
+.ts-fmt small { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .02em; font-weight: 700; }
+.ts-fmt b { color: var(--header); font-weight: 500; font-size: 14px; overflow-wrap: anywhere; }
+.ts-fmt:hover { background: var(--bg-mod-hover); } .ts-fmt.on { border-color: var(--brand); }
+.ts-foot { margin-top: 12px; font-size: 13px; color: var(--text-muted); } .ts-code { user-select: all; }
+
+/* ---- de onde a pessoa está conectada ---- */
+.plats { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; color: var(--text-muted); flex: none; vertical-align: -2px; }
+.plats .icon { opacity: .8; }
+.dmrow .plats { margin-left: 2px; }
+.pcard .un .plats { margin-left: 6px; }
+
+/* ---- resposta escolhida pelo teclado (Ctrl+↑/↓) ---- */
+.msg.qr-target { background: var(--mention-bg); box-shadow: inset 2px 0 0 var(--brand); }
+
+/* ---- amizades desfeitas (caixa de entrada → Pedidos) ---- */
+.ib-lost-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ib-lost-h .btn.link { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.ib-lost .ib-req-av { opacity: .75; }

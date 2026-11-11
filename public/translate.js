@@ -1,6 +1,7 @@
 // Tradução de mensagens: pelo menu da mensagem, antes de enviar (botão do compositor) ou com o prefixo $en, $es, $ja…
 import { h, icon } from './util.js';
-import { S, api, toast, menu } from './state.js';
+import { S, api, toast, menu, channelById } from './state.js';
+import { convoState } from './e2ee.js';
 
 export const LANGS = { pt: 'Português', en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano', nl: 'Nederlands', pl: 'Polski', ru: 'Русский', uk: 'Українська', tr: 'Türkçe', ar: 'العربية', hi: 'हिन्दी', ja: '日本語', ko: '한국어', 'zh-CN': '中文 (简体)', id: 'Bahasa Indonesia', vi: 'Tiếng Việt' };
 export const myLang = () => (LANGS[S.prefs.trLang] ? S.prefs.trLang : (LANGS[(navigator.language || 'pt').split('-')[0]] ? (navigator.language || 'pt').split('-')[0] : 'pt'));
@@ -8,6 +9,9 @@ export const myLang = () => (LANGS[S.prefs.trLang] ? S.prefs.trLang : (LANGS[(na
 // partes que a tradução não pode mexer: menções, emojis do servidor, links, código
 const KEEP = /<@[^>]+>|<:\w+:[^>]+>|@everyone|https?:\/\/\S+|`[^`\n]+`/g;
 export async function translateText(text, to, from = 'auto') {
+  // conversa protegida de ponta a ponta: o tradutor fica no servidor, então traduzir entregaria o texto a ele
+  const ch = S.view.cid && channelById(S.view.cid);
+  if (ch?.type === 1 && (await convoState(ch)).mode === 'on') throw new Error('esta conversa é protegida de ponta a ponta e traduzir mandaria o texto para o servidor');
   const keep = [];
   const src = text.replace(KEEP, (t) => `{{${keep.push(t) - 1}}}`);
   const r = await api('POST', '/translate', { text: src, to, from });
