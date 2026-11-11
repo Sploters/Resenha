@@ -53,7 +53,7 @@ export function mountMyMessages(app, d) {
       SUM(CASE WHEN m.attachments IS NOT NULL AND m.attachments <> '[]' THEN 1 ELSE 0 END) files ${FROM} WHERE ${sql} GROUP BY m.channel_id ORDER BY n DESC`, ...p);
     const places = rows.map(r => { const ch = get('SELECT * FROM channels WHERE id=?', r.channel_id); return ch && { channel_id: r.channel_id, ...placeOf(ch, req.uid), count: r.n, files: r.files, first: r.first, last: r.last }; }).filter(Boolean);
     const sample = all(`SELECT m.id, m.channel_id, m.content, m.created_at, m.attachments ${FROM} WHERE ${sql} ORDER BY m.created_at DESC LIMIT 5`, ...p)
-      .map(m => ({ id: m.id, channel_id: m.channel_id, content: String(m.content || '').slice(0, 160), created_at: m.created_at, files: (() => { try { return JSON.parse(m.attachments || '[]').length; } catch { return 0; } })() }));
+      .map(m => ({ id: m.id, channel_id: m.channel_id, content: String(m.content || '').startsWith('e2ee:') ? m.content : String(m.content || '').slice(0, 160), created_at: m.created_at, files: (() => { try { return JSON.parse(m.attachments || '[]').length; } catch { return 0; } })() }));
     const wp = where(req.uid, { ...req.body, keepPinned: false });
     const pinned = req.body?.keepPinned !== false ? (get(`SELECT COUNT(*) n ${FROM} WHERE ${wp.sql} AND m.pinned = 1`, ...wp.p)?.n || 0) : 0;
     res.json({ total: places.reduce((t, x) => t + x.count, 0), places, sample, pinnedKept: pinned, until: Date.now() });

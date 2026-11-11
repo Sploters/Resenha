@@ -19,6 +19,7 @@ import { mountStatic } from './static.js';
 import { createThumbs } from './thumbs.js';
 import { mountStorage } from './storage.js';
 import { mountMyMessages } from './mymessages.js';
+import { mountE2ee, messageContent, isE2ee } from './e2ee.js';
 import { mountUploads } from './uploads.js';
 import { mountMedia } from './media.js';
 import { createReputation } from './reputation.js';
@@ -216,7 +217,7 @@ function messageObj(m) {
     content: m.content, type: m.type || 0, created_at: m.created_at, edited_at: m.edited_at, pinned: !!m.pinned,
     ...(m.spoiler_by ? { spoiler: true, spoiler_by_mod: m.spoiler_by !== m.author_id } : {}),
     attachments: JSON.parse(m.attachments || '[]'),
-    reply: reply ? { id: reply.id, content: (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
+    reply: reply ? { id: reply.id, content: isE2ee(reply.content) ? reply.content : (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
     reactions: Object.entries(rx).map(([emoji, users]) => ({ emoji, users })),
     ...((m.content || '').startsWith('📊') ? { poll: pollObj(get('SELECT * FROM polls WHERE message_id=?', m.id)) } : {}),
     ...(m.attachments && m.attachments.includes('video/') ? clipOfMessage(m.id) : {}) };
@@ -847,7 +848,8 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   if (!rateOk(req.uid)) return bad(res, 'Você está enviando mensagens rápido demais', 429);
   { const wait = reputation.slowWait(ch.guild_id, req.uid); // soft-mute da reputação: 1 mensagem a cada N segundos
     if (wait) return res.status(429).json({ error: `Envio limitado pela comunidade: espere ${wait >= 60 ? Math.ceil(wait / 60) + ' min' : wait + ' s'} para a próxima mensagem`, retry_after: wait, softmute: true }); }
-  const content = String(req.body.content ?? '').slice(0, 4000);
+  const mc = messageContent(req.body.content, ch); if (mc.error) return bad(res, mc.error);
+  const content = mc.content; // protegida (e2ee:…): o servidor guarda e repassa sem conseguir ler (server/e2ee.js)
   const atts = (Array.isArray(req.body.attachments) ? req.body.attachments : []).slice(0, 10)
     .filter(a => a && isFileUrl(a.url))
     .map(a => {
@@ -881,7 +883,8 @@ app.patch('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
   const m = get('SELECT * FROM messages WHERE id=? AND channel_id=?', req.params.mid, ch.id);
   if (!m || m.author_id !== req.uid) return bad(res, 'Sem permissão', 403);
-  const content = String(req.body.content ?? '').slice(0, 4000);
+  const mc = messageContent(req.body.content, ch); if (mc.error) return bad(res, mc.error);
+  const content = mc.content;
   if (!content.trim()) return bad(res, 'Mensagem vazia');
   if (get('SELECT 1 x FROM polls WHERE message_id=?', m.id)) return bad(res, 'Enquetes não podem ser editadas');
   run('UPDATE messages SET content=?,edited_at=? WHERE id=?', content, Date.now(), m.id);
@@ -1339,6 +1342,7 @@ mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
 // reputação (server/reputation.js): marcações de spam/ofensa de várias pessoas viram um soft-mute até a moderação analisar
 reputation.mount(app, { auth, wrap, bad, channelFor });
 // apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
+mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });

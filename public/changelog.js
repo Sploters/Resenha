@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-11-2', title: 'Conversas protegidas e CSS do seu jeito',
+    items: [
+      { i: 'lock', t: 'Criptografia de ponta a ponta nas conversas diretas', d: 'Ative em Privacidade e segurança com uma frase que só você sabe. Quando a outra pessoa também ativar, o texto das mensagens da conversa é cifrado no seu aparelho e só abre no seu e no dela: o servidor guarda só o texto embaralhado. O cadeado no topo da conversa mostra o número de segurança para vocês compararem, e avisa se a chave da pessoa mudar. Arquivos, chamadas e grupos ainda não entram.', try: 'privacy' },
+      { i: 'palette', t: 'CSS personalizado', d: 'Em Aparência → CSS personalizado, mude qualquer parte do visual com CSS, com prévia ao vivo, exemplos prontos e a lista de variáveis e partes da tela que não mudam entre atualizações. Importa e exporta .css e vale em todos os seus aparelhos. Quebrou algo? Ctrl+Shift+Alt+S desliga na hora.', try: 'appearance' },
+    ],
+  },
+  {
     id: '2026-11-11-1', title: 'Apagar suas mensagens de uma vez',
     items: [
       { i: 'trash', t: 'Apagar minhas mensagens', d: 'Em Privacidade e segurança → Suas mensagens, apague de uma vez o que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período (últimas 24 h, mais de 30 dias, entre datas…), por texto ou só as com arquivos ou links. Antes de apagar você vê quantas são e onde, desmarca as conversas que quer manter e pode baixar uma cópia. Vale até para servidores de que você já saiu, e as fixadas ficam se você quiser.', try: 'mymessages' },

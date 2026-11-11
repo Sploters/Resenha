@@ -46,6 +46,7 @@ import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, act
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
+import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify } from './e2ee.js';
 import { rumReady } from './rum.js';
 import { viewTransition, stagger, swapIcon } from './motion.js';
 // tela de entrar: só para quem não está logado
@@ -104,7 +105,7 @@ function botTile(v, gid) {
 // Redesenhos pedidos por eventos do servidor (alguém mudou de status, entrou na sala…) viram um só por quadro: quando o
 // servidor reinicia e todo mundo reconecta, eram centenas de redesenhos da lista lateral e de membros seguidos.
 // Fora de eventos (cliques, navegação) o redesenho continua na hora.
-let inEvent = false;
+let inEvent = false, evQ = null;
 const queuedRenders = new Set();
 const deferRender = (fn) => {
   if (!inEvent) return false;
@@ -161,7 +162,14 @@ setInterval(async () => {
 function connect() {
   clearTimeout(connect.t);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}`);
-  ws.onmessage = (e) => { const { t, d } = JSON.parse(e.data); inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
+  ws.onmessage = (e) => {
+    const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
+    // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
+    const enc = e.data.includes('"e2ee:1:');
+    if (!enc && !evQ) return run();
+    const p = (evQ || Promise.resolve()).then(() => enc && decryptDeep(d)).catch(() => { }).then(run);
+    evQ = p; p.then(() => { if (evQ === p) evQ = null; });
+  };
   ws.onopen = () => {
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
@@ -217,6 +225,7 @@ function onEvent(t, d) {
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
+      e2eeLoad(true);
       if (!ready) buildShell(); ready = true;
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
@@ -338,6 +347,7 @@ function onEvent(t, d) {
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
     }
     case 'MESSAGE_CREATE': onMessage(d); break;
+    case 'E2EE_KEY': onE2eeKey(d); break;
     case 'READ_STATE': onReadState(d); break; // lido em outro aparelho (ou nesta conta por outra aba)
     case 'SETTINGS_UPDATE': onSettingsSync(d); break;
     case 'DEVICES': S.devices = (d.active || []).filter(x => x.tab !== tabId); break;
@@ -1459,6 +1469,7 @@ function renderMain() {
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
       vc && h('div#vc-layout-slot'),
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
+        dm && h('button#e2-btn.ibtn.e2-off', { title: 'Criptografia de ponta a ponta', 'aria-label': 'Criptografia de ponta a ponta', onclick: () => e2eeClick(ch) }, icon('lock')),
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
@@ -1472,13 +1483,45 @@ function renderMain() {
       vc && h('div#vcall', top, h('div#stage')),
       chatOpen && h('div#chat' + (vc ? '.side' : ''),
         vc && h('div.vchead', h('span.vcico', icon('dm', 20)), h('span.vctitle', { title: ch.name }, chName(ch)), h('button.ibtn', { title: 'Fechar chat', onclick: () => toggleVcChat(ch) }, icon('x'))),
-        inCall && h('div#stage.dmstage'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
+        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
       !dm && !vc && S.membersOpen && h('div#members'),
       dm && S.prefs.dmPanel !== false && h('div#dmpanel'))].filter(Boolean));
   if (dm && S.prefs.dmPanel !== false) renderDmPanel(peer.id);
+  if (dm) paintE2ee(ch);
   if (chatOpen) { stickToBottom($('#msgs')); loadChannel(ch.id); }
   renderMembers(); if (vc || inCall) renderVoiceUI();
 }
+// ---------- criptografia de ponta a ponta da conversa direta (public/e2ee.js) ----------
+// cadeado no topo, faixa acima das mensagens (desbloquear / chave mudou) e o texto do compositor
+async function paintE2ee(ch) {
+  const st = await convoState(ch); if (S.view.cid !== ch.id) return;
+  const btn = $('#e2-btn'), bar = $('#e2-bar'), ta = $('#composer textarea'); if (!btn) return;
+  const peer = dmPeer(ch), name = user(peer.id).display_name, changed = st.peer && keyChangedSinceVerify(peer.id, st.peer.kid), ok = st.peer && isVerified(peer.id, st.peer.kid);
+  btn.className = 'ibtn e2-' + st.mode + (changed ? ' e2-changed' : ok ? ' e2-ok' : '');
+  btn.hidden = st.mode === 'none';
+  btn.title = { on: changed ? `A chave de segurança de ${name} mudou — confira o número de segurança` : ok ? 'Protegida de ponta a ponta · verificada' : 'Protegida de ponta a ponta · clique para conferir o número de segurança',
+    locked: 'Conversas protegidas trancadas neste aparelho — clique para desbloquear', 'peer-off': `${name} ainda não ativou a criptografia de ponta a ponta: as mensagens vão sem ela`,
+    off: 'Sem criptografia de ponta a ponta — clique para ativar' }[st.mode] || '';
+  if (ta) ta.placeholder = st.mode === 'on' ? `Mensagem protegida para @${name}` : `Conversar em @${name}`;
+  if (!bar) return;
+  const show = (...k) => { bar.classList.remove('hidden'); bar.replaceChildren(icon('lock', 16), ...k); };
+  if (st.mode === 'locked') show(h('span', st.peer ? 'Esta conversa é protegida. Desbloqueie neste aparelho para ler e enviar mensagens.' : 'Suas mensagens protegidas estão trancadas neste aparelho.'), h('button.btn.sm', { onclick: () => unlockModal() }, 'Desbloquear'));
+  else if (changed) show(h('span', `A chave de segurança de ${name} mudou (aparelho novo ou chave trocada). Confira o número de segurança de novo.`), h('button.btn.sm', { onclick: () => safetyModal(ch, () => paintE2ee(ch)) }, 'Conferir'));
+  else { bar.classList.add('hidden'); bar.replaceChildren(); }
+}
+async function e2eeClick(ch) {
+  const st = await convoState(ch);
+  if (st.mode === 'on') return safetyModal(ch, () => paintE2ee(ch));
+  if (st.mode === 'locked') return unlockModal();
+  if (st.mode === 'off') return setupModal();
+  if (st.mode === 'peer-off') toast(`${user(dmPeer(ch).id).display_name} ainda não ativou a criptografia de ponta a ponta. Quando ativar, as mensagens novas desta conversa passam a ser protegidas sozinhas.`);
+}
+// desbloqueou/ativou/trocou de chave: recarrega as conversas que tinham mensagens trancadas e atualiza o cadeado
+document.addEventListener('e2ee-changed', () => {
+  for (const [cid, list] of S.messages) if (list.some(m => typeof m.e2ee === 'string')) { if (S.view.cid === cid) detached.add(cid); else { S.messages.delete(cid); S.loaded.delete(cid); } }
+  const ch = S.view.cid && channelById(S.view.cid);
+  if (ch?.type === 1) { if (detached.has(ch.id)) renderMain(); else paintE2ee(ch); }
+});
 // painel à direita da conversa: o cartão de perfil da pessoa (com servidores em comum e ações)
 async function renderDmPanel(uid) {
   const box = $('#dmpanel'); if (!box) return;
@@ -1596,12 +1639,14 @@ function msgEl(m, prev) {
   else el.append(h('div.time-s', clock(m.created_at)));
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
     m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', inviteText(themeText(m.reply.content)) || 'Clique para ver o anexo')]));
-  if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12))));
+  if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
     const ta = h('textarea', { value: m.content, rows: 1, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m, ta.value); } if (e.key === 'Escape') { S.editing = null; renderMessages(true); } } });
     el.append(h('div.edit-box', ta, h('div.edit-hint', 'esc para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); S.editing = null; renderMessages(true); } }, 'cancelar'), ' • enter para ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); saveEdit(m, ta.value); } }, 'salvar'))));
     setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+  } else if (typeof m.e2ee === 'string') { // protegida e não abriu aqui (trancada neste aparelho, chave apagada ou adulterada)
+    el.append(h('div.body.e2-locked', h('span', m.content), m.e2ee === 'locked' && h('button.btn.link.sm', { onclick: () => unlockModal() }, 'Desbloquear')));
   } else if (m.content) {
     const body = h('div.body'), shared = THEME_CODE_RE.test(m.content) && decodeTheme(m.content), invites = inviteCodes(m.content), calls = callCodes(m.content);
     let shown = shared ? stripThemeCodes(m.content) : m.content; // o código do tema não aparece, só o bloco
@@ -1633,7 +1678,7 @@ function msgEl(m, prev) {
   el.append(h('div.toolbar',
     h('button', { title: 'Reagir', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em, true)) }, icon('smile', 18)),
     h('button', { title: 'Responder', onclick: () => setReply(m) }, icon('reply', 18)),
-    mine && !m.poll && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
+    mine && !m.poll && typeof m.e2ee !== 'string' && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
     (mine || (gid && can(gid, PERM.MANAGE_MESSAGES))) && h('button.tdel', { title: 'Excluir (Shift: sem confirmar)', onclick: (e) => deleteMenu(e, m) }, icon('trash', 18)),
     h('button', { title: 'Mais', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); msgMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom }, m); } }, icon('more', 18))));
   return el;
@@ -1809,7 +1854,7 @@ function msgMenu(e, m) {
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
-    m.content && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) },
+    m.content && !m.e2ee && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) }, // protegida: traduzir mandaria o texto para fora
     mine && !m.poll && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
     ...(m.type === 1 ? [] : spoilerItems(m, mine, mod)),

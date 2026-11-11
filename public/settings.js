@@ -22,6 +22,8 @@ import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
+import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
+import { CUSTOM_CSS_MAX, applyCustomCss, cssSafeMode, openCssEditor } from './customcss.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
@@ -338,6 +340,31 @@ function presenceCard() {
     h('div.pv-sub', h('b', 'Esconder de pessoas específicas'), chips('deny', 'Ninguém. Útil para colegas de trabalho, por exemplo.')));
   draw(); return card(box);
 }
+// criptografia de ponta a ponta das conversas diretas (public/e2ee.js)
+function e2eeCard(reg) {
+  const box = card();
+  const kidTxt = (k) => k ? k.kid.slice(0, 20).match(/.{4}/g).join(' ') : '';
+  const draw = () => {
+    const st = e2eeState(), k = myFingerprintKey(), redraw = () => draw();
+    const limits = note('Protege o texto das mensagens nas conversas diretas entre duas pessoas: é cifrado no seu aparelho e só abre no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda só o texto embaralhado. Ainda não entram: arquivos, chamadas, reações e grupos. Busca e tradução não funcionam nas mensagens protegidas, e o servidor continua sabendo quem conversa com quem e quando.');
+    if (st === 'unsupported') return box.replaceChildren(note('Este navegador não oferece a criptografia (ela precisa do endereço com https://, ou do app desktop).'));
+    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase que só você sabe. Quando a outra pessoa também tiver ativado, as mensagens novas da conversa passam a ser protegidas sozinhas.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
+    if (st === 'locked') return box.replaceChildren(
+      row('Trancada neste aparelho', 'Suas chaves existem, mas este aparelho ainda não tem a frase. Sem ela as mensagens protegidas aparecem trancadas e você não consegue enviar nas conversas protegidas.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
+      row('Esqueci a frase', 'Apaga suas chaves para começar de novo. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
+    box.replaceChildren(
+      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: as pessoas voltam a te mandar mensagens sem criptografia. As protegidas antigas continuam abrindo.' : 'Ligado: as conversas com quem também ativou são protegidas. Clique no cadeado no topo da conversa para conferir o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
+      k && h('div.perm', h('div.rt', 'Sua chave'), h('code.e2-kid', { title: 'Identificador da sua chave pública' }, kidTxt(k))),
+      row('Trocar a frase', 'Muda só a frase que tranca as chaves; as conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
+      row('Trocar de chave', 'Começa a usar um par de chaves novo nas próximas mensagens (as antigas continuam abrindo).', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
+      row('Trancar neste aparelho', 'Esquece a chave aberta aqui (ex.: computador emprestado). Para ler de novo, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
+      row('Esqueci a frase', 'Apaga todas as suas chaves. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
+      limits);
+  };
+  if (!e2eeSupported()) draw(); else { box.replaceChildren(h('div.hintline.keep', 'Carregando…')); e2eeLoad().then(draw); }
+  const on = () => draw(); document.addEventListener('e2ee-changed', on); reg?.(() => document.removeEventListener('e2ee-changed', on));
+  return box;
+}
 function privacyPage(reg) {
   const sessions = h('div');
   const draw = async () => {
@@ -350,6 +377,7 @@ function privacyPage(reg) {
     section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
+    section('Criptografia de ponta a ponta'), e2eeCard(reg),
     section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apague de uma vez as mensagens que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período, por texto ou só as com arquivos. Mostra quantas e onde antes, deixa baixar uma cópia e inclui servidores de que você já saiu.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir'))),
     section('Usuários bloqueados'), blockedCard(),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
@@ -357,6 +385,24 @@ function privacyPage(reg) {
 }
 
 // ============================ Aparência / acessibilidade ============================
+// CSS personalizado (public/customcss.js): editor com prévia ao vivo, ligar/desligar, importar/exportar .css
+function customCssCard() {
+  const box = card();
+  const draw = () => {
+    const css = S.prefs.customCss || '', on = S.prefs.customCssOn !== false && !!css.trim();
+    box.replaceChildren(
+      row('Usar meu CSS', css.trim() ? `${css.length.toLocaleString('pt-BR')} de ${CUSTOM_CSS_MAX.toLocaleString('pt-BR')} caracteres. Fica na sua conta e vale em todos os aparelhos.` : 'Mude qualquer parte do visual com CSS. Fica na sua conta e vale em todos os aparelhos.',
+        css.trim() ? toggle(on, (v) => { S.prefs.customCssOn = v; save(); applyCustomCss(); }) : null),
+      h('div.css-actions',
+        h('button.btn', { onclick: () => openCssEditor(draw) }, icon('edit', 16), css.trim() ? 'Editar CSS' : 'Escrever CSS'),
+        h('button.btn.grey', { onclick: () => { const f = h('input', { type: 'file', accept: '.css,text/css', onchange: async () => { const file = f.files[0]; if (!file) return; if (file.size > CUSTOM_CSS_MAX * 2) return toast('Arquivo grande demais', true); openCssEditor(draw, await file.text()); } }); f.click(); } }, icon('dl', 16), 'Importar .css'),
+        css.trim() && h('button.btn.grey', { onclick: () => { const a = h('a', { href: URL.createObjectURL(new Blob([css], { type: 'text/css' })), download: 'resenha-tema.css' }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); } }, 'Exportar')),
+      cssSafeMode() && note('Modo seguro ligado: o CSS personalizado está desligado nesta janela. Recarregue para voltar.'),
+      hint('Algo quebrou o visual? Abra com Ctrl+Shift+Alt+S (ou acrescente ?semcss ao endereço) para carregar sem o CSS. As variáveis e classes que podem ser usadas estão no editor, em "Referência".'));
+  };
+  draw();
+  return box;
+}
 function appearancePage() {
   const th = h('div.cards'), gr = h('div.cards'), val = h('div.cards'), mine = h('div.cards');
   const pick = (k) => { S.prefs.theme = k; save(); applyTheme(); drawTh(); };
@@ -380,6 +426,7 @@ function appearancePage() {
     section('Temas em gradiente'), card(gr, hint('Passe o mouse num tema e clique no lápis para criar uma versão sua a partir dele.')),
     section('Agentes do Valorant'), card(val, hint('Um tema para cada agente, nas cores dele.')),
     section('Seus temas'), card(mine, hint('Crie um gradiente com até 5 cores e compartilhe: o código colado no chat vira um cartão com o botão "Usar tema".')),
+    section('CSS personalizado'), customCssCard(),
     section('Cor de destaque'), card(swatches(S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
     section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
       h('label.f', 'Tamanho da interface', slider(80, 140, S.prefs.zoom, 5, set('zoom'), v => v + '%'))),

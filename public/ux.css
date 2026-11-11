@@ -737,3 +737,34 @@ html.anim .mh-card:active { transform: scale(.98); }
 .mm .mm-bar i { display: block; height: 100%; width: 0; background: var(--red, #da373c); transition: width .2s; }
 .modal .mf .btn[disabled] { opacity: .5; pointer-events: none; }
 .modal .mf .mm-dl { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- criptografia de ponta a ponta nas conversas diretas (public/e2ee.js) ---------- */
+#e2-btn.e2-on { color: var(--green); } #e2-btn.e2-on.e2-ok { color: var(--green); } #e2-btn.e2-on.e2-changed, #e2-btn.e2-locked { color: var(--yellow); }
+#e2-btn.e2-off, #e2-btn.e2-peer-off { opacity: .45; } #e2-btn.e2-off:hover, #e2-btn.e2-peer-off:hover { opacity: 1; }
+#e2-btn.e2-on.e2-ok::after { content: ''; position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--green); border: 2px solid var(--bg-pri); transform: translate(8px, 8px); }
+#e2-btn { position: relative; }
+#e2-bar { display: flex; align-items: center; gap: 10px; margin: 8px 16px 0; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--yellow) 14%, var(--bg-sec)); color: var(--text-strong); font-size: 14px; flex: none; }
+#e2-bar.hidden { display: none; } #e2-bar > span { flex: 1; } #e2-bar svg { color: var(--yellow); flex: none; }
+.msg .e2-ic { color: var(--green); display: inline-flex; margin-left: 6px; vertical-align: -1px; opacity: .8; }
+.msg .body.e2-locked { color: var(--text-muted); font-style: italic; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.e2-safety .e2-nums { display: grid; grid-template-columns: repeat(4, auto); justify-content: center; gap: 10px 18px; padding: 16px; border-radius: 8px; background: var(--bg-tert); }
+.e2-safety .e2-nums code { font: 600 20px/1.2 Consolas, "Cascadia Mono", monospace; letter-spacing: 1px; color: var(--text-strong); }
+.e2-small { font-size: 13px; color: var(--text-muted); margin: 12px 0 0; }
+.e2-form .e2-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.e2-form .e2-show { font-size: 13px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.e2-warn, .css-warn { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; color: var(--text-muted); margin: 12px 0 0; } .e2-warn svg, .css-warn svg { color: var(--yellow); flex: none; margin-top: 2px; }
+.e2-err { min-height: 18px; margin-top: 8px; font-size: 13px; color: var(--red); }
+code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text-strong); background: var(--bg-tert); padding: 4px 8px; border-radius: 4px; }
+@media (max-width: 560px) { .e2-safety .e2-nums { grid-template-columns: repeat(3, auto); } .e2-safety .e2-nums code { font-size: 17px; } }
+
+/* ---------- CSS personalizado (public/customcss.js) ---------- */
+#tedit.cssedit { width: 460px; transition: opacity .15s; }
+#tedit .css-ta { width: 100%; min-height: 320px; height: 46vh; resize: vertical; padding: 10px; border: 1px solid var(--divider); border-radius: 6px; background: var(--bg-tert); color: var(--text-strong); font: 13px/1.5 Consolas, "Cascadia Mono", "Courier New", monospace; tab-size: 2; outline: none; }
+#tedit .css-ta:focus { border-color: var(--brand); }
+#tedit .css-meta { display: flex; justify-content: space-between; gap: 8px; margin: 6px 0 12px; font-size: 12px; } #tedit .css-count { color: var(--text-muted); margin-left: auto; } #tedit .css-err { color: var(--yellow); }
+#tedit .css-help { font-size: 13px; color: var(--text-muted); margin: 4px 0 10px; }
+#tedit .css-ref.hidden { display: none; } #tedit .css-ref h5 { margin: 16px 0 6px; }
+#tedit .css-list { display: flex; flex-direction: column; gap: 2px; }
+#tedit .css-list button { display: flex; align-items: baseline; gap: 8px; text-align: left; padding: 5px 8px; border-radius: 4px; color: var(--text); font-size: 13px; }
+#tedit .css-list button:hover { background: var(--bg-mod-hover); } #tedit .css-list code { color: var(--link); font-size: 12px; flex: none; } #tedit .css-list span { color: var(--text-muted); }
+.css-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; } .css-actions .btn { display: inline-flex; align-items: center; gap: 6px; }

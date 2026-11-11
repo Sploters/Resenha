@@ -2,6 +2,8 @@ import { h, icon, EMOJIS, setHour12 } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
+import { e2eeOutgoing, decryptDeep } from './e2ee.js';
+import { applyCustomCss } from './customcss.js';
 
 export const PERM = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256 };
 export const PERM_LABELS = [
@@ -132,6 +134,7 @@ export function applyTheme() {
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
   r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12);
+  applyCustomCss(); // CSS personalizado (customcss.js) por último
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));
@@ -159,13 +162,19 @@ export async function api(method, path, body) {
 // id desta aba/janela (sobrevive ao F5): o servidor reconhece a conexão antiga da mesma aba (sai da sala de voz na hora)
 // e manda os avisos de "lido"/configurações só para os OUTROS aparelhos saberem de onde veio a mudança
 export const tabId = (() => { try { let t = sessionStorage.getItem('lc_tab'); if (!t) sessionStorage.setItem('lc_tab', t = Math.random().toString(36).slice(2, 12)); return t; } catch { return Math.random().toString(36).slice(2, 12); } })();
+const MSG_PATH = /^\/channels\/(\d+)\/messages(?:\/\d+)?$/;
 async function request(method, path, body) {
+  // conversa direta protegida: o texto sai daqui já cifrado (public/e2ee.js); o que volta cifrado é aberto antes de usar
+  const mp = (method === 'POST' || method === 'PATCH') && body && !(body instanceof Blob) && MSG_PATH.exec(path);
+  if (mp) body = await e2eeOutgoing(mp[1], body);
   const opt = { method, headers: { Authorization: 'Bearer ' + (S.token || ''), 'X-LC-Tab': tabId } };
   if (body instanceof Blob) { opt.body = body; opt.headers['Content-Type'] = body.type || 'application/octet-stream'; }
   else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
   const t0 = performance.now();
   const r = await fetch('/api' + path, opt);
-  const data = await r.json().catch(() => ({}));
+  const txt = await r.text().catch(() => '');
+  let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = {}; }
+  if (r.ok && txt.includes('"e2ee:1:')) await decryptDeep(data).catch(() => { });
   const ms = performance.now() - t0; if (ms > 300 && S.apiSlow.length < 40) S.apiSlow.push({ r: method + ' /api' + path, ms: Math.round(ms) });
   if (!r.ok) { const e = new Error(data.error || 'Erro ' + r.status); e.status = r.status; e.data = data; throw e; }
   return data;
