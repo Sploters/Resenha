@@ -16,6 +16,6 @@ COPY public ./public
 COPY scripts/reset-password.mjs ./scripts/reset-password.mjs
 ENV DATA_DIR=/data PORT=3000 HTTPS_PORT=3443
 VOLUME /data
-# 40000 = mídia do SFU de voz (UDP e TCP); 40001-40010 = transmissão nativa (UDP); defina RTC_ANNOUNCED_IP=<ip da VPN do host>
+# 40000 = mídia do SFU de voz (UDP e TCP; com SFU_WORKERS=N, também 40011..40010+N-1); 40001-40010 = transmissão nativa (UDP); defina RTC_ANNOUNCED_IP=<ip da VPN do host>
 EXPOSE 3000 3443 40000/udp 40000/tcp 40001-40010/udp
 CMD ["node", "server/index.js"]

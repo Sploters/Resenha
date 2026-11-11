@@ -9,7 +9,7 @@ import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -195,6 +195,8 @@ function connect() {
   };
 }
 
+// lista inteira de um servidor grande chegou: redesenha o que mostra membros (nomes, cores, lista)
+document.addEventListener('members-loaded', (e) => { if (S.view.gid !== e.detail) return; renderMembers(); renderSide(); if (S.view.cid) renderMessages(true); });
 function ingestGuild(g) {
   const old = S.guilds.get(g.id);
   g.members = new Map(g.members.map(m => [m.user_id, m]));
@@ -525,6 +527,7 @@ document.addEventListener('settings-closed', () => { if (!ready || chNameKey() =
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 function applyRoute(first) {
+  queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
   const clipId = /^#\/clip\/(\d+)/.exec(location.hash)?.[1];
   if (clipId) { history.replaceState(null, '', routeBack); openClip(clipId); if (!first && S.view.gid) return; }
   routeBack = location.hash || '#/@me';
@@ -546,6 +549,7 @@ function applyRoute(first) {
     const chans = g.channels.filter(c => c.type !== 4);
     let ch = chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
+    if (g.partial) loadMembers(gid).catch(() => { }); // mesmo com a lista de membros fechada (menções, cores dos cargos)
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }
   }
   if (S.favMode && !(S.view.cid && isFav(S.view.cid))) S.favMode = false; // saiu dos favoritos (busca, link, outro canal)
@@ -735,7 +739,8 @@ async function openGsGroup(g) {
   const k = gsKey(g); if (GS.open === k) { GS.open = null; return renderGS(); }
   GS.open = k; renderGS();
   if (GS.msgs[k]) return;
-  const list = await api('GET', `/search?q=${encodeURIComponent(GS.q.trim())}&${g.guild_id ? 'guild=' + g.guild_id : 'channel=' + g.channel_id}&sort=${GS.sort}`).catch(() => []);
+  const seq = GS.seq, list = await api('GET', `/search?q=${encodeURIComponent(GS.q.trim())}&${g.guild_id ? 'guild=' + g.guild_id : 'channel=' + g.channel_id}&sort=${GS.sort}`).catch(() => []);
+  if (seq !== GS.seq) return; // a busca mudou no meio: o resultado é da antiga
   GS.msgs[k] = list || []; renderGS();
 }
 // termos digitados (sem os filtros de:, tem:, em:) para destacar nos resultados
@@ -940,11 +945,14 @@ function renderSide() {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
     head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
-      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
+      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
-    const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
+    const cats = g.channels.filter(c => c.type === 4), byParent = new Map();
+    for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
+    const kids = (pid) => byParent.get(pid) || [];
+    if (sideCats.gid !== g.id) { sideCats.gid = g.id; sideCats.open.clear(); }
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
@@ -954,15 +962,15 @@ function renderSide() {
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
     };
-    const catRow = (c) => h('div', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
+    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
       h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
-      !S.collapsed.has(c.id) && kids(c.id).map(chRow),
+      !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
     // galeria de clipes do servidor: primeira linha da lista
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
     const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
-    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map(catRow));
+    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   const pinned = uaPinned();
@@ -975,6 +983,7 @@ function renderSide() {
     side.replaceChildren(head, list, area);
     if (keepScroll) list.scrollTop = keepScroll;
   }
+  catObs.disconnect(); list.querySelectorAll('.cat-lazy').forEach(el => catObs.observe(el));
   if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true }); }
   // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
@@ -982,6 +991,12 @@ function renderSide() {
   syncView();
 }
 let sideScroll = 0;
+// servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
+// outras viram um espaço do mesmo tamanho e são montadas quando chegam perto da tela (e ficam montadas). Antes cada
+// renderSide montava as 1.000 linhas (~45 ms; scripts/perf-big.mjs)
+const sideCats = { gid: null, open: new Set(), i: 0 };
+const catReady = (c, list) => sideCats.open.has(c.id) || sideCats.i < 6 || list.length <= 3 || list.some(k => k.id === S.view.cid || (k.type === 2 && [...S.voice.values()].some(v => v.channel_id === k.id))) ? (sideCats.open.add(c.id), true) : false;
+const catObs = new IntersectionObserver((es) => { let n = 0; for (const en of es) if (en.isIntersecting) { sideCats.open.add(en.target.dataset.cat); n++; } if (n) renderSide(); }, { rootMargin: '600px 0px' });
 const uaObs = new ResizeObserver(() => {
   const area = document.getElementById('user-area'); if (!area) return;
   uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
@@ -1285,9 +1300,11 @@ document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f' && ready) { e.preventDefault(); if (!S.searchOpen) toggleGlobalSearch(); else $('#gs-q')?.focus(); } });
 
 // =============== Perfil / menus de usuário ===============
+let profileSeq = 0; // clicar em A e logo em B: o cartão de A chegando depois não cobre o de B
 async function profile(anchor, uid, gid) {
   if (botOf(uid)) return openBot(anchor, uid);
-  const full = await tryApi('GET', `/users/${uid}`); if (!full) return;
+  const seq = ++profileSeq, full = await tryApi('GET', `/users/${uid}`); if (!full) return;
+  if (seq !== profileSeq) { mergeUser(full); return; }
   mergeUser(full);
   const u = full, m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const rt = relType(uid), isMe = uid === S.me.id;
@@ -1303,7 +1320,8 @@ async function profile(anchor, uid, gid) {
 }
 // perfil completo de outra pessoa (clicar na foto/banner do cartão): banner e dados à esquerda, atividade e itens em comum à direita
 async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum
-  const u = await tryApi('GET', `/users/${uid}`); if (!u) return;
+  const seq = ++profileSeq, u = await tryApi('GET', `/users/${uid}`); if (!u) return;
+  if (seq !== profileSeq) { mergeUser(u); return; }
   mergeUser(u);
   const m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const roles = g && m ? g.roles.filter(r => m.roles.includes(r.id)) : [];
@@ -1353,7 +1371,7 @@ async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigo
   const tabs = [
     ['Atividade', () => vch ? [h('h4', 'Agora'), row(h('div.upgi', icon('voice', 22)), vg ? chName(vch) : 'Chamada', vg ? `Em uma sala de voz em ${vg.name}` : 'Em uma chamada', vg && (() => { close(); go(vg.id, vch.id); }))] : [empty(`${u.display_name} não está fazendo nada no momento.`)]],
     [`${friends.length} ${friends.length === 1 ? 'amigo' : 'amigos'} em comum`, () => friends.length ? friends.map(f => row(avatar(f, 40, { ring: 'var(--bg-float)' }), f.display_name, f.username, () => { close(); openUserProfile(f.id); })) : [empty('Nenhum amigo em comum.')]],
-    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: x.icon, alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]]];
+    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: imgUrl(x.icon, 32), alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]]];
   const panel = h('div.uppanel'), bar = h('div.uptabs');
   const show = (i) => { [...bar.children].forEach((b, j) => b.classList.toggle('on', i === j)); panel.replaceChildren(...tabs[i][1]()); };
   bar.append(...tabs.map(([t], i) => h('button', { onclick: () => show(i) }, t)));
@@ -1634,6 +1652,7 @@ async function loadChannel(cid) {
   msgs.onscroll = async () => {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
       msgs.dataset.loading = 1; const cur = S.messages.get(cid), newer = await tryApi('GET', `/channels/${cid}/messages?limit=50&after=${cur[cur.length - 1]?.id}`); delete msgs.dataset.loading;
+      if (S.messages.get(cid) !== cur || S.view.cid !== cid || !msgs.isConnected) return; // trocou de canal ou a lista foi refeita no meio
       if (newer?.length) { newer.forEach(x => mergeUser(x.author)); cur.push(...newer); renderMessages(true); }
       if (newer && newer.length < 50) { detached.delete(cid); $('#detached-bar')?.remove(); }
       return;
@@ -1642,6 +1661,8 @@ async function loadChannel(cid) {
     msgs.dataset.loading = 1;
     const list = S.messages.get(cid), older = await tryApi('GET', `/channels/${cid}/messages?limit=50&before=${list[0]?.id}`);
     delete msgs.dataset.loading; if (!older) return;
+    if (S.messages.get(cid) !== list) return; // a lista foi refeita no meio (pulo para uma mensagem, início do canal)
+    if (S.view.cid !== cid || !msgs.isConnected) { if (older.length < 50) S.loaded.set(cid, true); list.unshift(...older); return; } // guarda; desenha quando voltar
     if (older.length < 50) S.loaded.set(cid, true);
     list.unshift(...older); const prevH = msgs.scrollHeight;
     if (!prependMessages(cid, older)) renderMessages(false);
@@ -1819,8 +1840,8 @@ function inviteCard(code) {
       inviteInfo.delete(code); document.querySelectorAll(`.invcard[data-code="${code}"]`).forEach(c => c.replaceWith(inviteCard(code)));
     };
     paint();
-    const top = h('div.ivbanner'), ic = g.icon ? h('img.ivicon', { src: g.icon, alt: '' }) : h('div.ivicon', initialsOf(g.name));
-    if (g.banner) top.style.backgroundImage = `url("${g.banner.replace(/"/g, '%22')}")`;
+    const top = h('div.ivbanner'), ic = g.icon ? h('img.ivicon', { src: imgUrl(g.icon, 80), alt: '' }) : h('div.ivicon', initialsOf(g.name));
+    if (g.banner) top.style.backgroundImage = `url("${imgUrl(g.banner, 480).replace(/"/g, '%22')}")`;
     else top.style.background = `linear-gradient(120deg, ${g.accent || '#5865f2'}, color-mix(in srgb, ${g.accent || '#5865f2'} 40%, #000))`;
     card.className = 'invcard'; card.dataset.code = code;
     card.replaceChildren(top, h('div.ivh', inside() ? 'Você já está neste servidor' : 'Você foi convidado para entrar em um servidor'),
@@ -2059,8 +2080,10 @@ function msgDblClick(e, m) {
 async function jumpTo(mid) {
   let el = document.querySelector(`[data-mid="${mid}"]`);
   if (!el) {
-    const list = await tryApi('GET', `/channels/${S.view.cid}/messages?around=${mid}`); if (!list) return;
-    S.messages.set(S.view.cid, list); S.loaded.set(S.view.cid, false); renderMessages(false); el = document.querySelector(`[data-mid="${mid}"]`);
+    const cid = S.view.cid; // a resposta pode chegar depois de trocar de canal: não guarda as mensagens no canal errado
+    const list = await tryApi('GET', `/channels/${cid}/messages?around=${mid}`); if (!list || S.view.cid !== cid) return;
+    list.forEach(m => mergeUser(m.author));
+    S.messages.set(cid, list); S.loaded.set(cid, false); renderMessages(false); el = document.querySelector(`[data-mid="${mid}"]`);
   }
   if (el) { $('#msgs').stick = false; el.scrollIntoView({ block: 'center' }); el.classList.add('hl'); setTimeout(() => el.classList.remove('hl'), 2000); }
 }
@@ -2076,7 +2099,7 @@ async function jumpToTop() {
   }
 }
 function mentionAvatar(u) {
-  return u.avatar ? h('img.mav', { src: u.avatar, alt: '', loading: 'lazy' }) : h('span.mav.mini', { style: { background: u.color || '#5865f2' } }, (u.display_name || u.username || '?')[0].toUpperCase());
+  return u.avatar ? h('img.mav', { src: imgUrl(u.avatar, 20), alt: '', loading: 'lazy' }) : h('span.mav.mini', { style: { background: u.color || '#5865f2' } }, (u.display_name || u.username || '?')[0].toUpperCase());
 }
 // o mesmo botão abre e fecha o painel da direita (fixadas / caixa de entrada)
 const resultsOpen = (kind) => $('#results')?.dataset.kind === kind;
@@ -2137,7 +2160,7 @@ function notifCard(e, { ch, g: srv }) {
 async function showPins(e) {
   const btn = e.currentTarget;
   if (topWasOpen) { topWasOpen = false; return closeFloating(); }
-  const list = await tryApi('GET', `/channels/${S.view.cid}/pins`); if (!list) return;
+  const cid = S.view.cid, list = await tryApi('GET', `/channels/${cid}/pins`); if (!list || S.view.cid !== cid || !btn.isConnected) return; // trocou de canal no meio
   const jump = (m) => { const ch = channelById(m.channel_id); closeFloating(); if (S.view.cid !== m.channel_id) { go(ch.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } else jumpTo(m.id); };
   const body = list.length ? h('div.pp-list', list.map(m => { const el = msgEl(m, null); el.querySelector('.toolbar')?.remove(); el.onclick = () => jump(m); return el; }))
     : h('div.pp-empty', h('div.pp-art', icon('pin', 40)), h('p', 'Este canal ainda não tem nenhuma mensagem fixada... por enquanto.'));
@@ -2145,10 +2168,12 @@ async function showPins(e) {
     h('div.pp-foot', h('b', 'Dica:'), h('span', S.view.kind === 'guild' ? 'Quem tem a permissão "Gerenciar mensagens" pode fixar uma mensagem pelo menu de contexto dela.' : 'Clique com o botão direito numa mensagem e escolha "Fixar mensagem".'))));
   pop.classList.add('pinspop'); anchorRight(pop, btn, 8);
 }
+let searchSeq = 0;
 async function doSearch(q) {
+  const seq = ++searchSeq;
   if (!q.trim()) return closeResults();
   const gid = S.view.kind === 'guild' ? S.view.gid : '';
-  const list = await tryApi('GET', `/search?q=${encodeURIComponent(q)}${gid ? '&guild=' + gid : ''}`); if (!list) return;
+  const list = await tryApi('GET', `/search?q=${encodeURIComponent(q)}${gid ? '&guild=' + gid : ''}`); if (!list || seq !== searchSeq) return; // chegou uma busca mais nova
   showResults(`${list.length} resultado(s)`, list);
   if (!list.length) $('#results')?.append(h('div.hintline', { style: { padding: '8px' } }, 'Dica: use de:nome, tem:imagem, tem:arquivo, tem:link ou em:canal para filtrar.'));
 }
@@ -2176,7 +2201,7 @@ async function showInbox(e) {
     const box = h('div.ib-box');
     const open = () => { closeFloating(); go(g ? g.id : '@me', ch.id); };
     box.append(h('div.ib-head',
-      g ? (g.icon ? h('img.ib-gi', { src: g.icon, alt: '' }) : h('span.ib-gi', initialsOf(g.name))) : avatar(user(peer.id), 32, { status: false }),
+      g ? (g.icon ? h('img.ib-gi', { src: imgUrl(g.icon, 32), alt: '' }) : h('span.ib-gi', initialsOf(g.name))) : avatar(user(peer.id), 32, { status: false }),
       h('div.ib-name', { onclick: open }, h('b', !dm && icon('hash', 14), dm ? user(peer.id).display_name : chName(ch)), h('small', g ? g.name + (cat ? ' › ' + cat.name : '') : 'Mensagem direta')),
       h('button.ib-btn', { title: 'Marcar como lido', onclick: () => { ack(ch.id); box.remove(); if (!body.querySelector('.ib-box')) draw(); } }, icon('check', 16)),
       h('button.ib-btn.ib-fold', { title: 'Recolher', onclick: () => box.classList.toggle('folded') }, icon('caret', 16))), list);
@@ -2481,7 +2506,8 @@ function renderMembers() {
   if (deferRender(renderMembers)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
-  if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; }
+  if (g.partial) loadMembers(g.id).catch(() => { }); // servidor grande: a lista inteira chega agora (members-loaded redesenha)
+  if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; memLimit.clear(); }
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
   // cargo mais alto de cada um calculado uma vez (antes: a cada comparação da ordenação, com 300 pessoas ~2.500 vezes)
   const tops = new Map(), topRole = (m) => { let r = tops.get(m); if (r === undefined) { r = null; for (const x of g.roles) if (m.roles.includes(x.id) && (!r || x.position > r.position)) r = x; tops.set(m, r); } return r || undefined; };
@@ -2534,6 +2560,7 @@ function renderMembers() {
   const jumpMe = () => {
     const k = meX.u.status === 'offline' ? 'offline' : (r ? r.id : 'online');
     if (memQ.q) { memQ.q = ''; if (box._q) box._q.value = ''; }
+    { const i = (groups.get(k) || []).sort(by).findIndex(x => x.u.id === S.me.id); if (i >= (memLimit.get(k) || MEM_PAGE)) { memLimit.set(k, i + 50); if (!isCol(k)) renderMembers(); } } // além do pedaço montado
     if (isCol(k)) { col[k] = false; localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); }
     requestAnimationFrame(() => { const el = box.querySelector('.mem.me'); if (!el) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
   };
@@ -2546,7 +2573,11 @@ function renderMembers() {
     box._q = h('input.mem-q', { type: 'search', placeholder: 'Buscar membros', 'aria-label': 'Buscar membros', oninput: debounce(() => { memQ.q = box._q.value; renderMembers(); }, 100), onkeydown: (e) => { if (e.key === 'Escape' && box._q.value) { e.stopPropagation(); box._q.value = ''; memQ.q = ''; renderMembers(); } } });
   }
   if (box._q.value !== memQ.q) box._q.value = memQ.q;
-  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
+  // grupo grande aparece aos pedaços (200 linhas, +300 ao rolar até o fim): abrir os 5.000 offline de um servidor grande
+  // montava 5.000 linhas numa tarefa de ~300 ms (scripts/perf-big.mjs)
+  const more = (k, l) => { const lim = memLimit.get(k) || MEM_PAGE; if (l.length <= lim) return []; const b = h('button.mem-more', { type: 'button', 'data-k': k, onclick: () => { memLimit.set(k, lim + MEM_STEP); renderMembers(); } }, `Mostrar mais ${Math.min(MEM_STEP, l.length - lim)} de ${l.length - lim}`); memMoreObs.observe(b); return [b]; };
+  memMoreObs.disconnect();
+  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : [...l.slice(0, memLimit.get(k) || MEM_PAGE).map(x => row(x, k === 'offline')), ...more(k, l)])]; }),
     q && !shown.length && h('div.mem-none', 'Ninguém com esse nome')].filter(Boolean);
   for (const id of memRows.keys()) if (!usedRows.has(id)) memRows.delete(id); // saiu do servidor / recolhido: não fica preso
   const top = box.querySelector('.mem-top') || h('div.mem-top');
@@ -2559,6 +2590,8 @@ function renderMembers() {
   } else box.replaceChildren(top, h('div.mem-list', kids), foot || ''); // seu cartão fica fixo embaixo, como no design
 }
 const memRows = new Map();
+const MEM_PAGE = 200, MEM_STEP = 300, memLimit = new Map(); // quantas linhas de cada grupo da lista de membros estão montadas
+const memMoreObs = new IntersectionObserver((es) => { for (const en of es) if (en.isIntersecting) { en.target.click(); break; } }, { rootMargin: '400px 0px' });
 const collator = new Intl.Collator('pt-BR');
 
 // =============== Início / amigos ===============
@@ -2667,14 +2700,14 @@ function avatarTint(u) {
       document.querySelectorAll(`.utile[data-uid="${u.id}"]`).forEach(t => paintTile(t, u));
     } catch { /* imagem de outro domínio sem CORS: fica o fundo padrão */ }
   };
-  img.src = u.avatar;
+  img.src = imgUrl(u.avatar, 32); // só a cor média: a versão pequena basta
   return null;
 }
 function paintTile(t, u) {
   const tp = u.theme_primary, ta = u.theme_accent;
   let bg = null, kind = '';
   if (tp && ta) { bg = `linear-gradient(160deg, ${tp}, ${ta})`; kind = 'theme'; t.style.setProperty('--ring', ta); }
-  else if (u.banner) { { const bp = parsePos(u.banner_pos); bg = `${bp.x}% ${bp.y}% / cover url("${u.banner.replace(/"/g, '%22')}")`; } kind = 'banner'; }
+  else if (u.banner) { { const bp = parsePos(u.banner_pos); bg = `${bp.x}% ${bp.y}% / cover url("${imgUrl(u.banner, 600 * Math.min(3, bp.z || 1)).replace(/"/g, '%22')}")`; } kind = 'banner'; }
   else { const c = u.banner_color || avatarTint(u); if (c) { bg = `linear-gradient(160deg, ${c}, color-mix(in srgb, ${c} 45%, #000))`; kind = 'color'; } }
   t.dataset.bg = kind;
   if (bg) t.style.setProperty('--tbg', bg); else t.style.removeProperty('--tbg');
@@ -2748,10 +2781,27 @@ function layoutMenu(e) {
 // pausa automática: o vídeo de uma transmissão que não está à vista (quadro oculto, rolado para fora, janela minimizada) pausa no servidor após 4 s
 const tileVis = new Map(), pauseTimers = new Map();
 const visObs = new IntersectionObserver((es) => { for (const en of es) tileVis.set(en.target.dataset.sid, en.isIntersecting); applyVisibility(); }, { threshold: 0.05 });
+// câmeras: o tamanho do quadro (ResizeObserver, sem forçar layout) escolhe a camada do simulcast; fora de vista, pausa
+const camVis = new Map(), camW = new Map(), camTimers = new Map();
+const camObs = new IntersectionObserver((es) => { for (const en of es) camVis.set(en.target.dataset.uid, en.isIntersecting); applyCamFlow(); }, { threshold: 0.05 });
+const camSize = new ResizeObserver((es) => { for (const en of es) camW.set(en.target.dataset.uid, en.contentRect.width); applyCamFlow(); });
+const camLayerFor = (w) => { const px = w * Math.min(2, window.devicePixelRatio || 1); return px <= 400 ? 0 : px <= 800 ? 1 : 2; }; // camadas: 1/4, 1/2 e cheia de ~1280
+function applyCamFlow() {
+  if (!voice?.active || !voice.sfu?.ready) return;
+  const inStage = S.view.cid === voice.channelId, keep = S.prefs.autoPause === false || !!document.pictureInPictureElement;
+  for (const [uid, p] of voice.peers) {
+    if (![...p.consumers.values()].includes('cam')) continue;
+    const show = !S.prefs.hiddenVideo?.[uid] && (keep || (inStage && !document.hidden && camVis.get(uid) === true));
+    if (camW.has(uid)) voice.camFlow(uid, { layer: camLayerFor(camW.get(uid)) });
+    if (show) { clearTimeout(camTimers.get(uid)); camTimers.delete(uid); voice.camFlow(uid, { paused: false }); }
+    else if (!camTimers.has(uid) && !p.camPaused) camTimers.set(uid, setTimeout(() => { camTimers.delete(uid); voice.camFlow(uid, { paused: true }); }, 4000));
+  }
+}
 function observeTiles() {
-  visObs.disconnect(); tileVis.clear();
+  visObs.disconnect(); tileVis.clear(); camObs.disconnect(); camSize.disconnect(); camVis.clear();
   document.querySelectorAll('#stage .tile.screen[data-sid]').forEach(t => visObs.observe(t));
-  applyVisibility();
+  document.querySelectorAll('#stage .tile.utile[data-uid]').forEach(t => { if (t.dataset.uid !== S.me.id && t.querySelector('video')) { camObs.observe(t); camSize.observe(t); } });
+  applyVisibility(); applyCamFlow();
 }
 function applyVisibility() {
   if (!voice?.active) return;
@@ -2764,7 +2814,7 @@ function applyVisibility() {
   }
   for (const uid of [...(voice.autoPaused || [])]) if (!S.watching.has(uid)) voice.autoPaused.delete(uid); // parou de assistir: nada a retomar
 }
-document.addEventListener('visibilitychange', applyVisibility);
+document.addEventListener('visibilitychange', () => { applyVisibility(); applyCamFlow(); });
 document.addEventListener('fullscreenchange', applyVisibility);
 let lastTw = null; // tamanho calculado na última vez: a grade redesenhada já nasce com ele (sem piscar)
 // palco estreito (painel de chat aberto, janela pequena): os botões da transmissão sobem para uma linha própria acima da barra, sem sobrepor os botões da chamada
@@ -2797,7 +2847,7 @@ let vuiQ = 0; // 1 = só as falas, 2 = completo
 function voiceUpdate(speakOnly) {
   const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
   const first = !vuiQ; vuiQ = want;
-  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); });
+  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) applyCamFlow(); }); // câmera nova com a sala fora da tela também pausa
 }
 // aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
 let speakStale = false;
@@ -3312,7 +3362,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

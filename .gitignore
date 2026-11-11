@@ -19,3 +19,4 @@ deploy/servidor.conf
 cookies.txt
 .loaddata/
 .load-result.json
+scripts/perf-big-*.json

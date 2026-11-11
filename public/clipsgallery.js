@@ -22,11 +22,15 @@ const fileName = (c) => c.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + (c
 // miniatura (imagem pequena do servidor) no lugar do vídeo; o vídeo só começa a baixar quando o mouse passa por cima (prévia)
 
 async function load(reset) {
-  if (st.loading) return; st.loading = true;
+  // trocar de aba/busca no meio de um "Carregar mais" (ou de outra busca) descartava o pedido novo e a resposta velha
+  // aparecia sob a aba nova: o pedido novo vale e a resposta velha é ignorada
+  const seq = reset ? (st.seq = (st.seq || 0) + 1) : st.seq || 0;
+  if (st.loading && !reset) return; st.loading = true;
   if (reset && !st.clips.length) draw(); // mostra os cartões cinza (antes aparecia "Nenhum clipe ainda" enquanto carregava)
   const before = reset ? '' : st.clips.at(-1)?.id || '';
   const qs = new URLSearchParams({ filter: st.filter, ...(st.q ? { q: st.q } : {}), ...(before ? { before } : {}) });
   const gid = st.gid, r = await tryApi('GET', `/guilds/${gid}/clips?${qs}`);
+  if (seq !== (st.seq || 0)) return; // filtro/busca mudou no meio
   st.loading = false;
   if (!r || gid !== st.gid) return;
   st.clips = reset ? r.clips : [...st.clips, ...r.clips]; st.total = r.total; st.more = r.clips.length === 30;

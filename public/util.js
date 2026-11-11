@@ -263,9 +263,14 @@ export function framePos(img, s, round = false) {
 // foto enviada (/files/<id>.png|jpg|webp/...) no tamanho em que aparece: versão WebP menor gerada pelo servidor
 // (server/thumbs.js; o dobro em telas de alta densidade). Outros endereços (GIF, externos) ficam como estão.
 const IMG_FILE = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp))\//i;
+// Avatares padrão (/avatars/<n>.png, 554–1024 px) têm versões de 64/128/256 px em /avatars/s<lado>/<n>.webp
+// (scripts/avatar-sizes.mjs): antes um avatar de 24 px baixava e decodificava a imagem de 554 px (~13 KB; a de 64 px tem ~1,6 KB).
+const DEF_AV = /^\/avatars\/(\d+)\.(?:png|webp|jpe?g)$/i, AV_SIZES = [64, 128, 256];
 export function imgUrl(url, size) {
+  const px = Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
+  const d = DEF_AV.exec(String(url || '')); if (d) { const sz = AV_SIZES.find(x => x >= px); return sz ? `/avatars/s${sz}/${d[1]}.webp` : url; }
   const m = IMG_FILE.exec(String(url || '')); if (!m) return url;
-  return `/thumbs/${m[1]}?s=${Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)))}`;
+  return `/thumbs/${m[1]}?s=${px}`;
 }
 // foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
 export function avatar(u, size = 40, opts = {}) {
@@ -409,7 +414,16 @@ export const clipLink = (id) => `${location.origin}/#/clip/${id}`;
 export const clipVideoLink = (c) => location.origin + c.url.replace(/\/[^/]*$/, '/') + encodeURIComponent(String(c.title || 'clipe').replace(/[\\/:*?"<>|#%]+/g, '_').slice(0, 80) + (c.url.includes('.mp4') ? '.mp4' : '.webm'));
 export const inviteText = (s) => String(s || '').replace(INVITE_G, '📨 Convite de servidor').replace(CALL_G, '📞 Convite para a chamada');
 export const isImageUrl = (u) => /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i.test(u);
-export const onlyEmoji = (s) => /^(\s*(\p{Extended_Pictographic}|\p{Emoji_Presentation})(️|‍|\p{Emoji_Modifier})*\s*){1,27}$/u.test(s.trim()) && s.trim().length > 0;
+// mensagem só de emojis (até 27) mostra grande. Sem expressão com repetição dentro de repetição: a anterior,
+// ^(\s*(A|B)(…)*\s*){1,27}$, tinha várias formas de casar o mesmo texto e "😀 😀 … 😀 x" levava 22 s com 14 emojis
+// (com 27, travava para sempre a aba de quem abrisse o canal). Agora: tira tudo que é emoji e conta os grafemas.
+const EMOJI_PART = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\u200d\ufe0f\s]/gu, EMOJI_HEAD = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u;
+const graphemes = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter() : null;
+export const onlyEmoji = (s) => {
+  const t = String(s || '').trim(); if (!t || t.length > 400 || t.replace(EMOJI_PART, '')) return false;
+  const parts = graphemes ? [...graphemes.segment(t)].map(x => x.segment).filter(x => x.trim()) : [...t.replace(/\s+/g, '')];
+  return parts.length <= 27 && parts.every(x => EMOJI_HEAD.test(x) || /^\p{Emoji_Modifier}/u.test(x));
+};
 
 export const EMOJIS = {
   'Rostos': '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 👾 🤖'.split(' '),

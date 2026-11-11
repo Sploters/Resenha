@@ -40,6 +40,8 @@ if (process.argv[2] === 'worker') {
         const pick = (a) => a[Math.floor(Math.random() * a.length)];
         every(10e3, () => call('GET mensagens', `/api/channels/${pick(chans)}/messages?limit=50`, { headers: { ...auth, 'accept-encoding': 'br' } }));
         every(20e3, () => call('GET perfil', `/api/users/${pick(mem)}`, { headers: auth }));
+        // quem escreve manda "digitando…" antes (o app manda a cada 3 s enquanto digita); TYPING=0 desliga
+        if (process.env.TYPING !== '0') every(30e3, () => { const c = pick(chans); ws.send(JSON.stringify({ t: 'TYPING', d: { channel_id: c } })); setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: 'TYPING', d: { channel_id: c } })), 3000); });
         every(30e3, () => call('POST mensagem', `/api/channels/${pick(chans)}/messages`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ content: `carga ${i} @${Date.now()}` }) }));
         v.timers.push(setTimeout(() => { stop(k); if (vus.size < target) start(k); }, (120 + Math.random() * 120) * 1000)); // sai e volta (reabre o app)
       } else if (e.t === 'MESSAGE_CREATE') { m.recebidas++; const at = /@(\d{13})$/.exec(e.d.content || ''); if (at) sample(m.entrega, Date.now() - +at[1], m.recebidas); }

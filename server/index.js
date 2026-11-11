@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -112,7 +113,9 @@ function guildCached(gid) {
   if (!c || Date.now() - c.at > 30e3) {
     const g = guildFull(gid, { users: false }); if (!g) return null;
     delete g.voice_states;
-    c = { at: Date.now(), obj: g, head: JSON.stringify(g).slice(0, -1) }; guildCache.set(gid, c);
+    c = { at: Date.now(), obj: g, head: JSON.stringify(g).slice(0, -1) };
+    if (g.members.length >= READY_LARGE) { const { members, ...rest } = g; c.headNoMembers = JSON.stringify(rest).slice(0, -1); }
+    guildCache.set(gid, c);
   }
   return c;
 }
@@ -881,17 +884,28 @@ app.get('/api/inbox', auth, wrap((req, res) => {
     return { ...messageObj(r), guild_id: r.guild_id, channel_name: r.channel_name, kind: r.kind, unread: !rs || rs.last_id < r.id };
   }));
 }));
-function saveMentions(m, ch, content) { // grava quem deve ver esta mensagem na caixa de entrada
-  run("DELETE FROM mentions WHERE message_id=? AND kind<>'reply'", m.id);
-  const everyone = /@everyone|@here/.test(content) && ch.guild_id;
-  const ids = everyone ? channelAudience(ch) : [...content.matchAll(/<@(\d+)>/g)].map(x => x[1]);
-  for (const id of new Set(ids)) if (id !== m.author_id) run('INSERT OR IGNORE INTO mentions VALUES(?,?,?)', m.id, id, everyone ? 'everyone' : 'mention');
+// Quem a mensagem marca: só contas que estão no canal (no máximo 50 por mensagem). @everyone/@here de quem não modera
+// notifica no máximo 1 vez a cada 5 min por servidor: sem isso, 5 mensagens por segundo com @everyone num servidor de
+// 5.000 pessoas gravavam 25 mil linhas na caixa de entrada por segundo (a mensagem continua indo; só não notifica).
+const everyoneAt = new Map(); // `${gid}:${uid}` -> última @everyone que notificou
+setInterval(() => { const old = Date.now() - 300e3; for (const [k, t] of everyoneAt) if (t < old) everyoneAt.delete(k); }, 60e3).unref();
+function resolveMentions(content, ch, authorId, fresh = true) {
+  if (ch.guild_id && /@everyone|@here/.test(content)) {
+    const k = ch.guild_id + ':' + authorId, mod = can(ch.guild_id, authorId, P.MANAGE_MESSAGES) || can(ch.guild_id, authorId, P.MODERATE);
+    if (mod || !fresh || Date.now() - (everyoneAt.get(k) || 0) > 300e3) { if (fresh && !mod) everyoneAt.set(k, Date.now()); return { everyone: true, ids: channelAudience(ch) }; }
+  }
+  const want = [...new Set([...content.matchAll(/<@(\d{1,24})>/g)].map(x => x[1]))].slice(0, 50);
+  const isIn = ch.guild_id ? (id) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, id)
+    : (id) => !!get('SELECT 1 x FROM dm_participants WHERE channel_id=? AND user_id=?', ch.id, id);
+  return { everyone: false, ids: want.filter(isIn) };
 }
-function mentionedIds(content, ch) {
-  const ids = new Set();
-  for (const m of content.matchAll(/<@(\d+)>/g)) ids.add(m[1]);
-  if (/@everyone|@here/.test(content)) return channelAudience(ch);
-  return [...ids];
+function saveMentions(m, ch, mn) { // grava quem deve ver esta mensagem na caixa de entrada (uma transação: 5.000 linhas levam ms, não segundos)
+  db.exec('BEGIN');
+  try {
+    run("DELETE FROM mentions WHERE message_id=? AND kind<>'reply'", m.id);
+    for (const id of mn.ids) if (id !== m.author_id) run('INSERT OR IGNORE INTO mentions VALUES(?,?,?)', m.id, id, mn.everyone ? 'everyone' : 'mention');
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
@@ -918,16 +932,19 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
     const other = all('SELECT user_id FROM dm_participants WHERE channel_id=? AND user_id<>?', ch.id, req.uid)[0];
     if (other && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=2', other.user_id, req.uid)) return bad(res, 'Você não pode enviar mensagens para este usuário', 403);
   }
+  // resposta: só a uma mensagem que existe neste canal (antes qualquer texto era guardado, até 1 MB)
+  const replyTo = req.body.reply_to && /^\d{1,24}$/.test(String(req.body.reply_to)) && get('SELECT 1 x FROM messages WHERE id=? AND channel_id=?', String(req.body.reply_to), ch.id) ? String(req.body.reply_to) : null;
   const id = newId();
   run('INSERT INTO messages(id,channel_id,author_id,content,created_at,reply_to,attachments) VALUES(?,?,?,?,?,?,?)',
-    id, ch.id, req.uid, content, Date.now(), req.body.reply_to ? String(req.body.reply_to) : null, JSON.stringify(atts));
+    id, ch.id, req.uid, content, Date.now(), replyTo, JSON.stringify(atts));
   run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ch.id, id);
   const row = get('SELECT * FROM messages WHERE id=?', id);
-  saveMentions(row, ch, content);
+  const mn = resolveMentions(content, ch, req.uid);
+  saveMentions(row, ch, mn);
   recordClipShares(row, req.uid);
   const rep = row.reply_to && get('SELECT author_id FROM messages WHERE id=? AND channel_id=?', row.reply_to, ch.id);
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
-  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mentionedIds(content, ch) };
+  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mn.ids };
   dispatch(channelAudience(ch), 'MESSAGE_CREATE', msg);
   dispatch([req.uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: true, tab: req.get('x-lc-tab') || null }); // respondeu num aparelho: lido em todos
   res.json(ch.guild_id && reputation.slowWait(ch.guild_id, req.uid) ? { ...msg, slow_wait: reputation.slowWait(ch.guild_id, req.uid) } : msg);
@@ -941,7 +958,8 @@ app.patch('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   if (!content.trim()) return bad(res, 'Mensagem vazia');
   if (get('SELECT 1 x FROM polls WHERE message_id=?', m.id)) return bad(res, 'Enquetes não podem ser editadas');
   run('UPDATE messages SET content=?,edited_at=? WHERE id=?', content, Date.now(), m.id);
-  saveMentions(m, ch, content);
+  // editar para pôr @everyone conta como uma nova @everyone; editar uma que já notificava mantém
+  saveMentions(m, ch, resolveMentions(content, ch, req.uid, !/@everyone|@here/.test(m.content || '')));
   dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
   res.json({});
 }));
@@ -1325,6 +1343,17 @@ app.delete('/api/relationships/:id', auth, wrap((req, res) => {
 }));
 app.delete('/api/friend-losses/:id', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=? AND other_id=?', req.uid, req.params.id); dispatch([req.uid], 'FRIEND_LOSSES', { list: friendLossesFor(req.uid) }); res.json({}); }));
 app.delete('/api/friend-losses', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=?', req.uid); dispatch([req.uid], 'FRIEND_LOSSES', { list: [] }); res.json({}); }));
+// lista inteira de um servidor grande (o READY só levou quem estava online): membros e perfis, comprimida
+app.get('/api/guilds/:id/members', auth, wrap((req, res) => {
+  const gid = String(req.params.id);
+  if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, req.uid)) return bad(res, 'Sem permissão', 403);
+  const c = guildCached(gid); if (!c) return bad(res, 'Não encontrado', 404);
+  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT user_id FROM members WHERE guild_id=?)`, gid);
+  const body = '{"members":' + JSON.stringify(c.obj.members) + ',"users":[' + users.map(u => userJson(u, req.uid)).join(',') + ']}';
+  res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' });
+  if (body.length > 4096 && /\bgzip\b/.test(req.get('accept-encoding') || '')) { res.set('Content-Encoding', 'gzip'); return res.end(zlib.gzipSync(body, { level: 4 })); }
+  res.end(body);
+}));
 app.get('/api/users/:id', auth, wrap((req, res) => {
   const u = getUser(req.params.id); if (!u) return bad(res, 'Não encontrado', 404);
   const mutual = all('SELECT g.id,g.name,g.icon FROM members a JOIN members b ON a.guild_id=b.guild_id JOIN guilds g ON g.id=a.guild_id WHERE a.user_id=? AND b.user_id=?', req.uid, u.id);
@@ -1593,10 +1622,20 @@ const iceServers = () => {
   return s;
 };
 // READY já em texto: as partes guardadas (servidores e perfis) entram prontas; o resto é calculado agora
+// Servidor grande (a partir de READY_LARGE membros, padrão 1.000): o READY leva só quem está online, a própria pessoa e o
+// dono; o app pede a lista inteira ao abrir o servidor (GET /api/guilds/:id/members). Com 5.000 membros o READY tinha
+// 3,5 MB de texto (5.000 perfis + 5.000 membros) para cada pessoa que abria o app, olhando ou não aquele servidor.
+const READY_LARGE = +(process.env.READY_LARGE || 1000);
+function partialMembers(c, uid) {
+  const g = c.obj, keep = (m) => m.user_id === uid || m.user_id === g.owner_id || conns.has(m.user_id);
+  return g.members.filter(keep);
+}
 function buildReadyRaw(uid, extra) {
   const gcs = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildCached(r.guild_id)).filter(Boolean), guilds = gcs.map(c => c.obj);
+  const big = new Map(gcs.filter(c => c.obj.members.length >= READY_LARGE).map(c => [c.obj.id, partialMembers(c, uid)]));
   // cada pessoa uma vez só (antes ia repetida em cada servidor em comum: 250 pessoas em 5 servidores = 1.250 perfis)
-  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT guild_id FROM members WHERE user_id=?))`, uid);
+  const small = gcs.filter(c => !big.has(c.obj.id)).map(c => c.obj.id), bigIds = [...new Set([...big.values()].flatMap(ms => ms.map(m => m.user_id)))];
+  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT value FROM json_each(?))) OR id IN (SELECT value FROM json_each(?))`, JSON.stringify(small), JSON.stringify(bigIds));
   const dms = all('SELECT c.* FROM channels c JOIN dm_participants p ON p.channel_id=c.id WHERE p.user_id=? AND c.type=1', uid).map(dmChannelObj);
   const chIds = [...guilds.flatMap(g => g.channels.filter(c => c.type === 0 || c.type === 2).map(c => c.id)), ...dms.map(d => d.id)];
   const dmVoice = [];
@@ -1613,7 +1652,7 @@ function buildReadyRaw(uid, extra) {
   const rels = relObj(uid), me = getUser(uid);
   for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) { const xu = { id: x.id, username: x.username, status: getUser(x.id)?.status }; x.status = statusFor(uid, xu); x.platforms = platformsFor(uid, xu); }
   const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
-  return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => c.head + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
+  return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => (big.has(c.obj.id) ? c.headNoMembers + ',"members":' + JSON.stringify(big.get(c.obj.id)) + ',"partial":true,"member_count":' + c.obj.members.length : c.head) + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
 }
 
 // espectadores de transmissões: "canal:transmissor" -> Set de quem está assistindo
@@ -1680,6 +1719,30 @@ function pushDevices(uid) {
   const list = [...(conns.get(uid) || [])].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt }));
   dispatch([uid], 'DEVICES', { active: list });
 }
+// ---- limite por conexão (app modificado ou em laço por bug) ----
+// Cada mensagem do app custa ao servidor; algumas viram um envio para o servidor inteiro (VOICE_STATE) ou uma consulta
+// grande (VIEW manda quem está online). Balde de fichas por tipo e um geral: [fichas por segundo, acumulado máximo].
+// O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
+const WS_RATE = {
+  VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
+  TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  REMOTE_REQUEST: [1, 5], PING: [5, 10],
+};
+const WS_ALL = [300, 600];
+// tipos em que só importa o último valor: passando do limite, o último pedido é guardado e aplicado depois (o estado
+// não fica errado); os outros, passando do limite, são ignorados
+const WS_KEEP = new Set(['VIEW', 'VOICE_STATE', 'CLIENT_INFO', 'ACTIVE', 'ACTIVITY_LOCAL', 'ROOM_CODE']);
+const WS_FLOOD = 3000; // ignoradas em 10 s: fecha a conexão (o app reconecta sozinho)
+function wsGate(ws, t) {
+  const now = performance.now(), b = (ws.buckets ||= {});
+  const fill = (k, [rate, max]) => { const x = b[k] || (b[k] = { n: max, at: now }); x.n = Math.min(max, x.n + (now - x.at) / 1000 * rate); x.at = now; return x; };
+  const tot = fill('_', WS_ALL), one = WS_RATE[t] ? fill(t, WS_RATE[t]) : null;
+  if (tot.n >= 1 && (!one || one.n >= 1)) { tot.n--; if (one) one.n--; return 'ok'; }
+  if (WS_KEEP.has(t)) return 'later';
+  if (now - (ws.dropAt || 0) > 10000) { ws.dropAt = now; ws.drops = 0; }
+  if (++ws.drops > WS_FLOOD) { console.warn(`  gateway: conexão de ${ws.uid} fechada por excesso de mensagens (${t})`); ws.close(4008, 'Mensagens demais'); }
+  return 'drop';
+}
 wss.on('connection', (ws) => {
   const uid = ws.uid;
   const first = !conns.has(uid);
@@ -1693,7 +1756,23 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
-    const d = msg.d || {};
+    if (!msg || typeof msg.t !== 'string') return;
+    const v = wsGate(ws, msg.t);
+    if (v === 'drop') return;
+    if (v === 'later') { // estado (VIEW, VOICE_STATE…): não pode se perder; vale o último pedido, aplicado quando sobrar ficha
+      (ws.later ||= new Map()).set(msg.t, msg);
+      if (!ws.laterT) ws.laterT = setTimeout(function again() {
+        ws.laterT = null; if (ws.readyState !== 1) return;
+        for (const [t, m] of ws.later) { if (wsGate(ws, t, true) !== 'ok') continue; ws.later.delete(t); handle(m); }
+        if (ws.later.size) ws.laterT = setTimeout(again, 250);
+      }, 250);
+      return;
+    }
+    ws.later?.delete(msg.t); // chegou um mais novo e foi aplicado: o guardado ficou velho
+    handle(msg);
+  });
+  const handle = (msg) => {
+    const d = msg.d && typeof msg.d === 'object' ? msg.d : {};
     try {
       switch (msg.t) {
         case 'PING': send(ws, 'PONG', { n: d.n }); break; // medida de latência do cliente
@@ -1723,7 +1802,14 @@ wss.on('connection', (ws) => {
         }
         case 'TYPING': {
           const ch = get('SELECT * FROM channels WHERE id=?', String(d.channel_id));
-          if (canAccessChannel(uid, ch)) dispatch(channelAudience(ch).filter(x => x !== uid), 'TYPING', { channel_id: ch.id, user_id: uid });
+          if (!canAccessChannel(uid, ch)) break;
+          if (!ch.guild_id) { dispatch(channelAudience(ch).filter(x => x !== uid), 'TYPING', { channel_id: ch.id, user_id: uid }); break; }
+          // canal de servidor: "digitando…" só aparece no chat e na prévia dos canais desse servidor, então vai só para
+          // quem está olhando o servidor (VIEW) e para app antigo; antes ia para todos os membros (500 pessoas = 500 envios)
+          const to = [];
+          for (const w of viewers.get(ch.guild_id) || []) if (w.uid !== uid) to.push(w);
+          if (legacyConns.size) { const mem = new Set(guildMemberIds(ch.guild_id)); for (const w of legacyConns) if (w.uid !== uid && mem.has(w.uid)) to.push(w); }
+          sendRaw(to, 'TYPING', { channel_id: ch.id, user_id: uid });
           break;
         }
         case 'VOICE_JOIN': {
@@ -1846,7 +1932,7 @@ wss.on('connection', (ws) => {
         case 'VOICE_LEAVE': { const c = currentVoice(uid); if (c) leaveVoice(uid, c); break; }
         case 'VOICE_STATE': {
           const c = currentVoice(uid); if (!c) return;
-          const st = voice.get(c).get(uid);
+          const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
           for (const k of ['mute', 'deaf', 'video', 'screen']) if (typeof d[k] === 'boolean') st[k] = d[k];
           st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
@@ -1855,6 +1941,7 @@ wss.on('connection', (ws) => {
           { const a = acts.get(c); if (a?.spot && (!st.screen && a.spot === 's:' + uid || !st.video && a.spot === 'c:' + uid)) { a.spot = a.spotBy = null; roomSend(c, 'ROOM_STATE', actState(c)); } }
           if (!st.screen && watchers.has(c + ':' + uid)) { watchers.delete(c + ':' + uid); pushViewers(c, uid); }
           if (!st.screen) remote.onScreenOff(uid); // parou de transmitir: controle remoto acaba
+          if (JSON.stringify(vsObj(c, uid, st)) === before) break; // nada mudou: não manda para o servidor inteiro
           const ch = get('SELECT * FROM channels WHERE id=?', c);
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id });
           break;
@@ -1877,8 +1964,9 @@ wss.on('connection', (ws) => {
         }
       }
     } catch (e) { console.error('ws', e); }
-  });
+  };
   ws.on('close', () => {
+    clearTimeout(ws.laterT);
     const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);
