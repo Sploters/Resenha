@@ -23,11 +23,11 @@ const matchOf = (item) => { const txt = ' ' + norm([item.title, item.summary, ..
 
 async function load(kind, force) {
   if (st.loading[kind] || (!force && st.data[kind] && Date.now() - st.at[kind] < 5 * 60e3)) return;
-  st.loading[kind] = true; st.error[kind] = null; draw();
+  st.loading[kind] = true; st.error[kind] = null; drawSoon();
   const r = await api('GET', `/discover/${kind}`).catch((e) => ({ error: e.message }));
   st.loading[kind] = false;
   if (r?.items) { st.data[kind] = r; st.at[kind] = Date.now(); if (kind === 'tournaments') refreshImages(); } else st.error[kind] = r?.error || 'Não consegui buscar agora. Tente de novo em instantes.';
-  draw();
+  drawSoon();
 }
 const ensure = () => { if (st.tab === 'home') ALL.forEach(k => load(k)); else load(st.tab); };
 // torneios: as imagens chegam aos poucos (o servidor busca em segundo plano); recarrega uma vez para pegá-las
@@ -170,7 +170,7 @@ async function suggestions() {
 let sugg = null;
 function interestsBox() {
   const mine = interests();
-  if (!sugg) suggestions().then(s => { sugg = s; draw(); });
+  if (!sugg) suggestions().then(s => { sugg = s; drawSoon(); });
   if (mine.length && !st.editInt) // resumido: uma linha com os interesses e "Editar"
     return h('div.dint.mini', h('span.dlabel', icon('star', 14), 'Seus interesses:'), h('div.dintlist', mine.map(i => h('span.dchip.on.sm', i))),
       h('button.dmore', { onclick: () => { st.editInt = true; draw(); setTimeout(() => st.root?.querySelector('.dint-in')?.focus(), 0); } }, icon('edit', 14), 'Editar'));
@@ -223,10 +223,15 @@ function homeTab() {
   return out;
 }
 
+// O que chega da rede (6 seções, uma de cada vez) redesenha no máximo uma vez por quadro. Antes cada resposta redesenhava
+// na hora e o desenho começava lendo a rolagem da página anterior, que ainda não tinha layout: ~100 ms por seção.
+let drawQ = 0;
+function drawSoon() { if (!drawQ) drawQ = requestAnimationFrame(() => { drawQ = 0; draw(); }); }
 function draw() {
+  if (drawQ) { cancelAnimationFrame(drawQ); drawQ = 0; }
   const root = st.root; if (!root?.isConnected) return;
-  const wrapOld = root.querySelector('.dbodywrap'), scroll = wrapOld?.scrollTop || 0;
-  const rails = Object.fromEntries([...root.querySelectorAll('.drail')].map(r => [r.dataset.rail, r.scrollLeft]));
+  // rolagem guardada pelos eventos de scroll (ler scrollTop aqui obrigava o navegador a calcular o layout na hora)
+  const scroll = st.sy || 0, rails = st.sx || {};
   const typing = document.activeElement?.name === 'discover-interest' ? document.activeElement.value : null;
   const body = st.tab === 'news' ? newsTab() : st.tab === 'tournaments' ? tournamentsTab() : homeTab();
   root.replaceChildren(
@@ -240,7 +245,8 @@ function draw() {
 }
 
 export function renderDiscover(main) {
-  st.root = h('div#discoverview'); main.replaceChildren(st.root);
+  st.root = h('div#discoverview'); main.replaceChildren(st.root); st.sy = 0; st.sx = {};
+  st.root.addEventListener('scroll', (e) => { const t = e.target; if (t.classList?.contains('dbodywrap')) st.sy = t.scrollTop; else if (t.dataset?.rail) st.sx[t.dataset.rail] = t.scrollLeft; }, { capture: true, passive: true });
   ensure(); draw();
   if (st.tab === 'home' && !interests().length) setTimeout(() => st.root?.querySelector('.dint-in')?.focus(), 0);
 }

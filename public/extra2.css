@@ -84,7 +84,9 @@
 /* ======== Acessibilidade / personalização ======== */
 html, body, button, input, textarea, select { font-family: var(--font, "gg sans", "Noto Sans", "Segoe UI", sans-serif); }
 .msg.first { margin-top: var(--msg-gap, 17px); }
-#app { filter: saturate(var(--sat, 100%)); }
+/* só com a saturação mudada: o filtro sempre ligado (mesmo em 100%) fazia o Chrome promover cada mensagem e avatar a uma
+   camada própria (86 camadas com 37 mensagens na tela, centenas rolando o histórico): mais trabalho a cada quadro e memória de vídeo */
+:root.sat-on #app { filter: saturate(var(--sat, 100%)); }
 .modal, .popout, .menu, .tile, .sbtn, .ncard { border-radius: var(--radius, 8px); }
 .high-contrast { --text-muted: #d0d4da; --divider: #6b6f78; --interactive: #e6e8ec; }
 .high-contrast .msg:hover { background: rgba(255,255,255,.08); }

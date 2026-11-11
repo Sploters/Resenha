@@ -39,7 +39,10 @@ export function showCard(force) {
 
 export function initPwa() {
   if (window.lcDesktop) return; // app desktop: já é um app
-  if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => { });
+  // HTTPS com certificado autoassinado (:3443 na VPN): o Chrome nunca registra o service worker ("SSL certificate error
+  // when fetching the script"). Lembra a falha por 1 dia para não repetir a tentativa (e o aviso) a cada abertura.
+  let failedAt = 0; try { failedAt = +localStorage.lc_sw_fail || 0; } catch { }
+  if ('serviceWorker' in navigator && isSecureContext && Date.now() - failedAt > 864e5) navigator.serviceWorker.register('/sw.js').then(() => { try { localStorage.removeItem('lc_sw_fail'); } catch { } }, (e) => { if (e?.name === 'SecurityError') try { localStorage.lc_sw_fail = Date.now(); } catch { } });
   addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; setTimeout(() => showCard(false), 20000); });
   addEventListener('appinstalled', () => { deferred = null; card?.remove(); card = null; });
   // iPhone no Safari: não há aviso do navegador; o cartão com as instruções aparece só em tela de celular/tablet

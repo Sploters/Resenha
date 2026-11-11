@@ -8,6 +8,8 @@ import WebSocket from 'ws';
 
 const BASE = process.env.BASE || 'http://localhost:3000', MAX = +(process.env.MAX || 1000), N = +(process.env.USERS || 1000);
 const WORKERS = +(process.env.WORKERS || 3), SPEED = +(process.env.SPEED || 1); // SPEED 2 = fases na metade do tempo
+// VIEW_PCT: % das pessoas olhando o servidor (as outras nas DMs); sem ele, clientes antigos (sem VIEW: recebem tudo)
+const VIEW_PCT = process.env.VIEW_PCT != null ? +process.env.VIEW_PCT : null;
 const PHASES = MAX <= 100 ? [[60, 100], [120, 100]] : [[60, 100], [90, 100], [120, MAX], [150, MAX]]; // [segundos, alvo]
 // amostra justa de no máximo 20 mil valores (reservatório): com 1000 pessoas são centenas de milhares de entregas
 const sample = (arr, v, n, max = 20000) => { if (arr.length < max) arr.push(v); else { const j = Math.floor(Math.random() * n); if (j < max) arr[j] = v; } };
@@ -17,7 +19,7 @@ const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) =
 if (process.argv[2] === 'worker') {
   // ---------- processo que simula uma fatia das pessoas ----------
   const [, , , from, step] = process.argv.map(Number);
-  const vus = new Map(); let m = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0 };
+  const vus = new Map(); let m = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0, frames: 0, bytes: 0 };
   const rec = (name, ms, ok) => { (m.http[name] ||= []).push(ms); if (!ok) m.erros++; };
   const call = async (name, path, opt = {}) => { const t0 = performance.now(); try { const r = await fetch(BASE + path, opt); await r.arrayBuffer(); rec(name, performance.now() - t0, r.ok); } catch { rec(name, performance.now() - t0, false); } };
   function start(k) {
@@ -26,12 +28,14 @@ if (process.argv[2] === 'worker') {
     const t0 = performance.now(), ws = new WebSocket(BASE.replace(/^http/, 'ws') + '/gateway?token=' + tok); v.ws = ws;
     const every = (ms, fn) => v.timers.push(setInterval(fn, ms + Math.random() * ms * 0.4));
     ws.on('message', (raw) => {
+      m.frames++; m.bytes += raw.length;
       // só decodifica o que interessa (o simulador também roda nesta máquina; não pode virar o gargalo)
       const head = raw.subarray(0, 40).toString();
       if (!head.includes('"READY"') && !head.includes('"MESSAGE_CREATE"')) return;
       const e = JSON.parse(raw);
       if (e.t === 'READY') {
         m.ready.push(performance.now() - t0);
+        if (VIEW_PCT != null) ws.send(JSON.stringify({ t: 'VIEW', d: { guild_id: Math.random() * 100 < VIEW_PCT ? e.d.guilds[0].id : null } }));
         const g = e.d.guilds[0], chans = g.channels.filter(c => c.type === 0).map(c => c.id), mem = g.members.map(x => x.user_id);
         const pick = (a) => a[Math.floor(Math.random() * a.length)];
         every(10e3, () => call('GET mensagens', `/api/channels/${pick(chans)}/messages?limit=50`, { headers: { ...auth, 'accept-encoding': 'br' } }));
@@ -46,7 +50,7 @@ if (process.argv[2] === 'worker') {
   let target = 0;
   process.on('message', (msg) => {
     if (msg.target != null) { target = msg.target; let k = 0; while (vus.size < target) { while (vus.has(k)) k++; start(k); } for (const kk of [...vus.keys()]) if (vus.size > target) stop(kk); }
-    if (msg.report) { process.send({ m, online: vus.size }); m = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0 }; }
+    if (msg.report) { process.send({ m, online: vus.size }); m = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0, frames: 0, bytes: 0 }; }
     if (msg.end) { for (const k of [...vus.keys()]) stop(k); setTimeout(() => process.exit(0), 500); }
   });
 } else {
@@ -56,16 +60,16 @@ if (process.argv[2] === 'worker') {
   const cpu = () => { try { const f = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' '); return (+f[11] + +f[12]) / 100; } catch { return null; } };
   const rss = () => { try { return Math.round(+fs.readFileSync(`/proc/${pid}/status`, 'utf8').match(/VmRSS:\s+(\d+)/)[1] / 1024); } catch { return null; } };
   const ws = Array.from({ length: WORKERS }, (_, w) => fork(new URL(import.meta.url).pathname, ['worker', w, WORKERS]));
-  const all = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0 };
+  const all = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0, frames: 0, bytes: 0 };
   let phase = 0, phaseT = 0, cur = 0, lastCpu = cpu(), t = 0;
   const setTarget = (n) => { cur = n; ws.forEach((w, i) => w.send({ target: Math.floor(n / WORKERS) + (i < n % WORKERS ? 1 : 0) })); };
   const rows = [];
   const tick = async () => {
     const parts = await Promise.all(ws.map(w => new Promise(r => { w.once('message', r); w.send({ report: true }); })));
-    const s = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0 }; let online = 0;
-    for (const p of parts) { online += p.online; addAll(s.ready, p.m.ready); addAll(s.entrega, p.m.entrega); s.erros += p.m.erros; s.wsFail += p.m.wsFail; s.recebidas += p.m.recebidas; for (const [k, a] of Object.entries(p.m.http)) addAll(s.http[k] ||= [], a); }
+    const s = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0, frames: 0, bytes: 0 }; let online = 0;
+    for (const p of parts) { online += p.online; addAll(s.ready, p.m.ready); addAll(s.entrega, p.m.entrega); s.erros += p.m.erros; s.wsFail += p.m.wsFail; s.recebidas += p.m.recebidas; s.frames += p.m.frames; s.bytes += p.m.bytes; for (const [k, a] of Object.entries(p.m.http)) addAll(s.http[k] ||= [], a); }
     all.n = (all.n || 0); for (const v of s.entrega) sample(all.entrega, v, ++all.n);
-    addAll(all.ready, s.ready); all.erros += s.erros; all.wsFail += s.wsFail; all.recebidas += s.recebidas; for (const [k, a] of Object.entries(s.http)) addAll(all.http[k] ||= [], a);
+    addAll(all.ready, s.ready); all.erros += s.erros; all.wsFail += s.wsFail; all.recebidas += s.recebidas; all.frames += s.frames; all.bytes += s.bytes; for (const [k, a] of Object.entries(s.http)) addAll(all.http[k] ||= [], a);
     const perf = await fetch(BASE + '/api/perf', { headers: admin }).then(r => r.json()).catch(() => null);
     const c = cpu(), cpuPct = c != null && lastCpu != null ? Math.round((c - lastCpu) / 15 * 100) : null; lastCpu = c;
     const httpAll = Object.values(s.http).flat();
@@ -92,6 +96,7 @@ if (process.argv[2] === 'worker') {
       for (const [k, a] of Object.entries(all.http)) console.log(`${k}: p50 ${q(a, .5)} ms · p95 ${q(a, .95)} ms · máx ${q(a, 1)} ms (${a.length})`);
       console.log(`entrega de mensagem: p50 ${q(all.entrega, .5)} ms · p95 ${q(all.entrega, .95)} ms (${all.recebidas} recebidas)`);
       console.log(`erros: ${all.erros} chamadas, ${all.wsFail} conexões`);
+      console.log(`gateway: ${all.frames} mensagens recebidas pelas pessoas, ${(all.bytes / 1048576).toFixed(1)} MB`);
       if (perf) { console.log('servidor (rotas mais lentas, p95):'); Object.entries(perf.servidor_ms).sort((a, b) => b[1].p95 - a[1].p95).slice(0, 6).forEach(([k, v]) => console.log(`  ${k}: p95 ${v.p95} ms, máx ${v.max} ms (${v.n})`)); console.log('alertas:', perf.alertas?.map(a => a.text) || []); }
       fs.writeFileSync(process.env.OUT || '.load-result.json', JSON.stringify({ rows, perf }, null, 1));
       ws.forEach(w => w.send({ end: true })); setTimeout(() => process.exit(0), 1500);

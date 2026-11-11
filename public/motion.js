@@ -31,7 +31,9 @@ export function stagger(container, step = 30, max = 12) {
   if (!container || !animOn()) return;
   [...container.children].slice(0, max).forEach((c, i) => c.style.setProperty('--i', i));
   container.style.setProperty('--step', step + 'ms');
-  container.classList.remove('stagger'); void container.offsetWidth; container.classList.add('stagger');
+  // reiniciar a animação exige um layout na hora (offsetWidth); lista nova (o caso comum) não precisa
+  if (container.classList.contains('stagger')) { container.classList.remove('stagger'); void container.offsetWidth; }
+  container.classList.add('stagger');
   setTimeout(() => container.classList.remove('stagger'), max * step + 400);
 }
 

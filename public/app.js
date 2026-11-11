@@ -7,7 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
+import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
@@ -60,6 +60,15 @@ applyTheme();
 let ws, voice, retry = 0, ready = false, pendingInvite = null;
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
+// qual servidor esta tela mostra (null: nenhum, ou janela escondida): o servidor só manda a presença dos membros dele
+// para quem está olhando (e manda quem está online ao abrir). Reenviado a cada conexão nova (sentView volta a undefined).
+let sentView;
+function syncView() {
+  if (!ready || ws?.readyState !== 1) return;
+  const want = document.hidden ? null : (S.view.gid && S.view.gid !== '@me' && S.guilds.has(S.view.gid) ? S.view.gid : null);
+  if (want !== sentView) { sentView = want; gwSend('VIEW', { guild_id: want }); }
+}
+document.addEventListener('visibilitychange', () => syncView());
 initMusic(gwSend);
 let musicLit = false; // acende o botão de música quando o bot começa/para de tocar (só redesenha se mudou)
 let musicTrack = ''; // faixa atual: o cartão do bot na sala e na lista de canais mostra o que está tocando
@@ -236,7 +245,7 @@ function onEvent(t, d) {
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       e2eeLoad(true);
-      if (!ready) buildShell(); ready = true;
+      if (!ready) buildShell(); ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
@@ -259,13 +268,20 @@ function onEvent(t, d) {
       break;
     }
     case 'USER_DELETE': { S.rels.delete(d.id); renderMembers(); renderSide(); if (S.view.kind === 'home') renderMain(); break; }
-    case 'USER_UPDATE': {
-      S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
-      for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
-      for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
-      renderSide(); renderMembers(); refreshAuthors(d.id); if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
+    case 'USER_UPDATE': applyUser(d); break;
+    // presença pequena (servidor novo): só status e aparelhos; ver broadcastStatus no servidor
+    case 'PRESENCE': { const old = S.users.get(d.id); if (old && (old.status !== d.status || String(old.platforms || '') !== String(d.platforms || ''))) applyUser({ ...old, status: d.status, platforms: d.platforms || [] }); break; }
+    case 'PRESENCE_SYNC': { // abriu um servidor: quem está online nele agora (o resto, offline)
+      const g = S.guilds.get(d.guild_id); if (!g) break;
+      const on = new Map((d.online || []).map(([id, st, pl]) => [id, { st, pl: pl || [] }])); let n = 0;
+      for (const id of g.members.keys()) {
+        const u = S.users.get(id), w = on.get(id) || { st: 'offline', pl: [] }; if (!u || (u.status === w.st && String(u.platforms || '') === String(w.pl))) continue;
+        applyUser({ ...u, status: w.st, platforms: w.pl }, true); n++;
+      }
+      if (n) { renderSide(); renderMembers(); }
       break;
     }
+
     case 'GUILD_CREATE': ingestGuild(d); renderRail(); if (!S.view.gid || S.view.gid === 'new') go(d.id); else { renderSide(); } break;
     case 'GUILD_UPDATE': Object.assign(S.guilds.get(d.id) || {}, d); renderRail(); renderSide(); break;
     case 'GUILD_DELETE': {
@@ -893,7 +909,7 @@ const chIcon = (c) => icon(c.type === 2 ? 'voice' : 'hash', 20);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
-  const keepScroll = $('#side-list')?.scrollTop || 0;
+  const keepScroll = sideScroll; // guardada pelo evento de scroll: ler scrollTop aqui forçava layout
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inMessages()) {
@@ -951,12 +967,28 @@ function renderSide() {
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   const pinned = uaPinned();
   const area = h('div#user-area' + (pinned ? '' : '.ua-col'), voice?.active && h('div.ua-vp', voicePanel()), userbar());
-  side.replaceChildren(head, list, area);
-  const vp = area.querySelector('.ua-vp');
-  $('#app').style.setProperty('--ua-h', area.offsetHeight + 'px'); // a barra dos servidores reserva espaço pro seu perfil
-  $('#app').style.setProperty('--ua-side-h', (pinned || vp ? area.offsetHeight : 0) + 'px'); // barra solta: a lista ganha a altura toda
-  list.scrollTop = keepScroll;
+  const oldHead = side.querySelector(':scope > #side-head'), oldList = side.querySelector(':scope > #side-list'), oldArea = side.querySelector(':scope > #user-area');
+  if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
+    // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
+    morph(oldHead, head); list = morph(oldList, list); oldArea.replaceWith(area);
+  } else {
+    side.replaceChildren(head, list, area);
+    if (keepScroll) list.scrollTop = keepScroll;
+  }
+  if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true }); }
+  // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
+  // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
+  uaObs.disconnect(); uaObs.observe(area);
+  syncView();
 }
+let sideScroll = 0;
+const uaObs = new ResizeObserver(() => {
+  const area = document.getElementById('user-area'); if (!area) return;
+  uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
+  const hgt = area.offsetHeight, open = !area.classList.contains('ua-col') || !!area.querySelector('.ua-vp');
+  $('#app').style.setProperty('--ua-h', hgt + 'px'); // a barra dos servidores reserva espaço pro seu perfil
+  $('#app').style.setProperty('--ua-side-h', (open ? hgt : 0) + 'px'); // barra solta: a lista ganha a altura toda
+});
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
 // abas Mensagens | Amigos no topo da lista
@@ -1611,7 +1643,9 @@ async function loadChannel(cid) {
     const list = S.messages.get(cid), older = await tryApi('GET', `/channels/${cid}/messages?limit=50&before=${list[0]?.id}`);
     delete msgs.dataset.loading; if (!older) return;
     if (older.length < 50) S.loaded.set(cid, true);
-    list.unshift(...older); const prevH = msgs.scrollHeight; renderMessages(false); msgs.scrollTop = msgs.scrollHeight - prevH;
+    list.unshift(...older); const prevH = msgs.scrollHeight;
+    if (!prependMessages(cid, older)) renderMessages(false);
+    msgs.scrollTop = msgs.scrollHeight - prevH;
   };
 }
 function welcomeBlock(ch) {
@@ -1632,6 +1666,26 @@ function renderMessages(keepPos) {
   box.stick = !(keepPos && !near);
   box.scrollTop = box.stick ? box.scrollHeight : old;
 }
+// Histórico mais antigo chegou (rolou até o topo): põe só as mensagens novas no começo. Antes o chat inteiro era montado de
+// novo a cada página (50, 100, 150… mensagens), travando a rolagem num PC fraco (quadro de ~650 ms com 350 mensagens).
+function prependMessages(cid, older) {
+  const box = $('#msgs'), list = S.messages.get(cid); if (!box || S.view.cid !== cid || !older.length || !list) return false;
+  const first = list[older.length], firstEl = first && box.querySelector(`:scope > [data-mid="${first.id}"]`); // a que estava no topo
+  const grow = box.querySelector(':scope > .grow'); if (!firstEl || !grow) return false;
+  const ch = channelById(cid), frag = document.createDocumentFragment(); let prev = null;
+  if (S.loaded.get(cid) && !box.querySelector(':scope > .welcome')) frag.append(welcomeBlock(ch));
+  for (const m of older) {
+    if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
+  }
+  // fronteira: a antiga primeira mensagem pode agrupar com a anterior, e o separador de dia dela pode sobrar
+  const sep = firstEl.previousElementSibling?.classList.contains('daysep') ? firstEl.previousElementSibling : null;
+  const same = sameDay(prev.created_at, first.created_at);
+  if (sep && same) sep.remove();
+  firstEl.replaceWith(msgEl(first, same ? prev : null));
+  grow.after(frag);
+  return true;
+}
 function appendMessage(m) {
   const box = $('#msgs'), list = S.messages.get(m.channel_id); if (!box) return;
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160 || m.author_id === S.me.id;
@@ -1639,8 +1693,36 @@ function appendMessage(m) {
   if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
   const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null); mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700);
   box.append(mel);
-  if (near) { box.stick = true; box.scrollTop = box.scrollHeight; }
+  if (near) { box.stick = true; trimChat(m.channel_id); box.scrollTop = box.scrollHeight; }
 }
+// Canal aberto por horas: as mensagens que chegam iam se acumulando no chat e na memória para sempre (~900 por hora num
+// canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
+// busca as antigas de novo no servidor (o mesmo caminho do histórico).
+const CHAT_MAX = 250, CHAT_KEEP = 150;
+function trimChat(cid) {
+  const list = S.messages.get(cid), box = $('#msgs'); if (!list || list.length <= CHAT_MAX || !box || S.view.cid !== cid || detached.has(cid)) return;
+  const cut = list.length - CHAT_KEEP, first = list[cut], firstEl = box.querySelector(`:scope > [data-mid="${first.id}"]`); if (!firstEl) return;
+  list.splice(0, cut); S.loaded.set(cid, false);
+  const grow = box.querySelector(':scope > .grow');
+  while (grow && grow.nextSibling && grow.nextSibling !== firstEl) grow.nextSibling.remove(); // mensagens, separadores e o "começo do canal"
+  grow.after(h('div.daysep', h('span', dayLabel(first.created_at)))); firstEl.replaceWith(msgEl(first, null)); // a nova primeira não agrupa com quem saiu
+}
+function applyUser(d, quiet) { // quiet: muitos de uma vez (PRESENCE_SYNC), quem chamou redesenha
+  const old = S.users.get(d.id), presence = !!old && presenceOnly(old, d);
+  S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
+  for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
+  for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
+  // só status/aparelho mudou (o caso comum: alguém entrou ou saiu): as mensagens não mostram status, e a lista de canais
+  // de um servidor só mostra quem está em sala. Antes cada entrada/saída redesenhava o chat e a lista lateral inteiros.
+  if (quiet) return;
+  const g = guild(S.view.gid);
+  if (!presence || d.id === S.me.id || !g || S.voice.has(d.id)) renderSide();
+  if (!g || g.members.has(d.id)) renderMembers();
+  if (!presence) refreshAuthors(d.id);
+  if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
+}
+const PRESENCE_KEYS = new Set(['status', 'platforms']);
+function presenceOnly(a, b) { for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (!PRESENCE_KEYS.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false; return true; }
 function refreshAuthors(uid) { if ($('#msgs') && S.view.cid && S.messages.get(S.view.cid)?.some(m => m.author_id === uid)) renderMessages(true); }
 
 const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), emojiUrl });
@@ -2400,11 +2482,11 @@ function renderMembers() {
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
   if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; }
-  const keepScroll = box.querySelector('.mem-list')?.scrollTop || 0;
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
-  const topRole = (m) => g.roles.filter(r => m.roles.includes(r.id)).sort((a, b) => b.position - a.position)[0];
-  const nm = (x) => x.m.nickname || x.u.display_name;
-  const by = (a, b) => nm(a).localeCompare(nm(b));
+  // cargo mais alto de cada um calculado uma vez (antes: a cada comparação da ordenação, com 300 pessoas ~2.500 vezes)
+  const tops = new Map(), topRole = (m) => { let r = tops.get(m); if (r === undefined) { r = null; for (const x of g.roles) if (m.roles.includes(x.id) && (!r || x.position > r.position)) r = x; tops.set(m, r); } return r || undefined; };
+  const nm = (x) => (x.nk ??= x.m.nickname || x.u.display_name);
+  const by = (a, b) => collator.compare(nm(a), nm(b));
   // hierarquia: dono primeiro, depois pelo cargo mais alto, depois por nome
   const rank = (x) => (g.owner_id === x.u.id ? 1e9 : (topRole(x.m)?.position ?? -1));
   const hier = [...ms].sort((a, b) => rank(b) - rank(a) || by(a, b));
@@ -2420,8 +2502,22 @@ function renderMembers() {
   const isCol = (k) => !q && (col[k] ?? (k === 'offline' && ms.length > 30)); // buscando: tudo aberto; offline começa recolhido em servidor grande
   const toggle = (k) => { col[k] = !isCol(k); localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); };
   const inVoice = (uid) => { const v = S.voice.get(uid); return v && channelById(v.channel_id)?.guild_id === g.id ? channelById(v.channel_id) : null; };
-  const row = ({ m, u }, offline) => {
-    const vc = !offline && inVoice(u.id);
+  // linha guardada enquanto o que ela mostra não muda (o USER_UPDATE troca o objeto da pessoa; membro, cor, sala e jogo
+  // idem): com gente entrando e saindo, só a linha de quem mudou é montada de novo
+  // só vale dentro do MESMO painel: cada linha guarda o clique, que segura a renderização em que nasceu (e por ela o painel
+  // e a tela antigos, com o chat inteiro). Painel novo (trocou de tela) = cache novo — antes isso vazava ~600 MB/hora.
+  if (memRows.gid !== g.id || memRows.box !== box) { memRows.clear(); memRows.gid = g.id; memRows.box = box; }
+  const usedRows = new Set();
+  const row = (x, offline) => {
+    const { m, u } = x, vc = !offline && inVoice(u.id), act = offline ? null : activityOf(u.id), col = roleColor(g.id, u.id), name = nm(x), own = g.owner_id;
+    usedRows.add(u.id);
+    const c = memRows.get(u.id);
+    if (c && c.u === u && c.m === m && c.off === offline && c.vc === vc && c.act === act && c.col === col && c.name === name && c.own === own) return c.el;
+    const el = buildRow(x, offline, vc);
+    memRows.set(u.id, { u, m, off: offline, vc, act, col, name, own, el });
+    return el;
+  };
+  const buildRow = ({ m, u }, offline, vc) => {
     return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
       avatar(u, 32, { ring: 'var(--bg-sec)' }),
       h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
@@ -2450,14 +2546,20 @@ function renderMembers() {
     box._q = h('input.mem-q', { type: 'search', placeholder: 'Buscar membros', 'aria-label': 'Buscar membros', oninput: debounce(() => { memQ.q = box._q.value; renderMembers(); }, 100), onkeydown: (e) => { if (e.key === 'Escape' && box._q.value) { e.stopPropagation(); box._q.value = ''; memQ.q = ''; renderMembers(); } } });
   }
   if (box._q.value !== memQ.q) box._q.value = memQ.q;
-  const list = h('div.mem-list',
-    ...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
-    q && !shown.length && h('div.mem-none', 'Ninguém com esse nome'));
+  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
+    q && !shown.length && h('div.mem-none', 'Ninguém com esse nome')].filter(Boolean);
+  for (const id of memRows.keys()) if (!usedRows.has(id)) memRows.delete(id); // saiu do servidor / recolhido: não fica preso
   const top = box.querySelector('.mem-top') || h('div.mem-top');
-  top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
-  box.replaceChildren(top, list, meCard && h('div.mem-foot', meCard)); // seu cartão fica fixo embaixo, como no design
-  list.scrollTop = keepScroll;
+  if (top.firstChild?.lastChild !== box._q) top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
+  // a lista já está na página: atualiza só o que mudou (a rolagem fica onde estava e as fotos não recarregam)
+  const oldList = box.querySelector(':scope > .mem-list'), foot = meCard && h('div.mem-foot', meCard), oldFoot = box.querySelector(':scope > .mem-foot');
+  if (oldList && box.firstChild === top) {
+    place(oldList, kids);
+    if (foot && oldFoot) morph(oldFoot, foot); else if (foot) box.append(foot); else oldFoot?.remove();
+  } else box.replaceChildren(top, h('div.mem-list', kids), foot || ''); // seu cartão fica fixo embaixo, como no design
 }
+const memRows = new Map();
+const collator = new Intl.Collator('pt-BR');
 
 // =============== Início / amigos ===============
 // painel "Ativo agora": amigos online, com servidor e sala de voz quando estão numa chamada
