@@ -320,6 +320,18 @@ export function popout(anchor, node, side = 'right') {
   originFrom(el, anchor); // cresce a partir do botão que abriu
   return el;
 }
+// Emojis do painel em blocos de 5 linhas com content-visibility: só o que aparece é diagramado e desenhado. Antes,
+// abrir montava e media o painel inteiro de uma vez: 144 ms de layout + 118 ms desenhando as letras coloridas no 1º
+// clique (INP 280–330 ms no trace). EMOJI_COLS: 336 px úteis ÷ 40 px por emoji.
+const EMOJI_COLS = 8, EMOJI_CHUNK = EMOJI_COLS * 5;
+function emojiChunks(nodes) {
+  const out = [];
+  for (let i = 0; i < nodes.length; i += EMOJI_CHUNK) {
+    const part = nodes.slice(i, i + EMOJI_CHUNK);
+    out.push(h('div.emoji-chunk', { style: { containIntrinsicSize: `auto ${Math.ceil(part.length / EMOJI_COLS) * 40}px` } }, ...part));
+  }
+  return out;
+}
 export function emojiPicker(anchor, onPick, opts = {}) {
   closeFloating();
   const grid = h('div.emoji-grid'), q = h('input', { placeholder: 'Pesquisar emoji ou categoria' });
@@ -328,16 +340,33 @@ export function emojiPicker(anchor, onPick, opts = {}) {
     if (!opts.noCustom) {
       const byGuild = new Map();
       for (const e of allEmojis()) if (!f || e.name.toLowerCase().includes(f)) (byGuild.get(e.guild) || byGuild.set(e.guild, []).get(e.guild)).push(e);
-      for (const [g, list] of byGuild) grid.append(h('div.cap', g), ...list.map(e => h('span', { title: ':' + e.name + ':', onclick: () => { onPick(`<:${e.name}:${e.id}>`, e); closeFloating(); } }, h('img', { src: e.url, style: { width: '32px', height: '32px', objectFit: 'contain' } }))));
+      for (const [g, list] of byGuild) grid.append(h('div.cap', g), ...emojiChunks(list.map(e => h('span', { title: ':' + e.name + ':', onclick: () => { onPick(`<:${e.name}:${e.id}>`, e); closeFloating(); } }, h('img', { src: e.url, loading: 'lazy', decoding: 'async', style: { width: '32px', height: '32px', objectFit: 'contain' } })))));
     }
     for (const [cat, list] of Object.entries(EMOJIS)) {
       if (f && !cat.toLowerCase().includes(f)) continue;
-      grid.append(h('div.cap', cat), ...list.map(e => h('span', { onclick: () => { onPick(e); closeFloating(); } }, e)));
+      grid.append(h('div.cap', cat), ...emojiChunks(list.map(e => h('span', { onclick: () => { onPick(e); closeFloating(); } }, e))));
     }
   };
   q.oninput = draw; draw();
   const el = h('div.emoji-picker', q, grid), r = anchor.getBoundingClientRect();
   place(el, r.right - 352, r.top - 348); if (parseFloat(el.style.top) < 8) el.style.top = (r.bottom + 8) + 'px';
+}
+// Com a aba parada, diagrama os emojis do painel escondido, aos poucos: a 1ª busca da fonte colorida de cada emoji
+// (cara no Windows) sai do clique que abre o painel. Uma vez por sessão; sem efeito na tela.
+let emojiWarm = false;
+export function warmEmojis() {
+  if (emojiWarm) return; emojiWarm = true;
+  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f, { timeout: 5000 }) : (f) => setTimeout(f, 300);
+  const all = Object.values(EMOJIS).flat(); let i = 0;
+  const box = h('div.emoji-grid', { 'aria-hidden': 'true', style: { position: 'fixed', left: '0', top: '0', width: '336px', visibility: 'hidden', pointerEvents: 'none', contain: 'layout style size', height: '0', overflow: 'hidden' } });
+  const step = () => {
+    if (i >= all.length) return box.remove();
+    box.replaceChildren(...all.slice(i, i += 24).map(e => h('span', e)));
+    if (!box.isConnected) document.body.append(box);
+    void box.firstChild.getBoundingClientRect(); // diagrama agora, nesta folga
+    idle(step);
+  };
+  idle(step);
 }
 export const lightbox = (src, opts) => openViewer(src, opts);
 
