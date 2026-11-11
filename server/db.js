@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS lfg_profiles(user_id TEXT NOT NULL REFERENCES users(i
 // ícones de jogos detectados no PC (app desktop), guardados pelo hash do conteúdo: cada atividade aponta para a imagem que o
 // próprio PC da pessoa mandou (ninguém troca o ícone do jogo dos outros); os que ninguém usa há 90 dias são apagados
 db.exec(`CREATE TABLE IF NOT EXISTS game_icons(hash TEXT PRIMARY KEY, png BLOB NOT NULL, created_at INTEGER, used_at INTEGER)`);
+// amizades desfeitas pelo outro lado: aviso na caixa de entrada (Pedidos) de quem perdeu o amigo, por 30 dias
+db.exec(`CREATE TABLE IF NOT EXISTS friend_losses(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, other_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, at INTEGER NOT NULL, PRIMARY KEY(user_id, other_id));`);
 db.exec(`CREATE TABLE IF NOT EXISTS gif_favs(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, url TEXT NOT NULL, preview TEXT, w INTEGER DEFAULT 0, h INTEGER DEFAULT 0, title TEXT DEFAULT '', created_at INTEGER, PRIMARY KEY(user_id, url));`);
 // índices das consultas do dia a dia que varriam a tabela inteira (achados com EXPLAIN QUERY PLAN em cada consulta do servidor):
 // montar cada servidor na abertura (cargos, canais, emojis, sons, membros), conversas privadas, sessões e convites; e

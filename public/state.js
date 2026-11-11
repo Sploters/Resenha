@@ -1,4 +1,4 @@
-import { h, icon, EMOJIS, setHour12 } from './util.js';
+import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
@@ -132,7 +132,7 @@ export function applyTheme() {
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
-  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12);
+  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));
@@ -345,7 +345,7 @@ export function notify(title, body, onclick, tag) {
   if (!S.prefs.desktopNotif || !('Notification' in window) || Notification.permission !== 'granted') return;
   if (quietHere()) return;
   // silent: o som do aviso é o do app (com o volume das notificações), não o do sistema por cima
-  const n = new Notification(title, { body: body.slice(0, 140), silent: true, ...(tag ? { tag: 'lc-' + tag } : {}) });
+  const n = new Notification(title, { body: plainTs(body).slice(0, 140), silent: true, ...(tag ? { tag: 'lc-' + tag } : {}) });
   n.onclick = () => { window.focus(); onclick?.(); n.close(); };
   if (tag) { const set = openNotifs.get(tag) || openNotifs.set(tag, new Set()).get(tag); set.add(n); n.onclose = () => { set.delete(n); if (!set.size) openNotifs.delete(tag); }; }
   return n;

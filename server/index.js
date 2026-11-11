@@ -77,6 +77,11 @@ const privacy = createPrivacy({ get, all });
 const realStatus = (u) => (conns.has(u.id) || u.username?.startsWith('bot_music_')) ? (u.status === 'invisible' ? 'offline' : u.status) : 'offline';
 // status que `viewer` pode ver: quem escolheu esconder dele aparece offline
 const statusFor = (viewer, u) => (privacy.presenceVisible(viewer, u.id) ? realStatus(u) : 'offline');
+// de onde a pessoa está conectada agora (app desktop, celular, navegador): some junto com o status (offline/invisível/escondido)
+const PLATS = ['desktop', 'mobile', 'web'];
+const platformsOf = (u) => { if (realStatus(u) === 'offline') return []; const k = new Set([...(conns.get(u.id) || [])].map(w => w.devKind || (w.app ? 'desktop' : 'web'))); return PLATS.filter(p => k.has(p)); };
+const platformsFor = (viewer, u) => (statusFor(viewer, u) === 'offline' ? [] : platformsOf(u));
+const platKey = new Map(); // uid -> plataformas já avisadas (só avisa de novo quando muda)
 const pubUser = (u) => u && ({
   id: u.id, username: u.username, display_name: u.display_name || u.username, avatar: u.avatar, color: u.color,
   banner_color: u.banner_color, banner: u.banner, avatar_pos: u.avatar_pos, banner_pos: u.banner_pos, pronouns: u.pronouns, status_emoji: u.status_emoji, theme_primary: u.theme_primary, theme_accent: u.theme_accent, name_style: parseNameStyle(u.name_style),
@@ -84,6 +89,7 @@ const pubUser = (u) => u && ({
   // quem esconde a presença aparece offline em tudo que vai para todo mundo (mensagens, perfis…); quem pode ver recebe o
   // status de verdade à parte (READY e USER_UPDATE, por pessoa: ver statusFor)
   status: privacy.restricted(u.id) ? 'offline' : realStatus(u),
+  platforms: privacy.restricted(u.id) ? [] : platformsOf(u),
 });
 const getUser = (id) => get('SELECT * FROM users WHERE id=?', id);
 const userPub = (id) => pubUser(getUser(id));
@@ -113,8 +119,8 @@ function guildCached(gid) {
 // perfil público em texto com o status de agora (o status muda o tempo todo; o resto quase nunca)
 function userJson(u, viewer) {
   let c = userCache.get(u.id);
-  if (!c || Date.now() - c.at > 60e3) { const p = pubUser(u); delete p.status; c = { at: Date.now(), head: JSON.stringify(p).slice(0, -1) }; userCache.set(u.id, c); }
-  return c.head + ',"status":' + JSON.stringify(statusFor(viewer, u)) + '}';
+  if (!c || Date.now() - c.at > 60e3) { const p = pubUser(u); delete p.status; delete p.platforms; c = { at: Date.now(), head: JSON.stringify(p).slice(0, -1) }; userCache.set(u.id, c); }
+  return c.head + ',"status":' + JSON.stringify(statusFor(viewer, u)) + ',"platforms":' + JSON.stringify(platformsFor(viewer, u)) + '}';
 }
 
 // o mesmo evento para muita gente: vira texto (JSON) uma vez só, não uma vez por pessoa (1000 pessoas no servidor = 1000x)
@@ -253,11 +259,12 @@ function sharedAudience(uid) {
   for (const r of all('SELECT p2.user_id FROM dm_participants p1 JOIN dm_participants p2 ON p1.channel_id=p2.channel_id WHERE p1.user_id=?', uid)) ids.add(r.user_id);
   return [...ids];
 }
-const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAudience(uid), u = getUser(uid), pu = pubUser(u);
+const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAudience(uid), u = getUser(uid), pu = pubUser(u); if (!u) return;
+  platKey.set(uid, platformsOf(u).join());
   if (!privacy.restricted(uid)) dispatch(to, 'USER_UPDATE', pu);
   else { // quem pode ver recebe o status de verdade; os outros, offline
     const see = to.filter(v => privacy.presenceVisible(v, uid)), hide = to.filter(v => !privacy.presenceVisible(v, uid));
-    if (see.length) dispatch(see, 'USER_UPDATE', { ...pu, status: realStatus(u) });
+    if (see.length) dispatch(see, 'USER_UPDATE', { ...pu, status: realStatus(u), platforms: platformsOf(u) });
     if (hide.length) dispatch(hide, 'USER_UPDATE', pu);
   } mountPerf.time?.(`WS aviso de presença (${to.length > 500 ? '500+' : to.length > 100 ? '100+' : '<100'} pessoas)`, performance.now() - t0); };
 
@@ -619,7 +626,7 @@ app.get('/api/invites/:code', wrap((req, res) => {
   // você continua aparecendo como membro (amizade não é presença), mas offline
   const token = (req.headers.authorization || '').replace(/^Bearer /, ''), me = token && get('SELECT user_id FROM sessions WHERE token=?', token)?.user_id;
   const friends = me ? all(`SELECT u.* FROM members m JOIN users u ON u.id=m.user_id JOIN relationships r1 ON r1.user_id=? AND r1.other_id=m.user_id AND r1.type=1
-    JOIN relationships r2 ON r2.user_id=m.user_id AND r2.other_id=? AND r2.type=1 WHERE m.guild_id=? LIMIT 50`, me, me, i.guild_id).map(u => ({ ...pubUser(u), status: statusFor(me, u) })) : [];
+    JOIN relationships r2 ON r2.user_id=m.user_id AND r2.other_id=? AND r2.type=1 WHERE m.guild_id=? LIMIT 50`, me, me, i.guild_id).map(u => ({ ...pubUser(u), status: statusFor(me, u), platforms: platformsFor(me, u) })) : [];
   res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online, friends });
 }));
 app.post('/api/invites/:code', auth, wrap((req, res) => {
@@ -1225,13 +1232,24 @@ app.post('/api/reports', auth, wrap((req, res) => {
   dispatch([req.uid, admin.id], 'MESSAGE_CREATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', mid)), guild_id: null, mentions: [] });
   res.json({ url, sent_to: userPub(admin.id) });
 }));
+// `by` desfez a amizade com `lost` (remover ou bloquear): `lost` recebe o aviso na hora e fica na caixa de entrada
+const FRIEND_LOSS_DAYS = 30;
+function friendLost(lost, by) {
+  if (get('SELECT type FROM relationships WHERE user_id=? AND other_id=?', lost, by)?.type !== 1) return;
+  const at = Date.now();
+  run('INSERT INTO friend_losses(user_id,other_id,at) VALUES(?,?,?) ON CONFLICT(user_id,other_id) DO UPDATE SET at=excluded.at', lost, by, at);
+  dispatch([lost], 'FRIEND_LOST', { user: userPub(by), at });
+}
+const friendLossesFor = (uid) => all('SELECT other_id, at FROM friend_losses WHERE user_id=? AND at>? ORDER BY at DESC LIMIT 50', uid, Date.now() - FRIEND_LOSS_DAYS * 864e5)
+  .map(r => ({ user: userPub(r.other_id), at: r.at })).filter(r => r.user);
 function setRel(a, b, type) {
+  if (type === 1) run('DELETE FROM friend_losses WHERE (user_id=? AND other_id=?) OR (user_id=? AND other_id=?)', a, b, b, a); // voltaram a ser amigos
   if (type == null) run('DELETE FROM relationships WHERE user_id=? AND other_id=?', a, b);
   else run('INSERT INTO relationships(user_id,other_id,type,since) VALUES(?,?,?,?) ON CONFLICT(user_id,other_id) DO UPDATE SET type=excluded.type, since=CASE WHEN relationships.type=excluded.type THEN relationships.since ELSE excluded.since END', a, b, type, Date.now());
   dispatch([a], 'RELATIONSHIP', { user: userPub(b), type: type ?? 0, since: get('SELECT since FROM relationships WHERE user_id=? AND other_id=?', a, b)?.since || null });
   activity.onFriendsChanged(a, b);
   // presença só para amigos/escolhidos: virou (ou deixou de ser) amigo, o status visível para o outro muda na hora
-  for (const [x, y] of [[a, b], [b, a]]) if (privacy.restricted(x)) { const u = getUser(x); if (u) dispatch([y], 'USER_UPDATE', { ...pubUser(u), status: statusFor(y, u) }); }
+  for (const [x, y] of [[a, b], [b, a]]) if (privacy.restricted(x)) { const u = getUser(x); if (u) dispatch([y], 'USER_UPDATE', { ...pubUser(u), status: statusFor(y, u), platforms: platformsFor(y, u) }); }
 }
 app.post('/api/relationships', auth, wrap((req, res) => {
   const t = get('SELECT * FROM users WHERE username=?', clean(req.body.username, 32));
@@ -1248,17 +1266,20 @@ app.post('/api/relationships', auth, wrap((req, res) => {
 app.put('/api/relationships/:id', auth, wrap((req, res) => { // aceitar / bloquear
   const o = req.params.id;
   if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado', 404);
-  if (req.body.type === 2) { setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
+  if (req.body.type === 2) { friendLost(o, req.uid); setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
   else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); }
   else return bad(res, 'Sem pedido pendente');
   res.json({});
 }));
 app.delete('/api/relationships/:id', auth, wrap((req, res) => {
   const o = req.params.id, mine = get('SELECT type FROM relationships WHERE user_id=? AND other_id=?', req.uid, o);
+  if (mine?.type === 1) friendLost(o, req.uid);
   setRel(req.uid, o, null);
   if (!mine || mine.type !== 2) setRel(o, req.uid, null);
   res.json({});
 }));
+app.delete('/api/friend-losses/:id', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=? AND other_id=?', req.uid, req.params.id); dispatch([req.uid], 'FRIEND_LOSSES', { list: friendLossesFor(req.uid) }); res.json({}); }));
+app.delete('/api/friend-losses', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=?', req.uid); dispatch([req.uid], 'FRIEND_LOSSES', { list: [] }); res.json({}); }));
 app.get('/api/users/:id', auth, wrap((req, res) => {
   const u = getUser(req.params.id); if (!u) return bad(res, 'Não encontrado', 404);
   const mutual = all('SELECT g.id,g.name,g.icon FROM members a JOIN members b ON a.guild_id=b.guild_id JOIN guilds g ON g.id=a.guild_id WHERE a.user_id=? AND b.user_id=?', req.uid, u.id);
@@ -1545,8 +1566,8 @@ function buildReadyRaw(uid, extra) {
       (SELECT MAX(id) FROM messages WHERE channel_id=j.value) l
       FROM json_each(?) j LEFT JOIN read_states rs ON rs.user_id=? AND rs.channel_id=j.value`, uid, JSON.stringify(chIds), uid)) if (r.n) unread[r.c] = { count: r.n, last_id: r.l };
   const rels = relObj(uid), me = getUser(uid);
-  for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) x.status = statusFor(uid, { id: x.id, username: x.username, status: getUser(x.id)?.status });
-  const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me) }, dms, relationships: rels, activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
+  for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) { const xu = { id: x.id, username: x.username, status: getUser(x.id)?.status }; x.status = statusFor(uid, xu); x.platforms = platformsFor(uid, xu); }
+  const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
   return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => c.head + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
 }
 
@@ -1608,6 +1629,8 @@ function dropStaleVoice(uid, ws) {
 
 // aparelhos da conta em uso agora: cada conexão sabe se OUTRA está ativa (e de que tipo) — quem está no PC lendo não
 // recebe a notificação no celular; quando o PC sai do foco, o celular volta a avisar na hora
+// mudou o conjunto de plataformas (abriu o celular com o PC ligado, fechou o navegador…): avisa quem vê a presença
+function pushPlatforms(uid) { const u = getUser(uid); if (u && conns.has(uid) && platKey.get(uid) !== platformsOf(u).join()) broadcastPresence(uid); }
 function pushDevices(uid) {
   const list = [...(conns.get(uid) || [])].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt }));
   dispatch([uid], 'DEVICES', { active: list });
@@ -1632,11 +1655,15 @@ wss.on('connection', (ws) => {
         case 'ACTIVE': { // este aparelho está em uso (janela em foco e mexendo) ou não: os outros seguram as notificações
           const on = !!d.active, kind = ['desktop', 'mobile', 'web'].includes(d.kind) ? d.kind : 'web';
           if (ws.active === on && ws.devKind === kind) break;
+          const kindChanged = ws.devKind !== kind;
           ws.active = on; ws.devKind = kind; ws.activeAt = Date.now(); pushDevices(uid);
+          if (kindChanged) pushPlatforms(uid);
           break;
         }
         case 'CLIENT_INFO': { // versão do app desktop desta conexão (null = navegador)
           ws.app = typeof d.desktop === 'string' && VER_RE.test(d.desktop) ? d.desktop : null;
+          if (!ws.devKind && ['desktop', 'mobile', 'web'].includes(d.kind)) ws.devKind = d.kind;
+          pushPlatforms(uid);
           const c = currentVoice(uid), st = c && voice.get(c).get(uid);
           if (st?.ws === ws) { const ch = get('SELECT * FROM channels WHERE id=?', c); dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id }); }
           break;
@@ -1803,7 +1830,7 @@ wss.on('connection', (ws) => {
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);
     if (set && !set.size) { conns.delete(uid); broadcastPresence(uid); }
-    else if (ws.active) pushDevices(uid);
+    else { if (ws.active) pushDevices(uid); pushPlatforms(uid); }
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou
   });
 });

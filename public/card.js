@@ -1,4 +1,4 @@
-import { h, icon, avatar, framePos, imgUrl } from './util.js';
+import { h, icon, avatar, framePos, imgUrl, platformIcons } from './util.js';
 import { lightbox, S } from './state.js';
 import { gameIcon, gameBanner, gameModal } from './activity.js';
 import { isLightPair, styleName } from './themes.js';
@@ -30,7 +30,7 @@ export function profileCard(u, { nickname, roles = [], since, extra, top, accent
     h('div.pa', av),
     h('div.pb',
       h('h3', styleName(h('span', nickname || u.display_name), u.name_style)),
-      h('div.un', u.username + (u.status && u.status !== 'offline' ? ' • ' + STATUS_TXT[u.status] : '')),
+      h('div.un', u.username + (u.status && u.status !== 'offline' ? ' • ' + STATUS_TXT[u.status] : ''), platformIcons(u, 14)),
       (u.custom_status || emoji) && h('p.cstat', emoji && h('span', emoji + ' '), u.custom_status),
       playing(u.id),
       top,

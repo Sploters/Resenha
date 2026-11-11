@@ -759,3 +759,28 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 
 .e2-files { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 10px 14px; border-radius: 8px; background: var(--bg-sec); color: var(--text-muted); font-size: 14px; }
 .e2-files svg, .file.e2-file > svg { color: var(--green); }
+
+/* ---- horário que se ajusta para quem lê (<t:…>) ---- */
+.md-ts { background: var(--bg-mod-sel); border-radius: 3px; padding: 0 3px; cursor: help; white-space: nowrap; }
+.ts-modal input[type=datetime-local] { width: 100%; }
+.ts-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.ts-fmts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.ts-fmt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 6px; border: 2px solid transparent; background: var(--bg-sec); color: var(--text); cursor: pointer; min-width: 0; }
+.ts-fmt small { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .02em; font-weight: 700; }
+.ts-fmt b { color: var(--header); font-weight: 500; font-size: 14px; overflow-wrap: anywhere; }
+.ts-fmt:hover { background: var(--bg-mod-hover); } .ts-fmt.on { border-color: var(--brand); }
+.ts-foot { margin-top: 12px; font-size: 13px; color: var(--text-muted); } .ts-code { user-select: all; }
+
+/* ---- de onde a pessoa está conectada ---- */
+.plats { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; color: var(--text-muted); flex: none; vertical-align: -2px; }
+.plats .icon { opacity: .8; }
+.dmrow .plats { margin-left: 2px; }
+.pcard .un .plats { margin-left: 6px; }
+
+/* ---- resposta escolhida pelo teclado (Ctrl+↑/↓) ---- */
+.msg.qr-target { background: var(--mention-bg); box-shadow: inset 2px 0 0 var(--brand); }
+
+/* ---- amizades desfeitas (caixa de entrada → Pedidos) ---- */
+.ib-lost-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ib-lost-h .btn.link { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.ib-lost .ib-req-av { opacity: .75; }

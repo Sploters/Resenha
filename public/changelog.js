@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-11-4', title: 'Ideias que vieram dos mods',
+    items: [
+      { i: 'link', t: 'Links sem rastreio', d: 'Ao enviar ou editar, os links do YouTube, Spotify, Instagram, TikTok, X, Amazon, Mercado Livre, Shopee e outros perdem o que só serve para rastrear quem compartilhou (utm_, fbclid, si=…). O link abre a mesma coisa e o tempo do vídeo continua. Dá para desligar em Recursos extras.', try: 'extras' },
+      { i: 'clock', t: 'Horário que cada um vê no seu fuso', d: 'No + do campo de mensagem → Inserir horário: escolha o dia e a hora e o formato ("em 2 horas", "21:30", "quarta-feira, 11 de novembro…"). Cada pessoa vê no próprio horário e formato, e o relativo vai se atualizando sozinho.' },
+      { i: 'reply', t: 'Responder e editar mais rápido', d: 'Duplo clique na sua mensagem abre a edição; na de outra pessoa, começa a resposta. No campo, Ctrl + ↑ e Ctrl + ↓ escolhem a mensagem que você vai responder sem tirar a mão do teclado.' },
+      { i: 'globe', t: 'De onde cada um está', d: 'Ícones ao lado do nome mostram se a pessoa está no app do computador, no celular ou no navegador, na lista de membros, nas conversas e no perfil. Quem está invisível ou esconde a presença de você não mostra nada.' },
+      { i: 'users', t: 'Aviso de amizade desfeita', d: 'Quando alguém desfaz a amizade com você, aparece um aviso, mesmo que tenha sido com o app fechado. Os avisos ficam 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. E ser removido de um servidor agora sempre avisa qual foi.', try: 'requests' },
+    ],
+  },
+  {
     id: '2026-11-11-3', title: 'Conversas protegidas de ponta a ponta',
     items: [
       { i: 'lock', t: 'Criptografia de ponta a ponta nas conversas diretas', d: 'Ative em Privacidade e segurança com uma frase que só você sabe. Quando a outra pessoa também ativar, a conversa fica protegida: o que vocês mandam é cifrado no seu aparelho e só abre no seu e no dela, e o servidor guarda só dados embaralhados. O cadeado no topo da conversa mostra o número de segurança para vocês compararem e avisa se a chave da pessoa mudar.', try: 'privacy' },

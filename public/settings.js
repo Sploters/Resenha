@@ -1,4 +1,4 @@
-import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce } from './util.js';
+import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
 import { S, api, tryApi, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
@@ -104,7 +104,7 @@ const USER_GROUPS = [
   ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
-  ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
+  ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
 const NAV_ICONS = { storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
@@ -425,6 +425,10 @@ function appearancePage() {
     hint('Clique direito numa mensagem → Traduzir. No compositor, o botão de tradução converte o rascunho. O texto passa pelo servidor, que usa o tradutor configurado (LIBRETRANSLATE_URL ou Google).'));
 }
 // ============================ Recursos extras (inspirados em plugins) ============================
+function linkDemo() { // antes → depois da limpeza dos links
+  const ex = ['https://youtu.be/dQw4w9WgXcQ?si=Ab12Cd34&t=42', 'https://open.spotify.com/track/4uLU6hMC?si=9f8e7d6c5b', 'https://loja.com/produto?id=7&utm_source=insta&fbclid=IwAR0x'];
+  return h('div.chdemo', ex.map(u => h('div.chdemo-row', h('span.from', u), h('span.arrow', '→'), h('b', cleanLinks(u)))));
+}
 function extrasPage(ctx) {
   const P = S.prefs, set = (k, after) => (v) => { P[k] = v; save(); after?.(); };
   // nomes de canais: prévia ao vivo com exemplos
@@ -443,6 +447,17 @@ function extrasPage(ctx) {
   drawVols();
   return h('div', h('h2', 'Recursos extras'),
     hint('Recursos inspirados em plugins populares da comunidade, feitos do zero para a Resenha.'),
+    section('Mensagens'),
+    card(
+      row('Tirar rastreio dos links ao enviar', 'Remove de links do YouTube, Spotify, Instagram, TikTok, X, Amazon, Mercado Livre, Shopee e outros o que só serve para rastrear quem compartilhou (utm_, fbclid, si=…). O link continua abrindo a mesma coisa; o tempo do vídeo (t=) e a playlist ficam.', toggle(P.cleanLinks !== false, set('cleanLinks'))),
+      linkDemo(),
+      row('Duplo clique para editar ou responder', 'Duplo clique na sua mensagem abre a edição; na de outra pessoa, começa a resposta. Links, imagens, vídeos e reações continuam com o clique normal.', toggle(P.dblClickMsg !== false, set('dblClickMsg'))),
+      row('Ctrl + ↑ / ↓ para escolher a mensagem a responder', 'No campo de mensagem: Ctrl + ↑ sobe para a mensagem anterior, Ctrl + ↓ desce; passar da última cancela a resposta. Esc também cancela.', toggle(P.quickReply !== false, set('quickReply')))),
+    hint('Para marcar um horário que cada um vê no próprio fuso, use o + do campo de mensagem → Inserir horário (ou escreva <t:SEGUNDOS:R>).'),
+    section('Pessoas'),
+    card(
+      row('Mostrar de onde cada um está conectado', 'Ícones ao lado do nome na lista de membros, nas conversas e no perfil: app para computador, celular ou navegador. Quem aparece offline para você (invisível ou com a presença escondida) não mostra nada.', toggle(P.platformIcons !== false, set('platformIcons', () => document.dispatchEvent(new Event('prefs-changed-elsewhere'))))),
+      row('Avisar quando alguém desfizer a amizade', 'Mostra um aviso na hora e guarda por 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. Também vale se aconteceu com o app fechado.', toggle(P.friendLossNotice !== false, set('friendLossNotice')))),
     section('Visualizador de imagens'),
     card(
       toggleCards([
@@ -694,7 +709,7 @@ function notificationsPage() {
 const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS' };
 function keysPage() {
   const cap = (key, label, desktopKey) => captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs[key] || KEY_DEFAULTS[key], (c) => { S.prefs[key] = c; save(); if (desktop && desktopKey) desktop.setSettings({ [desktopKey]: comboToAccel(c) }); }, { combo: true });
-  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Esc', 'Cancelar resposta / fechar'], ['Shift + Enter', 'Quebra de linha']];
+  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Ctrl + ↑ / ↓', 'Escolher a mensagem a responder'], ['Esc', 'Cancelar resposta / fechar'], ['Shift + Enter', 'Quebra de linha']];
   return h('div', h('h2', 'Atalhos'),
     card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', cap('keyMute', '', 'hotkeyMute')),
       row('Ensurdecer / ativar áudio', null, cap('keyDeafen', '', 'hotkeyDeafen')),

@@ -7,7 +7,8 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl } from './util.js';
+import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
+import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
@@ -173,7 +174,7 @@ function connect() {
   ws.onopen = () => {
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
-    const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent });
+    const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent, kind: devKind() });
     lastActive = null; reportActive(); // conta para os outros aparelhos se este está em uso
     refreshDesktopVersion().then(v => { if (v !== sent) gwSend('CLIENT_INFO', { desktop: v }); });
   };
@@ -209,6 +210,7 @@ function onEvent(t, d) {
       for (const v of d.dm_voice || []) S.voice.set(v.user_id, v);
       for (const dm of d.dms) { S.dms.set(dm.id, dm); dm.recipients.forEach(u => S.users.set(u.id, u)); }
       for (const r of d.relationships) { S.rels.set(r.user.id, r); S.users.set(r.user.id, r.user); }
+      S.friendLosses = d.friend_losses || []; S.friendLosses.forEach(x => mergeUser(x.user)); noticeFriendLosses(S.friendLosses.filter(x => x.at > seenLoss()));
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
       if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: (speakOnly) => renderVoiceUI(speakOnly) });
@@ -270,7 +272,8 @@ function onEvent(t, d) {
       const g = S.guilds.get(d.id);
       if (g) for (const [uid, v] of S.voice) if (g.channels.some(c => c.id === v.channel_id)) { S.voice.delete(uid); if (uid === S.me.id) voice.leave(); }
       S.guilds.delete(d.id); renderRail();
-      if (S.view.gid === d.id) { if (d.kicked) toast('Você foi removido do servidor.', true); go('@me'); }
+      if (d.kicked) toast(g ? `Você foi removido do servidor ${g.name}.` : 'Você foi removido do servidor.', true); // avisa mesmo olhando outro lugar
+      if (S.view.gid === d.id) go('@me');
       break;
     }
     case 'CHANNEL_CREATE': { const g = guild(d.guild_id); if (g) { g.channels.push(d); g.channels.sort((a, b) => a.position - b.position); renderSide(); } break; }
@@ -289,12 +292,20 @@ function onEvent(t, d) {
     case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until, softmute_until: d.softmute_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); if (d.user_id === S.me.id && S.view.gid === d.guild_id) renderSoftmute(); } break; }
     case 'ROLE_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.roles.findIndex(r => r.id === d.role.id); if (i >= 0) g.roles[i] = d.role; else g.roles.push(d.role); g.roles.sort((a, b) => b.position - a.position); renderMembers(); } break; }
     case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
+    case 'FRIEND_LOST': {
+      mergeUser(d.user);
+      S.friendLosses = [d, ...(S.friendLosses || []).filter(x => x.user.id !== d.user.id)];
+      noticeFriendLosses([d]); refreshInboxRequests();
+      break;
+    }
+    case 'FRIEND_LOSSES': { S.friendLosses = d.list || []; S.friendLosses.forEach(x => mergeUser(x.user)); refreshInboxRequests(); break; }
     case 'RELATIONSHIP': {
       mergeUser(d.user);
       if (!d.type) S.rels.delete(d.user.id); else S.rels.set(d.user.id, d);
       if (d.type === 3) { toast(`${d.user.display_name} enviou um pedido de amizade`); if (alertAllowed('dm')) playSound('friend'); }
       renderRail(); updateTitle(); if (S.view.kind === 'home') { renderMain(); renderSide(); }
-      if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); // caixa de entrada aberta em Pedidos: atualiza
+      if (d.type === 1 && S.friendLosses?.some(x => x.user.id === d.user.id)) S.friendLosses = S.friendLosses.filter(x => x.user.id !== d.user.id); // voltaram a ser amigos
+      refreshInboxRequests(); // caixa de entrada aberta em Pedidos: atualiza
       break;
     }
     case 'VOICE_STATE': {
@@ -383,7 +394,7 @@ function onEvent(t, d) {
 
 // perfil vindo de mensagens, cartões e listas: o status de verdade só chega por presença (READY e USER_UPDATE). Quem escolheu
 // esconder a presença vai como offline nesses dados genéricos; quem pode ver não perde o status certo que já tem.
-const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status } : u); };
+const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status, platforms: old.platforms ?? u.platforms } : u); };
 const detached = new Set(); // canais em que estou vendo o início do histórico (sem as mensagens recentes)
 function onMessage(m) {
   const list = S.messages.get(m.channel_id), gap = detached.has(m.channel_id);
@@ -973,7 +984,7 @@ const shortWhen = (t) => { if (!t) return ''; const d = new Date(+t), now = new 
 function dmRow(dm, pin) {
   const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id];
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
-    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), un > 0 && h('span.pill', un),
+    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), platformIcons(u, 13), un > 0 && h('span.pill', un),
     pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 22)));
 }
 // tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
@@ -984,7 +995,7 @@ function messagesHome() {
   if (!dms.length) return h('div.empty.msgs-empty', { style: { margin: 'auto' } }, icon('dm', 56), h('h2', 'Suas mensagens'), h('p', 'Converse em particular com seus amigos.'), newBtn);
   const preview = (dm) => {
     const lm = dm.last_message; if (!lm) return 'Nenhuma mensagem ainda';
-    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = (lm.content || '').replace(/\s+/g, ' ').trim();
+    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = plainTs(lm.content || '').replace(/\s+/g, ' ').trim();
     return who + (txt || (lm.attachment ? 'Anexo' : '…'));
   };
   const card = (dm) => {
@@ -1160,6 +1171,7 @@ const newsActions = {
   appearance: () => openSettings('appearance', ctxSettings()),
   storage: () => openSettings('storage', ctxSettings()),
   lite: () => openSettings('lite', ctxSettings()),
+  extras: () => openSettings('extras', ctxSettings()),
   stream: () => openSettings('stream', ctxSettings()),
   poll: () => { const ch = channelById(S.view.cid); if (ch && $('#composer')) pollModal(ch); else toast('Abra um chat e use o + do campo de mensagem → "Criar enquete".'); },
   settings: () => openSettings('news', ctxSettings()),
@@ -1642,11 +1654,11 @@ function msgEl(m, prev) {
   if (flaggedMap.has(m.id) && !m._show) return h('div.msg.flagged', { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) }, icon('shield', 16),
     h('span', `Você marcou esta mensagem de ${nameOf(m.author_id, gid)} como ${flaggedMap.get(m.id) === 'spam' ? 'spam' : 'ofensiva'}. `),
     h('button.btn.link.sm', { onclick: () => { m._show = true; refreshMsg(m); } }, 'Mostrar'));
-  const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) });
+  const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : '') + (S.replyTo?.id === m.id ? '.qr-target' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m), ondblclick: (e) => msgDblClick(e, m) });
   if (!grouped) el.append(h('div.av', { onclick: (e) => profile(e.currentTarget, m.author_id, gid) }, avatar(a, 40, { status: false })));
   else el.append(h('div.time-s', clock(m.created_at)));
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
-    m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', inviteText(themeText(m.reply.content)) || 'Clique para ver o anexo')]));
+    m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', plainTs(inviteText(themeText(m.reply.content))) || 'Clique para ver o anexo')]));
   if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
@@ -1764,9 +1776,10 @@ function shareThemePicker(ch) {
 }
 function plusMenu(e, ch, fileIn) {
   const r = e.currentTarget.getBoundingClientRect();
-  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 118 }, [
+  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 157 }, [
     { label: 'Enviar arquivo', fn: () => fileIn.click() },
     { label: 'Criar enquete', fn: () => pollModal(ch) },
+    { label: 'Inserir horário', fn: () => { const ta = $('#composer textarea'); if (ta) timestampModal(ta); } },
     { label: 'Compartilhar tema', fn: () => shareThemePicker(ch) },
   ]);
 }
@@ -1935,10 +1948,32 @@ function refreshMsg(m) {
 const react = (m, emoji, add) => tryApi(add ? 'PUT' : 'DELETE', `/channels/${m.channel_id}/messages/${m.id}/reactions/${encodeURIComponent(emoji)}`);
 async function saveEdit(m, text) {
   if (!text.trim()) return;
+  if (S.prefs.cleanLinks !== false) text = cleanLinks(text);
   S.editing = null; if (text !== m.content) await tryApi('PATCH', `/channels/${m.channel_id}/messages/${m.id}`, { content: text });
   renderMessages(true);
 }
 function setReply(m) { S.replyTo = m; renderReplyBar(); $('#composer textarea')?.focus(); }
+// Ctrl+↑ / Ctrl+↓ no campo: escolhe a mensagem a responder sem tirar a mão do teclado (passar da última cancela)
+function quickReply(ch, dir) {
+  const list = (S.messages.get(ch.id) || []).filter(m => m.type !== 1 && !String(m.id).startsWith('tmp-') && m.channel_id === ch.id);
+  if (!list.length) return;
+  const cur = S.replyTo ? list.findIndex(x => x.id === S.replyTo.id) : -1;
+  const n = (cur < 0 ? list.length : cur) + dir;
+  document.querySelectorAll('#msgs .msg.qr-target').forEach(x => x.classList.remove('qr-target'));
+  if (n >= list.length) { S.replyTo = null; renderReplyBar(); return; }
+  const m = list[Math.max(0, n)]; setReply(m);
+  const el = document.querySelector(`#msgs [data-mid="${m.id}"]`);
+  if (el) { el.classList.add('qr-target'); el.scrollIntoView({ block: 'nearest' }); }
+}
+// duplo clique numa mensagem: a sua abre a edição, a dos outros vira resposta (links, mídia, botões e reações ficam de fora)
+function msgDblClick(e, m) {
+  if (S.prefs.dblClickMsg === false || String(m.id).startsWith('tmp-') || typeof m.e2ee === 'string') return;
+  if (e.target.closest('a, button, img, video, audio, canvas, textarea, input, select, .reactions, .react, .spoiler, .fsvid, .mention, .author, .av, .reply-ref, .md-pre, .md-code, .edit-box, [contenteditable]')) return;
+  if (S.editing === m.id) return;
+  getSelection()?.removeAllRanges(); // o duplo clique selecionava uma palavra
+  if (m.author_id === S.me.id && m.content) { S.editing = m.id; renderMessages(true); }
+  else if ($('#composer textarea')) setReply(m);
+}
 async function jumpTo(mid) {
   let el = document.querySelector(`[data-mid="${mid}"]`);
   if (!el) {
@@ -2102,6 +2137,33 @@ async function showInbox(e) {
 const reqWhen = (t) => { if (!t) return 'data desconhecida'; const d = new Date(t), min = (Date.now() - t) / 60000;
   const rel = min < 1 ? 'agora' : min < 60 ? `há ${Math.floor(min)} min` : min < 1440 ? `há ${Math.floor(min / 60)} h` : min < 2880 ? 'ontem' : `há ${Math.floor(min / 1440)} dias`;
   return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${rel}`; };
+// amizade desfeita pelo outro lado: aviso na hora (ou na próxima abertura, se aconteceu com o app fechado) e lista em Pedidos
+const LOSS_SEEN = 'lc_fl_seen';
+const seenLoss = () => { try { return +localStorage.getItem(LOSS_SEEN + ':' + S.me.id) || 0; } catch { return 0; } };
+function noticeFriendLosses(list) {
+  if (!list.length) return;
+  try { localStorage.setItem(LOSS_SEEN + ':' + S.me.id, String(Math.max(seenLoss(), ...list.map(x => x.at)))); } catch { }
+  if (S.prefs.friendLossNotice === false) return;
+  const names = list.map(x => user(x.user.id).display_name);
+  toast(names.length === 1 ? `${names[0]} desfez a amizade com você` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ` e mais ${names.length - 2}` : ''} desfizeram a amizade com você`);
+}
+function refreshInboxRequests() { if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); }
+function friendLossRows(redraw) {
+  const list = S.prefs.friendLossNotice === false ? [] : (S.friendLosses || []);
+  if (!list.length) return [];
+  const row = (x) => {
+    const u = user(x.user.id), rt = S.rels.get(u.id)?.type;
+    return h('div.ib-req.ib-lost', { 'data-uid': u.id },
+      h('div.ib-req-av', { onclick: (e) => profile(e.currentTarget, u.id) }, avatar(u, 40, { status: false })),
+      h('div.ib-req-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id) }, u.display_name), h('small', '@' + u.username),
+        h('small.ib-req-d', icon('clock', 12), 'Desfez a amizade ' + reqWhen(x.at).replace(/^(\d)/, 'em $1'))),
+      h('div.ib-req-b',
+        !rt && h('button.btn.grey.sm', { title: 'Mandar pedido de amizade de novo', onclick: (e) => busy(e.currentTarget, tryApi('POST', '/relationships', { username: u.username }).then(() => toast('Pedido enviado'))) }, 'Mandar pedido'),
+        rt === 4 && h('small.mut', 'Pedido enviado'),
+        h('button.ib-btn', { title: 'Dispensar', 'aria-label': 'Dispensar aviso', onclick: (e) => busy(e.currentTarget, tryApi('DELETE', `/friend-losses/${u.id}`).then(() => setTimeout(redraw, 150))) }, icon('x', 16))));
+  };
+  return [h('div.ib-req-h.ib-lost-h', h('span', `Desfizeram a amizade — ${list.length}`), h('button.btn.link.sm', { onclick: () => tryApi('DELETE', '/friend-losses').then(() => setTimeout(redraw, 150)) }, 'Dispensar todos')), ...list.map(row)];
+}
 function friendRequests(redraw, empty) {
   const byNew = (a, b) => (b.since || 0) - (a.since || 0);
   const inc = [...S.rels.values()].filter(r => r.type === 3).sort(byNew), out = [...S.rels.values()].filter(r => r.type === 4).sort(byNew);
@@ -2119,10 +2181,12 @@ function friendRequests(redraw, empty) {
         h('button.ib-btn', { title: 'Mais', onclick: (e) => menu(e, [{ label: 'Mandar mensagem', fn: () => { closeFloating(); openDM(u.id); } }, { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${u.id}`, { type: 2 }).then(redraw) }]) }, icon('more', 16)))
         : h('div.ib-req-b', h('button.btn.grey.sm', { onclick: (e) => act(e.currentTarget, tryApi('DELETE', `/relationships/${u.id}`)) }, 'Cancelar')));
   };
-  if (!inc.length && !out.length) return [empty('Nenhum pedido', 'Os pedidos de amizade que você receber aparecem aqui, com a data de cada um.')];
+  const lost = friendLossRows(redraw);
+  if (!inc.length && !out.length) return lost.length ? lost : [empty('Nenhum pedido', 'Os pedidos de amizade que você receber aparecem aqui, com a data de cada um.')];
   return [
     h('div.ib-req-h', `Recebidos — ${inc.length}`), ...(inc.length ? inc.map(r => row(r, true)) : [h('div.ib-req-none', 'Nenhum pedido recebido esperando resposta.')]),
     out.length > 0 && h('div.ib-req-h', `Enviados — ${out.length}`), ...out.map(r => row(r, false)),
+    ...lost,
   ].filter(Boolean);
 }
 function closeResults() { $('#results')?.remove(); markResultBtns(); }
@@ -2151,6 +2215,7 @@ function composer(ch, label) {
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(ta, ch); setTimeout(grow); }
     else if (e.key === 'Escape') { if (ac) ac.remove(); else if (S.replyTo) { S.replyTo = null; renderReplyBar(); } }
+    else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && S.prefs.quickReply !== false) { e.preventDefault(); quickReply(ch, e.key === 'ArrowUp' ? -1 : 1); }
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
   });
   // GIF, emoji e gravar voz num botão só: abre uma fileira com os três ícones (o nome aparece ao passar o mouse)
@@ -2193,6 +2258,7 @@ function composer(ch, label) {
 }
 function renderReplyBar() {
   const bar = $('#reply-bar'); if (!bar) return;
+  document.querySelectorAll('#msgs .msg.qr-target').forEach(x => { if (x.dataset.mid !== S.replyTo?.id) x.classList.remove('qr-target'); });
   if (!S.replyTo) return bar.classList.add('hidden');
   bar.classList.remove('hidden'); bar.replaceChildren(h('span', 'Respondendo a ', h('b', nameOf(S.replyTo.author_id, channelById(S.replyTo.channel_id)?.guild_id))), h('button.ibtn', { style: { width: '20px', height: '20px' }, onclick: () => { S.replyTo = null; renderReplyBar(); } }, icon('x', 14)));
 }
@@ -2276,6 +2342,7 @@ async function sendMsg(ta, ch) {
   if (S.pending.some(p => p.state === 'up')) return toast('Aguarde o envio dos anexos…');
   if (!content.trim() && !atts.length) return;
   const typed = content; content = resolveMentions(ta, content);
+  if (S.prefs.cleanLinks !== false) content = cleanLinks(content); // tira utm_*, fbclid, si=… dos links
   if (/^\$[a-z]{2,3}(-[A-Z]{2})?\s/.test(content)) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
@@ -2357,7 +2424,7 @@ function renderMembers() {
     const vc = !offline && inVoice(u.id);
     return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
       avatar(u, 32, { ring: 'var(--bg-sec)' }),
-      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12))), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
+      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
       vc && h('span.mem-vc', { title: 'Em chamada: ' + chName(vc) }, icon('voice', 14)));
   };
   const head = (k, name, color, list) => {
