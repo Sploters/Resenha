@@ -440,19 +440,30 @@ app.get('/api/me/settings', auth, wrap((req, res) => {
   res.json({ settings: u.settings ? JSON.parse(u.settings) : {}, friend_policy: u.friend_policy || 'all', privacy: privacy.of(req.uid) });
 }));
 app.put('/api/me/settings', auth, wrap((req, res) => {
-  if (req.body.settings !== undefined) {
-    const s = JSON.stringify(req.body.settings || {}); if (s.length > 100000) return bad(res, 'Configurações muito grandes');
+  // `patch` (+ `removed`): só o que mudou neste aparelho, juntado ao que a conta já tem. Antes cada aparelho mandava as
+  // preferências inteiras e o último a enviar desfazia o que o outro tinha acabado de mudar (tema num, ordem das
+  // conversas no outro: um dos dois sumia). `settings` (inteiras) continua valendo para app antigo.
+  let merged = null;
+  const isObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
+  if (isObj(req.body.patch) || Array.isArray(req.body.removed)) {
+    const u = getUser(req.uid); let cur = {}; try { cur = JSON.parse(u.settings || '{}') || {}; } catch { }
+    for (const [k, v] of Object.entries(isObj(req.body.patch) ? req.body.patch : {})) if (k !== '__proto__') cur[k] = v;
+    for (const k of (Array.isArray(req.body.removed) ? req.body.removed : []).slice(0, 500)) if (typeof k === 'string') delete cur[k];
+    merged = cur;
+  } else if (req.body.settings !== undefined) merged = isObj(req.body.settings) ? req.body.settings : {};
+  if (merged) {
+    const s = JSON.stringify(merged); if (s.length > 100000) return bad(res, 'Configurações muito grandes');
     run('UPDATE users SET settings=? WHERE id=?', s, req.uid);
-    dispatch([req.uid], 'SETTINGS_UPDATE', { settings: req.body.settings || {}, tab: req.get('x-lc-tab') || null }); // os outros aparelhos aplicam na hora
+    dispatch([req.uid], 'SETTINGS_UPDATE', { settings: merged, tab: req.get('x-lc-tab') || null }); // os outros aparelhos aplicam na hora
   }
   if (['all', 'none'].includes(req.body.friend_policy)) run('UPDATE users SET friend_policy=? WHERE id=?', req.body.friend_policy, req.uid);
   if (req.body.privacy && typeof req.body.privacy === 'object') {
     const before = privacy.of(req.uid), p = cleanPrivacy(req.body.privacy, before);
     run('UPDATE users SET privacy=? WHERE id=?', JSON.stringify(p), req.uid); privacy.set(req.uid, p); userCache.delete(req.uid);
     if (JSON.stringify(before.presence) !== JSON.stringify(p.presence)) { broadcastPresence(req.uid); activity.onPresencePrivacy(req.uid); } // quem deixou de poder ver passa a ver offline na hora
-    return res.json({ privacy: p });
+    return res.json({ privacy: p, ...(merged ? { settings: merged } : {}) });
   }
-  res.json({});
+  res.json(merged ? { settings: merged } : {});
 }));
 app.get('/api/sessions', auth, wrap((req, res) => {
   res.json(all('SELECT token,created_at,agent FROM sessions WHERE user_id=? ORDER BY created_at DESC', req.uid).map(s => ({ id: sid(s.token), created_at: s.created_at, agent: s.agent || '', current: s.token === req.token })));

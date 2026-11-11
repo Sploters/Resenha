@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const PORT = 3222, BASE = `http://localhost:${PORT}`, SHOTS = '.testshots';
-const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
 fs.rmSync('.testdata2', { recursive: true, force: true });
 fs.mkdirSync(SHOTS, { recursive: true });
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata2' }, stdio: 'ignore' });

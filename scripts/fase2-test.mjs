@@ -1,10 +1,11 @@
 // Teste da Fase 2 (Watch) contra um servidor real (ex.: Umbrel): 2 usuários em Edge headless, sala de voz, transmissão simulada
 // (canvas animado no lugar do getDisplayMedia, sem capturar a tela de ninguém). Uso:
-//   API=http://IP-DA-VPN:3000 UI=https://IP-DA-VPN:3443 node scripts/fase2-test.mjs
+//   API=http://IP-DA-VPN:3000 UI=https://IP-DA-VPN:3443 node scripts/fase2-test.mjs  (sem API: sobe um servidor local próprio)
+import { ownServer } from './test-server.mjs';
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
-const API = process.env.API || 'http://localhost:3000', UI = process.env.UI || API;
-const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const API = process.env.API || await ownServer('fase2', 3323, 41140), UI = process.env.UI || API;
+const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
 const OUT = process.env.OUT || '.testshots/fase2-test.json';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const results = { checks: [], load: [], notes: {} };
@@ -35,6 +36,9 @@ async function session(name, token) {
   return page;
 }
 const clickText = (page, sel, rx) => page.evaluate((sel, rx) => { const el = [...document.querySelectorAll(sel)].find(e => new RegExp(rx).test(e.textContent)); if (!el) return false; el.click(); return true; }, sel, rx);
+// ações da transmissão ficam no menu "Mais opções" do quadro (qualidade, destacar para todos...)
+const tileMenu = async (page, rx) => { const opened = await page.evaluate(() => { const b = document.querySelector('#stage .tile.screen .sctl button[title="Mais opções"]'); if (!b) return false; b.click(); return true; }); if (!opened) return false; await sleep(150);
+  return page.evaluate((rx) => { const it = [...document.querySelectorAll('.menu .it')].find(e => new RegExp(rx).test(e.textContent)); if (!it) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return false; } it.click(); return true; }, rx); };
 const clickTitle = (page, rx) => page.evaluate((rx) => { const el = [...document.querySelectorAll('button')].find(e => new RegExp(rx).test(e.title)); if (!el) return false; el.click(); return true; }, rx);
 // painel de layout (botão no topo do palco): abre, escolhe a miniatura pelo nome e fecha
 const openLayout = async (page) => { if (!(await page.evaluate(() => !!document.querySelector('.layoutpop')))) { await page.evaluate(() => document.getElementById('vc-layout')?.click()); await sleep(200); } };
@@ -106,7 +110,7 @@ try {
   await setLayout(B, 'Autom');
 
   // ---------- 3. painel de qualidade ----------
-  ok(await clickTitle(B, '^Qualidade desta transmissão'), 'botão do painel de qualidade existe'); await sleep(3500);
+  ok(await tileMenu(B, '^Qualidade desta transmissão'), 'item do painel de qualidade no menu da transmissão'); await sleep(3500);
   const panel = await B.evaluate(() => document.querySelector('.qstats .qs-body')?.textContent || '');
   ok(/FPS recebidos/.test(panel) && /\d+×\d+/.test(panel) && /Conexão/.test(panel) && /Áudio da transmissão/.test(panel), 'painel mostra resolução, FPS, conexão e áudio', panel);
   await clickText(B, '.qstats .qs-layer', '^Baixa$'); await sleep(4500);
@@ -114,7 +118,7 @@ try {
   await clickText(B, '.qstats .qs-layer', '^Alta$'); await sleep(4500);
   const high = await recvSnap(B, aid); ok(high && high.w >= 1280, 'camada Alta: recepção volta para 1280x720', high);
   await clickText(B, '.qstats .qs-layer', '^Auto$'); await sleep(500);
-  await clickTitle(B, '^Qualidade desta transmissão'); await sleep(1500);
+  await tileMenu(B, '^Esconder a qualidade'); await sleep(1500);
   ok(await B.evaluate(() => !document.querySelector('.qstats')), 'painel fecha');
 
   // ---------- 4. pausa automática fora da tela ----------
@@ -142,7 +146,7 @@ try {
   await setLayout(B, 'Autom'); await B.evaluate(() => { window.__lc.S.focus = null; window.__lc.go(window.__lc.S.view.gid, window.__lc.S.view.cid); }); await sleep(2500);
 
   // ---------- 5. destaque para todos ----------
-  const spotBtn = (page) => clickTitle(page, '^(Destacar para todos|Parar de destacar)');
+  const spotBtn = (page) => tileMenu(page, '^(Destacar para todos|Parar de destacar)');
   await B.evaluate(() => { window.__lc.S.focus = null; window.__lc.renderVoiceUI?.(); });
   await A.evaluate(() => { const k = 's:' + window.__lc.S.me.id; window.__lc.S.ctlKey = k; }); await spotBtn(A); await sleep(1500);
   const s1 = { a: await A.evaluate(() => window.__lc.S.room?.spot), b: await B.evaluate(() => ({ spot: window.__lc.S.room?.spot, focus: window.__lc.S.focus })) };

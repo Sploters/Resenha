@@ -78,7 +78,8 @@ try {
   ok(await p.evaluate(() => window.__lc.S.prefs.gate === true && window.__lc.S.prefs.gateDb === -38), 'ao abrir de novo, a mudança feita antes de fechar continua (não volta ao que estava na conta)');
   const srvS = (await call(a.tok, 'GET', '/me/settings')).settings;
   ok(srvS.gate === true && srvS.gateDb === -38, '…e vai para a conta (os outros aparelhos recebem)', { gate: srvS.gate, gateDb: srvS.gateDb });
-  ok(await p.evaluate(() => !localStorage.getItem('lc_prefs_dirty')), 'enviada: a marca de "pendente" some');
+  // a marca só some quando não sobra nada por enviar (o app ainda grava ajustes logo depois de abrir: espera o envio seguinte)
+  ok(await p.waitForFunction(() => !localStorage.getItem('lc_prefs_dirty'), { timeout: 5000 }).then(() => true, () => false), 'enviada: a marca de "pendente" some');
   // fechar a página logo depois de mudar: o envio sai mesmo assim (pedido que sobrevive ao fechamento)
   await p.evaluate(async () => { const st = await window.__lc.import('state.js'); window.__lc.S.prefs.gateDb = -30; st.savePrefs(); });
   await p.goto('about:blank'); await sleep(800);

@@ -10,10 +10,19 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       não mostram status) nem a lista de canais do servidor; ordenação com o cargo calculado uma vez e `Intl.Collator`;
       linha de membro guardada enquanto o que ela mostra não muda; `morph()`/`place()` (`util.js`) atualizam a lista
       no lugar (rolagem e fotos ficam). A lista atualizada aos pedaços sai idêntica a uma montada do zero.
-- [ ] Discover: atualizar só a seção que chegou, em vez da página inteira.
+- [x] ★ **Discover: atualizar só a seção que chegou** (2026-11-11, `public/discover.js`). Cada seção do Início é montada
+      sozinha (`SECS`); a resposta de uma fonte troca só a seção dela e o "Para você" (que junta todas), e "Ver tudo/Ver
+      menos" troca só a própria seção. O resto — cartões, imagens e a rolagem dos carrosséis — fica como está (antes as 6
+      respostas remontavam a página inteira, uma por vez). Junto: um comentário engolia metade do código do "Para você",
+      que só juntava promoções e torneios (Steam, lançamentos e notícias nunca entravam). `discover-test` confere que só
+      a seção muda e a rolagem do carrossel fica.
 - [ ] Listas longas que desenham só o que está na tela. **Feito em parte** (2026-11-11, junto com os dados grandes): lista de
       membros aos pedaços (200 por grupo, +300 ao rolar até o fim ou no "Mostrar mais") e categorias da lateral montadas
-      quando chegam perto da tela. Faltam: conversas diretas (500 levam ~100 ms para abrir), busca e histórico.
+      quando chegam perto da tela. **Conversas diretas** (2026-11-11): as 60 primeiras saem montadas, o resto vira um
+      espaço do mesmo tamanho e monta 200 por vez chegando perto (a conversa aberta aparece sempre). Abrir as 500
+      (`perf-big`): linhas montadas **500 → 60**, maior tarefa **68 → 0 ms**. Achado junto: a rolagem da lista de canais de
+      um servidor era aplicada à lista de conversas (e ao fim dela, montando todas); agora cada lista guarda a sua.
+      Faltam: busca e histórico.
 - [ ] CSS: medir regras sem uso e seletores caros (`:has`, desfoque, sombras grandes, `backdrop-filter`); ~370 KB hoje.
 - [x] ★ **Imagens no tamanho certo** (2026-11-11). As fotos enviadas já passavam pelo `imgUrl` (WebP do tamanho do quadro,
       `server/thumbs.js`); faltavam os 12 avatares padrão (554–1024 px, a foto de toda conta nova) e alguns lugares que
@@ -127,7 +136,15 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       mostrava a resposta velha; (4) busca do canal, grupo da busca global e cartão de perfil (clicar em A e logo em B):
       a resposta mais lenta cobria a mais nova; (5) páginas do histórico chegando depois de trocar de canal. A → B → A
       rápido já funcionava (o `api()` junta pedidos iguais em andamento). A versão anterior falha em 4 dos 8 testes.
-- [ ] Conflitos: dois aparelhos/abas da mesma conta ao mesmo tempo.
+- [x] ★ **Conflitos: dois aparelhos/abas da mesma conta** (2026-11-11, `scripts/conflict-test.mjs`). Achado: as
+      preferências iam inteiras para a conta, então o último aparelho a enviar desfazia o que o outro tinha acabado de
+      mudar, e a mudança ainda não enviada (o envio espera 1,2 s) era sobrescrita pela que chegava do outro aparelho — e
+      depois enviada de volta com o valor velho (tema mudado num aparelho sumia). Agora cada um manda só o que mudou desde a
+      última versão da conta que conhece (`patch`/`removed`, guardada no aparelho por conta) e o servidor junta; o que chega
+      de outro aparelho é juntado em 3 vias (o pendente daqui fica). App antigo, que manda tudo, continua funcionando. O
+      teste cobre: mudanças quase juntas, mesma chave nos dois, pendente quando chega a do outro, recarregar com envio
+      pendente, duas abas do mesmo navegador, lido num aparelho tirando a não lida no outro e mensagens enviadas juntas.
+      A versão anterior falha no caso do pendente.
 - [x] ★ **Abuso: mensagens gigantes e expressões que travam** (2026-11-11, `scripts/abuse-regex-test.mjs`; inundação
       pelo gateway já estava no limite por conexão, acima). Cada função que lê o texto da mensagem (markdown, `cleanLinks`,
       convites, chamadas, clipes, horários, temas, GIF, links de vídeo, "só emoji") recebe ~45 textos de 4.000 caracteres
@@ -140,6 +157,17 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       envio) → quem não modera notifica 1 vez a cada 5 min por servidor (a mensagem vai normalmente; só não notifica de
       novo); a caixa de entrada é gravada numa transação.
 - [ ] Celular/navegador: aba congelada ou descartada voltando; voltar/avançar do navegador.
-- [ ] Orçamento de desempenho: comparar o JSON do `perf-audit`/`perf-stress` com limites a cada mudança.
-- [ ] Consertar testes quebrados: `mic-rebuild-test` (botão que mudou de nome), lista de microfones do `ui-test`,
-      `discover-test` (lançamentos), e `e2e`/`features`/`fase2`, que esperam um servidor na porta 3000.
+- [x] ★ **Orçamento de desempenho** (2026-11-11, `scripts/perf-budget.mjs` + `scripts/perf-budget.json`). Lê o JSON do
+      `perf-audit`, `perf-stress` ou `perf-big` (reconhece pelo nome), compara com os limites de cada item (máximo, mínimo,
+      igual, ou quanto um par [antes, depois] pode crescer) e, com `--base <anterior.json>`, aponta o que piorou mais que
+      20% e mais que 20% do limite do item (números pequenos oscilam). Sai com código 1 se algo estourou ou piorou.
+      Ex.: `npm run perf:budget -- scripts/perf-big-depois.json --base scripts/perf-big-antes.json`. Limites folgados
+      (máquinas diferentes); o `--base` na mesma máquina é o que pega regressão. Medidas de tempo do `perf-big` oscilam
+      ~±50% entre rodadas idênticas nesta máquina: na dúvida, rode de novo antes de procurar culpado.
+- [x] ★ **Testes quebrados consertados** (2026-11-11). `mic-rebuild-test`: as configurações abrem aos poucos (esperar o
+      botão) e os cartões de ruído viraram `.choice`. `discover-test`: os cartões do carrossel fora da tela têm
+      `content-visibility` (o `innerText` vinha vazio → `textContent`) e "Hoje/Amanhã" dependia do relógio (perto da
+      meia-noite o torneio de daqui a 3 h caía amanhã → o navegador roda num fuso onde é meio-dia). `fase2-test`: qualidade e
+      "Destacar para todos" foram para o menu "Mais opções" do quadro. `e2e`, `features` e `fase2` sobem um servidor
+      próprio (`scripts/test-server.mjs`) quando não há `BASE`/`API`. O `ui-test` já passava com o Chromium. Navegador
+      padrão dos testes fora do Windows: o Chromium pré-instalado.

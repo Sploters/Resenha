@@ -9,7 +9,7 @@ import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -256,7 +256,10 @@ function onEvent(t, d) {
         resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
         S.friendPolicy = r.friend_policy; S.privacy = r.privacy || {};
         // mudança feita aqui que não chegou à conta (o app fechou/atualizou antes de enviar): vale a daqui, e vai para a conta agora
+        // com a versão da conta que este aparelho conhecia (base): junta as duas (o que mudou lá entra, o pendente daqui fica)
+        if (prefsBase() && Object.keys(r.settings || {}).length) { mergeRemote(r.settings); S.synced = true; if (prefsDirty()) pushPrefsNow(); applyTheme(); migrateClipKey(); maybeShowNews(); renderSide(); return; }
         if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; pushPrefsNow(); applyTheme(); migrateClipKey(); maybeShowNews(); renderSide(); return; }
+        setPrefsBase(r.settings || {});
         const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
         const local = { ...S.prefs }; Object.assign(S.prefs, r.settings || {}, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k]; relite(r.settings || {}, local); S.synced = true;
         localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); applyTheme();
@@ -469,16 +472,17 @@ function onReadState(d) {
   renderRail(); renderSide(); updateTitle();
 }
 // configurações mudadas em outro aparelho: aplica aqui sem recarregar (menos as que são só desta máquina)
+// outro aparelho/aba mudou ajustes: junta com os daqui (mergeRemote), sem perder o que ainda não foi enviado daqui
 function onSettingsSync(d) {
   if (!d.settings || (d.tab && d.tab === tabId)) return;
-  const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
-  const local = { ...S.prefs };
-  Object.assign(S.prefs, d.settings, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k];
-  relite(d.settings, local);
-  try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch { }
+  if (!S.synced) return; // ainda carregando: o GET /me/settings do início já traz a versão mais nova
+  if (mergeRemote(d.settings)) prefsChanged();
+}
+function prefsChanged() {
   applyTheme(); renderRail(); renderSide(); renderMembers();
   if (S.searchOpen && !GS.q) renderGS();
 }
+S.onPrefsMerged = prefsChanged; // a resposta do envio trouxe mudanças de outro aparelho
 // modo foco ligado/desligado (e o fim do horário escolhido): atualiza o selo na barra do perfil
 document.addEventListener('focus-mode', () => { if (ready) renderSide(); });
 setInterval(() => { const f = S.prefs.focusUntil; if (typeof f === 'number' && f <= Date.now()) { delete S.prefs.focusUntil; savePrefs(); if (ready) { renderSide(); toast('Modo foco terminou: os servidores voltaram a avisar'); } } }, 30000);
@@ -914,7 +918,6 @@ const chIcon = (c) => icon(c.type === 2 ? 'voice' : 'hash', 20);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
-  const keepScroll = sideScroll; // guardada pelo evento de scroll: ler scrollTop aqui forçava layout
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inMessages()) {
@@ -931,7 +934,7 @@ function renderSide() {
     list = h('div#side-list.dmlist', tools,
       dmFind.open && h('label.dm-q', icon('search', 14), h('input#dm-q', { type: 'search', placeholder: 'Buscar por nome', value: dmFind.q, oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120), onkeydown: (e) => { if (e.key === 'Escape') { dmFind.open = false; dmFind.q = ''; renderSide(); } } })),
       pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Fixadas'), ...pinned.map(d => dmRow(d, true)),
-      rest.length > 0 && pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Conversas'), ...rest.map(d => dmRow(d, false)),
+      rest.length > 0 && pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Conversas'), ...dmRest(rest),
       !all.length && h('div.dm-empty', q ? 'Nenhuma conversa com esse nome' : [h('p', 'Nenhuma conversa ainda'), h('button.btn', { onclick: () => newMessageModal() }, 'Nova mensagem')]));
   } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // seção Amigos: lista de amigos, procurar jogadores e descobrir (quem está online fica na página e no "Ativo agora")
@@ -979,18 +982,23 @@ function renderSide() {
   if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
     // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
     morph(oldHead, head); list = morph(oldList, list); oldArea.replaceWith(area);
+    if (sideScroll.last !== sideKey()) list.scrollTop = sideScroll.get(sideKey()) || 0; // outra lista (servidor ↔ conversas)
   } else {
     side.replaceChildren(head, list, area);
-    if (keepScroll) list.scrollTop = keepScroll;
+    // rolagem guardada pelo evento de scroll (ler scrollTop aqui forçava layout), uma por lista: antes a rolagem da lista
+    // de canais de um servidor era aplicada à lista de conversas (e ao fim dela, montando as 500 de uma vez)
+    const keep = sideScroll.get(sideKey()); if (keep) list.scrollTop = keep;
   }
   catObs.disconnect(); list.querySelectorAll('.cat-lazy').forEach(el => catObs.observe(el));
-  if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true }); }
+  dmObs.disconnect(); const dmPad = list.querySelector('.dm-lazy'); if (dmPad) dmObs.observe(dmPad);
+  sideScroll.last = sideKey();
+  if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll.set(sideKey(), list.scrollTop); }, { passive: true }); }
   // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
   uaObs.disconnect(); uaObs.observe(area);
   syncView();
 }
-let sideScroll = 0;
+const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : inMessages() ? '@msgs' : '@me');
 // servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
 // outras viram um espaço do mesmo tamanho e são montadas quando chegam perto da tela (e ficam montadas). Antes cada
 // renderSide montava as 1.000 linhas (~45 ms; scripts/perf-big.mjs)
@@ -1028,6 +1036,19 @@ function dmSortMenu(e) {
 }
 // hora curta da última mensagem: "14:05" hoje, "ontem", "12/03"
 const shortWhen = (t) => { if (!t) return ''; const d = new Date(+t), now = new Date(); if (sameDay(t, now)) return clock(t); const y = new Date(now); y.setDate(y.getDate() - 1); if (sameDay(t, y)) return 'ontem'; return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); };
+// muitas conversas (500): as primeiras DM_PAGE saem montadas e o resto vira um espaço do mesmo tamanho; chegando perto
+// do fim montam mais DM_STEP. Antes abrir Mensagens montava as 500 linhas (com foto, nome e ícones) numa tarefa de ~100 ms
+// (scripts/perf-big.mjs). A conversa aberta sempre aparece, mesmo lá embaixo.
+const DM_PAGE = 60, DM_STEP = 200, DM_ROW_H = 50;
+const dmLim = { n: DM_PAGE, q: '' };
+function dmRest(rest) {
+  if (dmLim.q !== dmFind.q) { dmLim.q = dmFind.q; dmLim.n = DM_PAGE; }
+  if (rest.length <= dmLim.n) return rest.map(d => dmRow(d, false));
+  const shown = rest.slice(0, dmLim.n), open = rest.slice(dmLim.n).find(d => d.id === S.view.cid);
+  const pad = h('div.dm-lazy', { 'data-key': 'dm-lazy', style: { height: (rest.length - shown.length - (open ? 1 : 0)) * DM_ROW_H + 'px' } });
+  return [...shown.map(d => dmRow(d, false)), pad, open && dmRow(open, false)];
+}
+const dmObs = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) { dmLim.n += DM_STEP; renderSide(); } }, { rootMargin: '600px 0px' });
 function dmRow(dm, pin) {
   const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id];
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
@@ -3362,7 +3383,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, savePrefs, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

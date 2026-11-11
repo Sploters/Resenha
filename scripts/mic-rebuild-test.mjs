@@ -5,7 +5,7 @@ import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const PORT = 3267, BASE = `http://localhost:${PORT}`;
-const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 fs.rmSync('.testdata22', { recursive: true, force: true });
@@ -46,9 +46,10 @@ try {
   // teste de microfone nas configurações (fora da call ele abre outro microfone só para o teste)
   await p.evaluate(() => window.__lc.voice.leave()); await sleep(800);
   ok(await p.evaluate(() => window.__liveMics()) === 0, 'saiu da call: nenhum microfone ligado');
-  await p.evaluate(() => window.__lc.openSettings('voice')); await sleep(500);
+  await p.evaluate(() => window.__lc.openSettings('voice'));
+  await p.waitForFunction(() => [...document.querySelectorAll('#settings button')].some(b => /Testar microfone/.test(b.textContent)), { timeout: 15000 });
   await p.evaluate(() => [...document.querySelectorAll('#settings button')].find(b => /Testar microfone/.test(b.textContent)).click()); await sleep(1500);
-  await p.evaluate(async () => { const cards = () => [...document.querySelectorAll('#settings .ncard')]; for (let i = 0; i < 12; i++) { cards()[[2, 3, 1][i % 3] % cards().length].click(); await new Promise(r => setTimeout(r, 40)); } });
+  await p.evaluate(async () => { const cards = () => [...document.querySelectorAll('#settings .choice')].filter(b => b.querySelector('.nz-l')); /* cartões do filtro de ruído */ for (let i = 0; i < 12; i++) { cards()[[2, 3, 1][i % 3] % cards().length].click(); await new Promise(r => setTimeout(r, 40)); } });
   await sleep(6000);
   ok(await p.evaluate(() => window.__liveMics()) === 1, 'teste das configurações, 12 trocas rápidas: 1 microfone ligado', await p.evaluate(() => window.__liveMics()));
   await p.keyboard.press('Escape'); await sleep(800);

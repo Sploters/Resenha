@@ -64,6 +64,9 @@ out['lista de membros: linhas depois de rolar'] = await p.evaluate(() => documen
 await step('buscar membro', `() => { const q = document.querySelector('#members .mem-q'); q.value = 'Pessoa Grande 49'; q.dispatchEvent(new Event('input')); }`, `() => document.querySelectorAll('#members .mem').length < 200`);
 await step('rolar a lista de canais até o fim', `async () => { const m = document.querySelector('#side-list'); for (let i = 0; i < 20; i++) { m.scrollTop += m.scrollHeight / 20; await new Promise(r => requestAnimationFrame(r)); } }`, `() => true`);
 await step('abrir conversas diretas (500)', `() => window.__lc.go('@me', '${meta.dms[0]}')`, `() => document.querySelectorAll('#msgs > .msg').length > 1`);
+out['conversas diretas: linhas montadas'] = await p.evaluate(() => document.querySelectorAll('#side-list .dmrow').length);
+await step('rolar a lista de conversas até o fim', `async () => { const m = document.querySelector('#side-list'); for (let i = 0; i < 20; i++) { m.scrollTop += m.scrollHeight / 20; await new Promise(r => requestAnimationFrame(r)); } }`, `() => true`);
+out['conversas diretas: linhas depois de rolar'] = await p.evaluate(() => document.querySelectorAll('#side-list .dmrow').length);
 await step('voltar ao servidor grande', `() => window.__lc.go('${meta.guild}', '${meta.busy[0]}')`, `() => document.querySelectorAll('#msgs > .msg').length > 10 && location.hash.endsWith('${meta.busy[0]}')`);
 const m = await p.evaluate(() => ({ elementos: document.getElementsByTagName('*').length, memoria_js_MB: Math.round(performance.memory.usedJSHeapSize / 1048576) }));
 out['página no fim'] = m;

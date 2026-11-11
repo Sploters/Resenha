@@ -44,13 +44,51 @@ let syncTimer;
 const DIRTY = 'lc_prefs_dirty';
 export const prefsDirty = () => { try { return !!localStorage.getItem(DIRTY); } catch { return false; } };
 const syncBody = () => { const p = { ...S.prefs }; DEVICE_KEYS.forEach(k => delete p[k]); unlite(p); return { settings: p }; };
-const pushPrefs = () => api('PUT', '/me/settings', syncBody()).then(() => { try { localStorage.removeItem(DIRTY); } catch { } }).catch(() => { });
+// Duas abas/aparelhos mudando ajustes ao mesmo tempo: cada um manda só o que mudou desde a última versão da conta que
+// conhece (`base`, guardada no aparelho para valer depois de recarregar) e o servidor junta. Ao receber a versão de
+// outro aparelho, o que ainda não foi enviado daqui fica (antes era sobrescrito e depois enviado de volta com o valor velho).
+const BASE = 'lc_prefs_base';
+let baseRaw = (() => { try { return JSON.parse(localStorage.getItem(BASE) || 'null'); } catch { return null; } })();
+// vale só para a conta que a gravou (outra conta no mesmo navegador começa sem base: a conta dela manda, como antes)
+const baseOf = () => (baseRaw && S.me?.id && baseRaw.u === S.me.id ? baseRaw.s : null);
+export const prefsBase = () => baseOf();
+export const setPrefsBase = (settings) => { baseRaw = settings && typeof settings === 'object' && S.me?.id ? { u: S.me.id, s: { ...settings } } : null; try { localStorage.setItem(BASE, JSON.stringify(baseRaw)); } catch { } };
+// o que mudou aqui e a conta ainda não tem: { patch: {chave: valor}, removed: [chaves] } (null sem base conhecida)
+export function prefsDiff() {
+  const base = baseOf(); if (!base) return null;
+  const cur = syncBody().settings, patch = {}, removed = [];
+  for (const k in cur) if (!same(cur[k], base[k])) patch[k] = cur[k];
+  for (const k in base) if (!(k in cur)) removed.push(k);
+  return { patch, removed };
+}
+// junta a versão da conta (`remote`) com a deste aparelho, em 3 vias contra a `base`: o que mudou lá e não mudou aqui é
+// adotado; o que mudou aqui e ainda não foi enviado fica. Devolve true se algo mudou aqui.
+export function mergeRemote(remote) {
+  if (!remote || typeof remote !== 'object') return false;
+  const old = baseOf(), cur = syncBody().settings, local = { ...S.prefs }, took = {};
+  for (const k of new Set([...Object.keys(remote), ...Object.keys(old || {})])) {
+    if (DEVICE_KEYS.includes(k)) continue;
+    const pending = old ? !same(cur[k], old[k]) : false; // sem base conhecida: vale a conta (como antes)
+    if (pending || same(cur[k], remote[k])) continue;
+    if (k in remote) { S.prefs[k] = remote[k]; took[k] = remote[k]; } else if (old && k in old) { delete S.prefs[k]; took[k] = undefined; }
+  }
+  setPrefsBase(remote);
+  relite(took, local);
+  const changed = Object.keys(took).length > 0;
+  if (changed) try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch { }
+  return changed;
+}
+const pushPrefs = () => {
+  const d = prefsDiff();
+  if (d && !Object.keys(d.patch).length && !d.removed.length) { try { localStorage.removeItem(DIRTY); } catch { } return Promise.resolve(); }
+  return api('PUT', '/me/settings', d || syncBody()).then((r) => { if (r?.settings && mergeRemote(r.settings)) S.onPrefsMerged?.(); const left = prefsDiff(); if (!left || (!Object.keys(left.patch).length && !left.removed.length)) try { localStorage.removeItem(DIRTY); } catch { } }).catch(() => { });
+};
 export const pushPrefsNow = () => { clearTimeout(syncTimer); syncTimer = null; return pushPrefs(); };
 // fechando (atualização, reinício, F5) com envio pendente: manda já, num pedido que sobrevive ao fechamento da página
 addEventListener('pagehide', () => {
   if (!syncTimer || !S.token) return;
   clearTimeout(syncTimer); syncTimer = null;
-  try { fetch('/api/me/settings', { method: 'PUT', keepalive: true, headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify(syncBody()) }).then(r => r.ok && localStorage.removeItem(DIRTY)).catch(() => { }); } catch { }
+  try { fetch('/api/me/settings', { method: 'PUT', keepalive: true, headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify(prefsDiff() || syncBody()) }).then(r => r.ok && localStorage.removeItem(DIRTY)).catch(() => { }); } catch { }
 });
 let lastDev = '';
 const backupDevicePrefs = () => { // cópia no app desktop (fora do navegador): sobrevive mesmo se o armazenamento da página for apagado
@@ -63,6 +101,7 @@ const backupDevicePrefs = () => { // cópia no app desktop (fora do navegador): 
 // leve, dispositivos de áudio…), as outras adotam os mesmos valores — senão a próxima gravação de uma aba desfazia o que a
 // outra acabou de ligar (ex.: modo leve voltava desligado ao recarregar)
 window.addEventListener('storage', (e) => {
+  if (e.key === BASE) { try { baseRaw = JSON.parse(e.newValue || 'null'); } catch { } return; } // a outra aba recebeu a versão da conta
   if (e.key !== 'lc_prefs' || !e.newValue) return;
   let p; try { p = JSON.parse(e.newValue); } catch { return; }
   // mesma conta no mesmo aparelho: vale o que a outra aba gravou (inclusive o que o modo leve aplicou)
