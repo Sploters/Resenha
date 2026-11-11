@@ -23,7 +23,6 @@ import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
-import { CUSTOM_CSS_MAX, applyCustomCss, cssSafeMode, openCssEditor } from './customcss.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
@@ -346,7 +345,7 @@ function e2eeCard(reg) {
   const kidTxt = (k) => k ? k.kid.slice(0, 20).match(/.{4}/g).join(' ') : '';
   const draw = () => {
     const st = e2eeState(), k = myFingerprintKey(), redraw = () => draw();
-    const limits = note('Protege o texto das mensagens nas conversas diretas entre duas pessoas: é cifrado no seu aparelho e só abre no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda só o texto embaralhado. Ainda não entram: arquivos, chamadas, reações e grupos. Busca e tradução não funcionam nas mensagens protegidas, e o servidor continua sabendo quem conversa com quem e quando.');
+    const limits = note('Protege as conversas diretas entre duas pessoas: mensagens, edições, arquivos, mensagens de voz e chamadas (voz, vídeo e tela) são cifrados no seu aparelho e só abrem no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda e repassa só dados embaralhados. Ainda não entram: reações e grupos. Busca e tradução não funcionam nas conversas protegidas, a transmissão a 120 FPS fica desligada nelas, e o servidor continua sabendo quem conversa com quem, quando e o tamanho dos arquivos.');
     if (st === 'unsupported') return box.replaceChildren(note('Este navegador não oferece a criptografia (ela precisa do endereço com https://, ou do app desktop).'));
     if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase que só você sabe. Quando a outra pessoa também tiver ativado, as mensagens novas da conversa passam a ser protegidas sozinhas.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
     if (st === 'locked') return box.replaceChildren(
@@ -385,24 +384,6 @@ function privacyPage(reg) {
 }
 
 // ============================ Aparência / acessibilidade ============================
-// CSS personalizado (public/customcss.js): editor com prévia ao vivo, ligar/desligar, importar/exportar .css
-function customCssCard() {
-  const box = card();
-  const draw = () => {
-    const css = S.prefs.customCss || '', on = S.prefs.customCssOn !== false && !!css.trim();
-    box.replaceChildren(
-      row('Usar meu CSS', css.trim() ? `${css.length.toLocaleString('pt-BR')} de ${CUSTOM_CSS_MAX.toLocaleString('pt-BR')} caracteres. Fica na sua conta e vale em todos os aparelhos.` : 'Mude qualquer parte do visual com CSS. Fica na sua conta e vale em todos os aparelhos.',
-        css.trim() ? toggle(on, (v) => { S.prefs.customCssOn = v; save(); applyCustomCss(); }) : null),
-      h('div.css-actions',
-        h('button.btn', { onclick: () => openCssEditor(draw) }, icon('edit', 16), css.trim() ? 'Editar CSS' : 'Escrever CSS'),
-        h('button.btn.grey', { onclick: () => { const f = h('input', { type: 'file', accept: '.css,text/css', onchange: async () => { const file = f.files[0]; if (!file) return; if (file.size > CUSTOM_CSS_MAX * 2) return toast('Arquivo grande demais', true); openCssEditor(draw, await file.text()); } }); f.click(); } }, icon('dl', 16), 'Importar .css'),
-        css.trim() && h('button.btn.grey', { onclick: () => { const a = h('a', { href: URL.createObjectURL(new Blob([css], { type: 'text/css' })), download: 'resenha-tema.css' }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); } }, 'Exportar')),
-      cssSafeMode() && note('Modo seguro ligado: o CSS personalizado está desligado nesta janela. Recarregue para voltar.'),
-      hint('Algo quebrou o visual? Abra com Ctrl+Shift+Alt+S (ou acrescente ?semcss ao endereço) para carregar sem o CSS. As variáveis e classes que podem ser usadas estão no editor, em "Referência".'));
-  };
-  draw();
-  return box;
-}
 function appearancePage() {
   const th = h('div.cards'), gr = h('div.cards'), val = h('div.cards'), mine = h('div.cards');
   const pick = (k) => { S.prefs.theme = k; save(); applyTheme(); drawTh(); };
@@ -426,7 +407,6 @@ function appearancePage() {
     section('Temas em gradiente'), card(gr, hint('Passe o mouse num tema e clique no lápis para criar uma versão sua a partir dele.')),
     section('Agentes do Valorant'), card(val, hint('Um tema para cada agente, nas cores dele.')),
     section('Seus temas'), card(mine, hint('Crie um gradiente com até 5 cores e compartilhe: o código colado no chat vira um cartão com o botão "Usar tema".')),
-    section('CSS personalizado'), customCssCard(),
     section('Cor de destaque'), card(swatches(S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
     section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
       h('label.f', 'Tamanho da interface', slider(80, 140, S.prefs.zoom, 5, set('zoom'), v => v + '%'))),

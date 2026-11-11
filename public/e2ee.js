@@ -8,8 +8,12 @@
 // - kid = 16 primeiros bytes do SHA-256 da chave pública: o app confere a chave que o servidor entrega contra o kid.
 // - Número de segurança: os dois comparam (pessoalmente ou por outro meio) para ter certeza de que o servidor não trocou
 //   as chaves no meio do caminho. Se a chave de alguém mudar depois da verificação, a conversa avisa.
-// Limites (ditos na tela): não tem sigilo futuro como o Signal (a mesma chave vale até ser trocada), arquivos e chamadas
-// não entram, busca e tradução não funcionam nas mensagens protegidas. O servidor ainda vê quem fala com quem e quando.
+// - Arquivos: cifrados no aparelho antes de subir, com uma chave aleatória por arquivo (AES-GCM em pedaços de 4 MB); o
+//   servidor recebe "protegido.bin" e a chave, o nome e o tipo de verdade vão dentro da mensagem cifrada.
+// - Chamadas: cada quadro de áudio e vídeo é cifrado no worker public/e2ee-worker.js com a chave da chamada (callKey).
+// Limites (ditos na tela): não tem sigilo futuro como o Signal (a mesma chave vale até ser trocada), reações e grupos não
+// entram, busca e tradução não funcionam nas mensagens protegidas. O servidor ainda vê quem fala com quem, quando e o
+// tamanho dos arquivos.
 import { h, icon } from './util.js';
 import { S, modal, toast, confirmBox, savePrefs, channelById } from './state.js';
 
@@ -156,12 +160,12 @@ export function onE2eeKey(d) {
   E.peers.set(d.user_id, checked(d.active).catch(() => null));
   document.dispatchEvent(new Event('e2ee-changed'));
 }
-function aesFor(myKid, otherKid, otherPub, cid) {
-  const id = `${myKid}|${otherKid}|${cid}`;
+function aesFor(myKid, otherKid, otherPub, cid, label = '') {
+  const id = `${myKid}|${otherKid}|${label}${cid}`;
   if (!E.aes.has(id)) E.aes.set(id, (async () => {
     const bits = await subtle.deriveBits({ name: 'ECDH', public: await importPub(otherPub) }, E.open.get(myKid), 256);
     const hk = await subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
-    return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode(SALT_TAG), info: enc.encode(String(cid)) }, hk, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode(SALT_TAG), info: enc.encode(label + String(cid)) }, hk, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   })());
   const p = E.aes.get(id); p.catch(() => E.aes.delete(id)); return p;
 }
@@ -180,17 +184,71 @@ export async function convoState(ch) {
 }
 // corpo de POST/PATCH de mensagem: cifra o texto quando a conversa é protegida
 export async function e2eeOutgoing(cid, body) {
-  if (!body || typeof body.content !== 'string' || !body.content || body.content.startsWith(PREFIX)) return body;
-  const ch = channelById(cid); if (ch?.type !== 1) return body;
+  if (!body) return body;
+  const atts = Array.isArray(body.attachments) ? body.attachments : [], files = atts.map(a => a?._e2ee || null), anyFile = files.some(Boolean);
+  const strip = () => ({ ...body, attachments: atts.map(({ _e2ee, ...a }) => a) });
+  const text = typeof body.content === 'string' ? body.content : '';
+  if ((!text && !anyFile) || text.startsWith(PREFIX)) return anyFile ? strip() : body;
+  const ch = channelById(cid); if (ch?.type !== 1) return anyFile ? strip() : body;
   const st = await convoState(ch);
   if (st.mode === 'locked' && st.peer) throw new Error('Esta conversa é protegida: desbloqueie a criptografia neste aparelho (Configurações → Privacidade e segurança) para enviar.');
-  if (st.mode !== 'on') return body;
+  if (st.mode !== 'on') { if (anyFile) throw new Error('A proteção desta conversa mudou enquanto o arquivo subia: tire o arquivo e envie de novo.'); return body; }
   const iv = crypto.getRandomValues(new Uint8Array(12)), ad = `${cid}|${st.mine.kid}|${st.peer.kid}`;
   const key = await aesFor(st.mine.kid, st.peer.kid, st.peer.pub, cid);
-  const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(ad) }, key, enc.encode(JSON.stringify({ t: body.content })));
+  const payload = anyFile ? { t: text, f: files } : { t: text };
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(ad) }, key, enc.encode(JSON.stringify(payload)));
   const out = `${PREFIX}${st.mine.kid}.${st.peer.kid}:${b64(iv)}:${b64(ct)}`;
-  E.plain.set(out, { text: body.content, ok: true });
-  return { ...body, content: out };
+  E.plain.set(out, { text, files: anyFile ? files : null, ok: true });
+  // anexo cifrado: o servidor só vê "protegido.bin" (nem a forma de onda nem a duração da mensagem de voz)
+  const outAtts = atts.map(({ _e2ee, ...a }) => (_e2ee ? { url: a.url, name: 'protegido.bin', size: a.size, type: 'application/octet-stream', enc: true } : a));
+  return { ...body, content: out, attachments: outAtts };
+}
+
+// ---------- arquivos ----------
+const CHUNK = 4 * 1024 * 1024;
+const chunkIv = (prefix, i) => { const iv = new Uint8Array(12); iv.set(prefix); new DataView(iv.buffer).setUint32(8, i); return iv; };
+// a conversa aberta é protegida? (decide se o arquivo vai cifrado antes de subir)
+export async function protectFiles(cid) {
+  const ch = channelById(cid); if (ch?.type !== 1) return false;
+  const st = await convoState(ch);
+  if (st.mode === 'locked' && st.peer) throw new Error('esta conversa é protegida: desbloqueie a criptografia neste aparelho para enviar arquivos');
+  return st.mode === 'on';
+}
+// cifra o arquivo com uma chave só dele; extra = campos que só vão dentro da mensagem cifrada (ex.: forma de onda da voz)
+export async function encryptFile(file, extra = {}) {
+  const key = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+  const prefix = crypto.getRandomValues(new Uint8Array(8)), n = Math.max(1, Math.ceil(file.size / CHUNK)), parts = [];
+  for (let i = 0; i < n; i++) {
+    const plain = await file.slice(i * CHUNK, (i + 1) * CHUNK).arrayBuffer();
+    parts.push(await subtle.encrypt({ name: 'AES-GCM', iv: chunkIv(prefix, i), additionalData: enc.encode(`${i}|${i === n - 1 ? 1 : 0}`) }, key, plain));
+  }
+  const meta = { k: b64(await subtle.exportKey('raw', key)), iv: b64(prefix), c: CHUNK, name: file.name || 'arquivo', type: file.type || '', size: file.size, ...extra };
+  return { file: new File(parts, 'protegido.bin', { type: 'application/octet-stream' }), meta };
+}
+const opened = new Map(); // url cifrada -> Promise<blob: url>
+export const openedFileUrl = (a) => a?.e2ee && opened.get(a.e2ee.url)?.done || null;
+export function openFile(a) {
+  const m = a.e2ee; if (!m) return Promise.resolve(a.url);
+  if (!opened.has(m.url)) {
+    const p = (async () => {
+      const r = await fetch(m.url); if (!r.ok) throw new Error('arquivo indisponível');
+      const data = new Uint8Array(await r.arrayBuffer()), key = await subtle.importKey('raw', unb64(m.k), 'AES-GCM', false, ['decrypt']);
+      const step = m.c + 16, n = Math.max(1, Math.ceil(data.length / step)), parts = [];
+      for (let i = 0; i < n; i++) parts.push(await subtle.decrypt({ name: 'AES-GCM', iv: chunkIv(unb64(m.iv), i), additionalData: enc.encode(`${i}|${i === n - 1 ? 1 : 0}`) }, key, data.subarray(i * step, (i + 1) * step)));
+      const u = URL.createObjectURL(new Blob(parts, { type: m.type || 'application/octet-stream' }));
+      p.done = u; return u;
+    })();
+    p.catch(() => opened.delete(m.url));
+    opened.set(m.url, p);
+  }
+  return opened.get(m.url);
+}
+
+// chave da chamada de voz/vídeo da conversa (mesma troca de chaves, outro rótulo): os dois lados chegam à mesma chave
+export async function callKey(ch) {
+  const st = await convoState(ch);
+  if (st.mode !== 'on') return { mode: st.mode, peer: st.peer };
+  return { mode: 'on', key: await aesFor(st.mine.kid, st.peer.kid, st.peer.pub, ch.id, 'call|') };
 }
 
 // ---------- receber ----------
@@ -209,7 +267,7 @@ async function decryptOne(s, cid, author) {
   try {
     const key = await aesFor(myKid, otherKid, other.pub, cid);
     const pt = await subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv), additionalData: enc.encode(`${cid}|${sk}|${rk}`) }, key, unb64(ct));
-    const r = { text: String(JSON.parse(dec.decode(pt)).t ?? ''), ok: true }; E.plain.set(s, r); return r;
+    const j = JSON.parse(dec.decode(pt)), r = { text: String(j.t ?? ''), files: Array.isArray(j.f) ? j.f : null, ok: true }; E.plain.set(s, r); return r;
   } catch { return { text: ERR_TEXT, state: 'error' }; }
 }
 // percorre a resposta da API ou o evento e troca cada "content" cifrado pelo texto (m.e2ee = true, ou o motivo de não abrir)
@@ -220,6 +278,12 @@ export async function decryptDeep(data, cid = null, depth = 0) {
   if (typeof data.content === 'string' && data.content.startsWith(PREFIX)) {
     const r = await decryptOne(data.content, here, data.author_id || data.author?.id);
     data.content = r.text; data.e2ee = r.ok ? true : r.state;
+    // anexos cifrados: nome, tipo e chave de verdade (o arquivo só é baixado e aberto quando aparece na tela)
+    if (r.files && Array.isArray(data.attachments)) data.attachments.forEach((a, i) => {
+      const f = r.files[i]; if (!f || !a || a.expired || typeof f.k !== 'string') return;
+      Object.assign(a, { name: String(f.name || 'arquivo'), type: String(f.type || ''), size: +f.size || a.size, e2ee: { url: a.url, k: f.k, iv: f.iv, c: +f.c || CHUNK } });
+      if (f.voice) Object.assign(a, { voice: true, duration: +f.duration || 0, waveform: String(f.waveform || '') });
+    });
   }
   const kids = [];
   for (const k in data) { const v = data[k]; if (v && typeof v === 'object') kids.push(decryptDeep(v, here, depth + 1)); }
@@ -250,7 +314,7 @@ export async function safetyModal(ch, onChange) {
   const ok = isVerified(pid, st.peer.kid);
   modal('Número de segurança', `Compare com ${name} pessoalmente, por vídeo ou por outro aplicativo. Se os números forem iguais nos dois aparelhos, ninguém no meio do caminho (nem o servidor) consegue ler esta conversa.`,
     h('div.e2-safety', h('div.e2-nums', nums.map(n => h('code', n))),
-      h('p.e2-small', 'As mensagens de texto desta conversa são cifradas no seu aparelho e só abrem no aparelho de vocês dois. Arquivos, chamadas e reações não entram na proteção.')),
+      h('p.e2-small', 'As mensagens, os arquivos, as mensagens de voz e as chamadas desta conversa são cifrados no seu aparelho e só abrem no aparelho de vocês dois. Reações não entram na proteção.')),
     [{ label: 'Fechar', cls: 'link' },
       ok ? { label: 'Desmarcar verificação', cls: 'grey', fn: () => { delete verified()[pid]; savePrefs(); onChange?.(); } }
         : { label: 'Os números são iguais', cls: 'green', fn: () => { verified()[pid] = st.peer.kid; savePrefs(); onChange?.(); toast('Conversa verificada'); } }]);

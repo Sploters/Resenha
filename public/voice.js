@@ -140,7 +140,7 @@ export class Voice {
       const old = this.micGraph; if (await this.buildMic() === false) return;
       const track = this.mic.getAudioTracks()[0];
       if (this.sfu) await this.sfuProduce('mic', track);
-      else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = p.pc.addTrack(track, this.mic); }
+      else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
       void old;
     } catch (e) { this.error = e.message; }
     this.onUpdate();
@@ -157,6 +157,10 @@ export class Voice {
     if (this.channelId === channelId) return;
     if (this.channelId) this.leave();
     this.error = null;
+    // conversa direta protegida (public/e2ee.js): a chamada também vai cifrada de ponta a ponta; trancada = não entra
+    const pre = await this.beforeJoin?.(channelId).catch((e) => ({ error: e.message }));
+    if (pre?.error) { this.error = pre.error; return; }
+    this.e2ee = pre?.key || null;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error(location.protocol === 'http:' && !isSecureContext
         ? `Microfone indisponível: abra https://${location.hostname}:3443 (aceite o aviso do certificado) ou use o aplicativo desktop.`
@@ -176,6 +180,7 @@ export class Voice {
     this.send('VOICE_LEAVE', {});
     this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
+    this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
     this.micGraph?.dispose(); this.micGraph = null;
     this.stopAppAudio(); // programa de áudio do jogo também para
     const c = this._clipMe; if (c) { c.src?.disconnect(); c.node?.stop(); c.dest.stream.getTracks().forEach(t => t.stop()); } this._clipSb?.stream.getTracks().forEach(t => t.stop()); this._clipMe = this._clipSb = null; // áudio dos clipes
@@ -212,9 +217,12 @@ export class Voice {
     this.sfu = sfu;
     const transport = async (dir) => {
       const info = await this.sfuReq('transport', { dir });
-      const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice });
+      const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
       t.on('connectionstatechange', (s) => { if (s === 'failed') t.restartIce?.(); this.onUpdate(true); });
+      // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
+      // Chromium não entrega mais os quadros ao worker)
+      if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
       if (dir === 'send') t.on('produce', ({ kind, rtpParameters, appData }, ok, fail) =>
         this.sfuReq('produce', { transport_id: t.id, kind, rtpParameters, source: appData.source }).then(ok, fail));
       return t;
@@ -269,11 +277,12 @@ export class Voice {
       // começa já perto do bitrate alvo: com a partida baixa o Chromium só liga as camadas grandes depois de minutos
       opts.codecOptions = { videoGoogleStartBitrate: Math.round(bitrateFor(this.screenOpts?.res || 1080, this.screenOpts?.fps || 30, this.screenOpts?.bitrate) * 0.8 / 1000) };
       // placa de vídeo codifica H.264 sem pesar na CPU (que o jogo está usando); sem hardware fica o VP8 com camadas temporais
-      if (await this.hwH264()) {
+      if (!this.e2ee && await this.hwH264()) {
         const c = s.device.rtpCapabilities.codecs.find(x => x.mimeType.toLowerCase() === 'video/h264' && /^64/.test(String(x.parameters?.['profile-level-id']).toLowerCase()));
         if (c) { opts.codec = c; opts.encodings = this.sfuEncodings('screen', false); }
       }
     }
+    if (this.e2ee) { delete opts.codec; opts.onRtpSender = (sender) => this.e2eeAttach(sender, 'enc'); } // protegida: só VP8 (o H.264 não aceita quadro cifrado); a cifra entra antes do primeiro quadro sair
     let p;
     try { p = await s.send.produce(opts); }
     catch (e) { // codec/camadas recusados: tenta de novo no padrão
@@ -430,6 +439,25 @@ export class Voice {
       await p.rtpSender.setParameters(prm);
     } catch (e) { console.warn('screen params', e); }
   }
+  // ---- chamada protegida: cada envio/recebimento passa pelo worker que cifra/decifra os quadros (e2ee-worker.js) ----
+  e2eeLegacy() { return !!this.e2ee && !window.RTCRtpScriptTransform; } // Chromium sem RTCRtpScriptTransform: createEncodedStreams
+  e2eeAttach(t, op) {
+    if (!this.e2ee || !t || t._e2) return t;
+    if (!this.e2eeWorker) {
+      this.e2eeWorker = new Worker('/e2ee-worker.js');
+      this.e2eeWorker.onmessage = (e) => { if (e.data?.stats) this.e2eeWorkerStats = e.data.stats; };
+    }
+    t._e2 = true;
+    if (window.RTCRtpScriptTransform) t.transform = new RTCRtpScriptTransform(this.e2eeWorker, { op, key: this.e2ee });
+    else if (t.createEncodedStreams) { const { readable, writable } = t.createEncodedStreams(); this.e2eeWorker.postMessage({ op, key: this.e2ee, readable, writable }, [readable, writable]); }
+    return t;
+  }
+  // malha P2P: o receptor da mesma linha também precisa da cifra ANTES da negociação (o Chromium ignora a que entra depois)
+  p2pAdd(pc, track, stream) {
+    const snd = this.e2eeAttach(pc.addTrack(track, stream), 'enc');
+    if (this.e2ee) this.e2eeAttach(pc.getTransceivers().find(t => t.sender === snd)?.receiver, 'dec');
+    return snd;
+  }
   ensurePeer(uid) {
     let p = this.peers.get(uid);
     if (!p) this.peers.set(uid, p = { uid, streams: {}, meta: {}, audioEl: null, screenAudioEl: null, senders: {}, consumers: new Map() });
@@ -443,6 +471,7 @@ export class Voice {
       const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
       const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters });
       if (this.sfu !== s) return c.close();
+      this.e2eeAttach(c.rtpReceiver, 'dec');
       if (s.closedEarly?.delete(r.id)) { c.close(); s.seen.delete(producer_id); return; } // a transmissão acabou enquanto preparava
       const p = this.ensurePeer(user_id), stream = new MediaStream([c.track]);
       s.consumers.set(c.id, { c, uid: user_id, source });
@@ -460,6 +489,7 @@ export class Voice {
     const s = this.sfu; if (!s?.ready) throw new Error('A voz ainda não conectou ao servidor');
     const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
     const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters });
+    this.e2eeAttach(c.rtpReceiver, 'dec');
     await this.sfuReq('resume', { consumer_id: c.id });
     return { track: c.track, consumer: c, close: () => { try { c.close(); } catch { } } };
   }
@@ -477,7 +507,7 @@ export class Voice {
 
   connect(uid, initiator) {
     if (this.peers.has(uid)) return this.peers.get(uid);
-    const pc = new RTCPeerConnection({ iceServers: this.ice });
+    const pc = new RTCPeerConnection({ iceServers: this.ice, ...(this.e2eeLegacy() ? { encodedInsertableStreams: true } : {}) });
     const p = { uid, pc, polite: this.myId > uid, making: false, ignore: false, streams: {}, meta: {}, audioEl: null, screenAudioEl: null, senders: {} };
     this.peers.set(uid, p);
     pc.onicecandidate = (e) => e.candidate && this.send('VOICE_SIGNAL', { to: uid, data: { cand: e.candidate } });
@@ -486,6 +516,7 @@ export class Voice {
       catch (e) { console.warn('negotiation', e); } finally { p.making = false; }
     };
     pc.ontrack = (e) => {
+      this.e2eeAttach(e.receiver, 'dec');
       const stream = e.streams[0] || new MediaStream([e.track]);
       if (e.track.kind === 'audio') this.attachAudio(p, stream, p.meta[stream.id] === 'screen' ? 'screen' : 'mic');
       else {
@@ -502,10 +533,10 @@ export class Voice {
     return p;
   }
   addLocalTracks(p) {
-    const add = (stream, kind) => stream?.getTracks().forEach(t => { p.senders[kind + t.kind] = p.pc.addTrack(t, stream); });
+    const add = (stream, kind) => stream?.getTracks().forEach(t => { p.senders[kind + t.kind] = this.p2pAdd(p.pc, t, stream); });
     add(this.mic, 'mic'); add(this.cam, 'cam'); add(this.screen, 'screen'); this.tuneAudio(p);
     // sem microfone (ouvinte): garante uma linha de áudio só-recepção para a negociação acontecer e a pessoa ouvir os outros
-    if (!this.mic && !p.pc.getTransceivers().length) p.pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (!this.mic && !p.pc.getTransceivers().length) { const tr = p.pc.addTransceiver('audio', { direction: 'recvonly' }); this.e2eeAttach(tr.sender, 'enc'); this.e2eeAttach(tr.receiver, 'dec'); }
     if (this.screen) this.tuneSender(p, 'screenvideo', 'screen'); if (this.cam) this.tuneSender(p, 'camvideo', 'cam');
   }
   async setLocal(pc) {
@@ -871,7 +902,7 @@ export class Voice {
     if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap;
   }
-  async wantNative(o) { return +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
+  async wantNative(o) { return !this.e2ee && +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
   previewOnly(vt, on) {
     if (!vt) return;
     const o = this.screenOpts || {};
@@ -953,7 +984,7 @@ export class Voice {
       (kind === 'screen' ? this.sfuPublishScreen() : this.sfuProduce(kind, stream.getVideoTracks()[0])).catch(e => { console.warn('produce', e); this.error = e.message; this.onUpdate(); });
     } else for (const p of this.peers.values()) {
       this.sendMeta(p.uid);
-      stream.getTracks().forEach(t => { p.senders[kind + t.kind] = p.pc.addTrack(t, stream); });
+      stream.getTracks().forEach(t => { p.senders[kind + t.kind] = this.p2pAdd(p.pc, t, stream); });
       this.tuneSender(p, kind + 'video', kind);
     }
     this.sendState(); this.onUpdate();

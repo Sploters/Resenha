@@ -1,4 +1,5 @@
 // Mensagens de voz: grava com MediaRecorder (webm/opus), guarda a forma de onda ao gravar e mostra um player com barras.
+import { protectFiles, encryptFile } from './e2ee.js';
 import { h, icon, whenGone } from './util.js';
 import { S, api, toast } from './state.js';
 
@@ -84,8 +85,16 @@ export async function recordVoiceMessage(ch, host, { onSent } = {}) {
   const send = async () => {
     if (sending || !blob) return; sending = true; sendBtn.disabled = true;
     try {
-      const r = await api('POST', '/upload?name=' + encodeURIComponent('mensagem-de-voz.webm'), blob);
-      const att = { url: r.url, name: r.name, size: r.size, type: blob.type, voice: true, duration: Math.round(dur * 10) / 10, waveform: toB64(shrink(peaks)) };
+      const duration = Math.round(dur * 10) / 10, waveform = toB64(shrink(peaks));
+      let att;
+      if (await protectFiles(ch.id)) { // conversa protegida: o áudio (e a forma de onda e a duração) vão cifrados
+        const { file, meta } = await encryptFile(new File([blob], 'mensagem-de-voz.webm', { type: blob.type }), { voice: true, duration, waveform });
+        const r = await api('POST', '/upload?name=protegido.bin', file);
+        att = { url: r.url, name: r.name, size: r.size, type: 'application/octet-stream', _e2ee: meta };
+      } else {
+        const r = await api('POST', '/upload?name=' + encodeURIComponent('mensagem-de-voz.webm'), blob);
+        att = { url: r.url, name: r.name, size: r.size, type: blob.type, voice: true, duration, waveform };
+      }
       await api('POST', `/channels/${ch.id}/messages`, { content: '', reply_to: S.replyTo?.id, attachments: [att] });
       onSent?.(); close();
     } catch (e) { toast('Falha ao enviar o áudio: ' + e.message, true); sending = false; sendBtn.disabled = false; }

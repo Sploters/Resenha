@@ -854,6 +854,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
     .filter(a => a && isFileUrl(a.url))
     .map(a => {
       const o = { url: a.url, name: clean(a.name, 200), size: +a.size || 0, type: clean(a.type, 100) };
+      if (a.enc === true) o.enc = true; // arquivo cifrado no aparelho (conversa protegida): nome e tipo de verdade vão dentro da mensagem cifrada
       if (a.voice === true) { // mensagem de voz: forma de onda (base64, até 256 barras) e duração
         o.voice = true; o.duration = Math.max(0, Math.min(3600, +a.duration || 0));
         o.waveform = /^[A-Za-z0-9+/=]{0,400}$/.test(a.waveform || '') ? a.waveform : '';

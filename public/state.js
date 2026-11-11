@@ -3,7 +3,6 @@ import { originAt, originFrom, leave } from './motion.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
 import { e2eeOutgoing, decryptDeep } from './e2ee.js';
-import { applyCustomCss } from './customcss.js';
 
 export const PERM = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256 };
 export const PERM_LABELS = [
@@ -134,7 +133,6 @@ export function applyTheme() {
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
   r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12);
-  applyCustomCss(); // CSS personalizado (customcss.js) por último
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));

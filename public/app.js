@@ -46,7 +46,7 @@ import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, act
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
-import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify } from './e2ee.js';
+import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify, callKey, protectFiles, encryptFile, openFile, openedFileUrl } from './e2ee.js';
 import { rumReady } from './rum.js';
 import { viewTransition, stagger, swapIcon } from './motion.js';
 // tela de entrar: só para quem não está logado
@@ -213,6 +213,14 @@ function onEvent(t, d) {
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
       if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: (speakOnly) => renderVoiceUI(speakOnly) });
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
+      // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
+      voice.beforeJoin = async (cid) => {
+        const ch = channelById(cid); if (ch?.type !== 1) return null;
+        const r = await callKey(ch);
+        if (r.mode === 'locked' && r.peer) return { error: 'Esta conversa é protegida: desbloqueie a criptografia neste aparelho (Configurações → Privacidade e segurança) para ligar.' };
+        if (r.key) toast('Chamada protegida de ponta a ponta');
+        return r.key ? { key: r.key } : null;
+      };
       voice.onAutoAdjust = (msg) => toast(msg);
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
@@ -1771,6 +1779,20 @@ function reactionFace(e) {
 const isImg = (f) => /^(png|jpe?g|gif|webp|avif|bmp)$/.test((f.name.split('.').pop() || '').toLowerCase());
 // imagens da mesma mensagem viram uma grade; cada anexo tem uma lixeira ao passar o mouse
 function appendAttachments(el, m, canDel) {
+  // anexos protegidos de ponta a ponta: baixa e abre no aparelho quando a mensagem aparece (imagens, áudio, voz e vídeos
+  // até 50 MB); os maiores e os outros arquivos abrem no clique. Sem a chave (trancado neste aparelho) só o aviso.
+  if (m.attachments?.some(f => f.enc || f.e2ee)) {
+    const auto = (f) => f.e2ee && !f.expired && f.size <= 50 * 1048576 && (f.voice || /^(image|audio|video)\//.test(f.type));
+    const waiting = m.attachments.filter(f => auto(f) && !openedFileUrl(f));
+    if (waiting.length) {
+      const ph = h('div.e2-files', icon('lock', 16), h('span', 'Abrindo arquivo protegido…')); el.append(ph);
+      const io = new IntersectionObserver((es) => { if (!es.some(e => e.isIntersecting)) return; io.disconnect();
+        Promise.all(waiting.map(openFile)).then(() => { const tmp = h('div'); appendAttachments(tmp, m, canDel); ph.replaceWith(...tmp.childNodes); },
+          () => ph.replaceChildren(icon('lock', 16), h('span', 'Não foi possível abrir o arquivo protegido'))); }, { rootMargin: '400px' });
+      io.observe(ph); return;
+    }
+    m = { ...m, attachments: m.attachments.map(f => (f.e2ee && openedFileUrl(f) ? { ...f, url: openedFileUrl(f) } : f)) };
+  }
   const atts = (m.attachments || []).map((f, i) => ({ f, i }));
   const del = (f, i) => canDel && h('button.adel', { title: 'Remover anexo (Shift: sem confirmar)', onclick: async (e) => {
     e.stopPropagation();
@@ -1836,7 +1858,16 @@ function shareClipModal(c) {
   draw(); setTimeout(() => q.focus());
 }
 function attachEl(f) {
-  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url;
+  if (f.enc && !f.e2ee && !f.expired) return h('div.file.e2-file', icon('lock', 32), h('div', h('div.fn', 'Arquivo protegido'), h('div.fs', 'Desbloqueie a criptografia neste aparelho para abrir'))); // trancado aqui
+  if (f.e2ee && !f.expired && !f.url.startsWith('blob:')) { // protegido, grande ou não é mídia: abre no clique
+    const go = async (b, play) => { b.disabled = true; try { const u = await openFile(f); if (play) box.replaceWith(attachEl({ ...f, url: u })); else { const a = h('a', { href: u, download: f.name }); a.click(); } } catch (e) { toast(e.message, true); } b.disabled = false; };
+    const isMedia = /^(video|audio)\//.test(f.type);
+    const box = h('div.file.e2-file', icon('lock', 32), h('div', h('div.fn', f.name), h('div.fs', bytes(f.size) + ' · protegido')),
+      isMedia && h('button.btn.sm', { style: { marginLeft: 'auto' }, onclick: (e) => go(e.currentTarget, true) }, 'Abrir'),
+      h('button.ibtn', { title: 'Baixar', style: { marginLeft: isMedia ? '4px' : 'auto' }, onclick: (e) => go(e.currentTarget, false) }, icon('dl')));
+    return box;
+  }
+  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url, dl = url.startsWith('blob:') ? url : url + '?download=1';
   // apagado para liberar espaço (Configurações → Armazenamento / expiração do servidor): a conversa continua fazendo sentido
   if (f.expired) return h('div.file.expired', { title: 'Apagado em ' + new Date(f.expired).toLocaleDateString('pt-BR') }, icon('file', 32), h('div', h('div.fn', f.name), h('div.fs', 'Arquivo expirado' + (f.size ? ' • ' + bytes(f.size) : ''))));
   if (f.voice) return voiceEl(f);
@@ -1844,7 +1875,7 @@ function attachEl(f) {
   // o vídeo só baixa no play (antes cada vídeo do chat começava a baixar ao abrir o canal); a miniatura vem do servidor
   if (/^(mp4|webm|mov|m4v)$/.test(ext)) { const poster = thumbUrl(url), box = fsVideo({ src: url, preload: 'none', ...(poster ? { poster } : {}) }); prepVideo(box, poster); return h('div.attach', box); }
   if (/^(mp3|ogg|wav|m4a)$/.test(ext)) return h('div.attach', h('audio', { src: url, controls: true, preload: 'none' }));
-  return h('div.file', icon('file', 32), h('div', h('a.fn', { href: url + '?download=1', download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: url + '?download=1', download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
+  return h('div.file', icon('file', 32), h('div', h('a.fn', { href: dl, download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: dl, download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
 }
 function msgMenu(e, m) {
   const ch = channelById(m.channel_id), gid = ch.guild_id, mine = m.author_id === S.me.id, mod = gid && can(gid, PERM.MANAGE_MESSAGES) || (!gid && false);
@@ -2187,7 +2218,7 @@ async function compressImage(file) {
   } catch { return file; }
 }
 async function addFile(file) {
-  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }; S.pending.push(item); renderPendingPrev();
+  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }, cid = S.view.cid; S.pending.push(item); renderPendingPrev();
   const pct = (stage) => (f) => { const p = Math.floor(f * 100); if (p !== item.pct || item.stage !== stage) { item.pct = p; item.stage = stage; renderPendingPrev(); } };
   try {
     file = await compressImage(file); Object.assign(item, { name: file.name, size: file.size, file });
@@ -2201,8 +2232,11 @@ async function addFile(file) {
       Object.assign(item, { name: file.name, size: file.size, file });
       toast(`Vídeo comprimido: ${bytes(before)} → ${bytes(file.size)}`);
     }
-    const r = await uploadFile(file, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
-    Object.assign(item, r, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
+    let up = file;
+    if (await protectFiles(cid)) { const x = await encryptFile(file); up = x.file; item.e2ee = x.meta; } // conversa protegida: sobe cifrado (public/e2ee.js)
+    if (item.ctrl.signal.aborted) return;
+    const r = await uploadFile(up, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
+    Object.assign(item, r, item.e2ee ? { name: file.name, size: file.size } : {}, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
   } catch (e) { if (!item.ctrl.signal.aborted) toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
   renderPendingPrev();
 }
@@ -2246,7 +2280,7 @@ async function sendMsg(ta, ch) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
   ta.value = ''; $('.ac')?.remove();
-  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type }) => ({ url, name, size, type })) };
+  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee }) => ({ url, name, size, type, ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {

@@ -77,7 +77,7 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
         if (kind !== 'link') {
           let atts = []; try { atts = JSON.parse(m.attachments || '[]'); } catch { }
           atts.forEach((a, i) => {
-            if (!a || (!a.url && !a.expired)) return;
+            if (!a || a.enc || (!a.url && !a.expired)) return; // protegido de ponta a ponta: o servidor não sabe nome nem tipo
             const k = kindOf(a); if (kind !== 'all' && k !== kind) return;
             if (q && !String(a.name || '').toLowerCase().includes(q)) return;
             items.push({ ...base, i, kind: k, url: a.url || null, name: a.name || 'arquivo', size: +a.size || 0, type: a.type || '', expired: !!a.expired, ...(a.voice ? { voice: true, duration: a.duration || 0 } : {}) });
@@ -100,7 +100,7 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
       if (until) { cw.push('created_at <= ?'); ca.push(until); }
       const counts = { image: 0, video: 0, audio: 0, doc: 0, file: 0, link: 0 };
       for (const r of all(`SELECT attachments a, content c FROM messages WHERE ${cw.join(' AND ')} AND (attachments <> '[]' OR content LIKE '%http%') ORDER BY id DESC LIMIT 20000`, ...ca)) {
-        if (r.a && r.a !== '[]') { try { for (const a of JSON.parse(r.a)) if (a && (a.url || a.expired)) counts[kindOf(a)]++; } catch { } }
+        if (r.a && r.a !== '[]') { try { for (const a of JSON.parse(r.a)) if (a && !a.enc && (a.url || a.expired)) counts[kindOf(a)]++; } catch { } }
         if (r.c && r.c.includes('http')) counts.link += linksOf(r.c).length;
       }
       out.counts = counts;

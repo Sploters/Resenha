@@ -3,8 +3,12 @@
 //   continuam cifradas; aparelho novo vê "trancada" e não envia até desbloquear; frase errada; número de segurança
 //   igual nos dois lados; chave trocada depois de verificar avisa; adulterada não abre; pausar volta ao texto comum;
 //   servidor recusa cifrado em canal de servidor e formato inválido
-// - CSS personalizado: prévia ao vivo, salvar na conta, modo seguro (?semcss e Ctrl+Shift+Alt+S)
+// - arquivos: sobem cifrados ("protegido.bin", sem nome/tipo no servidor), a outra pessoa vê a imagem e abre o documento;
+//   mensagem de voz com a forma de onda dentro da mensagem cifrada; fora da aba Arquivos
+// - chamada: cada quadro passa pelo worker de cifra nos dois lados, o vídeo e o áudio chegam decodificados; sala de servidor
+//   não usa a cifra
 // Uso: BROWSER=/caminho/do/chrome node scripts/e2ee-test.mjs   (SHOTS=1 salva capturas em .testshots/e2ee)
+//      RTC=0 testa a chamada pela malha P2P em vez do SFU
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -14,11 +18,11 @@ const OUT = '.testshots/e2ee', shot = async (p, n) => { if (process.env.SHOTS) {
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 fs.rmSync(DATA, { recursive: true, force: true });
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC: '0', TRANSLATE: '0' }, stdio: 'ignore' });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC: process.env.RTC ?? '1', TRANSLATE: '0' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => { const j = await r.json().catch(() => ({})); return Array.isArray(j) ? Object.assign(j, { status: r.status }) : { status: r.status, ...j }; });
 const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'senha123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
-const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
 const PASS_A = 'frase da ana 2026', PASS_B = 'bia-segredo-forte';
 try {
   const ana = await reg('ana'), bia = await reg('bia');
@@ -118,6 +122,58 @@ try {
   await B.waitForSelector(`[data-mid="${m3.id}"]`);
   ok((await bodyOf(B, m3.id)).includes('chave nova') && (await bodyOf(B, m1.id)).includes('senha trocada'), 'mensagens novas e antigas continuam abrindo');
 
+  // ---------- arquivos ----------
+  const TXT = '.testdata-e2ee-nota.txt', PNG = '.testdata-e2ee-foto.png';
+  fs.writeFileSync(TXT, 'documento secreto ' + 'z'.repeat(5000));
+  fs.writeFileSync(PNG, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEklEQVR4nGP4z8DAwMDAxMDAAAAuOgMBuYEa9AAAAABJRU5ErkJggg==', 'base64'));
+  const inp = await A.$('#composer input[type=file]'); await inp.uploadFile(TXT, PNG);
+  await A.waitForFunction(() => window.__lc.S.pending.length === 2 && window.__lc.S.pending.every(p => p.state === 'ok'), { timeout: 15000 });
+  await A.focus('#composer textarea'); await A.keyboard.press('Enter'); await sleep(1200);
+  const rawF = (await call(ana.tok, 'GET', `/channels/${dm.id}/messages?limit=1`))[0];
+  ok(rawF.content.startsWith('e2ee:1:') && rawF.attachments.length === 2 && rawF.attachments.every(a => a.name === 'protegido.bin' && a.enc && a.type === 'application/octet-stream'), 'servidor recebe só "protegido.bin" (sem nome nem tipo)', rawF.attachments.map(a => a.name));
+  const onDisk = Buffer.from(await (await fetch(BASE + rawF.attachments[0].url)).arrayBuffer());
+  ok(!onDisk.toString('latin1').includes('documento secreto') && onDisk.length === fs.statSync(TXT).size + 16, 'no disco do servidor o arquivo está cifrado', onDisk.length);
+  await B.waitForSelector(`[data-mid="${rawF.id}"] .mgrid img[src^="blob:"]`, { timeout: 10000 }).catch(() => { });
+  ok(await B.$(`[data-mid="${rawF.id}"] .mgrid img[src^="blob:"]`) !== null, 'Bia vê a foto (aberta no aparelho)');
+  ok(await B.$eval(`[data-mid="${rawF.id}"]`, e => /nota\.txt/.test(e.textContent) && !!e.querySelector('.e2-file')), 'documento aparece com o nome de verdade e abre no clique');
+  const txtBack = await B.evaluate(async (id) => { const { S } = window.__lc; const m = [...S.messages.values()].flat().find(x => x.id === id); const e = await window.__lc.import('e2ee.js'); const u = await e.openFile(m.attachments.find(a => /txt$/.test(a.name))); return (await fetch(u)).text(); }, rawF.id);
+  ok(txtBack === fs.readFileSync(TXT, 'utf8'), 'documento abre igual ao original');
+  const media = await call(bia.tok, 'GET', `/media?channel=${dm.id}&counts=1`);
+  ok(!(media.items || []).some(x => x.message_id === rawF.id), 'arquivos protegidos ficam fora da aba Arquivos', media.items?.length);
+  // mensagem de voz (o mesmo caminho do gravador: voicemsg.js)
+  await A.evaluate(async (cid) => { const e = await window.__lc.import('e2ee.js'), { api } = await window.__lc.import('state.js');
+    const { file, meta } = await e.encryptFile(new File([new Uint8Array(3000)], 'mensagem-de-voz.webm', { type: 'audio/webm' }), { voice: true, duration: 2.5, waveform: 'AAECAwQ=' });
+    const r = await api('POST', '/upload?name=protegido.bin', file);
+    await api('POST', `/channels/${cid}/messages`, { content: '', attachments: [{ url: r.url, name: r.name, size: r.size, type: 'application/octet-stream', _e2ee: meta }] }); }, dm.id); await sleep(800);
+  const rawV = (await call(ana.tok, 'GET', `/channels/${dm.id}/messages?limit=1`))[0];
+  ok(!rawV.attachments[0].voice && !rawV.attachments[0].waveform, 'voz: servidor não vê duração nem forma de onda');
+  await B.waitForSelector(`[data-mid="${rawV.id}"] .vwave`, { timeout: 8000 }).catch(() => { });
+  await shot(B, '6-arquivos-protegidos');
+  ok(await B.$(`[data-mid="${rawV.id}"] .vwave`) !== null, 'Bia recebe o player da mensagem de voz');
+  fs.rmSync(TXT); fs.rmSync(PNG);
+
+  // ---------- chamada ----------
+  await A.evaluate((cid) => window.__lc.joinVoice(cid), dm.id); await sleep(1500);
+  await B.evaluate((cid) => window.__lc.joinVoice(cid), dm.id); await sleep(1500);
+  await A.evaluate(() => window.__lc.voice.toggleCam()); await sleep(5000);
+  const callSt = async (p) => p.evaluate(async () => {
+    const v = window.__lc.voice, reports = [];
+    if (v.sfu) reports.push(await v.sfu.recv.getStats()); else for (const x of v.peers.values()) if (x.pc) reports.push(await x.pc.getStats());
+    let video = 0, audio = 0; for (const r of reports) r.forEach(s => { if (s.type === 'inbound-rtp' && s.kind === 'video') video += s.framesDecoded || 0; if (s.type === 'inbound-rtp' && s.kind === 'audio') audio += s.totalSamplesReceived || 0; });
+    return { key: !!v.e2ee, sfu: !!v.sfu, w: v.e2eeWorkerStats, video, audio, script: !!window.RTCRtpScriptTransform };
+  });
+  const ca = await callSt(A), cb = await callSt(B);
+  console.log('    chamada:', JSON.stringify({ ana: ca, bia: cb }));
+  ok(ca.key && cb.key, 'chamada da conversa protegida usa a chave da chamada');
+  ok(ca.w?.enc > 50 && cb.w?.enc > 50, 'quadros saem cifrados dos dois lados (worker)', [ca.w?.enc, cb.w?.enc]);
+  ok(cb.w?.dec > 50 && cb.video > 10 && cb.audio > 0, 'Bia decifra e decodifica o vídeo e o áudio da Ana', [cb.w?.dec, cb.video, cb.audio]);
+  ok((cb.w?.bad || 0) < 5, 'nenhum quadro descartado na chamada', cb.w?.bad);
+  await A.evaluate(() => window.__lc.voice.leave()); await B.evaluate(() => window.__lc.voice.leave()); await sleep(500);
+  const vc = await call(ana.tok, 'POST', `/guilds/${g.id}/channels`, { name: 'sala', type: 2 });
+  await A.evaluate((cid) => window.__lc.joinVoice(cid), vc.id); await sleep(1500);
+  ok(await A.evaluate(() => !window.__lc.voice.e2ee && !window.__lc.voice.e2eeWorker), 'sala de voz de servidor não usa a cifra');
+  await A.evaluate(() => window.__lc.voice.leave());
+
   // ---------- pausar ----------
   await B.evaluate(async () => { const e = await window.__lc.import('e2ee.js'); await e.setPaused(true); }); await sleep(500);
   ok(await A.$eval('#e2-btn', b => b.classList.contains('e2-peer-off')), 'Bia pausou: Ana vê que a conversa não é protegida');
@@ -125,23 +181,6 @@ try {
   ok((await call(ana.tok, 'GET', `/channels/${dm.id}/messages?limit=1`))[0].content === 'agora sem cifra', 'pausado: vai em texto comum');
 
   await A.evaluate(() => window.__lc.openSettings('privacy')); await A.waitForSelector('.e2-kid'); await A.evaluate(() => [...document.querySelectorAll('#settings h3, #settings .section, #settings h5')].find(x => /ponta a ponta/i.test(x.textContent))?.scrollIntoView()); await sleep(300); await shot(A, '5-privacidade'); await A.keyboard.press('Escape'); await sleep(300);
-  // ---------- CSS personalizado ----------
-  await A.evaluate(() => window.__lc.openSettings('appearance')); await A.waitForSelector('.css-actions');
-  await A.evaluate(() => [...document.querySelectorAll('.css-actions .btn')][0].click()); await A.waitForSelector('#tedit.cssedit textarea');
-  await A.type('#tedit.cssedit textarea', '#rail { outline: 3px solid rgb(1, 2, 3); }'); await sleep(400);
-  await A.evaluate(() => [...document.querySelectorAll('#tedit.cssedit .btn')].find(b => /Refer/.test(b.textContent)).click()); await shot(A, '4-editor-css');
-  ok(await A.$eval('#rail', e => getComputedStyle(e).outlineColor) === 'rgb(1, 2, 3)', 'prévia ao vivo enquanto digita');
-  await A.evaluate(() => [...document.querySelectorAll('#tedit.cssedit .btn')].find(b => b.textContent === 'Cancelar').click()); await sleep(200);
-  ok(await A.$eval('#rail', e => getComputedStyle(e).outlineColor) !== 'rgb(1, 2, 3)', 'cancelar desfaz a prévia');
-  await A.evaluate(() => [...document.querySelectorAll('.css-actions .btn')][0].click()); await A.waitForSelector('#tedit.cssedit textarea');
-  await A.type('#tedit.cssedit textarea', '#rail { outline: 3px solid rgb(1, 2, 3); }'); await A.keyboard.down('Control'); await A.keyboard.press('s'); await A.keyboard.up('Control'); await sleep(1800);
-  ok(await A.evaluate(() => document.head.lastElementChild.id === 'custom-css' && window.__lc.S.prefs.customCss.includes('rgb(1, 2, 3)')), 'Ctrl+S salva: CSS na conta e por último no <head>');
-  await A.keyboard.down('Control'); await A.keyboard.down('Shift'); await A.keyboard.down('Alt'); await A.keyboard.press('KeyS'); await A.keyboard.up('Alt'); await A.keyboard.up('Shift'); await A.keyboard.up('Control'); await sleep(200);
-  ok(!(await A.$('#custom-css')), 'Ctrl+Shift+Alt+S desliga o CSS (modo seguro)');
-  const D = await page(ana.tok); await sleep(500);
-  ok(await D.$eval('#rail', e => getComputedStyle(e).outlineColor) === 'rgb(1, 2, 3)', 'outro aparelho da conta já abre com o CSS');
-  await D.goto(BASE + '/?semcss'); await D.waitForSelector('#rail .rail-wrap'); await sleep(500);
-  ok(!(await D.$('#custom-css')), '?semcss abre sem o CSS');
 } finally {
   await browser.close(); srv.kill(); fs.rmSync(DATA, { recursive: true, force: true });
 }
