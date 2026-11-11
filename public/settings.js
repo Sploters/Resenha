@@ -1,5 +1,5 @@
 import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
-import { S, api, tryApi, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
+import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
@@ -791,7 +791,8 @@ function overviewPage(gid) {
   const draw = () => { iconEl.replaceChildren(icn ? h('img', { src: icn }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)); bannerEl.style.backgroundImage = ban ? `url("${String(ban).replace(/["\\\n]/g, encodeURIComponent)}")` : ''; bannerEl.style.backgroundColor = accent; };
   iconEl.onclick = async () => { if (!canEdit) return; const u = await uploadImage(); if (u) { icn = u.url; draw(); } };
   draw();
-  const members = [...g.members.keys()].filter(id => id !== S.me.id);
+  let members = [...g.members.keys()].filter(id => id !== S.me.id);
+  if (g.partial) loadMembers(gid).then(() => { members = [...g.members.keys()].filter(id => id !== S.me.id); }).catch(() => { }); // servidor grande: a lista inteira
   return h('div', h('h2', 'Visão geral do servidor'), h('div.card2', { style: { padding: 0, overflow: 'hidden' } }, bannerEl, h('div', { style: { padding: '0 16px 16px', display: 'flex', gap: '16px', alignItems: 'flex-end', marginTop: '-44px', flexWrap: 'wrap' } }, iconEl,
     canEdit && h('div.btns', h('button.btn', { onclick: async () => { const u = await uploadImage(); if (u) { ban = u.url; draw(); } } }, 'Banner'), h('button.btn.grey', { onclick: () => { ban = null; draw(); } }, 'Remover banner'), h('button.btn.grey', { onclick: () => { icn = null; draw(); } }, 'Remover ícone')))),
   card(h('label.f', 'Nome do servidor', name), h('label.f', 'Descrição', desc), h('label.f', 'Cor de destaque'), swatches(accent, (c) => { accent = c; draw(); })),
@@ -872,7 +873,10 @@ function membersPage(gid) {
         can(gid, PERM.KICK) && u.id !== g.owner_id && u.id !== S.me.id && h('button.btn.red', { onclick: async () => { if (await confirmBox('Expulsar', `Expulsar ${u.display_name}?`, 'Expulsar')) { await tryApi('DELETE', `/guilds/${gid}/members/${u.id}`); setTimeout(draw, 300); } } }, 'Expulsar'));
     }));
   };
-  draw(); return h('div', h('h2', `Membros — ${g.members.size}`), q, box);
+  const title = h('h2', `Membros — ${g.member_count || g.members.size}`);
+  if (g.partial) { box.append(h('div.qinfo', 'Carregando a lista de membros…')); loadMembers(gid).then(() => { if (!box.isConnected) return; title.textContent = `Membros — ${g.members.size}`; draw(); }).catch(() => { }); }
+  else draw();
+  return h('div', title, q, box);
 }
 function rolePicker(g, m) {
   const sel = new Set(m.roles);

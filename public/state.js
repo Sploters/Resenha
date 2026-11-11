@@ -204,6 +204,21 @@ export function channelById(id) {
   return null;
 }
 export const member = (gid, uid) => S.guilds.get(gid)?.members.get(uid);
+// servidor grande: o READY traz só quem estava online (g.partial); a lista inteira chega aqui, uma vez, ao abrir o servidor
+// (ou as configurações dele). Membros que já chegaram por evento enquanto carregava ficam como estão (são mais novos).
+const memberLoads = new Map();
+export function loadMembers(gid) {
+  const g = S.guilds.get(gid); if (!g?.partial) return Promise.resolve(g);
+  if (memberLoads.has(gid)) return memberLoads.get(gid);
+  const p = api('GET', `/guilds/${gid}/members`).then((r) => {
+    if (S.guilds.get(gid) !== g) return loadMembers(gid); // reconectou no meio (READY novo): pede de novo para o servidor novo
+    for (const u of r.users) { const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u } : u); }
+    for (const m of r.members) if (!g.members.has(m.user_id)) g.members.set(m.user_id, m);
+    g.partial = false; document.dispatchEvent(new CustomEvent('members-loaded', { detail: gid }));
+    return g;
+  }).finally(() => memberLoads.delete(gid));
+  memberLoads.set(gid, p); return p;
+}
 export function nameOf(uid, gid) { return member(gid, uid)?.nickname || user(uid).display_name || user(uid).username; }
 export function roleColor(gid, uid) {
   if (S.prefs.roleColors === false) return '';

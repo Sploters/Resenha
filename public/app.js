@@ -9,7 +9,7 @@ import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -195,6 +195,8 @@ function connect() {
   };
 }
 
+// lista inteira de um servidor grande chegou: redesenha o que mostra membros (nomes, cores, lista)
+document.addEventListener('members-loaded', (e) => { if (S.view.gid !== e.detail) return; renderMembers(); renderSide(); if (S.view.cid) renderMessages(true); });
 function ingestGuild(g) {
   const old = S.guilds.get(g.id);
   g.members = new Map(g.members.map(m => [m.user_id, m]));
@@ -547,6 +549,7 @@ function applyRoute(first) {
     const chans = g.channels.filter(c => c.type !== 4);
     let ch = chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
+    if (g.partial) loadMembers(gid).catch(() => { }); // mesmo com a lista de membros fechada (menções, cores dos cargos)
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }
   }
   if (S.favMode && !(S.view.cid && isFav(S.view.cid))) S.favMode = false; // saiu dos favoritos (busca, link, outro canal)
@@ -946,7 +949,10 @@ function renderSide() {
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
-    const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
+    const cats = g.channels.filter(c => c.type === 4), byParent = new Map();
+    for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
+    const kids = (pid) => byParent.get(pid) || [];
+    if (sideCats.gid !== g.id) { sideCats.gid = g.id; sideCats.open.clear(); }
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
@@ -956,15 +962,15 @@ function renderSide() {
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
     };
-    const catRow = (c) => h('div', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
+    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
       h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
-      !S.collapsed.has(c.id) && kids(c.id).map(chRow),
+      !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
     // galeria de clipes do servidor: primeira linha da lista
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
     const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
-    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map(catRow));
+    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   const pinned = uaPinned();
@@ -977,6 +983,7 @@ function renderSide() {
     side.replaceChildren(head, list, area);
     if (keepScroll) list.scrollTop = keepScroll;
   }
+  catObs.disconnect(); list.querySelectorAll('.cat-lazy').forEach(el => catObs.observe(el));
   if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true }); }
   // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
@@ -984,6 +991,12 @@ function renderSide() {
   syncView();
 }
 let sideScroll = 0;
+// servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
+// outras viram um espaço do mesmo tamanho e são montadas quando chegam perto da tela (e ficam montadas). Antes cada
+// renderSide montava as 1.000 linhas (~45 ms; scripts/perf-big.mjs)
+const sideCats = { gid: null, open: new Set(), i: 0 };
+const catReady = (c, list) => sideCats.open.has(c.id) || sideCats.i < 6 || list.length <= 3 || list.some(k => k.id === S.view.cid || (k.type === 2 && [...S.voice.values()].some(v => v.channel_id === k.id))) ? (sideCats.open.add(c.id), true) : false;
+const catObs = new IntersectionObserver((es) => { let n = 0; for (const en of es) if (en.isIntersecting) { sideCats.open.add(en.target.dataset.cat); n++; } if (n) renderSide(); }, { rootMargin: '600px 0px' });
 const uaObs = new ResizeObserver(() => {
   const area = document.getElementById('user-area'); if (!area) return;
   uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
@@ -2493,7 +2506,8 @@ function renderMembers() {
   if (deferRender(renderMembers)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
-  if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; }
+  if (g.partial) loadMembers(g.id).catch(() => { }); // servidor grande: a lista inteira chega agora (members-loaded redesenha)
+  if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; memLimit.clear(); }
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
   // cargo mais alto de cada um calculado uma vez (antes: a cada comparação da ordenação, com 300 pessoas ~2.500 vezes)
   const tops = new Map(), topRole = (m) => { let r = tops.get(m); if (r === undefined) { r = null; for (const x of g.roles) if (m.roles.includes(x.id) && (!r || x.position > r.position)) r = x; tops.set(m, r); } return r || undefined; };
@@ -2546,6 +2560,7 @@ function renderMembers() {
   const jumpMe = () => {
     const k = meX.u.status === 'offline' ? 'offline' : (r ? r.id : 'online');
     if (memQ.q) { memQ.q = ''; if (box._q) box._q.value = ''; }
+    { const i = (groups.get(k) || []).sort(by).findIndex(x => x.u.id === S.me.id); if (i >= (memLimit.get(k) || MEM_PAGE)) { memLimit.set(k, i + 50); if (!isCol(k)) renderMembers(); } } // além do pedaço montado
     if (isCol(k)) { col[k] = false; localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); }
     requestAnimationFrame(() => { const el = box.querySelector('.mem.me'); if (!el) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
   };
@@ -2558,7 +2573,11 @@ function renderMembers() {
     box._q = h('input.mem-q', { type: 'search', placeholder: 'Buscar membros', 'aria-label': 'Buscar membros', oninput: debounce(() => { memQ.q = box._q.value; renderMembers(); }, 100), onkeydown: (e) => { if (e.key === 'Escape' && box._q.value) { e.stopPropagation(); box._q.value = ''; memQ.q = ''; renderMembers(); } } });
   }
   if (box._q.value !== memQ.q) box._q.value = memQ.q;
-  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
+  // grupo grande aparece aos pedaços (200 linhas, +300 ao rolar até o fim): abrir os 5.000 offline de um servidor grande
+  // montava 5.000 linhas numa tarefa de ~300 ms (scripts/perf-big.mjs)
+  const more = (k, l) => { const lim = memLimit.get(k) || MEM_PAGE; if (l.length <= lim) return []; const b = h('button.mem-more', { type: 'button', 'data-k': k, onclick: () => { memLimit.set(k, lim + MEM_STEP); renderMembers(); } }, `Mostrar mais ${Math.min(MEM_STEP, l.length - lim)} de ${l.length - lim}`); memMoreObs.observe(b); return [b]; };
+  memMoreObs.disconnect();
+  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : [...l.slice(0, memLimit.get(k) || MEM_PAGE).map(x => row(x, k === 'offline')), ...more(k, l)])]; }),
     q && !shown.length && h('div.mem-none', 'Ninguém com esse nome')].filter(Boolean);
   for (const id of memRows.keys()) if (!usedRows.has(id)) memRows.delete(id); // saiu do servidor / recolhido: não fica preso
   const top = box.querySelector('.mem-top') || h('div.mem-top');
@@ -2571,6 +2590,8 @@ function renderMembers() {
   } else box.replaceChildren(top, h('div.mem-list', kids), foot || ''); // seu cartão fica fixo embaixo, como no design
 }
 const memRows = new Map();
+const MEM_PAGE = 200, MEM_STEP = 300, memLimit = new Map(); // quantas linhas de cada grupo da lista de membros estão montadas
+const memMoreObs = new IntersectionObserver((es) => { for (const en of es) if (en.isIntersecting) { en.target.click(); break; } }, { rootMargin: '400px 0px' });
 const collator = new Intl.Collator('pt-BR');
 
 // =============== Início / amigos ===============

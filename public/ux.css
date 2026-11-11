@@ -784,3 +784,5 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 .ib-lost-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ib-lost-h .btn.link { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .ib-lost .ib-req-av { opacity: .75; }
+.mem-more { display: block; width: calc(100% - 16px); margin: 6px 8px 12px; padding: 8px; border: 0; border-radius: 6px; background: var(--bg-mod, rgba(127,127,127,.12)); color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
+.mem-more:hover { color: var(--header); }

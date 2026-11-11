@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -112,7 +113,9 @@ function guildCached(gid) {
   if (!c || Date.now() - c.at > 30e3) {
     const g = guildFull(gid, { users: false }); if (!g) return null;
     delete g.voice_states;
-    c = { at: Date.now(), obj: g, head: JSON.stringify(g).slice(0, -1) }; guildCache.set(gid, c);
+    c = { at: Date.now(), obj: g, head: JSON.stringify(g).slice(0, -1) };
+    if (g.members.length >= READY_LARGE) { const { members, ...rest } = g; c.headNoMembers = JSON.stringify(rest).slice(0, -1); }
+    guildCache.set(gid, c);
   }
   return c;
 }
@@ -1340,6 +1343,17 @@ app.delete('/api/relationships/:id', auth, wrap((req, res) => {
 }));
 app.delete('/api/friend-losses/:id', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=? AND other_id=?', req.uid, req.params.id); dispatch([req.uid], 'FRIEND_LOSSES', { list: friendLossesFor(req.uid) }); res.json({}); }));
 app.delete('/api/friend-losses', auth, wrap((req, res) => { run('DELETE FROM friend_losses WHERE user_id=?', req.uid); dispatch([req.uid], 'FRIEND_LOSSES', { list: [] }); res.json({}); }));
+// lista inteira de um servidor grande (o READY só levou quem estava online): membros e perfis, comprimida
+app.get('/api/guilds/:id/members', auth, wrap((req, res) => {
+  const gid = String(req.params.id);
+  if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, req.uid)) return bad(res, 'Sem permissão', 403);
+  const c = guildCached(gid); if (!c) return bad(res, 'Não encontrado', 404);
+  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT user_id FROM members WHERE guild_id=?)`, gid);
+  const body = '{"members":' + JSON.stringify(c.obj.members) + ',"users":[' + users.map(u => userJson(u, req.uid)).join(',') + ']}';
+  res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' });
+  if (body.length > 4096 && /\bgzip\b/.test(req.get('accept-encoding') || '')) { res.set('Content-Encoding', 'gzip'); return res.end(zlib.gzipSync(body, { level: 4 })); }
+  res.end(body);
+}));
 app.get('/api/users/:id', auth, wrap((req, res) => {
   const u = getUser(req.params.id); if (!u) return bad(res, 'Não encontrado', 404);
   const mutual = all('SELECT g.id,g.name,g.icon FROM members a JOIN members b ON a.guild_id=b.guild_id JOIN guilds g ON g.id=a.guild_id WHERE a.user_id=? AND b.user_id=?', req.uid, u.id);
@@ -1608,10 +1622,20 @@ const iceServers = () => {
   return s;
 };
 // READY já em texto: as partes guardadas (servidores e perfis) entram prontas; o resto é calculado agora
+// Servidor grande (a partir de READY_LARGE membros, padrão 1.000): o READY leva só quem está online, a própria pessoa e o
+// dono; o app pede a lista inteira ao abrir o servidor (GET /api/guilds/:id/members). Com 5.000 membros o READY tinha
+// 3,5 MB de texto (5.000 perfis + 5.000 membros) para cada pessoa que abria o app, olhando ou não aquele servidor.
+const READY_LARGE = +(process.env.READY_LARGE || 1000);
+function partialMembers(c, uid) {
+  const g = c.obj, keep = (m) => m.user_id === uid || m.user_id === g.owner_id || conns.has(m.user_id);
+  return g.members.filter(keep);
+}
 function buildReadyRaw(uid, extra) {
   const gcs = all('SELECT guild_id FROM members WHERE user_id=?', uid).map(r => guildCached(r.guild_id)).filter(Boolean), guilds = gcs.map(c => c.obj);
+  const big = new Map(gcs.filter(c => c.obj.members.length >= READY_LARGE).map(c => [c.obj.id, partialMembers(c, uid)]));
   // cada pessoa uma vez só (antes ia repetida em cada servidor em comum: 250 pessoas em 5 servidores = 1.250 perfis)
-  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT guild_id FROM members WHERE user_id=?))`, uid);
+  const small = gcs.filter(c => !big.has(c.obj.id)).map(c => c.obj.id), bigIds = [...new Set([...big.values()].flatMap(ms => ms.map(m => m.user_id)))];
+  const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT value FROM json_each(?))) OR id IN (SELECT value FROM json_each(?))`, JSON.stringify(small), JSON.stringify(bigIds));
   const dms = all('SELECT c.* FROM channels c JOIN dm_participants p ON p.channel_id=c.id WHERE p.user_id=? AND c.type=1', uid).map(dmChannelObj);
   const chIds = [...guilds.flatMap(g => g.channels.filter(c => c.type === 0 || c.type === 2).map(c => c.id)), ...dms.map(d => d.id)];
   const dmVoice = [];
@@ -1628,7 +1652,7 @@ function buildReadyRaw(uid, extra) {
   const rels = relObj(uid), me = getUser(uid);
   for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) { const xu = { id: x.id, username: x.username, status: getUser(x.id)?.status }; x.status = statusFor(uid, xu); x.platforms = platformsFor(uid, xu); }
   const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
-  return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => c.head + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
+  return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => (big.has(c.obj.id) ? c.headNoMembers + ',"members":' + JSON.stringify(big.get(c.obj.id)) + ',"partial":true,"member_count":' + c.obj.members.length : c.head) + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
 }
 
 // espectadores de transmissões: "canal:transmissor" -> Set de quem está assistindo
