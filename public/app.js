@@ -7,7 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
-import { h, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
+import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
@@ -260,10 +260,17 @@ function onEvent(t, d) {
     }
     case 'USER_DELETE': { S.rels.delete(d.id); renderMembers(); renderSide(); if (S.view.kind === 'home') renderMain(); break; }
     case 'USER_UPDATE': {
+      const old = S.users.get(d.id), presence = !!old && presenceOnly(old, d);
       S.users.set(d.id, d); if (d.id === S.me.id) S.me = d;
       for (const dm of S.dms.values()) dm.recipients = dm.recipients.map(r => r.id === d.id ? d : r);
       for (const r of S.rels.values()) if (r.user.id === d.id) r.user = d;
-      renderSide(); renderMembers(); refreshAuthors(d.id); if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
+      // só status/aparelho mudou (o caso comum: alguém entrou ou saiu): as mensagens não mostram status, e a lista de canais
+      // de um servidor só mostra quem está em sala. Antes cada entrada/saída redesenhava o chat e a lista lateral inteiros.
+      const g = guild(S.view.gid);
+      if (!presence || d.id === S.me.id || !g || S.voice.has(d.id)) renderSide();
+      if (!g || g.members.has(d.id)) renderMembers();
+      if (!presence) refreshAuthors(d.id);
+      if (S.view.kind === 'home' && !deferRender(renderHomeIfHome)) renderMain();
       break;
     }
     case 'GUILD_CREATE': ingestGuild(d); renderRail(); if (!S.view.gid || S.view.gid === 'new') go(d.id); else { renderSide(); } break;
@@ -951,12 +958,18 @@ function renderSide() {
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   const pinned = uaPinned();
   const area = h('div#user-area' + (pinned ? '' : '.ua-col'), voice?.active && h('div.ua-vp', voicePanel()), userbar());
-  side.replaceChildren(head, list, area);
-  list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true });
+  const oldHead = side.querySelector(':scope > #side-head'), oldList = side.querySelector(':scope > #side-list'), oldArea = side.querySelector(':scope > #user-area');
+  if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
+    // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
+    morph(oldHead, head); list = morph(oldList, list); oldArea.replaceWith(area);
+  } else {
+    side.replaceChildren(head, list, area);
+    if (keepScroll) list.scrollTop = keepScroll;
+  }
+  if (!list._scrollWatch) { list._scrollWatch = true; list.addEventListener('scroll', () => { sideScroll = list.scrollTop; }, { passive: true }); }
   // altura do painel do usuário medida pelo ResizeObserver (depois do layout que o navegador já ia fazer). Antes o
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
   uaObs.disconnect(); uaObs.observe(area);
-  if (keepScroll) list.scrollTop = keepScroll;
 }
 let sideScroll = 0;
 const uaObs = new ResizeObserver(() => {
@@ -1650,6 +1663,8 @@ function appendMessage(m) {
   box.append(mel);
   if (near) { box.stick = true; box.scrollTop = box.scrollHeight; }
 }
+const PRESENCE_KEYS = new Set(['status', 'platforms']);
+function presenceOnly(a, b) { for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (!PRESENCE_KEYS.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false; return true; }
 function refreshAuthors(uid) { if ($('#msgs') && S.view.cid && S.messages.get(S.view.cid)?.some(m => m.author_id === uid)) renderMessages(true); }
 
 const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), emojiUrl });
@@ -2409,11 +2424,11 @@ function renderMembers() {
   const box = $('#members'); if (!box || S.view.kind !== 'guild') return;
   const g = guild(S.view.gid); if (!g) return;
   if (memQ.gid !== g.id) { memQ.gid = g.id; memQ.q = ''; }
-  const keepScroll = box.querySelector('.mem-list')?.scrollTop || 0;
   const ms = [...g.members.values()].map(m => ({ m, u: user(m.user_id) }));
-  const topRole = (m) => g.roles.filter(r => m.roles.includes(r.id)).sort((a, b) => b.position - a.position)[0];
-  const nm = (x) => x.m.nickname || x.u.display_name;
-  const by = (a, b) => nm(a).localeCompare(nm(b));
+  // cargo mais alto de cada um calculado uma vez (antes: a cada comparação da ordenação, com 300 pessoas ~2.500 vezes)
+  const tops = new Map(), topRole = (m) => { let r = tops.get(m); if (r === undefined) { r = null; for (const x of g.roles) if (m.roles.includes(x.id) && (!r || x.position > r.position)) r = x; tops.set(m, r); } return r || undefined; };
+  const nm = (x) => (x.nk ??= x.m.nickname || x.u.display_name);
+  const by = (a, b) => collator.compare(nm(a), nm(b));
   // hierarquia: dono primeiro, depois pelo cargo mais alto, depois por nome
   const rank = (x) => (g.owner_id === x.u.id ? 1e9 : (topRole(x.m)?.position ?? -1));
   const hier = [...ms].sort((a, b) => rank(b) - rank(a) || by(a, b));
@@ -2429,8 +2444,20 @@ function renderMembers() {
   const isCol = (k) => !q && (col[k] ?? (k === 'offline' && ms.length > 30)); // buscando: tudo aberto; offline começa recolhido em servidor grande
   const toggle = (k) => { col[k] = !isCol(k); localStorage.setItem('lc_memcol', JSON.stringify(memCol)); renderMembers(); };
   const inVoice = (uid) => { const v = S.voice.get(uid); return v && channelById(v.channel_id)?.guild_id === g.id ? channelById(v.channel_id) : null; };
-  const row = ({ m, u }, offline) => {
-    const vc = !offline && inVoice(u.id);
+  // linha guardada enquanto o que ela mostra não muda (o USER_UPDATE troca o objeto da pessoa; membro, cor, sala e jogo
+  // idem): com gente entrando e saindo, só a linha de quem mudou é montada de novo
+  if (memRows.gid !== g.id) { memRows.clear(); memRows.gid = g.id; }
+  const usedRows = new Set();
+  const row = (x, offline) => {
+    const { m, u } = x, vc = !offline && inVoice(u.id), act = offline ? null : activityOf(u.id), col = roleColor(g.id, u.id), name = nm(x), own = g.owner_id;
+    usedRows.add(u.id);
+    const c = memRows.get(u.id);
+    if (c && c.u === u && c.m === m && c.off === offline && c.vc === vc && c.act === act && c.col === col && c.name === name && c.own === own) return c.el;
+    const el = buildRow(x, offline, vc);
+    memRows.set(u.id, { u, m, off: offline, vc, act, col, name, own, el });
+    return el;
+  };
+  const buildRow = ({ m, u }, offline, vc) => {
     return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
       avatar(u, 32, { ring: 'var(--bg-sec)' }),
       h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
@@ -2459,14 +2486,20 @@ function renderMembers() {
     box._q = h('input.mem-q', { type: 'search', placeholder: 'Buscar membros', 'aria-label': 'Buscar membros', oninput: debounce(() => { memQ.q = box._q.value; renderMembers(); }, 100), onkeydown: (e) => { if (e.key === 'Escape' && box._q.value) { e.stopPropagation(); box._q.value = ''; memQ.q = ''; renderMembers(); } } });
   }
   if (box._q.value !== memQ.q) box._q.value = memQ.q;
-  const list = h('div.mem-list',
-    ...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
-    q && !shown.length && h('div.mem-none', 'Ninguém com esse nome'));
+  const kids = [...order.flatMap(([k, name, color]) => { const l = groups.get(k).sort(by); return [head(k, name, color, l), ...(isCol(k) ? [] : l.map(x => row(x, k === 'offline')))]; }),
+    q && !shown.length && h('div.mem-none', 'Ninguém com esse nome')].filter(Boolean);
+  for (const id of memRows.keys()) if (!usedRows.has(id)) memRows.delete(id); // saiu do servidor / recolhido: não fica preso
   const top = box.querySelector('.mem-top') || h('div.mem-top');
-  top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
-  box.replaceChildren(top, list, meCard && h('div.mem-foot', meCard)); // seu cartão fica fixo embaixo, como no design
-  list.scrollTop = keepScroll;
+  if (top.firstChild?.lastChild !== box._q) top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
+  // a lista já está na página: atualiza só o que mudou (a rolagem fica onde estava e as fotos não recarregam)
+  const oldList = box.querySelector(':scope > .mem-list'), foot = meCard && h('div.mem-foot', meCard), oldFoot = box.querySelector(':scope > .mem-foot');
+  if (oldList && box.firstChild === top) {
+    place(oldList, kids);
+    if (foot && oldFoot) morph(oldFoot, foot); else if (foot) box.append(foot); else oldFoot?.remove();
+  } else box.replaceChildren(top, h('div.mem-list', kids), foot || ''); // seu cartão fica fixo embaixo, como no design
 }
+const memRows = new Map();
+const collator = new Intl.Collator('pt-BR');
 
 // =============== Início / amigos ===============
 // painel "Ativo agora": amigos online, com servidor e sala de voz quando estão numa chamada

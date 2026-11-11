@@ -12,9 +12,53 @@ export function busy(el, p) {
 }
 function busyHandler(el, fn) {
   return function (e) {
+    el = this?.nodeType === 1 ? this : el; // o botão que recebeu o clique (morph pode ter mantido o elemento antigo)
     if (el.classList.contains('busy')) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     return busy(el, fn.call(this, e));
   };
+}
+// ouvintes do h(): um despachante por tipo e a função em el.__on, para o morph() poder trocar a função de um elemento
+// reaproveitado pela do elemento novo (com os dados novos)
+function dispatchOn(e) { const f = this.__on?.[e.type]; return f ? f.call(this, e) : undefined; }
+function listen(el, type, fn) { const on = (el.__on ||= {}); if (!(type in on)) el.addEventListener(type, dispatchOn); on[type] = fn; }
+
+// Atualiza o elemento `a` (já na página) para ficar igual a `b` (recém-montado pelo h()), mexendo só no que mudou.
+// Elementos com a mesma chave (id, data-key, data-uid, data-mid, data-id) ou, sem chave, na mesma posição e com a mesma
+// tag são reaproveitados — imagens não recarregam, a rolagem fica onde estava, e o navegador recalcula estilo e layout
+// só do que mudou (recriar a lista inteira refazia tudo). Devolve o nó que ficou na página.
+const keyOf = (n) => n.nodeType === 1 ? (n.id || n.getAttribute('data-key') || n.getAttribute('data-uid') || n.getAttribute('data-mid') || n.getAttribute('data-id') || null) : null;
+export function morph(a, b) {
+  if (a === b) return a;
+  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName || keyOf(a) !== keyOf(b) || a.nodeType !== 1 && a.nodeType !== 3) { a.replaceWith(b); return b; }
+  if (a.nodeType === 3) { if (a.data !== b.data) a.data = b.data; return a; }
+  for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
+  for (const at of b.attributes) if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value);
+  if (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') {
+    if (a.value !== b.value && a !== document.activeElement) a.value = b.value; // não atropela quem está digitando
+    if (a.checked !== b.checked) a.checked = b.checked;
+  }
+  if (b.__on) { for (const t in b.__on) if (!a.__on || !(t in a.__on)) a.addEventListener(t, dispatchOn); a.__on = { ...b.__on }; }
+  else if (a.__on) a.__on = {};
+  morphKids(a, b);
+  return a;
+}
+function morphKids(a, b) {
+  const old = [...a.childNodes], neu = [...b.childNodes], byKey = new Map(), loose = [];
+  for (const n of old) { const k = keyOf(n); if (k) (byKey.get(k) || byKey.set(k, []).get(k)).push(n); else loose.push(n); }
+  let li = 0;
+  const pairs = neu.map((nb) => { const k = keyOf(nb); if (k) return byKey.get(k)?.shift() || null; while (li < loose.length && loose[li].nodeName !== nb.nodeName) li++; return loose[li++] || null; });
+  place(a, neu.map((nb, i) => pairs[i] ? morph(pairs[i], nb) : nb));
+}
+// Põe exatamente `nodes` como filhos de `p`, nesta ordem, movendo o mínimo: o que saiu é removido no lugar (antes, tirar
+// uma linha do meio fazia todas as seguintes serem movidas, e cada movida recalcula estilo e layout).
+export function place(p, nodes) {
+  const want = new Set(nodes);
+  nodes.forEach((n, i) => {
+    let cur = p.childNodes[i];
+    while (cur && cur !== n && !want.has(cur)) { cur.remove(); cur = p.childNodes[i]; }
+    if (cur !== n) p.insertBefore(n, cur || null);
+  });
+  while (p.childNodes.length > nodes.length) p.lastChild.remove();
 }
 export function h(tag, props, ...kids) {
   const m = tag.match(/^([a-z0-9]*)((?:[.#][\w-]+)*)$/i);
@@ -25,8 +69,8 @@ export function h(tag, props, ...kids) {
   if (props && (typeof props !== 'object' || props instanceof Node || Array.isArray(props))) { kids.unshift(props); props = null; }
   for (const [k, v] of Object.entries(props || {})) {
     if (v == null || v === false) continue;
-    if (k === 'onclick' && el.tagName === 'BUTTON') el.addEventListener('click', busyHandler(el, v));
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    if (k === 'onclick' && el.tagName === 'BUTTON') listen(el, 'click', busyHandler(el, v));
+    else if (k.startsWith('on')) listen(el, k.slice(2), v);
     else if (k === 'style' && typeof v === 'object') { for (const [sk, sv] of Object.entries(v)) { if (sk.startsWith('--')) el.style.setProperty(sk, sv); else el.style[sk] = sv; } } // variáveis CSS (--x) só entram por setProperty
     else if (k === 'class') el.className += ' ' + v;
     else if (k in el && k !== 'list') el[k] = v;
