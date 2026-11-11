@@ -145,7 +145,7 @@ export function applyTheme() {
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
-  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
+  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); r.classList.toggle('sat-on', (S.prefs.saturation ?? 100) != 100); setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));

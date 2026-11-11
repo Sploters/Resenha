@@ -1643,7 +1643,9 @@ async function loadChannel(cid) {
     const list = S.messages.get(cid), older = await tryApi('GET', `/channels/${cid}/messages?limit=50&before=${list[0]?.id}`);
     delete msgs.dataset.loading; if (!older) return;
     if (older.length < 50) S.loaded.set(cid, true);
-    list.unshift(...older); const prevH = msgs.scrollHeight; renderMessages(false); msgs.scrollTop = msgs.scrollHeight - prevH;
+    list.unshift(...older); const prevH = msgs.scrollHeight;
+    if (!prependMessages(cid, older)) renderMessages(false);
+    msgs.scrollTop = msgs.scrollHeight - prevH;
   };
 }
 function welcomeBlock(ch) {
@@ -1663,6 +1665,26 @@ function renderMessages(keepPos) {
   if (S.pending.length) renderPending();
   box.stick = !(keepPos && !near);
   box.scrollTop = box.stick ? box.scrollHeight : old;
+}
+// Histórico mais antigo chegou (rolou até o topo): põe só as mensagens novas no começo. Antes o chat inteiro era montado de
+// novo a cada página (50, 100, 150… mensagens), travando a rolagem num PC fraco (quadro de ~650 ms com 350 mensagens).
+function prependMessages(cid, older) {
+  const box = $('#msgs'), list = S.messages.get(cid); if (!box || S.view.cid !== cid || !older.length || !list) return false;
+  const first = list[older.length], firstEl = first && box.querySelector(`:scope > [data-mid="${first.id}"]`); // a que estava no topo
+  const grow = box.querySelector(':scope > .grow'); if (!firstEl || !grow) return false;
+  const ch = channelById(cid), frag = document.createDocumentFragment(); let prev = null;
+  if (S.loaded.get(cid) && !box.querySelector(':scope > .welcome')) frag.append(welcomeBlock(ch));
+  for (const m of older) {
+    if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
+  }
+  // fronteira: a antiga primeira mensagem pode agrupar com a anterior, e o separador de dia dela pode sobrar
+  const sep = firstEl.previousElementSibling?.classList.contains('daysep') ? firstEl.previousElementSibling : null;
+  const same = sameDay(prev.created_at, first.created_at);
+  if (sep && same) sep.remove();
+  firstEl.replaceWith(msgEl(first, same ? prev : null));
+  grow.after(frag);
+  return true;
 }
 function appendMessage(m) {
   const box = $('#msgs'), list = S.messages.get(m.channel_id); if (!box) return;

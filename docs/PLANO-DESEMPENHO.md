@@ -45,8 +45,13 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
 - [ ] Desaceleração da janela também em chamada quando escondida.
 
 ## Testes de brechas
-- [ ] ★ **PC fraco + resposta a cliques (INP)**: CPU 6x mais lenta; digitar, abrir emojis, trocar de servidor, rolar
-      10 mil mensagens contando quadros perdidos.
+- [x] ★ **PC fraco + resposta a cliques (INP)** (2026-11-11, `scripts/perf-inp.mjs`, CPU 6x mais lenta, 300 membros):
+      digitar, enviar, emojis, trocar de canal, perfil, configurações, buscar membro e rolar o histórico. Achados e
+      corrigidos: (1) o filtro de saturação ligado mesmo em 100% fazia o Chrome promover cada mensagem e avatar a uma
+      camada própria (86 camadas com 37 mensagens; agora 9) — só liga com a saturação mudada; (2) cada página do
+      histórico remontava o chat inteiro — agora só entram as mensagens novas no topo. Rolando: pior quadro 633 → 283 ms,
+      35 → 49 fps, travadinhas 17 → 8; perfil 72 → 32 ms, configurações 64 → 32 ms; chat aos pedaços igual ao montado do
+      zero. Fica: a 1ª abertura dos emojis (~250 ms nesse PC, ~40 ms num normal, uma vez só; a 2ª leva 60–80 ms).
 - [ ] ★ **Sessão longa**: horas em call e uso simulado, comparando a memória do app e do servidor ao longo do tempo.
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
 - [ ] Dados grandes: servidor com 1.000 canais, 5.000 membros, 100 mil mensagens; 500 conversas diretas.
