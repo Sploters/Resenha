@@ -1,6 +1,7 @@
-// Mensagem de voz, espectadores de transmissão e tradução. Uso: BASE=http://localhost:3000 node scripts/features-test.mjs
+// Mensagem de voz, espectadores de transmissão e tradução. Uso: node scripts/features-test.mjs (servidor próprio) ou BASE=... node scripts/features-test.mjs
+import { ownServer } from './test-server.mjs';
 import WebSocket from 'ws';
-const BASE = process.env.BASE || 'http://localhost:3000';
+const BASE = process.env.BASE || await ownServer('features', 3322, 41130);
 let fails = 0;
 const ok = (c, msg) => { console.log((c ? '  ok   ' : '  FAIL ') + msg); if (!c) fails++; };
 const call = async (tok, method, path, body, raw) => {

@@ -1,6 +1,7 @@
-// Teste de ponta a ponta contra um servidor rodando. Uso: BASE=http://localhost:3111 node scripts/e2e.mjs
+// Teste de ponta a ponta. Uso: node scripts/e2e.mjs (sobe um servidor próprio) ou BASE=http://localhost:3111 node scripts/e2e.mjs
+import { ownServer } from './test-server.mjs';
 import WebSocket from 'ws';
-const BASE = process.env.BASE || 'http://localhost:3000';
+const BASE = process.env.BASE || await ownServer('e2e', 3321, 41120);
 let fails = 0;
 const ok = (c, msg) => { console.log((c ? '  ok   ' : '  FAIL ') + msg); if (!c) fails++; };
 const call = async (tok, method, path, body) => {

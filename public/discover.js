@@ -23,11 +23,11 @@ const matchOf = (item) => { const txt = ' ' + norm([item.title, item.summary, ..
 
 async function load(kind, force) {
   if (st.loading[kind] || (!force && st.data[kind] && Date.now() - st.at[kind] < 5 * 60e3)) return;
-  st.loading[kind] = true; st.error[kind] = null; drawSoon();
+  st.loading[kind] = true; st.error[kind] = null; drawSoon(kind);
   const r = await api('GET', `/discover/${kind}`).catch((e) => ({ error: e.message }));
   st.loading[kind] = false;
   if (r?.items) { st.data[kind] = r; st.at[kind] = Date.now(); if (kind === 'tournaments') refreshImages(); } else st.error[kind] = r?.error || 'Não consegui buscar agora. Tente de novo em instantes.';
-  drawSoon();
+  drawSoon(kind);
 }
 const ensure = () => { if (st.tab === 'home') ALL.forEach(k => load(k)); else load(st.tab); };
 // torneios: as imagens chegam aos poucos (o servidor busca em segundo plano); recarrega uma vez para pegá-las
@@ -88,7 +88,7 @@ const RAIL = 12; // cartões no carrossel (3 visíveis por vez); "Ver tudo" abre
 function section(key, ic, title, sub, total, body, opts = {}) {
   const open = !!st.open[key];
   const more = opts.tab ? h('button.dmore', { onclick: () => goTab(opts.tab) }, opts.tabLabel || 'Ver tudo', icon('chevr', 16))
-    : total > (opts.shown ?? 3) || open ? h('button.dmore', { onclick: () => { st.open[key] = !open; draw(); } }, open ? 'Ver menos' : `Ver tudo (${total})`, h('span.dchev' + (open ? '.up' : ''), icon('chevdown', 16))) : null;
+    : total > (opts.shown ?? 3) || open ? h('button.dmore', { onclick: () => { st.open[key] = !open; drawSoon(key); } }, open ? 'Ver menos' : `Ver tudo (${total})`, h('span.dchev' + (open ? '.up' : ''), icon('chevdown', 16))) : null;
   return h('section.dhsec', { 'data-sec': key }, h('div.dhead', icon(ic, 18), h('b', title), sub && h('small', sub), h('div.spacer'), more), body);
 }
 // carrossel horizontal: até 3 cartões visíveis, arrasta/rola para o lado, setas nas pontas
@@ -170,7 +170,7 @@ async function suggestions() {
 let sugg = null;
 function interestsBox() {
   const mine = interests();
-  if (!sugg) suggestions().then(s => { sugg = s; drawSoon(); });
+  if (!sugg) suggestions().then(s => { sugg = s; drawSoon('int'); });
   if (mine.length && !st.editInt) // resumido: uma linha com os interesses e "Editar"
     return h('div.dint.mini', h('span.dlabel', icon('star', 14), 'Seus interesses:'), h('div.dintlist', mine.map(i => h('span.dchip.on.sm', i))),
       h('button.dmore', { onclick: () => { st.editInt = true; draw(); setTimeout(() => st.root?.querySelector('.dint-in')?.focus(), 0); } }, icon('edit', 14), 'Editar'));
@@ -185,50 +185,89 @@ function interestsBox() {
 
 // cartão genérico do "Para você" (cada item usa o cartão do seu tipo)
 const mixCard = (x) => (x.kind === 'deal' ? dealCard : x.kind === 'tour' ? tourCard : x.kind === 'up' ? upCard : x.kind === 'news' ? newsCard : riseCard)(x);
-function homeTab() {
-  const ch = st.data.charts?.playing ? st.data.charts : null, deals = st.data.deals?.items || [], ups = st.data.upcoming?.items || [], news = st.data.news?.items || [];
-  const tours = (st.data.tournaments?.items || []).filter(inRegion);
-  const out = [interestsBox()];
+// cada seção do Início é montada sozinha (SECS[chave]()), para a resposta de uma fonte redesenhar só a seção dela
+const homeData = () => ({ ch: st.data.charts?.playing ? st.data.charts : null, deals: st.data.deals?.items || [], ups: st.data.upcoming?.items || [], news: st.data.news?.items || [], tours: (st.data.tournaments?.items || []).filter(inRegion) });
+const SECS = {
   // Para você: o que combina com os interesses; cada tipo numa fila e intercalados (promoção, torneio, Steam, lançamento, notícia...)
-  if (interests().length) {
+  foryou() {
+    if (!interests().length) return null;
+    const { ch, deals, ups, news, tours } = homeData();
     const seen = new Set(), lists = [];
     const take = (list, kind) => { const out = []; for (const x of list) { const k = norm(x.title); if (matchOf(x) && !seen.has(k)) { seen.add(k); out.push({ ...x, kind }); } } lists.push(out); };
-    take(deals, 'deal'); take(tours, 'tour'); lists[lists.length - 1].splice(4); // no máximo 4 torneios (a aba Torneios tem todos) take([...(ch?.sellers || []).map(g => ({ ...g, chart: 'sold', top: true })), ...(ch?.playing || []).map(g => ({ ...g, chart: 'played', top: true }))], 'rise'); take(ups, 'up'); take(news.slice(0, 80), 'news');
+    take(deals, 'deal'); take(tours, 'tour'); lists[lists.length - 1].splice(4); // no máximo 4 torneios (a aba Torneios tem todos)
+    take([...(ch?.sellers || []).map(g => ({ ...g, chart: 'sold', top: true })), ...(ch?.playing || []).map(g => ({ ...g, chart: 'played', top: true }))], 'rise'); take(ups, 'up'); take(news.slice(0, 80), 'news');
     const mix = []; for (let i = 0; lists.some(l => l[i]); i++) for (const l of lists) if (l[i]) mix.push(l[i]);
-    out.push(section('foryou', 'star', 'Para você', 'do que você escolheu', mix.length,
-      mix.length ? railOr('foryou', mix, mixCard) : ALL.some(k => st.loading[k] && !st.data[k]) ? state('news', [], '') : h('p.dnote', 'Nada sobre seus interesses agora. Volte mais tarde ou adicione outros jogos e assuntos.')));
-  }
+    return section('foryou', 'star', 'Para você', 'do que você escolheu', mix.length,
+      mix.length ? railOr('foryou', mix, mixCard) : ALL.some(k => st.loading[k] && !st.data[k]) ? state('news', [], '') : h('p.dnote', 'Nada sobre seus interesses agora. Volte mais tarde ou adicione outros jogos e assuntos.'));
+  },
   // Steam: mais jogados e mais vendidos lado a lado (5 de cada; "Ver tudo" mostra 15)
-  {
-    const open = st.open.charts;
+  charts() {
+    const { ch } = homeData(), open = st.open.charts;
     const body = state('charts', ch ? [1] : [], 'Sem dados da Steam agora.') || h('div.dpanels',
       panel('users', 'Mais jogados agora', 'jogadores agora · pico de hoje', ch.playing, (g) => [h('b', full(g.now)), h('small', 'pico ' + big(g.peak))], open ? 15 : 5),
       panel('tag', 'Mais vendidos da semana', ch.country === 'BR' ? 'no Brasil' : '', ch.sellers, (g) => [trend(g.last, g.rank), h('div.dstack', priceTag(g), g.weeks > 1 && h('small', `${g.weeks} semanas na lista`))], open ? 15 : 5));
-    out.push(section('charts', 'rocket', 'Na Steam', null, 15, body, { shown: 5 }));
-  }
+    return section('charts', 'rocket', 'Na Steam', null, 15, body, { shown: 5 });
+  },
   // Promoções: grátis primeiro; aberto separa Grátis / Em promoção
-  {
-    const open = st.open.deals, free = deals.filter(d => d.free), paid = deals.filter(d => !d.free);
+  deals() {
+    const { deals } = homeData(), open = st.open.deals, free = deals.filter(d => d.free), paid = deals.filter(d => !d.free);
     const body = state('deals', deals, 'Nenhuma promoção encontrada agora.') || (open
       ? [free.length && h('h4.dsub', icon('gift', 16), 'Grátis'), free.length && grid(free, dealCard), paid.length && h('h4.dsub', icon('tag', 16), 'Em promoção'), paid.length && grid(paid, dealCard)]
       : rail('deals', deals, dealCard));
-    out.push(section('deals', 'tag', 'Promoções', free.length ? `${free.length} grátis agora` : null, deals.length, body));
-  }
-  out.push(section('upcoming', 'calendar', 'Lançamentos', 'em breve na Steam', ups.length,
-    state('upcoming', ups, 'Nenhum lançamento na lista agora.') || railOr('upcoming', ups, upCard)));
-  out.push(section('tournaments', 'trophy', 'Torneios', region() === 'br' ? 'no Brasil' : region() === 'latam' ? 'Brasil e América Latina' : null, tours.length,
-    state('tournaments', tours, 'Nenhum torneio aberto na sua região agora.') || rail('tournaments', tours, tourCard), { tab: 'tournaments', tabLabel: `Ver todos (${tours.length})` }));
-  out.push(section('news', 'news', 'Últimas notícias', null, news.length,
-    state('news', news, 'Nenhuma notícia por aqui.') || rail('news', news, newsCard), { tab: 'news', tabLabel: 'Ver todas' }));
-  return out;
-}
+    return section('deals', 'tag', 'Promoções', free.length ? `${free.length} grátis agora` : null, deals.length, body);
+  },
+  upcoming() {
+    const { ups } = homeData();
+    return section('upcoming', 'calendar', 'Lançamentos', 'em breve na Steam', ups.length, state('upcoming', ups, 'Nenhum lançamento na lista agora.') || railOr('upcoming', ups, upCard));
+  },
+  tournaments() {
+    const { tours } = homeData();
+    return section('tournaments', 'trophy', 'Torneios', region() === 'br' ? 'no Brasil' : region() === 'latam' ? 'Brasil e América Latina' : null, tours.length,
+      state('tournaments', tours, 'Nenhum torneio aberto na sua região agora.') || rail('tournaments', tours, tourCard), { tab: 'tournaments', tabLabel: `Ver todos (${tours.length})` });
+  },
+  news() {
+    const { news } = homeData();
+    return section('news', 'news', 'Últimas notícias', null, news.length, state('news', news, 'Nenhuma notícia por aqui.') || rail('news', news, newsCard), { tab: 'news', tabLabel: 'Ver todas' });
+  },
+};
+const ORDER = ['foryou', 'charts', 'deals', 'upcoming', 'tournaments', 'news'];
+function homeTab() { return [interestsBox(), ...ORDER.map(k => SECS[k]())]; }
 
-// O que chega da rede (6 seções, uma de cada vez) redesenha no máximo uma vez por quadro. Antes cada resposta redesenhava
-// na hora e o desenho começava lendo a rolagem da página anterior, que ainda não tinha layout: ~100 ms por seção.
-let drawQ = 0;
-function drawSoon() { if (!drawQ) drawQ = requestAnimationFrame(() => { drawQ = 0; draw(); }); }
+// O que chega da rede (6 fontes, uma de cada vez) redesenha no máximo uma vez por quadro e, no Início, só as seções
+// daquela fonte (e o "Para você", que junta todas): o resto da página — cartões, imagens, rolagem dos carrosséis — fica
+// como está. Antes cada resposta remontava a página inteira (6 vezes ao abrir).
+let drawQ = 0, drawAll = false;
+const dirty = new Set();
+function drawSoon(kind) {
+  if (kind) dirty.add(kind); else drawAll = true;
+  if (!drawQ) drawQ = requestAnimationFrame(flush);
+}
+function flush() {
+  drawQ = 0; const kinds = [...dirty], all = drawAll; dirty.clear(); drawAll = false;
+  const wrap = st.root?.isConnected && st.root.querySelector('.dbodywrap');
+  if (all || !wrap) return draw();
+  if (st.tab !== 'home') { if (kinds.includes(st.tab)) draw(); return; } // fonte de outra aba: nada na tela muda
+  if (kinds.includes('int')) { // sugestões dos interesses chegaram: só a caixa (redesenho inteiro se a pessoa está digitando nela)
+    const box = wrap.querySelector(':scope > .dint');
+    if (!box || box.contains(document.activeElement)) return draw();
+    box.replaceWith(interestsBox());
+  }
+  const secs = kinds.filter(k => SECS[k]); // a resposta de uma fonte também muda o "Para você"
+  if (kinds.some(k => ALL.includes(k))) secs.unshift('foryou');
+  if (secs.length) patchSecs(wrap, [...new Set(secs)]);
+}
+function patchSecs(wrap, keys) {
+  for (const k of keys) {
+    const old = wrap.querySelector(`:scope > section[data-sec="${k}"]`), neu = SECS[k]?.();
+    if (old && neu) old.replaceWith(neu);
+    else if (old) old.remove();
+    else if (neu) { const after = ORDER.slice(ORDER.indexOf(k) + 1).map(x => wrap.querySelector(`:scope > section[data-sec="${x}"]`)).find(Boolean); wrap.insertBefore(neu, after || null); }
+    if (neu) for (const r of neu.querySelectorAll('.drail')) if (st.sx?.[r.dataset.rail]) { r.scrollLeft = st.sx[r.dataset.rail]; edges(r.parentNode); }
+  }
+  window.__discoverPatches = (window.__discoverPatches || 0) + 1; // para os testes contarem
+}
 function draw() {
-  if (drawQ) { cancelAnimationFrame(drawQ); drawQ = 0; }
+  if (drawQ) { cancelAnimationFrame(drawQ); drawQ = 0; } dirty.clear(); drawAll = false;
   const root = st.root; if (!root?.isConnected) return;
   // rolagem guardada pelos eventos de scroll (ler scrollTop aqui obrigava o navegador a calcular o layout na hora)
   const scroll = st.sy || 0, rails = st.sx || {};

@@ -3,7 +3,7 @@
 // Uso: node scripts/discover-test.mjs  (prints em .testshots/discover)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process'; import fs from 'node:fs'; import http from 'node:http';
-const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
 const OUT = '.testshots/discover', PORT = 3303, MOCK = 4580, BASE = `http://localhost:${PORT}`, M = `http://localhost:${MOCK}`, DATA = './.testdata33';
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -67,6 +67,9 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 try {
   const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'senha123' }) }).then(r => r.json());
   const P = await browser.newPage(); P.setDefaultTimeout(15000); await P.setViewport({ width: 1366, height: 860, deviceScaleFactor: 1 });
+  // "Hoje" / "Amanhã" dependem do relógio: o navegador roda num fuso onde agora é perto do meio-dia (perto da meia-noite
+  // o torneio de daqui a 3 h caía no dia seguinte e o teste falhava)
+  { const off = 12 - new Date().getUTCHours(); await P.emulateTimezone(off === 0 ? 'Etc/GMT' : `Etc/GMT${off > 0 ? '-' : '+'}${Math.abs(off)}`); }
   P.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await P.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, r.token);
   await P.goto(BASE); await P.waitForSelector('#rail');
@@ -85,7 +88,13 @@ try {
   ok(home.find(x => x.k === 'charts').rows === 7, 'Na Steam resumido: mais jogados e mais vendidos (até 5 cada)', home.find(x => x.k === 'charts'));
   ok(await P.evaluate(() => !document.querySelector('.dstats')), 'sem os números de online/jogando');
   const click = (sec, re) => P.evaluate((k, r) => [...document.querySelector(`.dhsec[data-sec="${k}"]`).querySelectorAll('.dmore')].find(b => new RegExp(r).test(b.textContent)).click(), sec, re);
+  // só a seção que mudou é remontada: as outras (e a rolagem do carrossel de notícias) continuam as mesmas
+  await P.evaluate(() => { const n = document.querySelector('.dhsec[data-sec="news"]'); n.__keep = 1; n.querySelector('.drail').scrollLeft = 200; document.querySelector('#topbar').__keep = 1; window.__discoverPatches = 0; });
   await click('deals', 'Ver tudo'); await sleep(300);
+  { const r = await P.evaluate(() => ({ news: document.querySelector('.dhsec[data-sec="news"]').__keep, top: document.querySelector('#topbar').__keep, x: document.querySelector('.dhsec[data-sec="news"] .drail').scrollLeft, patches: window.__discoverPatches }));
+    ok(r.news && r.top && r.x > 100 && r.patches === 1, '"Ver tudo" remonta só a seção dela (notícias, barra e rolagem do carrossel ficam)', r); }
+  { const r = await P.evaluate(async () => { const n = document.querySelector('.dhsec[data-sec="news"]'); document.querySelector('#topbar .ibtn[title="Atualizar"]').click(); await new Promise(r => setTimeout(r, 1500)); return { top: !!document.querySelector('#topbar').__keep, secs: document.querySelectorAll('.dhsec').length, replaced: n !== document.querySelector('.dhsec[data-sec="news"]') }; });
+    ok(r.top && r.secs >= 5 && r.replaced, 'respostas chegando atualizam as seções sem remontar a página', r); }
   const deals = await P.evaluate(() => [...document.querySelectorAll('.dhsec[data-sec="deals"] .dgrid .dcard')].map(c => c.querySelector('.dtitle').textContent + ' | ' + c.querySelector('.dprice').textContent));
   ok(deals.length === 4 && /Grátis/.test(deals[0]) && /Em breve grátis/.test(deals[1]) && /-60%/.test(deals[2]) && /39,99/.test(deals[2]), '"Ver tudo" abre em grade: grátis da Epic primeiro, depois Steam por desconto', deals);
   await click('deals', 'Ver menos'); await click('charts', 'Ver tudo'); await sleep(300);
@@ -93,7 +102,7 @@ try {
   ok(ch.panels[0].length === 4 && /Arena Rápida/.test(ch.panels[0][0]) && /900\.000/.test(ch.panels[0][0]), 'mais jogados agora, com jogadores', ch.panels[0]);
   ok(ch.panels[1].length === 3 && /▲2/.test(ch.panels[1][0]) && /▼1/.test(ch.panels[1][1]) && /-40%/.test(ch.panels[1][1]) && /▲27/.test(ch.panels[1][2]), 'mais vendidos com subida/descida e preço', ch.panels[1]);
   await click('charts', 'Ver menos');
-  const up = await P.evaluate(() => [...document.querySelectorAll('.dhsec[data-sec="upcoming"] .dcard')].map(c => c.innerText.replace(/\n+/g, ' | ')));
+  const up = await P.evaluate(() => [...document.querySelectorAll('.dhsec[data-sec="upcoming"] .dcard')].map(c => [...c.querySelectorAll('.dmeta > *, .dtitle, .dtags span')].map(x => x.textContent).join(' | ')));
   ok(up.length === 2 && /12 dez/.test(up[0]) && /RPG/.test(up[0]), 'lançamentos com data e gêneros', up);
   await P.evaluate(() => document.querySelector('.dbodywrap').scrollTo(0, 0)); await P.screenshot({ path: OUT + '/disc-inicio.png' });
 
