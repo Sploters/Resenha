@@ -52,7 +52,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       histórico remontava o chat inteiro — agora só entram as mensagens novas no topo. Rolando: pior quadro 633 → 283 ms,
       35 → 49 fps, travadinhas 17 → 8; perfil 72 → 32 ms, configurações 64 → 32 ms; chat aos pedaços igual ao montado do
       zero. Fica: a 1ª abertura dos emojis (~250 ms nesse PC, ~40 ms num normal, uma vez só; a 2ª leva 60–80 ms).
-- [ ] ★ **Sessão longa**: horas em call e uso simulado, comparando a memória do app e do servidor ao longo do tempo.
+- [x] ★ **Sessão longa** (2026-11-11, `scripts/perf-soak.mjs`): call de 3 aberta, gente entrando/saindo, mensagens
+      chegando e o app usado em ciclos, medindo a cada minuto depois da coleta de lixo. Achou um vazamento real que eu
+      mesmo tinha criado no redesenho incremental: a linha guardada da lista de membros segurava, pelo clique, a tela
+      antiga inteira (30 min: 430 mil elementos, +600 MB/hora no navegador) — o cache agora vale só dentro do mesmo
+      painel. E o chat de um canal movimentado crescia para sempre (~900 mensagens/hora): com a pessoa no fim, ficam as
+      150 mais novas ao passar de 250 (`trimChat`; teste `scripts/chat-trim-test.mjs`). Depois, em 25 min: elementos
+      oscilando entre 5,6 e 8,2 mil, memória JS ~4,5 MB, navegador ~1.280 MB e servidor 146–147 MB estáveis, SFU limpo.
+      Testar mais longo (horas) numa máquina real ainda vale a pena.
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
 - [ ] Dados grandes: servidor com 1.000 canais, 5.000 membros, 100 mil mensagens; 500 conversas diretas.
 - [ ] Conflitos: dois aparelhos/abas da mesma conta ao mesmo tempo; resposta antiga chegando depois e sobrescrevendo a

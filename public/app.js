@@ -1693,7 +1693,19 @@ function appendMessage(m) {
   if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
   const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null); mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700);
   box.append(mel);
-  if (near) { box.stick = true; box.scrollTop = box.scrollHeight; }
+  if (near) { box.stick = true; trimChat(m.channel_id); box.scrollTop = box.scrollHeight; }
+}
+// Canal aberto por horas: as mensagens que chegam iam se acumulando no chat e na memória para sempre (~900 por hora num
+// canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
+// busca as antigas de novo no servidor (o mesmo caminho do histórico).
+const CHAT_MAX = 250, CHAT_KEEP = 150;
+function trimChat(cid) {
+  const list = S.messages.get(cid), box = $('#msgs'); if (!list || list.length <= CHAT_MAX || !box || S.view.cid !== cid || detached.has(cid)) return;
+  const cut = list.length - CHAT_KEEP, first = list[cut], firstEl = box.querySelector(`:scope > [data-mid="${first.id}"]`); if (!firstEl) return;
+  list.splice(0, cut); S.loaded.set(cid, false);
+  const grow = box.querySelector(':scope > .grow');
+  while (grow && grow.nextSibling && grow.nextSibling !== firstEl) grow.nextSibling.remove(); // mensagens, separadores e o "começo do canal"
+  grow.after(h('div.daysep', h('span', dayLabel(first.created_at)))); firstEl.replaceWith(msgEl(first, null)); // a nova primeira não agrupa com quem saiu
 }
 function applyUser(d, quiet) { // quiet: muitos de uma vez (PRESENCE_SYNC), quem chamou redesenha
   const old = S.users.get(d.id), presence = !!old && presenceOnly(old, d);
@@ -2492,7 +2504,9 @@ function renderMembers() {
   const inVoice = (uid) => { const v = S.voice.get(uid); return v && channelById(v.channel_id)?.guild_id === g.id ? channelById(v.channel_id) : null; };
   // linha guardada enquanto o que ela mostra não muda (o USER_UPDATE troca o objeto da pessoa; membro, cor, sala e jogo
   // idem): com gente entrando e saindo, só a linha de quem mudou é montada de novo
-  if (memRows.gid !== g.id) { memRows.clear(); memRows.gid = g.id; }
+  // só vale dentro do MESMO painel: cada linha guarda o clique, que segura a renderização em que nasceu (e por ela o painel
+  // e a tela antigos, com o chat inteiro). Painel novo (trocou de tela) = cache novo — antes isso vazava ~600 MB/hora.
+  if (memRows.gid !== g.id || memRows.box !== box) { memRows.clear(); memRows.gid = g.id; memRows.box = box; }
   const usedRows = new Set();
   const row = (x, offline) => {
     const { m, u } = x, vc = !offline && inVoice(u.id), act = offline ? null : activityOf(u.id), col = roleColor(g.id, u.id), name = nm(x), own = g.owner_id;
