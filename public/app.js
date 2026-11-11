@@ -945,7 +945,7 @@ function renderSide() {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
     head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
-      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(g.banner).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
+      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
@@ -1371,7 +1371,7 @@ async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigo
   const tabs = [
     ['Atividade', () => vch ? [h('h4', 'Agora'), row(h('div.upgi', icon('voice', 22)), vg ? chName(vch) : 'Chamada', vg ? `Em uma sala de voz em ${vg.name}` : 'Em uma chamada', vg && (() => { close(); go(vg.id, vch.id); }))] : [empty(`${u.display_name} não está fazendo nada no momento.`)]],
     [`${friends.length} ${friends.length === 1 ? 'amigo' : 'amigos'} em comum`, () => friends.length ? friends.map(f => row(avatar(f, 40, { ring: 'var(--bg-float)' }), f.display_name, f.username, () => { close(); openUserProfile(f.id); })) : [empty('Nenhum amigo em comum.')]],
-    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: x.icon, alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]]];
+    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: imgUrl(x.icon, 32), alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]]];
   const panel = h('div.uppanel'), bar = h('div.uptabs');
   const show = (i) => { [...bar.children].forEach((b, j) => b.classList.toggle('on', i === j)); panel.replaceChildren(...tabs[i][1]()); };
   bar.append(...tabs.map(([t], i) => h('button', { onclick: () => show(i) }, t)));
@@ -1840,8 +1840,8 @@ function inviteCard(code) {
       inviteInfo.delete(code); document.querySelectorAll(`.invcard[data-code="${code}"]`).forEach(c => c.replaceWith(inviteCard(code)));
     };
     paint();
-    const top = h('div.ivbanner'), ic = g.icon ? h('img.ivicon', { src: g.icon, alt: '' }) : h('div.ivicon', initialsOf(g.name));
-    if (g.banner) top.style.backgroundImage = `url("${g.banner.replace(/"/g, '%22')}")`;
+    const top = h('div.ivbanner'), ic = g.icon ? h('img.ivicon', { src: imgUrl(g.icon, 80), alt: '' }) : h('div.ivicon', initialsOf(g.name));
+    if (g.banner) top.style.backgroundImage = `url("${imgUrl(g.banner, 480).replace(/"/g, '%22')}")`;
     else top.style.background = `linear-gradient(120deg, ${g.accent || '#5865f2'}, color-mix(in srgb, ${g.accent || '#5865f2'} 40%, #000))`;
     card.className = 'invcard'; card.dataset.code = code;
     card.replaceChildren(top, h('div.ivh', inside() ? 'Você já está neste servidor' : 'Você foi convidado para entrar em um servidor'),
@@ -2099,7 +2099,7 @@ async function jumpToTop() {
   }
 }
 function mentionAvatar(u) {
-  return u.avatar ? h('img.mav', { src: u.avatar, alt: '', loading: 'lazy' }) : h('span.mav.mini', { style: { background: u.color || '#5865f2' } }, (u.display_name || u.username || '?')[0].toUpperCase());
+  return u.avatar ? h('img.mav', { src: imgUrl(u.avatar, 20), alt: '', loading: 'lazy' }) : h('span.mav.mini', { style: { background: u.color || '#5865f2' } }, (u.display_name || u.username || '?')[0].toUpperCase());
 }
 // o mesmo botão abre e fecha o painel da direita (fixadas / caixa de entrada)
 const resultsOpen = (kind) => $('#results')?.dataset.kind === kind;
@@ -2201,7 +2201,7 @@ async function showInbox(e) {
     const box = h('div.ib-box');
     const open = () => { closeFloating(); go(g ? g.id : '@me', ch.id); };
     box.append(h('div.ib-head',
-      g ? (g.icon ? h('img.ib-gi', { src: g.icon, alt: '' }) : h('span.ib-gi', initialsOf(g.name))) : avatar(user(peer.id), 32, { status: false }),
+      g ? (g.icon ? h('img.ib-gi', { src: imgUrl(g.icon, 32), alt: '' }) : h('span.ib-gi', initialsOf(g.name))) : avatar(user(peer.id), 32, { status: false }),
       h('div.ib-name', { onclick: open }, h('b', !dm && icon('hash', 14), dm ? user(peer.id).display_name : chName(ch)), h('small', g ? g.name + (cat ? ' › ' + cat.name : '') : 'Mensagem direta')),
       h('button.ib-btn', { title: 'Marcar como lido', onclick: () => { ack(ch.id); box.remove(); if (!body.querySelector('.ib-box')) draw(); } }, icon('check', 16)),
       h('button.ib-btn.ib-fold', { title: 'Recolher', onclick: () => box.classList.toggle('folded') }, icon('caret', 16))), list);
@@ -2700,14 +2700,14 @@ function avatarTint(u) {
       document.querySelectorAll(`.utile[data-uid="${u.id}"]`).forEach(t => paintTile(t, u));
     } catch { /* imagem de outro domínio sem CORS: fica o fundo padrão */ }
   };
-  img.src = u.avatar;
+  img.src = imgUrl(u.avatar, 32); // só a cor média: a versão pequena basta
   return null;
 }
 function paintTile(t, u) {
   const tp = u.theme_primary, ta = u.theme_accent;
   let bg = null, kind = '';
   if (tp && ta) { bg = `linear-gradient(160deg, ${tp}, ${ta})`; kind = 'theme'; t.style.setProperty('--ring', ta); }
-  else if (u.banner) { { const bp = parsePos(u.banner_pos); bg = `${bp.x}% ${bp.y}% / cover url("${u.banner.replace(/"/g, '%22')}")`; } kind = 'banner'; }
+  else if (u.banner) { { const bp = parsePos(u.banner_pos); bg = `${bp.x}% ${bp.y}% / cover url("${imgUrl(u.banner, 600 * Math.min(3, bp.z || 1)).replace(/"/g, '%22')}")`; } kind = 'banner'; }
   else { const c = u.banner_color || avatarTint(u); if (c) { bg = `linear-gradient(160deg, ${c}, color-mix(in srgb, ${c} 45%, #000))`; kind = 'color'; } }
   t.dataset.bg = kind;
   if (bg) t.style.setProperty('--tbg', bg); else t.style.removeProperty('--tbg');

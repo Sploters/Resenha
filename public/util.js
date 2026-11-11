@@ -263,9 +263,14 @@ export function framePos(img, s, round = false) {
 // foto enviada (/files/<id>.png|jpg|webp/...) no tamanho em que aparece: versão WebP menor gerada pelo servidor
 // (server/thumbs.js; o dobro em telas de alta densidade). Outros endereços (GIF, externos) ficam como estão.
 const IMG_FILE = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp))\//i;
+// Avatares padrão (/avatars/<n>.png, 554–1024 px) têm versões de 64/128/256 px em /avatars/s<lado>/<n>.webp
+// (scripts/avatar-sizes.mjs): antes um avatar de 24 px baixava e decodificava a imagem de 554 px (~13 KB; a de 64 px tem ~1,6 KB).
+const DEF_AV = /^\/avatars\/(\d+)\.(?:png|webp|jpe?g)$/i, AV_SIZES = [64, 128, 256];
 export function imgUrl(url, size) {
+  const px = Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
+  const d = DEF_AV.exec(String(url || '')); if (d) { const sz = AV_SIZES.find(x => x >= px); return sz ? `/avatars/s${sz}/${d[1]}.webp` : url; }
   const m = IMG_FILE.exec(String(url || '')); if (!m) return url;
-  return `/thumbs/${m[1]}?s=${Math.round(size * Math.min(2, Math.max(1, window.devicePixelRatio || 1)))}`;
+  return `/thumbs/${m[1]}?s=${px}`;
 }
 // foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
 export function avatar(u, size = 40, opts = {}) {

@@ -11,9 +11,17 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       linha de membro guardada enquanto o que ela mostra não muda; `morph()`/`place()` (`util.js`) atualizam a lista
       no lugar (rolagem e fotos ficam). A lista atualizada aos pedaços sai idêntica a uma montada do zero.
 - [ ] Discover: atualizar só a seção que chegou, em vez da página inteira.
-- [ ] Listas longas que desenham só o que está na tela (membros de servidor grande, conversas, busca, histórico).
+- [ ] Listas longas que desenham só o que está na tela. **Feito em parte** (2026-11-11, junto com os dados grandes): lista de
+      membros aos pedaços (200 por grupo, +300 ao rolar até o fim ou no "Mostrar mais") e categorias da lateral montadas
+      quando chegam perto da tela. Faltam: conversas diretas (500 levam ~100 ms para abrir), busca e histórico.
 - [ ] CSS: medir regras sem uso e seletores caros (`:has`, desfoque, sombras grandes, `backdrop-filter`); ~370 KB hoje.
-- [ ] Imagens no tamanho certo (avatar de 117 px em espaço de 24 px): versões menores geradas pelo servidor.
+- [x] ★ **Imagens no tamanho certo** (2026-11-11). As fotos enviadas já passavam pelo `imgUrl` (WebP do tamanho do quadro,
+      `server/thumbs.js`); faltavam os 12 avatares padrão (554–1024 px, a foto de toda conta nova) e alguns lugares que
+      usavam a foto original: ícone do servidor no convite, servidores em comum, caixa de entrada, avatar da menção,
+      banners do servidor e do perfil e a cor média dos quadros da call. Avatares padrão ganharam versões de 64/128/256 px
+      em WebP (`scripts/avatar-sizes.mjs`, rodar de novo ao trocar um). Servidor grande aberto com a lista de membros
+      (`scripts/image-sizes-test.mjs`): avatares baixados **90 → 16 KB**, pixels decodificados **1,57 → 0,02 megapixel**,
+      nenhum avatar maior que o dobro do quadro (antes, todos os 57).
 
 ## Voz e vídeo
 - [x] ★ ~~"Falando" pelo nível de áudio que o WebRTC já entrega~~ (`getSynchronizationSources`) — **medido e descartado**
@@ -22,7 +30,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       batia com o do analisador, mas não compensou a complexidade; voltou ao analisador.
 - [ ] "Falando" pelo servidor (`AudioLevelObserver` do mediasoup): ensurdecido continuaria vendo quem fala sem receber o
       áudio, e aí dá para pausar a voz dos outros mesmo com a janela aberta.
-- [ ] Câmera chegando no tamanho do quadro na tela (camada do simulcast) e pausando fora de vista, como a transmissão.
+- [x] ★ **Câmera no tamanho do quadro e pausada fora de vista** (2026-11-11, `voice.js camFlow`, `app.js applyCamFlow`).
+      Antes toda câmera chegava na camada cheia (1280 px, ~800 kbps cada), mesmo num quadro de 170 px ou com a sala fora da
+      tela. Agora o tamanho do quadro (ResizeObserver, sem forçar layout) escolhe a camada (até 400 px na tela: 1/4; até
+      800: metade; maior: cheia; o dobro em tela de alta densidade) e a câmera de quem não está à vista (outro canal, janela
+      escondida, rolada para fora, "Desativar vídeo") pausa no servidor depois de 4 s; câmera nova já chega na camada do meio
+      e pausada se a sala não está na tela. "Pausar vídeo fora da tela" desligado e janela flutuante (PiP) mantêm tudo.
+      Medido (`scripts/cam-flow-test.mjs`, 2 câmeras falsas de 1280x720): grade de 2 **1.577 → 296 kbps (−81%)**; em outro
+      canal ou janela escondida **~1.600 → 0 kbps**; câmera em destaque pede uma camada maior e a miniatura a menor.
 - [ ] CPU de cada filtro de ruído; modo leve sugerir um mais leve quando o processador estiver no limite.
 - [ ] Medir a gravação contínua dos clipes (F8) e a cifra quadro a quadro das chamadas protegidas.
 
@@ -42,7 +57,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       21 → 14 ms, READY p95 294 → 233 ms; 0 erros nos dois.
       Os outros avisos que vão ao servidor inteiro (`VOICE_STATE`, `MESSAGE_UPDATE`, membros, cargos) são estado que o app
       guarda: cortar exigiria sincronizar ao abrir o servidor, como o `PRESENCE_SYNC` — fica para depois.
-- [ ] READY menor: membros sob demanda.
+- [x] ★ **READY menor: membros sob demanda** (2026-11-11). Servidor com `READY_LARGE` membros ou mais (padrão 1.000) vai
+      no READY só com quem está online, a própria pessoa e o dono (`partial: true`, `member_count`); o app pede a lista
+      inteira ao abrir o servidor ou as configurações dele (`GET /api/guilds/:id/members`, gzip; `state.js loadMembers`).
+      Membros que chegam por evento durante o carregamento ficam como estão. Com 5.000 membros (`scripts/perf-big.mjs`):
+      READY de um membro comum **2.844 → 195 KB** (comprimido 152 → 13 KB, montagem 48 → 21 ms); do dono com 500 conversas
+      3.479 → 989 KB; abrir o app **2,8 → 0,6 s**; com 600 pessoas conectadas, `GET mensagens` p95 98 → 6 ms (o servidor
+      parou de montar READYs enormes). Abrir o servidor grande pela 1ª vez custa ~100 ms a mais (a lista chega nessa hora).
+      Teste: `scripts/big-data-test.mjs` (também com `READY_LARGE=2` no `presence-test`).
 - [x] ★ **Mais de um worker do mediasoup** (2026-11-11, `server/sfu.js`). `SFU_WORKERS=N` (ou `auto`: núcleos, até 4);
       padrão continua 1. Cada sala fica inteira num worker — o com menos gente quando a sala abre — e cada worker extra
       escuta na própria porta (`RTC_EXTRA_PORT`, padrão 40011, 40012…; precisa estar aberta como a 40000). Worker que
@@ -82,7 +104,14 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       oscilando entre 5,6 e 8,2 mil, memória JS ~4,5 MB, navegador ~1.280 MB e servidor 146–147 MB estáveis, SFU limpo.
       Testar mais longo (horas) numa máquina real ainda vale a pena.
 - [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
-- [ ] Dados grandes: servidor com 1.000 canais, 5.000 membros, 100 mil mensagens; 500 conversas diretas.
+- [x] ★ **Dados grandes** (2026-11-11, `scripts/load/seed-big.mjs` + `scripts/perf-big.mjs`): 5.000 membros, 1.000 canais
+      em 50 categorias, 8 cargos, 100 mil mensagens, 500 conversas diretas, 600 pessoas conectadas. Achados e corrigidos:
+      READY enorme (acima); abrir os 5.000 offline da lista de membros montava 5.000 linhas numa tarefa de 310 ms → aos
+      pedaços, **410 → 45 ms** e sem tarefa longa; cada `renderSide` montava as 1.000 linhas de canal (~45 ms) → categorias
+      longe da tela viram um espaço do tamanho delas e são montadas ao chegar perto (**45 → 7 ms**); o layout forçado do chat
+      ao abrir um canal caiu de 55 para 17 ms. Estão bem: trocar de canal (mediana 24 ms), GET mensagens antigas (p95 4 ms),
+      busca (≤ 50 ms), rolar a lista de canais e de membros (sem tarefa longa), memória JS 8 MB. Ficam: abrir as 500
+      conversas diretas (tarefa de ~100 ms) e abrir o servidor grande (~150 ms, metade montando o chat).
 - [x] ★ **Resposta antiga sobrescrevendo a tela** (2026-11-11, `scripts/stale-response-test.mjs`, respostas atrasadas de
       propósito no navegador). Achados e corrigidos: (1) pular para uma mensagem (`jumpTo`, pelas fixadas/busca/resposta)
       e trocar de canal antes da resposta **guardava as mensagens do canal antigo no canal novo**; (2) fixadas do canal
@@ -91,8 +120,17 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       a resposta mais lenta cobria a mais nova; (5) páginas do histórico chegando depois de trocar de canal. A → B → A
       rápido já funcionava (o `api()` junta pedidos iguais em andamento). A versão anterior falha em 4 dos 8 testes.
 - [ ] Conflitos: dois aparelhos/abas da mesma conta ao mesmo tempo.
-- [ ] Abuso: ~~inundação de mensagens pelo gateway~~ (limite por conexão, acima), mensagens gigantes, textos que travam expressões regulares (markdown,
-      `cleanLinks`).
+- [x] ★ **Abuso: mensagens gigantes e expressões que travam** (2026-11-11, `scripts/abuse-regex-test.mjs`; inundação
+      pelo gateway já estava no limite por conexão, acima). Cada função que lê o texto da mensagem (markdown, `cleanLinks`,
+      convites, chamadas, clipes, horários, temas, GIF, links de vídeo, "só emoji") recebe ~45 textos de 4.000 caracteres
+      feitos para forçar retrocesso, num worker que é morto se travar. Achado grave: o **"só emoji"** (mostra emoji
+      grande) tinha repetição dentro de repetição — "😀 😀 … 😀 x" levava 22 s com 14 emojis e, com 27, **travava para
+      sempre a aba de todo mundo que abrisse o canal**. Virou uma verificação linear (0,2 ms; mesmo resultado nos casos
+      normais). O resto ficou abaixo de 2 ms no pior caso. No servidor: `reply_to` guardava qualquer texto (até 1 MB) → só id
+      de mensagem do mesmo canal; menções a contas fora do canal eram gravadas (900 por mensagem) → só quem está no canal,
+      até 50; @everyone de qualquer membro notificava todo mundo a cada mensagem (5.000 linhas na caixa de entrada por
+      envio) → quem não modera notifica 1 vez a cada 5 min por servidor (a mensagem vai normalmente; só não notifica de
+      novo); a caixa de entrada é gravada numa transação.
 - [ ] Celular/navegador: aba congelada ou descartada voltando; voltar/avançar do navegador.
 - [ ] Orçamento de desempenho: comparar o JSON do `perf-audit`/`perf-stress` com limites a cada mudança.
 - [ ] Consertar testes quebrados: `mic-rebuild-test` (botão que mudou de nome), lista de microfones do `ui-test`,
