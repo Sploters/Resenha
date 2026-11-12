@@ -146,14 +146,16 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
   const later = () => { clearTimeout(flyTimer); flyTimer = setTimeout(closeFly, 180); };
   // status e modo foco: popup ao lado que abre só de passar o mouse (o cartão continua aberto, como no status)
   let flyKind = null;
-  const statusRows = () => STATUS.map(([k, l, c, d]) => h('div.stat' + (S.me.status === k ? '.on' : ''), { onclick: async () => { const r = await tryApi('PATCH', '/me', { status: k }); if (r) { S.me = { ...S.me, status: k }; closeFly(); draw(); } } },
+  // clicar no status/horário que já está: só fecha (sem ir ao servidor nem redesenhar tudo)
+  const statusRows = () => STATUS.map(([k, l, c, d]) => h('div.stat' + (S.me.status === k ? '.on' : ''), { onclick: async () => { if (S.me.status === k) return closeFly(); const r = await tryApi('PATCH', '/me', { status: k }); if (r) { S.me = { ...S.me, status: k }; closeFly(); draw(); } } },
     h('i.sdot.' + c), h('div', h('div', l), d && h('small', d))));
   const focusRows = () => {
-    const pick = (v, txt) => { setFocus(v); closeFly(); draw(); toast(txt); };
+    // sem aviso (toast): o cartão já mostra "Ligado"/o horário, e o aviso ficava por cima da lista e fechava o cartão no clique
+    const pick = (v) => { if ((v || undefined) === S.prefs.focusUntil) return closeFly(); setFocus(v); closeFly(); draw(); }; // a opção atual: só fecha
     const cur = S.prefs.focusUntil;
     return [h('div.mflyhead', h('b', 'Modo foco'), h('small', FOCUS_TIP)),
-      ...FOCUS_TIMES.map(([l, v]) => h('div.stat' + (v === true && cur === true ? '.on' : ''), { onclick: () => pick(focusUntilOf(v), 'Modo foco ligado: só mensagens diretas avisam') }, icon(v === true ? 'dm' : 'clock', 16), h('div', h('div', l)))),
-      focusOn() && h('div.stat.off', { onclick: () => pick(null, 'Modo foco desligado') }, icon('x', 16), h('div', h('div', 'Desligar modo foco')))];
+      ...FOCUS_TIMES.map(([l, v]) => h('div.stat' + (v === true && cur === true ? '.on' : ''), { onclick: () => pick(focusUntilOf(v)) }, icon(v === true ? 'dm' : 'clock', 16), h('div', h('div', l)))),
+      focusOn() && h('div.stat.off', { onclick: () => pick(null) }, icon('x', 16), h('div', h('div', 'Desligar modo foco')))];
   };
   const openFly = (row, kind = 'status') => {
     clearTimeout(flyTimer); if (fly && flyKind === kind) return; closeFly(); flyKind = kind;
@@ -188,7 +190,7 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
           item(h('i.sdot.' + cur[2]), h('span', 'Status: ' + cur[1], me.status === 'invisible' && h('span', { title: 'Seu status e sua atividade ficam ocultos quando você está invisível', style: { marginLeft: '6px', display: 'inline-flex', color: 'var(--yellow, #f0b232)' } }, icon('warn', 14))), () => openFly(body.querySelector('.meitem:nth-child(2)')), h('span.mearrow', '›'), true),
           // clique liga "até eu desligar" (ou desliga); passar o mouse abre os horários ao lado
           item(icon('dm', 16), h('span', 'Modo foco', h('small.melite', focusOn() ? focusLabel() : 'só mensagens diretas avisam')),
-            () => { const on = !focusOn(); setFocus(on ? true : null); closeFly(); draw(); toast(on ? 'Modo foco ligado até você desligar' : 'Modo foco desligado'); },
+            () => { const on = !focusOn(); setFocus(on ? true : null); closeFly(); draw(); },
             // a seta abre os horários no clique também (celular não tem "passar o mouse")
             h('span.mearrow' + (focusOn() ? '.on' : ''), { title: 'Escolher por quanto tempo', onclick: (e) => { e.stopPropagation(); openFly(e.currentTarget.closest('.meitem'), 'focus'); } }, focusOn() ? 'Ligado' : '›'), 'focus'),
           item(icon('sparkle', 16), 'Novidades', () => { closeFloating(); openNews(); }),

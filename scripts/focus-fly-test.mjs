@@ -41,5 +41,19 @@ try {
   // seta abre os horários (celular), sem ligar
   await p.evaluate(() => [...document.querySelectorAll('.mepop .meitem')].find(e => e.textContent.includes('Modo foco')).querySelector('.mearrow').click()); await sleep(200);
   ok(await p.evaluate(() => !!document.querySelector('.mefly .mflyhead') && !window.__lc.S.prefs.focusUntil), 'clique na seta abre os horários sem ligar');
+  // clicar na opção que já está: nada é salvo, enviado ou redesenhado (a tela piscava)
+  const reqs = []; p.on('request', r => { if (/\/api\/me$/.test(r.url()) && r.method() === 'PATCH') reqs.push(r.method()); }); // PATCH /api/me = trocar o status
+  const mark = () => p.evaluate(() => { document.querySelector('.pb-av').__mark = 1; window.__saved = 0; const o = localStorage.setItem.bind(localStorage); localStorage.setItem = (k, v) => { if (k === 'lc_prefs') window.__saved++; o(k, v); }; });
+  const same = () => p.evaluate(() => ({ lateral_igual: !!document.querySelector('.pb-av')?.__mark, salvou: window.__saved }));
+  await (await p.evaluateHandle(() => [...document.querySelectorAll('.mefly .stat')].find(e => e.textContent.trim() === 'Até eu desligar'))).click(); await sleep(300); // liga
+  await mark();
+  await p.mouse.move(5, 5); await sleep(200);
+  await (await p.evaluateHandle(() => [...document.querySelectorAll('.mepop .meitem')].find(e => e.textContent.includes('Modo foco')).querySelector('.mearrow'))).click(); await sleep(300);
+  await (await p.evaluateHandle(() => [...document.querySelectorAll('.mefly .stat')].find(e => e.textContent.trim() === 'Até eu desligar'))).click(); await sleep(400);
+  const f1 = await same(); ok(f1.lateral_igual && f1.salvou === 0 && await p.$('.mepop .meitem') && !await p.$('.mefly'), 'clicar em "Até eu desligar" já ligado não salva nem redesenha', f1);
+  const st = await p.evaluateHandle(() => [...document.querySelectorAll('.mepop .meitem')].find(e => e.textContent.includes('Status')));
+  await p.mouse.move(5, 5); await sleep(200); await st.click(); await sleep(300); // clique na linha do Status abre a lista
+  await (await p.evaluateHandle(() => document.querySelector('.mefly .stat.on'))).click(); await sleep(600);
+  const f2 = await same(); ok(f2.lateral_igual && reqs.length === 0 && !!await p.$('.mepop .meitem'), 'clicar no status atual não vai ao servidor nem redesenha', { ...f2, reqs });
 } finally { await browser.close(); }
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); process.exit(fails ? 1 : 0);

@@ -1326,7 +1326,7 @@ function userbar() {
 }
 function voiceToggle(k) { k === 'mute' ? voice.toggleMute() : voice.toggleDeaf(); }
 function statusMenu(e) {
-  const set = (status) => tryApi('PATCH', '/me', { status });
+  const set = (status) => status !== S.me?.status && tryApi('PATCH', '/me', { status }); // o atual: nada
   menu(e, ['online', 'idle', 'dnd', 'invisible'].map(s => ({ label: STATUS_TXT[s], fn: () => set(s) })));
 }
 

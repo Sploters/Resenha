@@ -4,8 +4,9 @@ import { SCREEN_PRESETS, NOISE_MODES } from './voice.js';
 import { S } from './state.js';
 
 export const seg = (opts, val, on) => { // opts: objeto ou lista de [valor, rótulo] (para manter a ordem com chaves numéricas)
-  const box = h('div.seg');
-  const draw = (v) => box.replaceChildren(...(Array.isArray(opts) ? opts : Object.entries(opts)).map(([k, l]) => h('button' + (String(k) === String(v) ? '.on' : ''), { onclick: () => { on(isNaN(+k) ? k : +k); draw(k); } }, l)));
+  const box = h('div.seg'); let cur = val;
+  // clicar na opção que já está marcada não faz nada (antes salvava e redesenhava tudo de novo: a tela piscava)
+  const draw = (v) => { cur = v; box.replaceChildren(...(Array.isArray(opts) ? opts : Object.entries(opts)).map(([k, l]) => h('button' + (String(k) === String(v) ? '.on' : ''), { onclick: () => { if (String(k) === String(cur)) return; on(isNaN(+k) ? k : +k); draw(k); } }, l))); };
   draw(val); return box;
 };
 export const toggle = (on, fn) => { const s = h('div.switch' + (on ? '.on' : ''), { role: 'switch', tabIndex: 0, onclick: () => { on = !on; s.classList.toggle('on', on); fn(on); }, onkeydown: (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); s.click(); } } }); return s; };
@@ -29,8 +30,8 @@ export const toggleCards = (items) => h('div.choices.togs', items.filter(Boolean
 }));
 // escolha visual: cartões com prévia em vez de uma lista de botões. opts: [[valor, rótulo, prévia]]
 export const choiceCards = (opts, val, on) => {
-  const box = h('div.choices', { role: 'radiogroup' });
-  const draw = (v) => box.replaceChildren(...opts.map(([k, l, prev]) => h('button.choice' + (String(k) === String(v) ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(String(k) === String(v)), onclick: () => { on(k); draw(k); } }, h('div.ch-prev', prev), h('span.ch-lbl', icon('check', 14), l))));
+  const box = h('div.choices', { role: 'radiogroup' }); let cur = val;
+  const draw = (v) => (cur = v, box.replaceChildren(...opts.map(([k, l, prev]) => h('button.choice' + (String(k) === String(v) ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(String(k) === String(v)), onclick: () => { if (String(k) === String(cur)) return; on(k); draw(k); } }, h('div.ch-prev', prev), h('span.ch-lbl', icon('check', 14), l)))));
   draw(val); return box;
 };
 // redução de ruído em cartões: cada nível mostra a voz (barras) e o ruído (pontinhos amarelos) que sobra
