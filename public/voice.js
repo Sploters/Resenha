@@ -5,6 +5,7 @@
 import { playSound } from './sounds.js';
 import { createFx, loadFx, FX_IDS } from './voicefx.js';
 import { track, stopTimer, cancelTimer } from './ux.js';
+import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -191,14 +192,20 @@ export class Voice {
     if (stale()) return;
     this.channelId = channelId; this.joinedAt = Date.now();
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
+    this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
     this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
   }
   leave({ silent = false } = {}) {
     if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
-    // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou e em que sala
-    try { document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: this.channelId, ms: Date.now() - (this.joinedAt || Date.now()), silent } })); } catch { }
+    // qualidade técnica da chamada que acabou: vai para a telemetria em faixas e junto do aviso (a avaliação cruza com ela)
+    const ms = Date.now() - (this.joinedAt || Date.now());
+    clearInterval(this._cqT); this._cqT = null; let quality = null;
+    try { quality = this._cq?.summary(ms) || null; recordCallQuality(quality); } catch (e) { console.warn('qualidade da chamada', e); }
+    this._cq = null;
+    // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou, em que sala e como a rede estava
+    try { document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: this.channelId, ms, silent, quality } })); } catch { }
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
@@ -247,7 +254,7 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
-      t.on('connectionstatechange', (s) => { if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
+      t.on('connectionstatechange', (s) => { if (s === 'disconnected' || s === 'failed') this._cq?.drop(); if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
       // Chromium não entrega mais os quadros ao worker)
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
@@ -558,7 +565,7 @@ export class Voice {
       }
       this.onUpdate();
     };
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') pc.restartIce?.(); this.onUpdate(true); };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') this._cq?.drop(); if (pc.connectionState === 'failed') pc.restartIce?.(); this.onUpdate(true); };
     this.addLocalTracks(p);
     this.sendMeta(uid);
     return p;
@@ -1077,6 +1084,15 @@ export class Voice {
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();
+  }
+  // amostra de qualidade (a cada 5 s durante a chamada): lê todas as conexões e entrega ao coletor (public/callqual.js)
+  async qualitySample() {
+    const q = this._cq; if (!q || this._cqBusy) return;
+    const pcs = this.sfu ? [this.sfu.send, this.sfu.recv].filter(Boolean) : [...this.peers.values()].map(p => p.pc).filter(Boolean);
+    if (!pcs.length) return;
+    this._cqBusy = true;
+    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p'); }
+    finally { this._cqBusy = false; }
   }
   // latência (ms): até o servidor no SFU; pior par na malha; null se ainda não há medida
   async ping() {

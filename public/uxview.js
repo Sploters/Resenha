@@ -11,6 +11,7 @@ export const EVENT_NAMES = {
   dead_click: 'Clique que não fez nada', js_error: 'Erro do app', error_shown: 'Aviso de erro na tela', timing: 'Tempo de carregamento',
   voice_fail: 'Falha ao entrar na voz', ws_reconnect: 'Conexão caiu e voltou', u_turn: 'Foi e voltou rápido', quick_exit: 'Saiu logo de uma página',
   menu_open: 'Abriu um menu', menu_abandoned: 'Fechou um menu sem escolher', call_rating: 'Avaliação da chamada', call_issue: 'Problema na chamada',
+  call_quality: 'Qualidade da rede na chamada', call_net: 'Medida da chamada (faixa)', call_qcause: 'O que pesou na chamada', call_rating_q: 'Avaliação × rede medida',
 };
 const DEV = { desktop: 'computador', mobile: 'celular', app: 'app desktop' };
 const rows = (list) => list.length

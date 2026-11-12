@@ -2,6 +2,7 @@
 // Lê GET /api/ux (server/ux.js) e desenha, sem biblioteca, em blocos que respondem uma pergunta cada:
 // - Pessoas: ativos (hoje, 7 e 30 dias), ativos por dia, retenção e o funil de quem é novo
 // - Desempenho: quanto demora trocar de canal, mandar mensagem, entrar na voz; quedas de conexão e falhas na voz
+// - Chamadas: avaliação ("Teve algum problema?") e a qualidade técnica medida em toda chamada (public/callqual.js)
 // - Erros: erros do app e avisos de erro mostrados na tela
 // - Encontrar as coisas: idas e voltas rápidas, páginas deixadas em 2 s, menus abandonados, buscas sem resultado, ⓘ
 // - Fluxos, Amigos/Jogos e cliques com raiva / sem efeito
@@ -138,6 +139,25 @@ function calls(c) {
     c.problemas.length ? bars(c.problemas.sort((a, b) => b.n - a.n).map(p => [p.nome, { total: p.n }])) : null);
 }
 
+// qualidade técnica medida pelo WebRTC em toda chamada (public/callqual.js): nota, o que mais pesou, cada indicador em faixas
+// e o cruzamento com a avaliação (problema relatado com rede boa = microfone, fone ou o app, não a internet)
+const GRADE = { good: 'Boa', fair: 'Média', poor: 'Ruim' };
+function netq(q) {
+  if (!q?.chamadas) return empty('Nenhuma chamada medida ainda (conta toda chamada de 20 s+ em que chegou a voz de alguém).');
+  const I = q.indicadores, c = q.conexao, x = q.cruzamento?.bad;
+  const tips = (g) => Object.entries(q.aparelhos || {}).map(([d, a]) => a[g] ? `${DEV[d] || d}: ${nf(a[g])}` : '').filter(Boolean).join(' · ');
+  return h('div',
+    h('div.ux-tiles.mini',
+      tile(q.taxa_ruim + '%', 'com a rede ruim', `${nf(q.notas.poor)} de ${pl(q.chamadas, 'chamada medida', 'chamadas medidas')}; média em ${q.taxa_media}%`),
+      tile(I.rtt.acima == null ? '—' : I.rtt.acima + '%', 'com atraso acima de 200 ms', 'atraso típico de cada chamada (ida e volta)'),
+      tile(c.tcp == null ? '—' : c.tcp + '%', 'sem UDP (por TCP)', c.relay == null ? 'rede bloqueando UDP: mais atraso' : `${c.relay}% passando por relay (TURN)`),
+      x?.total ? tile(q.problema_com_rede_boa + '%', 'dos problemas relatados com a rede boa', `${nf(x.total)} ${x.total === 1 ? 'relato' : 'relatos'} cruzados: aponta para microfone, fone ou o app`) : null),
+    h('div.ux-grid',
+      h('div', h('h4.ux-sub', 'Nota da rede'), bars(Object.keys(GRADE).map(g => [GRADE[g], { total: q.notas[g], tip: tips(g) }]))),
+      h('div', h('h4.ux-sub', 'O que mais pesou nas chamadas médias e ruins'), q.causas.length ? bars(q.causas.map(k => [k.nome, { total: k.n }])) : empty('Nenhuma chamada média ou ruim.'))),
+    h('div.ux-grid', Object.values(I).filter(v => v.medidas).map(v => h('div', h('h4.ux-sub', v.nome), bars(v.faixas.map(f => [f.faixa, { total: f.n }]), { text: (o) => nf(o.total) + ' · ' + pct(o.total, v.medidas) + '%' })))));
+}
+
 export function uxStatsPage() {
   const body = h('div.ux-body', h('p.ux-empty', 'Carregando…'));
   let days = 30, version = '', data = null;
@@ -178,6 +198,7 @@ export function uxStatsPage() {
         card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))) : empty('Nenhuma queda neste período.')),
         card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k))),
       card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
+      card('Qualidade técnica das chamadas', 'Medida pela conexão em toda chamada, sem perguntar: atraso, perda de pacotes, oscilação, voz picotada, vídeo travando e quedas', netq(data.qualidade)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
 
       block('Erros', 'Agrupados pela forma: números, nomes entre aspas e endereços viram marcadores'),

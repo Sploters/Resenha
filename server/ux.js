@@ -43,6 +43,19 @@ export const UX_TIMINGS = { channel_switch: 'Trocar de canal ou conversa', msg_s
 export const UX_BUCKETS = [100, 250, 500, 1000, 2500, 5000, Infinity]; // faixa i: até UX_BUCKETS[i] ms
 // primeiros passos de quem é novo, na ordem do funil
 export const UX_CALL_ISSUES = { audio_cut: 'Áudio cortando', echo: 'Eco ou chiado', lag: 'Atraso', video: 'Vídeo ou tela travando', cant_hear: 'Não ouvia as pessoas', not_heard: 'Não me ouviam', other: 'Outro' };
+// qualidade técnica medida pelo WebRTC em toda chamada (public/callqual.js): nota, faixas de cada indicador e causa
+export const UX_CALL_GRADES = { good: 'Boa', fair: 'Média', poor: 'Ruim' };
+export const UX_NET = { // indicador: [nome, rótulos das faixas]
+  rtt: ['Atraso (ida e volta)', ['até 50 ms', '50–100 ms', '100–200 ms', '200–400 ms', 'mais de 400 ms']],
+  jitter: ['Oscilação (jitter)', ['até 10 ms', '10–30 ms', '30–60 ms', '60–100 ms', 'mais de 100 ms']],
+  loss_in: ['Perda de pacotes chegando', ['até 0,5%', '0,5–2%', '2–5%', '5–10%', 'mais de 10%']],
+  loss_out: ['Perda de pacotes saindo', ['até 0,5%', '0,5–2%', '2–5%', '5–10%', 'mais de 10%']],
+  conceal: ['Voz picotada (preenchida)', ['até 1%', '1–3%', '3–8%', '8–15%', 'mais de 15%']],
+  freeze: ['Travadas do vídeo', ['nenhuma', '1–2', '3–5', '6 ou mais']],
+  drop: ['Quedas da conexão', ['nenhuma', '1', '2 ou mais']],
+};
+export const UX_NET_CAUSES = { rtt: 'Atraso alto', jitter: 'Oscilação', loss_in: 'Perda chegando', loss_out: 'Perda saindo', conceal: 'Voz picotada', freeze: 'Vídeo travando', drop: 'Conexão caiu' };
+const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay))$`);
 export const UX_STEPS = { avatar: 'Pôs uma foto', friend: 'Fez um amigo', message: 'Mandou a 1ª mensagem', voice: 'Entrou na voz' };
 
 const free = (max) => (d) => d.length <= max;
@@ -68,6 +81,11 @@ export const UX_EVENTS = {
   // avaliação depois de uma chamada (pergunta rara: ~5% das chamadas, no máximo 1 vez por semana por pessoa)
   call_rating: (d) => /^(shown|good|bad|ignored)$/.test(d),
   call_issue: (d) => Object.hasOwn(UX_CALL_ISSUES, d),
+  // qualidade técnica (toda chamada em que chegou voz de alguém): nota, "indicador:faixa", causa e o cruzamento com a resposta
+  call_quality: (d) => Object.hasOwn(UX_CALL_GRADES, d),
+  call_net: (d) => NET_RE.test(d),
+  call_qcause: (d) => Object.hasOwn(UX_NET_CAUSES, d),
+  call_rating_q: (d) => /^(good|bad|ignored):(good|fair|poor)$/.test(d),
 };
 // detalhes que podem conter algo digitado ou um nome: no painel, só aparecem com pelo menos MIN_COUNT ocorrências
 const SENSITIVE = new Set(['settings_search_empty', 'error_shown']);
@@ -201,8 +219,36 @@ export function mountUx(app, { auth, wrap, bad, isAdmin, prefsOf = () => ({}), s
     // relataram problema" (fechar/ignorar = sem problema relatado). A taxa de boas entre quem respondeu fica só de apoio
     const chamadas = { perguntas: shown, responderam: good + badN, boas: good, ruins: badN, taxa_problema: shown ? Math.round((Math.min(badN, shown) / shown) * 100) : null, taxa_boas: good + badN ? Math.round((good / (good + badN)) * 100) : null,
       problemas: Object.entries(eventos.call_issue?.detalhes || {}).map(([k, v]) => ({ k, nome: UX_CALL_ISSUES[k] || k, n: v.total })) };
-    res.json({ desde: since, dias: days, guarda_dias: UX_KEEP_DAYS, ligado: UX_ENABLED(), minimo_grupo: min, versao: version, versoes, faixas_ms: UX_BUCKETS.map(x => (x === Infinity ? null : x)), eventos, funis, tempos, chamadas, por_dia, pessoas: people(since) });
+    // qualidade técnica: notas, distribuição de cada indicador (geral e por aparelho), causas e o cruzamento com a avaliação
+    const qualidade = netQuality(eventos);
+    res.json({ desde: since, dias: days, guarda_dias: UX_KEEP_DAYS, ligado: UX_ENABLED(), minimo_grupo: min, versao: version, versoes, faixas_ms: UX_BUCKETS.map(x => (x === Infinity ? null : x)), eventos, funis, tempos, chamadas, qualidade, por_dia, pessoas: people(since) });
   }));
+}
+
+const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : null);
+function netQuality(eventos) {
+  const det = (ev) => eventos[ev]?.detalhes || {}, q = det('call_quality');
+  const notas = Object.fromEntries(Object.keys(UX_CALL_GRADES).map(k => [k, q[k]?.total || 0])), total = Object.values(notas).reduce((a, b) => a + b, 0);
+  const aparelhos = {};
+  for (const [g, v] of Object.entries(q)) for (const dv of DEVICES) if (v[dv]) (aparelhos[dv] ||= { good: 0, fair: 0, poor: 0, total: 0 })[g] += v[dv], aparelhos[dv].total += v[dv];
+  for (const a of Object.values(aparelhos)) a.taxa_ruim = pctOf(a.poor, a.total);
+  const net = det('call_net'), n = (k) => net[k]?.total || 0;
+  const indicadores = Object.fromEntries(Object.entries(UX_NET).map(([k, [nome, rot]]) => {
+    const faixas = rot.map((r, i) => ({ faixa: r, n: n(k + ':' + i) })), medidas = faixas.reduce((a, f) => a + f.n, 0);
+    // "acima do aceitável": as duas faixas de cima (atraso > 200 ms, perda > 5%…); travadas e quedas: qualquer uma
+    const ruins = k === 'freeze' || k === 'drop' ? medidas - faixas[0].n : faixas.slice(-2).reduce((a, f) => a + f.n, 0);
+    return [k, { nome, faixas, medidas, acima: pctOf(ruins, medidas) }];
+  }));
+  const via = (a, b, key) => ({ [a]: n(key + ':' + a), [b]: n(key + ':' + b) });
+  const conexao = { modo: via('sfu', 'p2p', 'mode'), protocolo: via('udp', 'tcp', 'proto'), rota: via('direct', 'relay', 'route') };
+  conexao.tcp = pctOf(conexao.protocolo.tcp, conexao.protocolo.tcp + conexao.protocolo.udp); conexao.relay = pctOf(conexao.rota.relay, conexao.rota.relay + conexao.rota.direct);
+  const causas = Object.entries(det('call_qcause')).map(([k, v]) => ({ k, nome: UX_NET_CAUSES[k] || k, n: v.total })).sort((a, b) => b.n - a.n);
+  // cruzamento: de quem relatou problema, quantos tinham a rede ruim/média (o resto aponta para microfone, fone ou o app)
+  const x = det('call_rating_q'), cruz = {};
+  for (const ans of ['bad', 'good', 'ignored']) { const r = Object.fromEntries(Object.keys(UX_CALL_GRADES).map(g => [g, x[ans + ':' + g]?.total || 0])); r.total = r.good + r.fair + r.poor; cruz[ans] = r; }
+  const b = cruz.bad;
+  return { chamadas: total, notas, taxa_ruim: pctOf(notas.poor, total), taxa_media: pctOf(notas.fair, total), aparelhos, indicadores, conexao, causas, cruzamento: cruz,
+    problema_com_rede_ruim: pctOf(b.poor + b.fair, b.total), problema_com_rede_boa: pctOf(b.good, b.total) };
 }
 
 // ativos (hoje, 7 e 30 dias), ativos por dia, retenção (D1, D7, D30) e funil de quem se cadastrou no período
@@ -260,6 +306,16 @@ export function buildDigest(now = Date.now()) {
     const p = Math.round((Math.min(b, asked) / asked) * 100), pB = askedB >= 3 ? Math.round((Math.min(bB, askedB) / askedB) * 100) : null;
     L.push({ tipo: 'chamadas', tom: p >= 15 || (pB != null && p > pB + 5) ? 'ruim' : pB != null && p < pB - 5 ? 'bom' : 'neutro',
       texto: `Chamadas: problema relatado em ${p}% das ${nf(asked)} perguntadas` + (pB != null ? ` (antes ${pB}%)` : '') + (top ? `; mais citado: ${UX_CALL_ISSUES[top.detail] || top.detail}.` : '.') });
+  }
+  // qualidade técnica medida (toda chamada em que chegou voz): % com rede ruim e o que mais pesou
+  const qn = sum('call_quality', A), qp = sum('call_quality', A, 'poor'), qnB = sum('call_quality', B), qpB = sum('call_quality', B, 'poor');
+  if (qn >= 3) {
+    const p = Math.round((qp / qn) * 100), pB = qnB >= 3 ? Math.round((qpB / qnB) * 100) : null;
+    const top = get("SELECT detail, SUM(n) n FROM ux_daily WHERE event='call_qcause' AND day BETWEEN ? AND ? GROUP BY detail ORDER BY n DESC LIMIT 1", ...A);
+    const rtt = all("SELECT detail, SUM(n) n FROM ux_daily WHERE event='call_net' AND detail LIKE 'rtt:%' AND day BETWEEN ? AND ? GROUP BY detail", ...A);
+    const rn = rtt.reduce((a, r) => a + r.n, 0), rHigh = rtt.filter(r => +r.detail.split(':')[1] >= 3).reduce((a, r) => a + r.n, 0);
+    L.push({ tipo: 'rede', tom: p >= 10 || (pB != null && p > pB + 5) ? 'ruim' : pB != null && p < pB - 5 ? 'bom' : 'neutro',
+      texto: `Rede nas chamadas (medida): ruim em ${p}% de ${nf(qn)}` + (pB != null ? ` (antes ${pB}%)` : '') + (top ? `; o que mais pesou: ${UX_NET_CAUSES[top.detail] || top.detail}` : '') + (rn ? `; atraso acima de 200 ms em ${Math.round((rHigh / rn) * 100)}%.` : '.') });
   }
   // fluxos que caíram 10 pontos ou mais
   for (const [k, nome] of Object.entries(UX_FLOWS)) {
