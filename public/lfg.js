@@ -4,6 +4,7 @@ import { h, icon, avatar } from './util.js';
 import { S, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
 import { toggle } from './ui.js';
 import { gamesTabs } from './gamestabs.js';
+import { flow } from './ux.js';
 import { playSound } from './sounds.js';
 
 let ctx = {}; // injetado por app.js: go, profile(anchor, uid)
@@ -115,6 +116,7 @@ const put = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(k 
 
 // ---------- criar anúncio ----------
 async function createModal() {
+  flow('lfg_post', 'start');
   const games = await meta();
   const f = { game: st.game || 'valorant', game_name: '', mode: '', slots: 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: '', channel_id: ctx.voiceChannel?.() || '' };
   const box = h('div.lfgform');
@@ -147,7 +149,7 @@ async function createModal() {
     if (f.when === 'later' && !(when_at > Date.now())) { toast('Escolha um dia e hora no futuro', true); return false; }
     const r = await tryApi('POST', '/lfg/posts', { game: f.game, game_name: f.game_name, mode: f.mode, slots: f.slots, rank_min: f.rank_min || null, rank_max: f.rank_max || null, roles: [...f.roles], mic: f.mic, when_at, note: f.note, channel_id: f.channel_id || null });
     if (!r) return false;
-    upsert(r); toast('Anúncio publicado');
+    upsert(r); flow('lfg_post', 'done'); toast('Anúncio publicado');
   } }], { width: '560px' });
 }
 

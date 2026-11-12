@@ -5,6 +5,7 @@
 import { h, icon } from './util.js';
 import { api, toast, confirmBox, modal } from './state.js';
 import { seg, toggle, row } from './ui.js';
+import { flow } from './ux.js';
 
 const DAY = 86400e3;
 const fmt = (t) => t ? new Date(+t).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -14,6 +15,7 @@ const ONLY = [['all', 'Todas'], ['text', 'Só texto'], ['files', 'Com arquivos']
 
 // preset: { places: [id], title } (uma conversa/canal) | { guild_id, title } (um servidor) | {} (tudo)
 export function openMyMessages(preset = {}) {
+  flow('mymsgs', 'start');
   const f = { scope: 'all', period: 'any', from: '', to: '', contains: '', only: 'all', keepPinned: true };
   let scan = null, off = new Set(), seq = 0;
   const fixed = !!(preset.places?.length || preset.guild_id);
@@ -75,6 +77,7 @@ export function openMyMessages(preset = {}) {
         bar.style.width = Math.min(100, (done / Math.max(n, 1)) * 100) + '%'; lbl.textContent = `${done.toLocaleString('pt-BR')} de ${n.toLocaleString('pt-BR')} apagadas`;
         if (!r.left || !r.deleted) break;
       }
+      if (done > 0) flow('mymsgs', 'done');
       toast(`${plural(done, 'mensagem apagada', 'mensagens apagadas')}`);
       await refresh();
     } catch (e) { toast(e.message, true); lbl.textContent = `Parou em ${done.toLocaleString('pt-BR')}: ${e.message}`; goBtn.disabled = false; }

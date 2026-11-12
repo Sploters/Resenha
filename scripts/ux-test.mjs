@@ -76,6 +76,45 @@ try {
   await P.keyboard.press('Escape'); await sleep(400);
   await flush(); await sleep(300);
   ok(n(await stats(admin), 'back_to_friends', 'esc') === n(ev, 'back_to_friends', 'esc'), 'desligado, o Esc não é mais contado');
+
+  // ---------- etapa 2 ----------
+  r = await api(eu, 'POST', '/ux', { device: 'desktop', events: [{ e: 'flow', d: 'e2ee:start', n: 4 }, { e: 'flow', d: 'e2ee:done', n: 3 }, { e: 'flow', d: 'inventado:start', n: 1 }, { e: 'flow', d: 'e2ee:meio', n: 1 }] });
+  ok(r.data.kept === 2, 'fluxo: só fluxos conhecidos com passo start/done', r.data);
+  let full = (await api(admin, 'GET', '/ux')).data;
+  ok(full.funis?.e2ee?.comecaram === 4 && full.funis.e2ee.terminaram === 3 && full.funis.e2ee.taxa === 75, 'funil calculado (4 começaram, 3 terminaram = 75%)', full.funis?.e2ee);
+  ok((await api(admin, 'GET', '/ux/access')).data.admin === true && (await api(eu, 'GET', '/ux/access')).data.admin === false, '/ux/access diz quem é o administrador');
+  await P.evaluate(() => { window.__lc.S.prefs.uxStats = true; });
+  // fluxo pelo app: abrir "Adicionar um servidor" e criar
+  await P.evaluate(() => document.querySelector('#rail .rail-item.add').click()); await sleep(500);
+  await P.evaluate(() => [...document.querySelectorAll('.modal button')].find(b => b.textContent.trim() === 'Criar').click()); await sleep(1200);
+  // com raiva: 3 cliques rápidos num botão de teste; sem efeito: um clique num "botão" que não faz nada
+  await P.evaluate(() => {
+    const mk = (t) => { const b = document.createElement('button'); b.setAttribute('aria-label', t); b.style.cssText = 'cursor:pointer;position:fixed;left:700px;top:' + (t === 'Teste raiva' ? 300 : 400) + 'px;width:80px;height:30px;z-index:99999'; document.querySelector('#topbar').append(b); return b; };
+    mk('Teste raiva'); mk('Teste morto');
+  });
+  await P.mouse.click(740, 315); await sleep(120); await P.mouse.click(740, 315); await sleep(120); await P.mouse.click(740, 315); await sleep(1300);
+  await P.mouse.click(740, 415); await sleep(1400);
+  await flush(); await sleep(300);
+  full = (await api(admin, 'GET', '/ux')).data; ev = full.eventos;
+  ok(full.funis.add_server.comecaram === 1 && full.funis.add_server.terminaram === 1, 'criar servidor: fluxo começou e terminou', full.funis.add_server);
+  ok(n(ev, 'rage_click', 'barra de cima › Teste raiva') === 1, '3 cliques rápidos contam um clique com raiva, com "área › botão"', ev.rage_click);
+  ok(n(ev, 'dead_click', 'barra de cima › Teste morto') === 1, 'clique que não muda nada conta como sem efeito', ev.dead_click);
+  ok(!Object.keys(ev.dead_click?.detalhes || {}).some(k => /Teste raiva/.test(k)), 'a rajada conta só como "com raiva", não também como sem efeito', ev.dead_click);
+  // painel: só o administrador vê a seção Administração
+  await P.evaluate(() => window.__lc.openSettings('privacy')); await sleep(1200);
+  ok(!(await P.evaluate(() => [...document.querySelectorAll('#settings h6')].some(x => x.textContent === 'Administração'))), 'quem não é administrador não vê "Administração"');
+  await P.keyboard.press('Escape'); await sleep(300);
+  const ctxA = await browser.createBrowserContext(), A = await ctxA.newPage(); await A.setViewport({ width: 1400, height: 1000, deviceScaleFactor: 2 });
+  A.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
+  await A.goto(BASE); await A.evaluate((t) => localStorage.setItem('lc_token', t), admin); await A.goto(BASE); await A.waitForSelector('#rail .rail-wrap', { timeout: 15000 }); await sleep(600);
+  await A.evaluate(() => window.__lc.openSettings('account')); await sleep(1200);
+  ok(await A.evaluate(() => [...document.querySelectorAll('#settings h6')].some(x => x.textContent === 'Administração')), 'administrador vê "Administração" nas Configurações');
+  await A.evaluate(() => [...document.querySelectorAll('#settings .ni')].find(x => /Estatísticas de uso/.test(x.textContent)).click()); await sleep(1500);
+  const panel = await A.evaluate(() => ({ tiles: document.querySelectorAll('.ux-tile').length, cards: [...document.querySelectorAll('.ux-card h3')].map(x => x.textContent), cols: document.querySelectorAll('.ux-col').length, split: document.querySelectorAll('.ux-split i').length, fun: document.querySelectorAll('.ux-fun').length }));
+  ok(panel.tiles === 4 && panel.cards.length === 8 && panel.cols === 30 && panel.split === 2 && panel.fun >= 2, 'painel: 4 números, 8 quadros, 30 colunas por dia, Esc × ícone e funis', panel);
+  if (process.env.SHOTS) await A.screenshot({ path: process.env.SHOTS + '/ux-painel.png', fullPage: false });
+  await A.evaluate(() => [...document.querySelectorAll('.uxstats .seg button, .uxstats .seg *')].find(x => x.textContent.trim() === '7 dias')?.click()); await sleep(900);
+  ok(await A.evaluate(() => document.querySelectorAll('.ux-col').length === 7), 'trocar para 7 dias redesenha com 7 colunas');
 } catch (e) { console.log('  FAIL', e.stack); fails++; }
 await browser.close(); srv.kill(); fs.rmSync(DATA, { recursive: true, force: true });
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); process.exit(fails ? 1 : 0);
