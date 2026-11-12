@@ -18,6 +18,6 @@ let s=await st(); ok(s.n<=250 && s.last==='msg 299','chat limitado com a pessoa 
 for(let k=0;k<30;k++){ await p.evaluate(()=>{const m=document.querySelector('#msgs'); m.scrollTop=0; m.dispatchEvent(new Event('scroll'));}); await sleep(700); }
 s=await st(); const nums=(await p.evaluate(()=>[...document.querySelectorAll('#msgs > .msg')].map(e=>+(e.textContent.match(/msg (\d+)/)||[])[1]).filter(x=>!isNaN(x))));
 // (histórico em janela: passando de 300 no chat, as mais novas saem de baixo e aparece "vendo mensagens antigas")
-ok(s.n<=300 && (await p.evaluate(()=>document.body.innerText.includes('msg 0'))) && !!(await p.$('#detached-bar')),'rolando para cima as antigas voltam (até a msg 0 e além), com o chat limitado',{n:s.n,first:s.first,last:s.last});
+ok(s.n<=300 && (await p.evaluate(()=>/mensagem antiga \d/.test(document.querySelector('#msgs').innerText))) && !!(await p.$('#detached-bar')),'rolando para cima as antigas voltam (até a msg 0 e além), com o chat limitado',{n:s.n,first:s.first,last:s.last});
 const mine=nums.filter((x,i)=>true); ok(new Set(s.ids).size===s.ids.length && s.ids.every((x,i)=>!i||BigInt(x)>BigInt(s.ids[i-1])),'sem duplicadas e na ordem',{n:s.ids.length});
 await br.close(); srv.kill(); console.log(fails?fails+' falha(s)':'tudo certo'); process.exit(fails?1:0);

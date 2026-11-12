@@ -15,7 +15,7 @@ import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
-import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey } from './soundboard.js';
+import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -228,6 +228,7 @@ function onEvent(t, d) {
   switch (t) {
     case 'READY': {
       const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
+      if (d.now) S.clockOff = d.now - Date.now(); // relógio do servidor - o deste aparelho (cronômetro da chamada vem com a hora do servidor)
       S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
@@ -829,8 +830,11 @@ function voiceCard(anchor, g) {
 }
 // cronômetro da chamada: conta desde que a sala deixou de estar vazia
 const fmtDur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, '0'); return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`; };
-const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t }, fmtDur(Date.now() - t)) : null; };
-setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur(Date.now() - +e.dataset.start); }), 1000);
+// started_at é a hora do SERVIDOR: com o relógio do PC 20 s adiantado a chamada começava em 0:20. data-srv marca os que
+// usam a hora do servidor (o "Tempo na chamada" do painel de voz usa a hora deste aparelho)
+const srvNow = () => Date.now() + (S.clockOff || 0);
+const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t, 'data-srv': '' }, fmtDur(srvNow() - t)) : null; };
+setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur((e.hasAttribute('data-srv') ? srvNow() : Date.now()) - +e.dataset.start); }), 1000);
 
 function addServerModal() {
   const name = h('input', { value: `Servidor de ${S.me.display_name}`, maxLength: 100 }), code = h('input', { placeholder: 'https://… ou código do convite' });
@@ -857,15 +861,17 @@ const friendsIn = (g) => [...S.rels.values()].filter(r => r.type === 1 && g.memb
 const friendNames = (list) => list.length === 1 ? list[0].display_name : list.length === 2 ? `${list[0].display_name} e ${list[1].display_name}` : `${list[0].display_name}, ${list[1].display_name} e mais ${list.length - 2}`;
 const avStack = (list, size = 20) => h('span.avstack', list.slice(0, 3).map(u => avatar(u, size, { status: false })));
 function friendsInServer(g) {
-  const list = friendsIn(g), q = h('input', { type: 'search', placeholder: 'Buscar amigos' }), box = h('div.fis-list');
+  const list = friendsIn(g), q = h('input.fis-in', { type: 'search', placeholder: 'Buscar amigos', 'aria-label': 'Buscar amigos neste servidor', autocomplete: 'off', spellcheck: 'false' }), box = h('div.fis-list');
+  const clr = h('button.fis-clr', { type: 'button', title: 'Limpar', 'aria-label': 'Limpar busca', hidden: true, onclick: () => { q.value = ''; draw(); q.focus(); } }, icon('x', 14));
+  const qbox = h('label.fis-q', icon('search', 16), q, clr);
   const draw = () => { const f = q.value.trim().toLowerCase(); const rows = list.filter(u => !f || u.display_name.toLowerCase().includes(f) || u.username?.toLowerCase().includes(f) || (nameOf(u.id, g.id) || '').toLowerCase().includes(f));
     box.replaceChildren(...(rows.length ? rows.map(u => { const nick = nameOf(u.id, g.id), m = member(g.id, u.id);
       return h('div.fis-row', h('div.fis-av', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, avatar(u, 36)),
         h('div.fis-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, u.display_name), h('small', [nick !== u.display_name && `aqui: ${nick}`, '@' + u.username, m?.joined_at && 'entrou em ' + new Date(m.joined_at).toLocaleDateString('pt-BR')].filter(Boolean).join(' · '))),
         h('button.ibtn', { title: 'Mandar mensagem', onclick: () => { closeModals(); openDM(u.id); } }, icon('dm', 18)));
     }) : [h('div.dm-empty', list.length ? 'Nenhum amigo com esse nome' : 'Nenhum amigo seu está neste servidor ainda.')])); };
-  q.oninput = draw; draw();
-  modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && q, box),
+  q.oninput = () => { clr.hidden = !q.value; draw(); }; q.onkeydown = (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); e.preventDefault(); q.value = ''; clr.hidden = true; draw(); } }; draw();
+  modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && qbox, box),
     [list.length ? null : { label: 'Convidar amigos', fn: () => inviteModal(g) }, { label: 'Fechar', cls: 'grey' }].filter(Boolean), { width: '460px' });
   setTimeout(() => q.focus());
 }
@@ -997,8 +1003,8 @@ function renderSide() {
     list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
-  const pinned = uaPinned();
-  const area = h('div#user-area' + (pinned ? '' : '.ua-col'), voice?.active && h('div.ua-vp', voicePanel()), userbar());
+  // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
+  const area = h('div#user-area', voice?.active && h('div.ua-vp', voicePanel()), userbar());
   const oldHead = side.querySelector(':scope > #side-head'), oldList = side.querySelector(':scope > #side-list'), oldArea = side.querySelector(':scope > #user-area');
   if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
     // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
@@ -1029,9 +1035,11 @@ const catObs = new IntersectionObserver((es) => { let n = 0; for (const en of es
 const uaObs = new ResizeObserver(() => {
   const area = document.getElementById('user-area'); if (!area) return;
   uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
-  const hgt = area.offsetHeight, open = !area.classList.contains('ua-col') || !!area.querySelector('.ua-vp');
-  $('#app').style.setProperty('--ua-h', hgt + 'px'); // a barra dos servidores reserva espaço pro seu perfil
-  $('#app').style.setProperty('--ua-side-h', (open ? hgt : 0) + 'px'); // barra solta: a lista ganha a altura toda
+  const hgt = area.offsetHeight, bar = area.querySelector('.pbar')?.offsetHeight || hgt;
+  // a barra dos servidores reserva só o espaço do perfil: o painel de voz fica sobre a lista de canais, então a caixa de
+  // entrada não sobe ao entrar numa chamada
+  $('#app').style.setProperty('--ua-h', bar + 'px');
+  $('#app').style.setProperty('--ua-side-h', hgt + 'px'); // a lista de canais termina acima do perfil e do painel de voz
 });
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
@@ -1232,21 +1240,28 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', voice.joinedAt && h('span.vtimer.vp-time', { 'data-start': voice.joinedAt, title: 'Tempo na chamada' }, fmtDur(Date.now() - voice.joinedAt)), abrEl()),
-      h('span.vp-btns', h('button.ibtn', { title: 'Testar microfone, ruído e eco', onclick: (e) => openMicPanel(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('waves', 20)),
+    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada'),
+      h('span.vp-btns', voiceBtn(),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
-    h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`),
+    h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
+      fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label)),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
-      fxButton(20, false),
-      h('button', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 20)),
-      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20))));
+      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
+      sbButton()));
+}
+// Soundboard: último botão do painel; passar o mouse mostra os 6 sons mais usados, clicar abre a soundboard completa
+function sbButton() {
+  const full = (a) => openSoundboard(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
+  const b = h('button.vp-sb', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', 'aria-label': 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => full(e.currentTarget) }, icon('soundboard', 20));
+  quickSoundsHover(b, voice, full);
+  return b;
 }
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
 const newsActions = {
-  fx: () => { const b = [...document.querySelectorAll('#voice-panel .row button')].find(x => /Efeito/.test(x.title)); if (voice?.active && b) b.click(); else toast('Entre numa sala de voz e clique no botão de máscara do painel de voz (ou Ctrl+Shift+E).'); },
+  fx: () => { const b = document.querySelector('#voice-panel .vp-voice'); if (voice?.active && b) openVoiceFx(b); else toast('Entre numa sala de voz e clique no botão "Sua voz" do painel de voz (ou Ctrl+Shift+E).'); },
   gifs: () => { const b = $('#composer .gifbtn'); if (b) b.click(); else toast('Abra um chat e clique em GIF, ao lado do emoji.'); },
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },
   lfg: () => go('@me', 'lfg'),
@@ -1267,6 +1282,14 @@ const newsActions = {
   ping: () => { const b = $('#vp-ping'); if (b) b.click(); else toast('Entre numa sala de voz e clique no ícone de sinal do painel de voz.'); },
 };
 // botão de efeitos de voz (painel de voz e controles da sala): com efeito ligado mostra o ícone dele
+// "Sua voz" (painel de voz): teste do microfone, ruído, eco e efeitos de voz num lugar só; colorido com efeito ligado
+const openVoiceFx = (anchor) => openFxPicker(anchor, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
+function voiceBtn() {
+  const f = fxInfo(voice?.fx);
+  return h('button.ibtn.vp-voice' + (f ? '.fxon' : ''), { title: f ? `Sua voz — efeito: ${f.label}` : 'Sua voz: microfone, ruído, eco e efeitos', 'aria-label': 'Sua voz',
+    onclick: (e) => { const a = e.currentTarget; openMicPanel(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()), fx: { info: fxInfo(voice?.fx), icon: (id, n) => fxIcon(id, n), open: () => openVoiceFx(a) } }); } },
+    f ? fxIcon(f.id, 20) : icon('waves', 20));
+}
 function fxButton(size, round, cls = '') {
   const f = fxInfo(voice?.fx);
   return h('button' + (round ? '.roundbtn' : '') + (f ? '.fxon' : '') + cls, { title: f ? `Efeito de voz: ${f.label} (clique para trocar)` : 'Efeitos de voz', onclick: (e) => openFxPicker(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) },
@@ -1290,17 +1313,15 @@ function joinVoice(cid) {
   voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }
 // barra de perfil: o avatar fica na barra dos servidores (bolinha de status embaixo, vermelha em cima se o microfone ou o
-// som estiver desligado) e a barra com nome, microfone, fone, configurações e alfinete sai dele. Alfinete azul: sempre
-// aberta; solto: abre ao passar o mouse ou clicar no avatar
-const uaPinned = () => S.prefs.uaPinned ?? !S.prefs.uaCollapsed;
-function setUaPinned(v) { S.prefs.uaPinned = v; delete S.prefs.uaCollapsed; savePrefs(); renderSide(); }
+// som estiver desligado) e a barra com nome, microfone, fone e configurações sai dele. Com a lista de canais visível a
+// barra fica sempre aberta; com a lista oculta, abre ao passar o mouse no avatar
 let pbHoldUntil = 0, pbHoldT = 0;
 function userbar() {
-  const me = S.me, ctx = () => ({ voice, logout, go }), pinned = uaPinned();
+  const me = S.me, ctx = () => ({ voice, logout, go });
   const status = () => openStatusPanel((!$('#app.hide-side') && $('#userbar .me')) || $('.pb-av'), { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout });
   const off = voice?.muted || voice?.deafened;
-  const av = h('button.pb-av', { type: 'button', 'aria-label': pinned ? 'Status e perfil' : 'Abrir a barra do perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
-    onclick: () => { if (pinned || bar.classList.contains('open')) return status(); bar.classList.add('open'); setTimeout(() => document.addEventListener('pointerdown', function out(e) { if (!bar.contains(e.target)) { bar.classList.remove('open'); document.removeEventListener('pointerdown', out, true); } }, true)); },
+  const av = h('button.pb-av', { type: 'button', 'aria-label': 'Status e perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
+    onclick: () => status(),
     oncontextmenu: (e) => statusMenu(e) },
     avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), focusOn() && h('span.pb-fbadge', { title: 'Modo foco: só mensagens diretas avisam' }, icon('dm', 10)), // microfone/som desligado: o próprio ícone riscado no canto do avatar (antes uma bolinha vermelha), à vista mesmo com a
     // lista oculta; clicar nele religa sem abrir a barra
@@ -1312,9 +1333,8 @@ function userbar() {
       h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', focusOn() ? h('span.pb-focus', icon('dm', 12), 'Modo foco') : me.custom_status || STATUS_TXT[me.status]))),
     swapIcon(h('button.ibtn.pb-mic' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: microfone, ruído e eco)', onclick: () => voiceToggle('mute'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'in', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.muted ? 'micoff' : 'mic')), 'ua-mic', !!voice?.muted),
     swapIcon(h('button.ibtn.pb-deaf' + (voice?.deafened ? '.on' : ''), { title: (voice?.deafened ? 'Ativar áudio' : 'Ensurdecer') + ' (clique direito: saída e volumes)', onclick: () => voiceToggle('deaf'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
-    h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
-    h('button.ibtn.pb-pin' + (pinned ? '.on' : ''), { title: pinned ? 'Soltar a barra (abre só ao passar o mouse)' : 'Fixar a barra aberta', 'aria-pressed': String(pinned), onclick: () => setUaPinned(!pinned) }, icon('pin', 20)));
-  const bar = h('div.pbar' + (pinned ? '.pinned' : '') + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
+    h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')));
+  const bar = h('div.pbar.pinned' + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
   // a barra solta continua aberta 0,5 s depois que o mouse sai (dá para voltar sem ela sumir); sobrevive a redesenhos
   bar.addEventListener('mouseenter', () => { clearTimeout(pbHoldT); pbHoldUntil = Infinity; bar.classList.add('hov'); });
   bar.addEventListener('mouseleave', () => { clearTimeout(pbHoldT); pbHoldUntil = Date.now() + 500; pbHoldT = setTimeout(() => { pbHoldUntil = 0; document.querySelectorAll('.pbar.hov').forEach(b => b.classList.remove('hov')); }, 500); });
@@ -1322,7 +1342,7 @@ function userbar() {
 }
 function voiceToggle(k) { k === 'mute' ? voice.toggleMute() : voice.toggleDeaf(); }
 function statusMenu(e) {
-  const set = (status) => tryApi('PATCH', '/me', { status });
+  const set = (status) => status !== S.me?.status && tryApi('PATCH', '/me', { status }); // o atual: nada
   menu(e, ['online', 'idle', 'dnd', 'invisible'].map(s => ({ label: STATUS_TXT[s], fn: () => set(s) })));
 }
 
@@ -1697,6 +1717,10 @@ async function catchUp(cid) {
 async function loadChannel(cid) {
   const box = $('#msgs');
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
+  // voltando a um chat lido para trás (até 300 guardadas): abre no fim, então monta só as 50 mais novas. As outras voltam
+  // do servidor ao rolar para cima (~4 ms cada página). Antes eram montadas todas (300 mensagens = quadro de ~1 s na CPU 4x)
+  const cached = S.messages.get(cid);
+  if (cached && cached.length > OPEN_KEEP + 30) { cached.splice(0, cached.length - OPEN_KEEP); S.loaded.set(cid, false); }
   if (!S.messages.has(cid)) {
     box.replaceChildren(skeleton('msgs', 9));
     const list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!list) return;
@@ -1735,12 +1759,14 @@ function renderMessages(keepPos) {
   const box = $('#msgs'); if (!box) return;
   const ch = channelById(S.view.cid), list = S.messages.get(ch.id) || [];
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120, old = box.scrollTop;
-  box.replaceChildren(...[h('div.grow'), S.loaded.get(ch.id) && welcomeBlock(ch)].filter(Boolean));
+  // monta tudo fora da página e entra de uma vez (antes: um append por mensagem direto no chat)
+  const frag = document.createDocumentFragment(); frag.append(h('div.grow')); if (S.loaded.get(ch.id)) frag.append(welcomeBlock(ch));
   let prev = null;
   for (const m of list) {
-    if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
-    box.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
+    if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
   }
+  box.replaceChildren(frag);
   if (S.pending.length) renderPending();
   box.stick = !(keepPos && !near);
   box.scrollTop = box.stick ? box.scrollHeight : old;
@@ -1770,14 +1796,17 @@ function appendMessage(m) {
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160 || m.author_id === S.me.id;
   const prev = list[list.length - 2];
   if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
-  const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null); mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700);
+  const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null);
+  // animação de entrada só na própria mensagem: em cada quadro dela o Chrome recompõe as camadas do chat inteiro (receber
+  // 30 mensagens dos outros: 4,8 s de trabalho da página com a animação, 1,0 s sem, CPU 4x)
+  if (m.author_id === S.me.id) { mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700); }
   box.append(mel);
   if (near) { box.stick = true; trimChat(m.channel_id); box.scrollTop = box.scrollHeight; }
 }
 // Canal aberto por horas: as mensagens que chegam iam se acumulando no chat e na memória para sempre (~900 por hora num
 // canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
 // busca as antigas de novo no servidor (o mesmo caminho do histórico).
-const CHAT_MAX = 250, CHAT_KEEP = 150;
+const CHAT_MAX = 250, CHAT_KEEP = 150, OPEN_KEEP = 50;
 // Lendo o histórico para cima: o chat guarda no máximo HIST_MAX mensagens. Passando disso, as mais novas saem de baixo e o
 // chat fica "vendo mensagens antigas" (rolar até o fim busca de novo; o botão volta ao presente). Descendo de volta, saem as
 // de cima. Antes cada página de 50 se somava para sempre: lendo 2.000 mensagens para trás eram 2.000 no chat e cada
@@ -1993,7 +2022,7 @@ function appendAttachments(el, m, canDel) {
   } }, icon('trash', 16));
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) =>
-    h('div.mtile', h('img', { src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
+    h('div.mtile', h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
   if (m.clip) el.append(clipMsgCard(m)); // clipe: cartão leve no lugar do player (o vídeo fica na galeria)
   for (const { f } of atts.filter(a => (!isImg(a.f) || a.f.expired) && !(m.clip && a.f.url === m.clip.url))) { const a = attachEl(f); a.classList.add('mtile'); el.append(a); } // áudio/arquivo: excluir fica na barra da mensagem
 }
@@ -3276,7 +3305,7 @@ const setIf = (el, k, v) => { if (el[k] !== v) el[k] = v; };
 function paintPing(el) {
   const p = lastPing();
   setIf(el, 'className', 'ping ' + pingLevel(p));
-  setIf(el, 'title', p == null ? 'Medindo a conexão…' : `Ping: ${p} ms (clique para ver o gráfico)`);
+  setIf(el, 'title', p == null ? 'Medindo a conexão…' : `Ping: ${p} ms — clique para ver a conexão e a qualidade da voz`);
 }
 // ida e volta pelo gateway: funciona mesmo sem transporte de mídia conectado (sem microfone, sozinho ouvindo)
 const wsPings = new Map(); let wsPingN = 0;
@@ -3307,20 +3336,20 @@ let pingTick = 0;
 setInterval(() => (voice?.active ? (!document.hidden || ++pingTick % 5 === 0) && updatePing() : (pingHist.length = 0)), 1000);
 // qualidade da voz: selo no painel (nível atual) e ajuste automático a cada 3 s
 const isAutoAbr = () => S.prefs.voiceBitrate === 'auto' || S.prefs.voiceBitrate == null;
-const abrEl = () => { const el = h('button#vp-abr.abr', { onclick: (e) => openAbrPicker(e.currentTarget) }); paintAbr(el); return el; };
+// (fica dentro do popup do sinal de conexão: a qualidade enviada depende dela, e ninguém precisa ver o número o tempo todo)
 function paintAbr(el) {
   const k = voice.micKbps(), auto = isAutoAbr();
-  setIf(el, 'textContent', (auto ? 'Auto · ' : '') + k + 'k');
-  setIf(el, 'title', `Qualidade da voz: ${k} kbps${auto ? ' (automático)' : ''}${voice.sentKbps != null ? ` — enviando ~${voice.sentKbps} kbps agora` : ''}. Clique para mudar.`);
+  setIf(el, 'textContent', `${auto ? 'Automático · ' : ''}${k} kbps${voice.sentKbps != null ? ` (enviando ~${voice.sentKbps})` : ''}`);
 }
-function openAbrPicker(anchor) {
-  const body = h('div.qpop', h('h4', 'Qualidade da voz'), seg(VOICE_BITRATES, isAutoAbr() ? 'auto' : S.prefs.voiceBitrate, (v) => { S.prefs.voiceBitrate = v; savePrefs(); voice.retuneAudio(); paintAbr(anchor); }),
-    h('div.hintline', 'Automático: voz mono a 64 kbps (já soa perfeita), descendo para 48 ou 32 se a sua conexão piorar. 128 kbps ou mais só vale para música, e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala.'));
-  const el = popout(anchor, body, 'up'); el.classList.add('quick', 'abrpop');
+function abrSection() {
+  const now = h('b.abr-now'); paintAbr(now);
+  return h('div.abrsec', h('div.abrsec-h', h('h4', 'Qualidade da voz'), now),
+    seg(VOICE_BITRATES, isAutoAbr() ? 'auto' : S.prefs.voiceBitrate, (v) => { S.prefs.voiceBitrate = v; savePrefs(); voice.retuneAudio(); paintAbr(now); }),
+    h('div.hintline', 'Automático (recomendado): voz mono a 64 kbps, que já soa perfeita, descendo para 48 ou 32 se a sua conexão piorar. 128 kbps ou mais só vale para música, e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala.'));
 }
 setInterval(() => {
   if (!voice?.active) return;
-  voice.adaptAudio().catch(() => { }).then(() => { const el = document.getElementById('vp-abr'); if (el) paintAbr(el); });
+  voice.adaptAudio().catch(() => { }).then(() => document.querySelectorAll('.abr-now').forEach(paintAbr));
 }, 3000);
 function openPingChart(anchor) {
   const W = 300, H = 120, L = 34, R = 8, T = 10, B = 20;
@@ -3328,7 +3357,7 @@ function openPingChart(anchor) {
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('class', 'pchart'); svg.setAttribute('role', 'img');
   const avgEl = h('b'), lastEl = h('b'), rangeEl = h('b'), tip = h('div.ptip.hidden'), connBox = h('div.pconn');
   const body = h('div.qpop.pingpop', h('h4', 'Ping até o servidor — último minuto'), h('div.pwrap', svg, tip),
-    h('div.pstats', h('div', h('small', 'Último'), lastEl), h('div', h('small', 'Média'), avgEl), h('div', h('small', 'Mín – máx'), rangeEl)), connBox);
+    h('div.pstats', h('div', h('small', 'Último'), lastEl), h('div', h('small', 'Média'), avgEl), h('div', h('small', 'Mín – máx'), rangeEl)), connBox, abrSection());
   const ns = (tag, attrs) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
   let pts = [];
   const draw = () => {
@@ -3422,7 +3451,13 @@ function startGameDetect() {
 // ---------- atalhos / desktop ----------
 // clipe: o atalho padrão passou de Ctrl+Alt+C para F8 (tecla única, dá para apertar no meio do jogo). Quem estava no
 // padrão antigo muda junto; quem escolheu outro atalho fica com o seu.
+// qualidade da voz: automático passa a valer para todos (uma vez; depois cada um pode escolher outra de novo)
+function migrateAbrAuto() {
+  if (S.prefs.abrAutoV === 1) return;
+  S.prefs.voiceBitrate = 'auto'; S.prefs.abrAutoV = 1; savePrefs(); voice?.active && voice.retuneAudio();
+}
 function migrateClipKey() {
+  migrateAbrAuto();
   if (S.prefs.keyClipV === 2) return;
   if (!S.prefs.keyClip || S.prefs.keyClip === 'Ctrl+Alt+KeyC') S.prefs.keyClip = 'F8';
   S.prefs.keyClipV = 2; savePrefs();

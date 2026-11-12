@@ -189,6 +189,41 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
   const r = anchor.getBoundingClientRect(); el.style.top = Math.max(8, r.top - el.getBoundingClientRect().height - 12) + 'px'; el.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - el.getBoundingClientRect().width - 8)) + 'px';
   spy(); setTimeout(() => search.focus(), 0);
 }
+// passar o mouse no botão Soundboard do painel de voz: cartão com os 6 sons que você mais toca (clique toca para a sala).
+// O painel de voz é redesenhado o tempo todo, então o cartão vive no body e fecha quando o mouse sai dele e de qualquer
+// botão [data-sbq] (não depende do botão que o abriu continuar na tela)
+export function topSounds(n = 6) {
+  const all = soundSources().filter(x => !x.off).flatMap(src => src.sounds), byId = new Map(all.map(x => [x.id, x]));
+  const used = Object.entries(S.prefs.sbUse || {}).filter(([id]) => byId.has(id)).sort((a, b) => b[1] - a[1]).map(([id]) => byId.get(id));
+  // pouco uso ainda: completa com os favoritos
+  for (const id of favs()) { if (used.length >= n) break; const x = byId.get(id); if (x && !used.includes(x)) used.push(x); }
+  return used.slice(0, n);
+}
+let sbq = null, sbqOpenT = 0, sbqCloseT = 0;
+const sbqClose = () => { clearTimeout(sbqOpenT); clearTimeout(sbqCloseT); if (!sbq) return; const el = sbq; sbq = null; document.removeEventListener('pointermove', sbqTrack, true); el.classList.add('leaving'); setTimeout(() => el.remove(), 120); };
+function sbqTrack(e) {
+  if (e.target.closest?.('.sbq, [data-sbq]')) { clearTimeout(sbqCloseT); sbqCloseT = 0; return; }
+  if (!sbqCloseT) sbqCloseT = setTimeout(sbqClose, 250);
+}
+export function quickSoundsHover(btn, voice, openFull) {
+  btn.dataset.sbq = '';
+  btn.addEventListener('mouseenter', () => { if (btn.disabled || sbq) return; clearTimeout(sbqOpenT); sbqOpenT = setTimeout(() => btn.isConnected && btn.matches(':hover') && quickSounds(btn, voice, openFull), 280); });
+  btn.addEventListener('mouseleave', () => clearTimeout(sbqOpenT));
+  btn.addEventListener('click', sbqClose, true); // clicar abre a soundboard completa
+}
+function quickSounds(anchor, voice, openFull) {
+  sbqClose();
+  const list = topSounds();
+  const tile = (s) => h('button.sbsnd.sbq-snd', { type: 'button', title: `Tocar "${s.name}" para a sala`, onclick: () => trigger(s, voice) }, h('span.e', soundEmoji(s.emoji)), h('span.n', s.name));
+  const el = sbq = h('div.sbq', { role: 'dialog', 'aria-label': 'Sons mais usados' },
+    h('div.sbq-h', icon('clock', 14), h('b', 'Mais usados'), h('button.sbq-all', { type: 'button', onclick: () => { const a = document.querySelector('[data-sbq]:not([disabled])') || anchor; sbqClose(); openFull(a); } }, 'Ver todos')),
+    list.length ? h('div.sbrow.sbq-row', list.map(tile)) : h('div.sbnote', 'Os sons que você tocar mais vão aparecer aqui.'));
+  document.body.append(el);
+  const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w.width / 2, innerWidth - w.width - 8)) + 'px';
+  el.style.top = Math.max(8, r.top - w.height - 8) + 'px';
+  document.addEventListener('pointermove', sbqTrack, true);
+}
 function keyDialog(s) {
   const btn = h('button.btn.grey');
   captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { (S.prefs.sbKeys ||= {})[s.id] = c; savePrefs(); toast('Atalho definido'); });

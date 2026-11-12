@@ -38,7 +38,8 @@
 @keyframes lc-up { from { opacity: 0; transform: translateY(10px); } }
 @keyframes lc-left { from { opacity: 0; transform: translateX(-12px); } }
 @keyframes lc-switch { from { opacity: 0; transform: translateY(8px); } }
-@keyframes lc-msg { from { opacity: 0; transform: translateY(12px); background: color-mix(in srgb, var(--brand) 18%, transparent); } }
+/* só opacidade e deslocamento (sem repintar o fundo a cada quadro); usada só na própria mensagem (app.js appendMessage) */
+@keyframes lc-msg { from { opacity: 0; transform: translateY(12px); } }
 html.anim .backdrop { animation: lc-fade .16s ease-out; }
 html.anim .backdrop > .modal { animation: lc-pop .22s cubic-bezier(.2, .9, .3, 1.15); }
 html.anim .menu { animation: lc-pop .12s ease-out; transform-origin: top left; }
@@ -86,7 +87,6 @@ html.anim .btn:active, html.anim .roundbtn:active { transform: scale(.95); }
 @media (max-width: 640px) { #app.hide-side #side { width: 200px; overflow: visible; } #app.hide-side #side > :not(#user-area) { display: revert; } #app.hide-side #user-area { display: block; } }
 
 /* ---- tempo de chamada no painel de voz ---- */
-.vp-time { font-size: 12px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ---- lista de amigos ---- */
 .fctl { display: flex; gap: 8px; align-items: center; } .fctl .fsearch { flex: 1; }
@@ -1545,3 +1545,20 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 #toast.lite-sug { display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 14px 10px 16px; border-left-color: var(--yellow, #f0b232); }
 #toast.lite-sug .lite-sug-b { display: flex; gap: 6px; flex-shrink: 0; }
 @media (max-width: 560px) { #toast.lite-sug { flex-direction: column; align-items: stretch; } }
+
+/* painel de voz: "Sua voz" colorido com efeito ligado; efeito no subtítulo; efeito dentro do painel "Sua voz";
+   qualidade da voz dentro do popup do sinal (app.js: voiceBtn, abrSection; quick.js: openMicPanel) */
+#voice-panel .vp-voice.fxon { color: #fff; background: var(--brand); }
+#voice-panel .vp-fx { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; } #voice-panel .vp-fx .icon { fill: currentColor; flex: none; }
+.micpop .mfx { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: var(--bg-tert); color: var(--interactive); text-align: left; font: inherit; cursor: pointer; }
+.micpop .mfx:hover { background: var(--bg-mod-hover); color: var(--header); }
+.micpop .mfx.on { box-shadow: inset 0 0 0 1px var(--brand); }
+.micpop .mfx-ic { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 8px; background: var(--bg-mod-hover); color: var(--header); }
+.micpop .mfx.on .mfx-ic { background: var(--brand); color: #fff; }
+.micpop .mfx-t { display: flex; flex-direction: column; flex: 1; min-width: 0; } .micpop .mfx-t b { color: var(--header); font-size: 14px; font-weight: 600; }
+.micpop .mfx-t small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pingpop .abrsec { margin-top: 10px; border-top: 1px solid var(--divider); padding-top: 4px; }
+.pingpop .abrsec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pingpop .abrsec-h b { font-size: 12px; color: var(--header); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pingpop .abrsec .seg { flex-wrap: wrap; } .pingpop .abrsec .seg button { flex: 1 1 30%; }
+.pingpop .abrsec .hintline { margin-top: 6px; font-size: 12px; line-height: 1.35; color: var(--text-muted); }

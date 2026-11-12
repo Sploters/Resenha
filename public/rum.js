@@ -11,6 +11,30 @@ observe('layout-shift', (e) => { if (!e.hadRecentInput) v.cls += e.value; });
 observe('event', (e) => { if (e.interactionId) v.inp = Math.max(v.inp, e.duration); }, { durationThreshold: 40 }); // INP aproximado: a interação mais lenta
 observe('paint', (e) => { if (e.name === 'first-contentful-paint') v.fcp = e.startTime; });
 
+// Travadas: quadro que segurou a página por mais de 1 s (Long Animation Frame) vai ao servidor com o script e a função que
+// rodavam e o que estava aberto (chamada, câmera, tela, filtro de ruído). O heap e as Web Vitals mostram que travou
+// (INP de 11 s com "input delay" de 11 s), mas não quem: isto mostra. Também sai no console (console.warn).
+const freezes = []; let freezeT = 0, freezeSent = 0;
+function ctx() {
+  const vc = window.__lc?.voice;
+  return { view: (S.view?.cid ? 'canal' : S.view?.gid ? 'servidor' : 'home') + (document.querySelector('#stage') ? '+palco' : ''), call: !!vc?.channelId, cam: !!vc?.cam, screen: !!vc?.screen,
+    noise: S.prefs?.noiseMode || 'standard', hidden: document.visibilityState === 'hidden', dom: document.getElementsByTagName('*').length };
+}
+function sendFreezes() {
+  freezeT = 0; if (!S.token || !freezes.length) return;
+  const device = window.lcDesktop ? 'app' : matchMedia('(pointer: coarse)').matches ? 'mobile' : 'desktop', body = { device, freezes: freezes.splice(0) };
+  freezeSent += body.freezes.length;
+  fetch('/api/rum/freeze', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token }, body: JSON.stringify(body) }).catch(() => { });
+}
+observe('long-animation-frame', (e) => {
+  if (e.duration < 1000 || freezeSent + freezes.length >= 30) return;
+  const r = Math.round, scripts = [...e.scripts].sort((a, b) => b.duration - a.duration).slice(0, 5).map(x => ({ ms: r(x.duration), layout_ms: r(x.forcedStyleAndLayoutDuration), invoker: String(x.invoker).slice(0, 120), fn: x.sourceFunctionName || '', src: (x.sourceURL || '').split('/').pop().split('?')[0] + ':' + x.sourceCharPosition }));
+  const f = { at: r(e.startTime), ms: r(e.duration), blocking_ms: r(e.blockingDuration), render_ms: e.renderStart ? r(e.startTime + e.duration - e.renderStart) : 0, layout_ms: e.styleAndLayoutStart ? r(e.startTime + e.duration - e.styleAndLayoutStart) : 0, scripts, ...ctx() };
+  freezes.push(f); console.warn('[travada]', f.ms + ' ms', f);
+  if (!freezeT) freezeT = setTimeout(sendFreezes, 5000); // várias travadas seguidas vão juntas
+});
+addEventListener('pagehide', sendFreezes);
+
 let sent = false;
 function send() {
   if (sent || !S.token || v.ready == null) return; sent = true;

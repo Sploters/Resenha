@@ -146,6 +146,10 @@ label.f input:focus, label.f textarea:focus { outline: 1px solid var(--brand); }
 .mgrid.n1 img { max-width: 100%; max-height: 300px; display: block; }
 #chat.side .mgrid.n1 .mtile { max-width: min(320px, 100%); } #chat.side .mgrid.n1 img { max-height: 240px; } /* chat lateral: tamanho único menor */
 #chat.side .mgrid { max-width: 100%; }
+/* foto com o tamanho conhecido (largura/altura vêm na mensagem): o espaço já fica reservado antes de carregar, no mesmo tamanho
+   que ela teria (até 400×300; 320×240 no chat lateral). Sem isso cada foto que chegava empurrava o chat. */
+.mgrid.n1 img.sized { width: min(var(--mw, 400px), calc(var(--mh, 300px) * var(--ar))); height: auto; aspect-ratio: var(--ar); max-height: none; background: var(--bg-mod-hover, rgba(127,127,127,.12)); }
+#chat.side .mgrid.n1 img.sized { --mw: 320px; --mh: 240px; }
 .mgrid:not(.n1) img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mgrid.n2 { grid-template-columns: 1fr 1fr; grid-auto-rows: 220px; }
 .mgrid.n3 { grid-template-columns: 2fr 1fr; grid-template-rows: 150px 150px; } .mgrid.n3 .mtile:first-child { grid-row: span 2; }
@@ -256,9 +260,6 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
 
 @media (max-width: 900px) { #members, #results { display: none; } #side { width: 200px; } }
 @media (max-width: 640px) { #side { position: absolute; z-index: 30; left: 72px; height: 100%; transform: translateX(-130%); transition: transform .2s; } #app.nav-open #side { transform: none; } .msg { padding-right: 12px; } }
-#voice-panel .abr { flex: none; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 4px; color: var(--text-muted); background: var(--bg-mod-hover); font-variant-numeric: tabular-nums; white-space: nowrap; }
-#voice-panel .abr:hover { color: var(--text-strong); background: var(--bg-mod-sel); }
-.abrpop .qpop { width: 300px; } .abrpop .qpop .seg button { flex: 1 1 30%; }
 
 /* botão ocupado (ação em andamento, ver busy() em util.js): spinner pequeno depois de 250 ms, sem trocar o texto */
 button.busy { pointer-events: none; } /* sem clique repetido enquanto a ação anterior não termina */

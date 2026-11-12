@@ -54,8 +54,9 @@ try {
     await P.waitForFunction(() => window.__lc.voice?.sfu?.ready, { timeout: 15000 });
   }
   await B.waitForFunction((uid) => !!window.__lc.voice.peers.get(uid)?.audioEl, { timeout: 15000 }, a.id);
-  // alice escolhe Robô pelo botão do painel de voz
-  await A.evaluate(() => [...document.querySelectorAll('#voice-panel .row button')].find(x => /Efeitos de voz/.test(x.title)).click()); await sleep(300);
+  // alice escolhe Robô pelo botão "Sua voz" do painel de voz
+  await A.evaluate(() => document.querySelector('#voice-panel .vp-voice').click()); await sleep(300);
+  await A.evaluate(() => document.querySelector('.micpop .mfx').click()); await sleep(300);
   ok(await A.evaluate(() => document.querySelectorAll('.fxpicker .fxopt').length) === 10, 'seletor com "Sem efeito" + 9 efeitos');
   await A.evaluate(() => [...document.querySelectorAll('.fxpicker .fxopt')].find(x => /Robô/.test(x.textContent)).click()); await sleep(300);
   if (process.env.SHOTS) await A.screenshot({ path: `${OUT}/01-seletor.png` });
@@ -63,7 +64,7 @@ try {
   await sleep(800);
   const st1 = await B.evaluate((uid) => { const p = window.__lc.voice.peers.get(uid), bo = p?.audioElBoost; return { fx: bo?.fx, node: !!bo?.fxNode, badge: [...document.querySelectorAll('.vuser')].find(r => r.dataset.uid === uid)?.querySelector('.fxb svg.fxicon') ? 'icone' : null }; }, a.id);
   ok(st1.fx === 'robo' && st1.node && st1.badge === 'icone', 'bruno ouve alice com o efeito (aplicado no app dele) e vê o ícone do efeito ao lado do nome', st1);
-  ok(await A.evaluate(() => !!document.querySelector('#voice-panel .row button.fxon svg.fxicon')) === true, 'botão da alice mostra o efeito ligado');
+  ok(await A.evaluate(() => !!document.querySelector('#voice-panel .vp-voice.fxon svg.fxicon')) === true, 'botão da alice mostra o efeito ligado');
   // bruno desliga só a alice
   await B.evaluate((uid) => [...document.querySelectorAll('.vuser')].find(r => r.dataset.uid === uid).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })), a.id); await sleep(300);
   if (process.env.SHOTS) await B.screenshot({ path: `${OUT}/02-menu-ouvir-sem.png` });

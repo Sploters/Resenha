@@ -134,6 +134,9 @@ html, body, button, input, textarea, select { font-family: var(--font, "gg sans"
 .mepop .mesub { padding: 2px 0 4px 28px; }
 
 .popout.mefly { width: 230px; padding: 6px; border-radius: 8px; }
+.mefly .mflyhead { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--bg-mod-hover); }
+.mefly .mflyhead b { color: var(--header); font-size: 14px; } .mefly .mflyhead small { color: var(--text-muted); font-size: 12px; line-height: 1.3; }
+.mefly .stat > svg { flex: none; opacity: .8; } .mefly .stat.off { color: var(--red, #f23f43); }
 
 .mepop .meav { cursor: pointer; } .mepop .meav:hover .avatar { filter: brightness(.85); }
 .menu.sbvolmenu { z-index: 97; width: 240px; padding: 8px; }
@@ -590,3 +593,15 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .menu .it.hasic:hover .mic { opacity: 1; }
 .share-row .btn.sent { display: inline-flex; align-items: center; gap: 5px; }
 .menu .it.hasic > .mlab, .menu .it.hasic > .itl { flex: 1; min-width: 0; text-align: left; }
+/* soundboard: cartão "Mais usados" ao passar o mouse no botão do painel de voz (soundboard.js: quickSounds) */
+.sbq { position: fixed; z-index: 97; width: 360px; max-width: calc(100vw - 16px); padding: 10px; border-radius: 12px; background: var(--bg-float, #111214); border: 1px solid var(--divider); box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: sbqIn .12s ease-out; }
+.sbq.leaving { opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+@keyframes sbqIn { from { opacity: 0; transform: translateY(4px); } }
+.sbq-h { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--text-muted); }
+.sbq-h b { flex: 1; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.sbq-all { padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: 500; color: var(--link, #00a8fc); background: none; }
+.sbq-all:hover { text-decoration: underline; }
+.sbq-row { gap: 6px; }
+.sbq-snd { width: 100%; border: 0; text-align: left; color: inherit; font: inherit; }
+.sbq-snd:hover { background: var(--bg-mod-hover, #35373c); }
+.sbq .sbnote { padding: 4px 0; }

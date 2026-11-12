@@ -194,6 +194,34 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       e o **palco da chamada** pelo ResizeObserver (`observedStage`), que segurava junto o chat e o compositor ao lado.
       Agora `releaseOldScreens` solta todos ao trocar de tela (a galeria também para os vídeos); voltar a cada tela continua
       igual. `scripts/screen-release-test.mjs` cobre os 4 casos (a versão anterior falha em todos).
+- [x] ★ **Chat grande com conteúdo de verdade, DM e servidor** (2026-11-12, `scripts/perf-chat.mjs` sobre
+      `scripts/load/seed-rich.mjs`: 3.000 mensagens em cada, com markdown, menções, respostas, reações, links, código,
+      emojis e 10% com foto; CPU 4x). Já estavam bem e continuam: abrir (50 mensagens, ~1.300–1.600 elementos), rolar para
+      cima (~200–700 ms por página contando a rede, chat limitado a 300), digitar (nenhum quadro longo). Achados e corrigidos:
+      (1) **receber mensagem dos outros**: a animação de entrada fazia o Chrome recompor as camadas do chat inteiro em todo
+      quadro dela — no canal recebendo 60 a 4/s, trabalho da página **9,8 → 1,9 s**; na DM, 30 a 1/s, **5,1 → 1,4 s**.
+      Agora só a própria mensagem anima (e sem o fundo colorido, que repintava). (2) **Voltar a um chat lido para trás**
+      montava tudo o que estava guardado (até 300): agora monta as 50 mais novas e o resto volta ao rolar; alternar DM ↔
+      canal **mediana 259 → 166 ms, pior 949 → 250 ms, pior quadro 978 → 196 ms**, script 1,7 → 0,65 s em 10 trocas.
+      O chat também é montado num fragmento e entra de uma vez. (3) **Fotos** reservam o espaço antes de carregar: o
+      servidor lê largura e altura do arquivo ao salvar a mensagem (`server/imgsize.js`: PNG, JPEG, WebP, GIF) e o chat
+      usa a proporção no tamanho de sempre (até 400×300; 320×240 no chat da chamada). Antes cada foto que chegava empurrava o
+      chat. Mensagens antigas, sem o tamanho, ficam como antes. (4) O observador dos **avatares animados** (`freeze.js`)
+      olhava cada mudança da página e procurava `[data-orig]` nela inteira a cada mensagem, mesmo no modo padrão
+      ("Sempre"), em que não há nada a fazer: agora só observa fora dele. Teste: `scripts/chat-rich-test.mjs`. O
+      `chat-trim-test` esperava ver a "msg 0" depois de subir o histórico inteiro, mas ela já sai por baixo da janela
+      de 300: agora confere que chegou às antigas do canal.
+- [x] ★ **Terceira sessão real: travada sem culpado no heap, e o cronômetro em 0:20** (2026-11-12). Heap limpo (11,7 MB,
+      3 elementos desanexados), mas INP de 11 s com "input delay" de 3–11 s em 16 cliques seguidos: a página ficou
+      ocupada por vários segundos várias vezes, e o heap não diz por quem (as travadas que o Chrome guarda nele não expõem
+      o script). Aqui não repetiu (duas pessoas, câmera, tela e RNNoise: nenhum quadro acima de 100 ms). Por isso o app
+      agora **conta as próprias travadas**: quadro acima de 1 s (Long Animation Frame) vai a `POST /api/rum/freeze` com os
+      5 scripts mais longos (função, arquivo:posição, layout forçado) e o que estava aberto (chamada, câmera, tela, filtro
+      de ruído, nº de elementos); o administrador vê as últimas 30 em `GET /api/perf` (`travadas`) e todas em
+      `freeze.log`; também sai `[travada]` no console. **Cronômetro**: `started_at` vem com a hora do servidor e o app
+      subtraía da hora do PC — com o relógio do PC ~20 s adiantado, a chamada "começava" em 0:20 (no navegador e no
+      desktop, mesma máquina). O READY agora leva `now` e o app corrige a diferença. Teste:
+      `scripts/freeze-report-test.mjs` (relógio 20 s adiantado e um clique que trava 1,5 s).
 - [x] ★ **Rede instável, servidor reiniciando e 500 reconectando** (2026-11-12).
       (1) **500 reconectando** (`scripts/reconnect-storm-test.mjs`, servidor reinicia com 500 conectadas): o app tentava de
       novo em 1, 2, 4, 8 s iguais para todos — voltavam no mesmo milissegundo e o servidor montava 500 READY de uma vez

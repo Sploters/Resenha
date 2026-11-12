@@ -425,7 +425,8 @@ export const lightbox = (src, opts) => openViewer(src, opts);
 export const focusOn = () => { const f = S.prefs.focusUntil; return f === true || (typeof f === 'number' && f > Date.now()); };
 // kind: 'dm' (mensagem direta, chamada, pedido de amizade) | 'server' (canais, procura de grupo, convites de servidor)
 export const alertAllowed = (kind) => S.me?.status !== 'dnd' && !(kind === 'server' && focusOn());
-export function setFocus(until) { if (until) S.prefs.focusUntil = until; else delete S.prefs.focusUntil; savePrefs(); document.dispatchEvent(new Event('focus-mode')); }
+// mesmo valor de antes (clicou na opção que já estava): nada muda, então nada é salvo nem redesenhado (a lateral piscava)
+export function setFocus(until) { if ((until || undefined) === S.prefs.focusUntil) return; if (until) S.prefs.focusUntil = until; else delete S.prefs.focusUntil; savePrefs(); document.dispatchEvent(new Event('focus-mode')); }
 // ---------- som / notificação ----------
 let actx;
 export function beep() {
