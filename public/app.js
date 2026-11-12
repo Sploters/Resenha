@@ -29,6 +29,7 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
+import { track } from './ux.js';
 let discoverMod = null;
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
 // Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
@@ -642,7 +643,7 @@ function renderRail() {
 }
 function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
 const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover');
-function openGames() { S.favMode = false; go('@me', localStorage.getItem('lc_games') === 'discover' ? 'discover' : 'lfg'); } // volta para a última das duas
+function openGames() { track('games_open'); S.favMode = false; go('@me', localStorage.getItem('lc_games') === 'discover' ? 'discover' : 'lfg'); } // volta para a última das duas
 // ---------- busca em tudo (lupa no topo da barra) ----------
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
@@ -798,7 +799,7 @@ function gsMsg(m, inGuild) {
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
 }
 // ícone de mensagens da barra: Amigos no meio e as conversas na lista
-function openMeSection() { S.favMode = false; go('@me'); }
+function openMeSection() { if (S.view.kind === 'dm') track('back_to_friends', 'rail'); S.favMode = false; go('@me'); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
 const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
@@ -1324,7 +1325,7 @@ addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || escBusy || e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   if (!ready || S.view.kind !== 'dm') return;
-  flushDraft(); go('@me'); // o rascunho fica guardado para a volta
+  flushDraft(); track('back_to_friends', 'esc'); go('@me'); // o rascunho fica guardado para a volta
 });
 // Ctrl+Shift+F: busca em tudo (DMs e servidores)
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f' && ready) { e.preventDefault(); if (!S.searchOpen) toggleGlobalSearch(); else $('#gs-q')?.focus(); } });

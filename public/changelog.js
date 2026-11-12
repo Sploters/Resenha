@@ -10,6 +10,7 @@ export const NEWS = [
     items: [
       { i: 'users', t: 'Uma lista de amigos só', d: 'Online e Todos viraram uma lista única, separada em Pedidos, Online e Offline. Clique no nome do grupo para recolher ou expandir, como na lista de membros dos servidores; a escolha fica salva.' },
       { i: 'dm', t: 'Mensagens e Amigos na mesma tela', d: 'Não há mais as abas Mensagens | Amigos: a lista da esquerda mostra só as suas conversas, e o meio mostra os amigos e o "Ativo agora". Para voltar aos amigos, aperte Esc dentro da conversa (como no WhatsApp Web) ou use o ícone de Mensagens na barra dos servidores.', try: 'messages' },
+      { i: 'shield', t: 'Estatísticas de uso anônimas', d: 'Para saber o que funciona e o que confunde, o app conta alguns cliques (por exemplo, quantas vezes o Esc é usado para voltar aos Amigos), sem dizer quem fez e nunca mensagens. Dá para desligar em Privacidade e segurança.' },
       { i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores e Descobrir viraram uma tela só, com abas no topo (Procurar jogadores, Início, Notícias, Torneios). Fica no ícone de controle da barra dos servidores, logo abaixo de "Adicionar um servidor".', try: 'lfg' },
     ],
   },

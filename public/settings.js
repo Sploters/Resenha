@@ -23,6 +23,7 @@ import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
+import { track, clearUx, uxOn } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
@@ -102,7 +103,7 @@ function compactHints(pane) {
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
@@ -132,9 +133,16 @@ export function openSettings(kind, ctx) {
   const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
   const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
   const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
+  let emptyT = 0;
   const drawNav = () => {
     const q = search.value.trim().toLowerCase();
+    // telemetria: busca que não achou nada (o termo, depois de a pessoa parar de digitar por 1,5 s)
+    clearTimeout(emptyT);
+    if (q && !groups.some(([, items]) => items.some(([, l, kw]) => (l + ' ' + kw).toLowerCase().includes(q)))) emptyT = setTimeout(() => track('settings_search_empty', q.slice(0, 40), { once: true }), 1500);
     const meCard = !isServer && S.me && (!search.value.trim() || /perf|avatar|banner|bio|pronom|status/i.test(search.value)) && h('div.nme' + (current === 'profile' ? '.active' : ''), { 'data-k': 'profile', title: 'Editar perfil', onclick: () => show('profile') }, avatar(S.me, 40), h('div.nme-t', h('b', S.me.display_name), h('small', 'Editar perfil')), icon('edit', 16));
+    // o campo de busca é o mesmo elemento, mas mudá-lo de lugar no DOM tira o foco: sem isto só a 1ª letra entrava
+    const typing = document.activeElement === search, caret = search.selectionStart;
+    queueMicrotask(() => { if (typing && search.isConnected && document.activeElement !== search) { search.focus(); search.setSelectionRange(caret, caret); } });
     nav.replaceChildren(h('div.ninner', meCard, search, ...groups.flatMap(([title, items]) => {
       const list = items.filter(([k, l, kw]) => !q || (l + ' ' + kw).toLowerCase().includes(q));
       return list.length ? [h('h6', title), ...list.map(([k, l]) => h('div.ni' + (k === current ? '.active' : ''), { 'data-k': k, onclick: () => show(k) }, icon(NAV_ICONS[sKey(k) === 'sounds_srv' ? 'soundboard' : k] || 'dot', 18), h('span.nl', l), k === 'lite' && liteOn() && h('span.nlite', { title: 'O modo leve está ligado neste computador' }, 'Ativo')))] : [];
@@ -392,6 +400,8 @@ function privacyPage(reg) {
         ['Filtros', 'info', [['calendar', 'Período'], ['search', 'Texto'], ['clip', 'Com arquivos']]],
         ['Antes', 'ok', [['eye', 'Mostra quantas e onde'], ['dl', 'Baixar uma cópia']]]])),
     section('Usuários bloqueados'), blockedCard(),
+    section('Ajudar a melhorar o app'), card(row('Enviar estatísticas de uso anônimas', 'Só contagens, sem dizer quem: por exemplo, quantas vezes as pessoas usam o Esc para voltar aos Amigos. Nunca mensagens nem nomes. Ficam 60 dias.', toggle(uxOn(), (v) => { S.prefs.uxStats = v; if (!v) clearUx(); save(); })),
+      factChips([['Envia', 'ok', [['pointer', 'Cliques em botões e abas'], ['info', 'Explicações abertas'], ['search', 'Buscas sem resultado']]], ['Nunca', 'no', [['dm', 'Mensagens'], ['user', 'Quem fez'], ['file', 'Arquivos']]]])),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
 }

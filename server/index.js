@@ -30,6 +30,7 @@ import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
+import { mountUx } from './ux.js';
 import { mountLfg } from './lfg.js';
 import { mountDiscover } from './discover.js';
 import { translate, translateEnabled, engineName } from './translate.js';
@@ -345,6 +346,7 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
 mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
+mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid }); // telemetria de UX: só contagens, sem quem fez
 // endereço de arquivo enviado (/files/..., sem aspas, barras invertidas nem espaços: esses valores
 // vão parar em url("...") no CSS e em atributos; com aspas dava para fechar o url() e injetar CSS)
 const isFileUrl = (v) => typeof v === 'string' && /^\/files\/[^\s"\\<>]{1,700}$/.test(v);
