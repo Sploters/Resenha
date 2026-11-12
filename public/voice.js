@@ -197,6 +197,8 @@ export class Voice {
   leave({ silent = false } = {}) {
     if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
+    // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou e em que sala
+    try { document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: this.channelId, ms: Date.now() - (this.joinedAt || Date.now()), silent } })); } catch { }
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();

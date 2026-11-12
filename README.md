@@ -92,6 +92,8 @@ A interface é entregue comprimida e com cache longo (versão do servidor no end
 
 **Estatísticas de uso (telemetria de UX):** o app conta, sem identificar ninguém, como está sendo usado: pessoas ativas, retenção e o funil de quem é novo, tempos de abrir canal, mandar mensagem e entrar na voz, quedas de conexão, erros do app, idas e voltas rápidas, menus abandonados, buscas sem resultado, funis e cliques com raiva ou sem efeito. Fica tudo no seu servidor, como contagens por dia e versão do app, e é apagado depois de 60 dias. O administrador da instalação vê em Configurações → Administração → Estatísticas de uso (ou `GET /api/ux`). Cada pessoa pode desligar em Privacidade e segurança. `UX_TELEMETRY=0` desliga a coleta no servidor inteiro, e `UX_MIN_COUNT` (padrão 5) é o mínimo de ocorrências para o painel mostrar um termo buscado ou um aviso de erro, para não apontar ninguém em grupos pequenos.
 
+Depois de algumas chamadas (cerca de 5%, no máximo uma vez por semana por aparelho) aparece no canto a pergunta "Como foi a chamada? 👍 👎", que some sozinha. Toda segunda, a partir das 9 h (hora do servidor), o administrador recebe no app um **resumo da semana** comparado com a anterior: pessoas, contas novas, erros novos, tempos, chamadas, fluxos que caíram e cliques com raiva. Para receber também no celular, defina `UX_DIGEST_WEBHOOK` (ou use o mesmo `ALERT_WEBHOOK`). O painel tem "Enviar agora". Em Privacidade e segurança, "Ver o que é enviado" mostra a lista real do que está na fila e do que já foi enviado.
+
 **Teste de carga** (`scripts/load/`), numa pasta de dados de teste, nunca a de verdade:
 ```
 DATA_DIR=./.loaddata node scripts/load/seed.mjs 1000                 # 1000 pessoas no mesmo servidor, 20 canais com histórico

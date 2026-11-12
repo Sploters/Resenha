@@ -29,6 +29,7 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
+import { initCallRating } from './callrate.js';
 import { track, flow, watchClicks, startTimer, stopTimer, cancelTimer, timing, navTo } from './ux.js';
 let discoverMod = null;
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
@@ -269,7 +270,7 @@ function onEvent(t, d) {
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       e2eeLoad(true);
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
-      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks();
+      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); initCallRating();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
@@ -382,6 +383,10 @@ function onEvent(t, d) {
     case 'STREAM_VIEWERS': if (d.viewers.length) S.viewers.set(d.streamer_id, d.viewers); else S.viewers.delete(d.streamer_id); renderVoiceUI(); break;
     case 'SOUNDBOARD': sbIncoming(d, voice); break;
     case 'CALL_INVITE': onCallInvite(d); break;
+    case 'ADMIN_DIGEST': { // resumo da semana (só o administrador recebe, server/ux.js)
+      toast('📊 Resumo da semana: ' + d.titulo + ' Veja em Configurações → Estatísticas de uso.');
+      notify('Resenha: resumo da semana', d.titulo, () => openSettings('uxstats', { voice, logout, go, gid: S.view.gid })); break;
+    }
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': onLfgEvent(t, d); break;
     case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') updateClipEmbeds(t, d); break;

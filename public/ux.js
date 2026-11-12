@@ -29,9 +29,14 @@ export function flushUx() {
   const device = window.lcDesktop ? 'app' : matchMedia('(pointer: coarse)').matches ? 'mobile' : 'desktop';
   const events = [...queue].map(([k, n]) => { const [e, d] = k.split(SEP); return { e, d, n: Math.min(n, 200) }; });
   queue.clear();
+  sentLog.unshift({ at: Date.now(), version: UX_VERSION, device, events }); if (sentLog.length > 30) sentLog.pop();
   return fetch('/api/ux', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token }, body: JSON.stringify({ version: UX_VERSION, device, events }) })
     .then(r => r.json()).then(j => { if (j?.disabled) { serverOff = true; queue.clear(); } }).catch(() => { });
 }
+// "Ver o que é enviado" (Privacidade): o que está na fila agora e as últimas remessas desta abertura do app
+const sentLog = [];
+export const uxPending = () => [...queue].map(([k, n]) => { const [e, d] = k.split(SEP); return { e, d, n }; });
+export const uxSent = () => sentLog.slice();
 export const clearUx = () => { queue.clear(); clearTimeout(timer); timer = 0; }; // desligou: o que estava na fila não vai
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushUx(); });
 addEventListener('pagehide', () => flushUx());

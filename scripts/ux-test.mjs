@@ -174,6 +174,46 @@ try {
     await A.setViewport({ width: 1400, height: Math.min(6000, hgt), deviceScaleFactor: 1 }); await sleep(600);
     await A.screenshot({ path: process.env.SHOTS + '/ux-painel-full.png' });
   }
+  // ---------- etapa 4: avaliação da chamada, "Ver o que é enviado", resumo da semana ----------
+  r = await api(eu, 'POST', '/ux', { device: 'desktop', events: [{ e: 'call_rating', d: 'shown', n: 4 }, { e: 'call_rating', d: 'good', n: 2 }, { e: 'call_rating', d: 'bad', n: 1 }, { e: 'call_issue', d: 'echo', n: 1 }, { e: 'call_issue', d: 'inventado', n: 1 }, { e: 'call_rating', d: 'otimo', n: 1 }] });
+  ok(r.data.kept === 4, 'avaliação de chamada: só respostas e motivos conhecidos', r.data);
+  const rateUi = async (ms, others) => Q.evaluate(async ({ ms, others }) => {
+    document.getElementById('callrate')?.remove();
+    const S = window.__lc.S; S.voice.delete('fake'); if (others) S.voice.set('fake', { user_id: 'fake', channel_id: 'sala-teste' });
+    document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: 'sala-teste', ms } }));
+    await new Promise(r => setTimeout(r, 1200)); S.voice.delete('fake'); return !!document.getElementById('callrate');
+  }, { ms, others });
+  await Q.evaluate(() => localStorage.setItem('lc_callrate_force', '1'));
+  ok(!(await rateUi(10e3, true)) && !(await rateUi(60e3, false)), 'avaliação não aparece em chamada curta (< 30 s) nem sozinho na sala');
+  ok(await rateUi(60e3, true), 'avaliação aparece depois de chamada com outra pessoa (forçada no teste; normal é ~5%, 1x por semana)');
+  ok(await Q.evaluate(() => document.activeElement === document.body || !document.getElementById('callrate').contains(document.activeElement)), 'o cartão não rouba o foco');
+  await Q.evaluate(() => [...document.querySelectorAll('#callrate .cr-btn')].find(b => b.textContent === '👎').click()); await sleep(200);
+  await Q.evaluate(() => [...document.querySelectorAll('#callrate .cr-chip')].find(b => /Eco/.test(b.textContent)).click()); await sleep(300);
+  ok(await Q.evaluate(() => /Obrigado/.test(document.getElementById('callrate')?.textContent || '')), '👎 → motivo → "Obrigado!"');
+  await Q.evaluate(() => localStorage.removeItem('lc_callrate_force'));
+  ok(!(await rateUi(60e3, true)), 'sem forçar: não pergunta de novo na mesma semana');
+  // "Ver o que é enviado": a lista real da fila, antes de mandar
+  await Q.evaluate(() => window.__lc.openSettings('privacy')); await sleep(900);
+  await Q.evaluate(() => [...document.querySelectorAll('#settings button')].find(b => /Ver o que é enviado/.test(b.textContent)).click()); await sleep(800);
+  const view = await Q.evaluate(() => { const m = document.querySelector('.modal .uxv'); return m && { rows: [...m.querySelectorAll('.uxv-list')[0]?.querySelectorAll('.uxv-row') || []].map(r => r.textContent), batches: m.querySelectorAll('.uxv-batch').length, srv: /código embaralhado/.test(m.textContent) }; });
+  ok(view && view.rows.some(t => /Avaliação da chamada.*bad/.test(t)) && view.rows.some(t => /Problema na chamada.*echo/.test(t)) && view.batches >= 1 && view.srv, '"Ver o que é enviado" mostra a fila real, as remessas já mandadas e o que o servidor conta', view);
+  await Q.evaluate(() => [...document.querySelectorAll('.modal button')].find(b => /Enviar agora/.test(b.textContent)).click()); await sleep(600);
+  ok(await Q.evaluate(() => document.querySelector('.modal .uxv-list .uxv-row') === null || /Nada\./.test(document.querySelectorAll('.modal .uxv-list, .modal .uxv-empty')[0]?.textContent)), '"Enviar agora" esvazia a fila');
+  await Q.keyboard.press('Escape'); await sleep(200); await Q.keyboard.press('Escape'); await sleep(300);
+  full = (await api(admin, 'GET', '/ux')).data;
+  ok(full.chamadas.perguntas === 5 && full.chamadas.boas === 2 && full.chamadas.ruins === 2 && full.chamadas.taxa_boas === 50 && full.chamadas.problemas.find(p => p.k === 'echo')?.n === 2, 'painel: 50% de chamadas boas, problema "Eco" citado 2 vezes', full.chamadas);
+  // resumo da semana
+  const dg = (await api(admin, 'GET', '/ux/digest')).data;
+  ok(dg.linhas?.some(l => l.tipo === 'pessoas') && dg.linhas.some(l => l.tipo === 'erros' && /Novos:/.test(l.texto)) && dg.linhas.some(l => l.tipo === 'chamadas' && /Eco/.test(l.texto)) && /Resumo da semana/.test(dg.texto), 'resumo da semana com pessoas, erros novos e chamadas', dg);
+  ok((await api(eu, 'GET', '/ux/digest')).status === 403 && (await api(eu, 'POST', '/ux/digest/send')).status === 403, 'resumo só para o administrador');
+  await A.evaluate(() => document.getElementById('toast')?.remove());
+  await api(admin, 'POST', '/ux/digest/send'); await sleep(800);
+  ok(await A.evaluate(() => /Resumo da semana/.test(document.getElementById('toast')?.textContent || '')), '"Enviar agora": o administrador recebe o resumo no app na hora');
+  await A.setViewport({ width: 1400, height: 1000, deviceScaleFactor: 2 });
+  await A.evaluate(() => window.__lc.openSettings('uxstats')); await sleep(1800);
+  ok(await A.evaluate(() => !/\bfalse\b|undefined|\[object/.test(document.querySelector('.uxstats').textContent)), 'painel sem "false", "undefined" ou "[object" escritos na tela');
+  ok(await A.evaluate(() => document.querySelectorAll('.ux-digest .ux-dg li').length >= 3 && [...document.querySelectorAll('.ux-card h3')].some(x => x.textContent === 'Qualidade das chamadas')), 'painel mostra o resumo da semana no topo e a qualidade das chamadas');
+  if (process.env.SHOTS) { await A.screenshot({ path: process.env.SHOTS + '/ux-resumo.png' }); await Q.evaluate(() => localStorage.setItem('lc_callrate_force', '1')); await rateUi(60e3, true); await Q.screenshot({ path: process.env.SHOTS + '/ux-chamada.png' }); }
   // chave geral no servidor: UX_TELEMETRY=0
   { const P3 = 3243, B3 = `http://localhost:${P3}`, D3 = './.testdata-ux-off'; fs.rmSync(D3, { recursive: true, force: true });
     const s3 = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: P3, HTTPS: '0', DATA_DIR: D3, UX_TELEMETRY: '0' }, stdio: 'ignore' });

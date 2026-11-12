@@ -117,9 +117,30 @@ function people(p, data) {
   ];
 }
 
+// resumo da semana (os mesmos itens que o administrador recebe toda segunda): cada linha com ícone + texto, nunca só cor
+function digestCard() {
+  const box = h('section.ux-card.ux-digest', h('p.ux-empty', 'Montando o resumo da semana…'));
+  const TONE = { bom: ['check', 'Melhorou'], ruim: ['warn', 'Atenção'], neutro: ['dot', ''] };
+  const draw = (d) => box.replaceChildren(
+    h('header', h('h3', 'Resumo da semana'), h('p', `${fmtDay(d.de)} a ${fmtDay(d.ate)} comparado com os 7 dias anteriores · chega toda segunda às 9 h`)),
+    h('p.ux-dg-title', d.titulo),
+    d.linhas.length ? h('ul.ux-dg', d.linhas.map(l => h('li.' + l.tom, h('span.ux-dg-ic', { title: TONE[l.tom]?.[1] || null }, icon(TONE[l.tom]?.[0] || 'dot', 14)), h('span', l.texto)))) : null,
+    h('button.btn.grey.sm', { onclick: async () => { try { draw(await api('POST', '/ux/digest/send')); toast('Resumo enviado para você' + ' (e para o webhook, se houver)'); } catch (e) { toast(e.message, true); } } }, icon('send', 14), 'Enviar agora'));
+  api('GET', '/ux/digest').then(draw).catch(e => box.replaceChildren(h('p.ux-empty', 'Resumo indisponível: ' + e.message)));
+  return box;
+}
+// qualidade das chamadas: % de boas entre quem respondeu, taxa de resposta e os problemas mais citados
+function calls(c) {
+  if (!c?.perguntas) return empty('Ninguém foi perguntado ainda (a pergunta aparece em ~5% das chamadas com outra pessoa).');
+  return h('div',
+    h('div.ux-tiles.mini', tile(c.taxa_boas == null ? '—' : c.taxa_boas + '%', 'acharam boa', `${nf(c.boas)} de ${nf(c.responderam)}`), tile(pct(c.responderam, c.perguntas) + '%', 'responderam', `${nf(c.responderam)} de ${nf(c.perguntas)} perguntas`)),
+    c.problemas.length ? bars(c.problemas.sort((a, b) => b.n - a.n).map(p => [p.nome, { total: p.n }])) : null);
+}
+
 export function uxStatsPage() {
   const body = h('div.ux-body', h('p.ux-empty', 'Carregando…'));
   let days = 30, version = '', data = null;
+  const digest = digestCard(); // não depende do período: é sempre a última semana
   const verSel = h('select.ux-ver', { 'aria-label': 'Versão do app', onchange: () => { version = verSel.value; load(); } }, h('option', { value: '' }, 'Todas as versões'));
   const load = async () => {
     body.classList.add('loading');
@@ -138,13 +159,14 @@ export function uxStatsPage() {
     const back = E.back_to_friends?.detalhes || {}, esc = back.esc?.total || 0, backAll = esc + (back.rail?.total || 0);
     const fl = Object.values(data.funis || {}), st = fl.reduce((n, x) => n + x.comecaram, 0), dn = fl.reduce((n, x) => n + Math.min(x.terminaram, x.comecaram), 0);
     const sw = data.tempos?.channel_switch?.geral;
-    body.replaceChildren(
+    body.replaceChildren(...[ // (o filtro tira os 'false' das partes condicionais: replaceChildren escreveria "false")
       !data.ligado && h('p.ux-warn', icon('warn', 16), ' A coleta está desligada neste servidor (UX_TELEMETRY=0): nada novo entra.'),
       h('div.ux-tiles',
         tile(nf(total), total === 1 ? 'evento contado' : 'eventos contados', `nos últimos ${data.dias} dias${data.versao ? ' nesta versão' : ''}`),
         tile(sw ? ms(sw.p50) : '—', 'para abrir um canal (metade das vezes)', sw ? `95% até ${ms(sw.p95)}` : 'sem medições'),
         tile(nf(E.js_error?.total), (E.js_error?.total || 0) === 1 ? 'erro do app' : 'erros do app', pl(E.error_shown?.total || 0, 'aviso de erro mostrado', 'avisos de erro mostrados')),
         tile(st ? pct(dn, st) + '%' : '—', 'dos fluxos são concluídos', st ? `${nf(dn)} de ${nf(st)}` : 'sem dados')),
+      digest,
 
       block('Pessoas', 'Contado pelo servidor, sem guardar quem: só um código embaralhado por pessoa, para não contar duas vezes'),
       ...[people(data.pessoas, data)].flat(),
@@ -154,6 +176,7 @@ export function uxStatsPage() {
       h('div.ux-grid',
         card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))) : empty('Nenhuma queda neste período.')),
         card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k))),
+      card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas (👍 / 👎 e o motivo)', calls(data.chamadas)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
 
       block('Erros', 'Agrupados pela forma: números, nomes entre aspas e endereços viram marcadores'),
@@ -177,7 +200,7 @@ export function uxStatsPage() {
         card('Abas de Jogos', `Seção aberta ${pl(E.games_open?.total || 0, 'vez', 'vezes')} pela barra`, bars(Object.entries(E.games_tab?.detalhes || {}), { label: (k) => TABS[k] || k }))),
       h('div.ux-grid',
         card('Cliques com raiva', '3 cliques rápidos no mesmo lugar', list(E.rage_click)),
-        card('Cliques sem efeito', 'Parecia botão, mas nada mudou em 1 s', list(E.dead_click))));
+        card('Cliques sem efeito', 'Parecia botão, mas nada mudou em 1 s', list(E.dead_click)))].filter(Boolean));
   };
   const dl = () => { if (!data) return; const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })), download: `estatisticas-uso-${data.desde}.json` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); toast('Arquivo baixado'); };
   load();

@@ -346,7 +346,14 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
 mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
-mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid, prefsOf: (uid) => { const s = getUser(uid)?.settings; return s ? JSON.parse(s) : {}; } }); // telemetria de UX: só contagens, sem quem fez
+mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid, prefsOf: (uid) => { const s = getUser(uid)?.settings; return s ? JSON.parse(s) : {}; },
+  sendDigest: (d) => { // resumo da semana: no app do administrador e, com webhook, no celular (ntfy ou canal do Discord)
+    const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_DIGEST', { titulo: d.titulo, texto: d.texto });
+    const hook = process.env.UX_DIGEST_WEBHOOK || process.env.ALERT_WEBHOOK; if (!hook) return;
+    const discord = /discord(app)?\.com\/api\/webhooks\//.test(hook);
+    fetch(hook, { method: 'POST', signal: AbortSignal.timeout(8000), headers: { 'Content-Type': discord ? 'application/json' : 'text/plain; charset=utf-8', ...(discord ? {} : { Title: 'Resenha: resumo da semana', Tags: 'bar_chart' }) },
+      body: discord ? JSON.stringify({ content: '📊 ' + d.texto.slice(0, 1900) }) : d.texto }).catch(() => { });
+  } }); // telemetria de UX: só contagens, sem quem fez
 // endereço de arquivo enviado (/files/..., sem aspas, barras invertidas nem espaços: esses valores
 // vão parar em url("...") no CSS e em atributos; com aspas dava para fechar o url() e injetar CSS)
 const isFileUrl = (v) => typeof v === 'string' && /^\/files\/[^\s"\\<>]{1,700}$/.test(v);
