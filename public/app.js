@@ -15,7 +15,7 @@ import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
-import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey } from './soundboard.js';
+import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -1003,8 +1003,8 @@ function renderSide() {
     list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
-  const pinned = uaPinned();
-  const area = h('div#user-area' + (pinned ? '' : '.ua-col'), voice?.active && h('div.ua-vp', voicePanel()), userbar());
+  // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
+  const area = h('div#user-area', voice?.active && h('div.ua-vp', voicePanel()), userbar());
   const oldHead = side.querySelector(':scope > #side-head'), oldList = side.querySelector(':scope > #side-list'), oldArea = side.querySelector(':scope > #user-area');
   if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
     // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
@@ -1035,9 +1035,9 @@ const catObs = new IntersectionObserver((es) => { let n = 0; for (const en of es
 const uaObs = new ResizeObserver(() => {
   const area = document.getElementById('user-area'); if (!area) return;
   uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
-  const hgt = area.offsetHeight, open = !area.classList.contains('ua-col') || !!area.querySelector('.ua-vp');
+  const hgt = area.offsetHeight;
   $('#app').style.setProperty('--ua-h', hgt + 'px'); // a barra dos servidores reserva espaço pro seu perfil
-  $('#app').style.setProperty('--ua-side-h', (open ? hgt : 0) + 'px'); // barra solta: a lista ganha a altura toda
+  $('#app').style.setProperty('--ua-side-h', hgt + 'px'); // e a lista de canais termina acima dele
 });
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
@@ -1238,7 +1238,7 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', voice.joinedAt && h('span.vtimer.vp-time', { 'data-start': voice.joinedAt, title: 'Tempo na chamada' }, fmtDur(Date.now() - voice.joinedAt)), abrEl()),
+    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', abrEl()),
       h('span.vp-btns', h('button.ibtn', { title: 'Testar microfone, ruído e eco', onclick: (e) => openMicPanel(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('waves', 20)),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`),
@@ -1246,8 +1246,15 @@ function voicePanel() {
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       fxButton(20, false),
-      h('button', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 20)),
-      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20))));
+      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
+      sbButton()));
+}
+// Soundboard: último botão do painel; passar o mouse mostra os 6 sons mais usados, clicar abre a soundboard completa
+function sbButton() {
+  const full = (a) => openSoundboard(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
+  const b = h('button.vp-sb', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', 'aria-label': 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => full(e.currentTarget) }, icon('soundboard', 20));
+  quickSoundsHover(b, voice, full);
+  return b;
 }
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
@@ -1296,17 +1303,15 @@ function joinVoice(cid) {
   voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }
 // barra de perfil: o avatar fica na barra dos servidores (bolinha de status embaixo, vermelha em cima se o microfone ou o
-// som estiver desligado) e a barra com nome, microfone, fone, configurações e alfinete sai dele. Alfinete azul: sempre
-// aberta; solto: abre ao passar o mouse ou clicar no avatar
-const uaPinned = () => S.prefs.uaPinned ?? !S.prefs.uaCollapsed;
-function setUaPinned(v) { S.prefs.uaPinned = v; delete S.prefs.uaCollapsed; savePrefs(); renderSide(); }
+// som estiver desligado) e a barra com nome, microfone, fone e configurações sai dele. Com a lista de canais visível a
+// barra fica sempre aberta; com a lista oculta, abre ao passar o mouse no avatar
 let pbHoldUntil = 0, pbHoldT = 0;
 function userbar() {
-  const me = S.me, ctx = () => ({ voice, logout, go }), pinned = uaPinned();
+  const me = S.me, ctx = () => ({ voice, logout, go });
   const status = () => openStatusPanel((!$('#app.hide-side') && $('#userbar .me')) || $('.pb-av'), { openSettings: (k) => openSettings(k, ctx()), openFullProfile, logout });
   const off = voice?.muted || voice?.deafened;
-  const av = h('button.pb-av', { type: 'button', 'aria-label': pinned ? 'Status e perfil' : 'Abrir a barra do perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
-    onclick: () => { if (pinned || bar.classList.contains('open')) return status(); bar.classList.add('open'); setTimeout(() => document.addEventListener('pointerdown', function out(e) { if (!bar.contains(e.target)) { bar.classList.remove('open'); document.removeEventListener('pointerdown', out, true); } }, true)); },
+  const av = h('button.pb-av', { type: 'button', 'aria-label': 'Status e perfil', title: `${me.display_name} — ${me.custom_status || STATUS_TXT[me.status]}`,
+    onclick: () => status(),
     oncontextmenu: (e) => statusMenu(e) },
     avatar(me, 40, { status: false }), h('i.pb-st.status.s-' + (me.status || 'online')), focusOn() && h('span.pb-fbadge', { title: 'Modo foco: só mensagens diretas avisam' }, icon('dm', 10)), // microfone/som desligado: o próprio ícone riscado no canto do avatar (antes uma bolinha vermelha), à vista mesmo com a
     // lista oculta; clicar nele religa sem abrir a barra
@@ -1318,9 +1323,8 @@ function userbar() {
       h('div.names', styleName(h('div.dn', me.display_name), me.name_style), h('div.un', focusOn() ? h('span.pb-focus', icon('dm', 12), 'Modo foco') : me.custom_status || STATUS_TXT[me.status]))),
     swapIcon(h('button.ibtn.pb-mic' + (voice?.muted ? '.on' : ''), { title: (voice?.muted ? 'Ativar microfone' : 'Silenciar') + ' (clique direito: microfone, ruído e eco)', onclick: () => voiceToggle('mute'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'in', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.muted ? 'micoff' : 'mic')), 'ua-mic', !!voice?.muted),
     swapIcon(h('button.ibtn.pb-deaf' + (voice?.deafened ? '.on' : ''), { title: (voice?.deafened ? 'Ativar áudio' : 'Ensurdecer') + ' (clique direito: saída e volumes)', onclick: () => voiceToggle('deaf'), oncontextmenu: (e) => { e.preventDefault(); openAudioPanel(e.currentTarget, voice, 'out', { openSettings: (k) => openSettings(k, ctx()) }); } }, icon(voice?.deafened ? 'headoff' : 'headset')), 'ua-deaf', !!voice?.deafened),
-    h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')),
-    h('button.ibtn.pb-pin' + (pinned ? '.on' : ''), { title: pinned ? 'Soltar a barra (abre só ao passar o mouse)' : 'Fixar a barra aberta', 'aria-pressed': String(pinned), onclick: () => setUaPinned(!pinned) }, icon('pin', 20)));
-  const bar = h('div.pbar' + (pinned ? '.pinned' : '') + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
+    h('button.ibtn.pb-gear', { title: 'Configurações do usuário', onclick: () => openSettings('account', ctx()) }, icon('gear')));
+  const bar = h('div.pbar.pinned' + (Date.now() < pbHoldUntil ? '.hov' : ''), av, body);
   // a barra solta continua aberta 0,5 s depois que o mouse sai (dá para voltar sem ela sumir); sobrevive a redesenhos
   bar.addEventListener('mouseenter', () => { clearTimeout(pbHoldT); pbHoldUntil = Infinity; bar.classList.add('hov'); });
   bar.addEventListener('mouseleave', () => { clearTimeout(pbHoldT); pbHoldUntil = Date.now() + 500; pbHoldT = setTimeout(() => { pbHoldUntil = 0; document.querySelectorAll('.pbar.hov').forEach(b => b.classList.remove('hov')); }, 500); });

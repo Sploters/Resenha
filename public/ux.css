@@ -128,7 +128,7 @@ button.mgroup .mg-n::before { content: '— '; }
 #side-list { padding-bottom: calc(var(--ua-side-h, var(--ua-h, 52px)) + 16px); }
 #user-area { background: none; border: 0; box-shadow: none; overflow: visible; border-radius: 0; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 #user-area > .ua-vp { pointer-events: auto; border-radius: 14px; overflow: hidden; background: var(--bg-user); border: 1px solid var(--divider); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
-#user-area.ua-col > .ua-vp { margin-left: 64px; }
+#user-area > .ua-vp { margin-left: 64px; } /* painel de voz só na largura da lista de canais */
 .ua-vp #voice-panel { border-bottom: 0; }
 .ua-vp #voice-panel .t > span:first-child { white-space: nowrap; min-width: 0; overflow: hidden; }
 .pbar { display: flex; align-items: stretch; height: 60px; pointer-events: none; }
@@ -150,9 +150,6 @@ button.mgroup .mg-n::before { content: '— '; }
 .pb-body .me { flex: 1; min-width: 0; }
 .pb-body .ibtn { width: 34px !important; height: 36px; }
 .pb-body .ibtn.on { color: var(--red); }
-.pb-body .pb-pin { color: var(--text-muted); }
-.pb-body .pb-pin.on { color: var(--brand); }
-.pb-body .pb-pin .icon { fill: currentColor; }
 
 /* ---------- barra da esquerda ---------- */
 #rail .rail-tool { background: transparent; color: var(--interactive, var(--text-muted)); }
@@ -554,7 +551,7 @@ h3.sec.snd-sec .icon { fill: currentColor; }
   /* só a bolinha do avatar: ao passar o mouse sai uma barra curta com microfone, fone e configurações (sem nome, status
      nem alfinete); continua aberta 0,5 s depois que o mouse sai, como a barra solta */
   #app.hide-side #userbar.pb-body { flex: none; padding: 0 6px !important; }
-  #app.hide-side #userbar.pb-body .me, #app.hide-side #userbar.pb-body .pb-pin { display: none; }
+  #app.hide-side #userbar.pb-body .me { display: none; }
   /* Buscar em tudo só abre com clique: a dica com o nome aparece normalmente e some enquanto o painel flutuante está aberto;
      Mensagens e amigos mostra a dica enquanto espera os 1,2 s e a esconde quando a fileira com as abas abre (app.js: meFlyShow) */
   #app.hide-side.gs-open .rail-wrap.rail-fly:has([data-fly="gs"])[data-tip]:hover::after { display: none; }

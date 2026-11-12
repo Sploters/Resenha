@@ -87,7 +87,6 @@ html.anim .btn:active, html.anim .roundbtn:active { transform: scale(.95); }
 @media (max-width: 640px) { #app.hide-side #side { width: 200px; overflow: visible; } #app.hide-side #side > :not(#user-area) { display: revert; } #app.hide-side #user-area { display: block; } }
 
 /* ---- tempo de chamada no painel de voz ---- */
-.vp-time { font-size: 12px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ---- lista de amigos ---- */
 .fctl { display: flex; gap: 8px; align-items: center; } .fctl .fsearch { flex: 1; }
