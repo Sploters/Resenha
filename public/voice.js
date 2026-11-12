@@ -4,6 +4,8 @@
 
 import { playSound } from './sounds.js';
 import { createFx, loadFx, FX_IDS } from './voicefx.js';
+import { track, stopTimer, cancelTimer } from './ux.js';
+import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -190,12 +192,20 @@ export class Voice {
     if (stale()) return;
     this.channelId = channelId; this.joinedAt = Date.now();
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
+    this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
     this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
   }
   leave({ silent = false } = {}) {
     if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
+    // qualidade técnica da chamada que acabou: vai para a telemetria em faixas e junto do aviso (a avaliação cruza com ela)
+    const ms = Date.now() - (this.joinedAt || Date.now());
+    clearInterval(this._cqT); this._cqT = null; let quality = null;
+    try { quality = this._cq?.summary(ms) || null; recordCallQuality(quality); } catch (e) { console.warn('qualidade da chamada', e); }
+    this._cq = null;
+    // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou, em que sala e como a rede estava
+    try { document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: this.channelId, ms, silent, quality } })); } catch { }
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
@@ -216,7 +226,7 @@ export class Voice {
   sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
   onJoined({ channel_id, peers, sfu }) {
     if (channel_id !== this.channelId) return;
-    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
+    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
     else for (const uid of peers) this.connect(uid, true);
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }
@@ -244,7 +254,7 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
-      t.on('connectionstatechange', (s) => { if (s === 'failed') t.restartIce?.(); this.onUpdate(true); });
+      t.on('connectionstatechange', (s) => { if (s === 'disconnected' || s === 'failed') this._cq?.drop(); if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
       // Chromium não entrega mais os quadros ao worker)
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
@@ -555,7 +565,7 @@ export class Voice {
       }
       this.onUpdate();
     };
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') pc.restartIce?.(); this.onUpdate(true); };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') this._cq?.drop(); if (pc.connectionState === 'failed') pc.restartIce?.(); this.onUpdate(true); };
     this.addLocalTracks(p);
     this.sendMeta(uid);
     return p;
@@ -604,6 +614,8 @@ export class Voice {
     const share = avail === Infinity || now - this.adaptFrom < 10000 ? Infinity : avail / 4000;
     const byBw = [...AUTO_STEPS].reverse().find(k => k <= share) || AUTO_STEPS[0], bwLow = byBw < this.autoKbps && this.bwLowPrev;
     this.bwLowPrev = byBw < this.autoKbps;
+    // (no SFU, `loss` é a pior perda entre quem te ouve, de propósito do mediasoup: baixar a taxa e mandar mais correção
+    // ajuda o ouvinte com internet ruim; por isso aqui fica o RTCP, e não a perda de verdade do seu envio)
     // perda ou ping alto: menos bits por pacote ajuda a voz a chegar inteira (a correção de erros do Opus usa a folga)
     const want = loss > .08 || rtt > 400 ? 32 : loss > .03 || rtt > 250 ? 48 : bwLow || byBw >= this.autoKbps ? Math.min(byBw, AUTO_MAX) : this.autoKbps;
     // sobe um nível por vez e só depois de estabilizar; desce na hora
@@ -1075,6 +1087,21 @@ export class Voice {
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();
   }
+  // amostra de qualidade (a cada 5 s durante a chamada): lê todas as conexões e entrega ao coletor (public/callqual.js)
+  async qualitySample() {
+    const q = this._cq; if (!q || this._cqBusy) return;
+    const pcs = this.sfu ? [this.sfu.send, this.sfu.recv].filter(Boolean) : [...this.peers.values()].map(p => p.pc).filter(Boolean);
+    if (!pcs.length) return;
+    this._cqBusy = true;
+    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up); }
+    finally { this._cqBusy = false; }
+  }
+  // perda real da voz que você envia, contada pelo servidor: { count, lost } acumulados, ou null (sem voz saindo / servidor antigo).
+  // (o fractionLost que o navegador recebe no SFU é a pior perda entre quem te ouve, não a sua: ver server/sfu.js 'upstats')
+  async upStats() {
+    if (!this.sfu?.producers?.mic) return null;
+    try { const r = await Promise.race([this.sfuReq('upstats'), new Promise((_, no) => setTimeout(() => no(new Error('tempo')), 3000))]); return Number.isFinite(r?.count) ? r : null; } catch { return null; }
+  }
   // latência (ms): até o servidor no SFU; pior par na malha; null se ainda não há medida
   async ping() {
     const rtts = [];
@@ -1094,11 +1121,13 @@ export class Voice {
         const rep = await t.getStats(), byId = new Map([...rep.values()].map(r => [r.id, r]));
         for (const r of rep.values()) {
           if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && !out.proto) { const lc = byId.get(r.localCandidateId); out.proto = lc?.protocol || null; out.candidate = lc?.candidateType || null; }
-          if (r.type === 'remote-inbound-rtp' && r.kind === 'audio' && r.fractionLost != null) out.sendLoss = Math.max(out.sendLoss ?? 0, r.fractionLost);
           if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += Math.max(0, r.packetsLost || 0); recv += r.packetsReceived || 0; if (r.jitter != null) jit.push(r.jitter * 1000); }
         }
       } catch { }
     }
+    // perda saindo: pelo servidor (o RTCP do SFU traz a pior perda entre quem te ouve, que não é culpa da sua rede)
+    const up = await this.upStats(), pu = this._ciUp; this._ciUp = up;
+    if (up && pu && up.count >= pu.count && up.lost >= pu.lost) { const dl = up.lost - pu.lost, dr = up.count - pu.count; if (dl + dr > 0) out.sendLoss = dl / (dl + dr); }
     const prev = this._ci; this._ci = { lost, recv };
     if (prev && recv > prev.recv) { const dl = lost - prev.lost, dr = recv - prev.recv; out.recvLoss = Math.max(0, dl) / (Math.max(0, dl) + dr); }
     if (jit.length) out.jitterMs = Math.round(Math.max(...jit));

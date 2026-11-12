@@ -1094,9 +1094,9 @@ html.anim .appupd { animation: lc-pop .25s cubic-bezier(.2, .9, .3, 1.15); }
 /* ---------- Descobrir (discover.js): notícias, promoções, lançamentos e "Para você" ---------- */
 #discoverview { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--bg-pri, #313338); }
 #discoverview #topbar { flex: none; gap: 10px; } #discoverview #topbar .spacer { flex: 1; }
-#discoverview .dtabs { display: flex; gap: 2px; margin-left: 6px; }
-#discoverview .dtab { border: 0; background: none; color: var(--interactive); font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-#discoverview .dtab:hover { color: var(--header); background: var(--bg-mod-hover); } #discoverview .dtab.on { color: var(--header); background: var(--bg-mod-sel, #404249); }
+#discoverview .dtabs, #lfgview .dtabs { display: flex; gap: 2px; margin-left: 6px; }
+#discoverview .dtab, #lfgview .dtab { border: 0; background: none; color: var(--interactive); font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+#discoverview .dtab:hover, #lfgview .dtab:hover { color: var(--header); background: var(--bg-mod-hover); } #discoverview .dtab.on, #lfgview .dtab.on { color: var(--header); background: var(--bg-mod-sel, #404249); }
 #discoverview .dbodywrap { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
 #discoverview .dsec { display: flex; align-items: center; gap: 8px; margin: 22px 0 12px; font-size: 16px; color: var(--header); } #discoverview .dsec svg { fill: currentColor; color: var(--interactive); }
 #discoverview .dsec:first-child { margin-top: 4px; }
@@ -1562,3 +1562,96 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .pingpop .abrsec-h b { font-size: 12px; color: var(--header); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pingpop .abrsec .seg { flex-wrap: wrap; } .pingpop .abrsec .seg button { flex: 1 1 30%; }
 .pingpop .abrsec .hintline { margin-top: 6px; font-size: 12px; line-height: 1.35; color: var(--text-muted); }
+/* seção Jogos: Procurar jogadores e Descobrir na mesma tela, abas com ícone (gamestabs.js) */
+.gtabs .dtab { display: inline-flex; align-items: center; gap: 6px; }
+.gtabs .dtab .icon { fill: currentColor; flex: none; }
+.gtitle { font-weight: 600; color: var(--header); }
+#lfgview #topbar, #discoverview #topbar { overflow-x: auto; scrollbar-width: none; }
+@media (max-width: 640px) { .gtitle { display: none; } .gtabs .dtab span { display: none; } .gtabs .dtab.on span { display: inline; } }
+/* Estatísticas de uso (painel do administrador, uxstats.js). Cores dos gráficos: azul e laranja, validadas para
+   daltonismo nos dois temas (série 1 e 2); o texto usa sempre as cores de texto, nunca a da série */
+.uxstats { --ux-s1: #3987e5; --ux-s2: #d95926; --ux-track: var(--bg-tert); }
+:root[data-theme="light"] .uxstats { --ux-s1: #2a78d6; --ux-s2: #eb6834; --ux-track: #e3e5e8; }
+.uxstats .ux-bar-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; }
+.uxstats .ux-bar-top .btn .icon { fill: currentColor; margin-right: 6px; vertical-align: -3px; }
+.uxstats .ux-note { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; } .uxstats .ux-note .icon { fill: currentColor; vertical-align: -2px; }
+.uxstats .ux-body { transition: opacity .15s; } .uxstats .ux-body.loading { opacity: .5; }
+.uxstats .ux-empty { color: var(--text-muted); font-size: 13px; margin: 6px 0; }
+.ux-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ux-tile { background: var(--bg-sec); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.ux-tile b { font-size: 28px; line-height: 1.1; color: var(--header); font-variant-numeric: tabular-nums; }
+.ux-tile span { color: var(--text); font-size: 13px; } .ux-tile small { color: var(--text-muted); font-size: 12px; }
+.ux-card { background: var(--bg-sec); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; min-width: 0; }
+.ux-card header { margin-bottom: 10px; } .ux-card h3 { font-size: 15px; color: var(--header); margin: 0; } .ux-card header p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
+.ux-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 16px; }
+.ux-card .ux-sub { margin: 12px 6px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); }
+.ux-bars { display: flex; flex-direction: column; gap: 2px; }
+.ux-bar { display: grid; grid-template-columns: minmax(0, 2fr) minmax(60px, 1fr) auto; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 4px; font-size: 13px; }
+.ux-bar:hover { background: var(--bg-mod-hover); }
+.ux-bl { color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.3; }
+.ux-bv { color: var(--header); font-variant-numeric: tabular-nums; min-width: 2.5em; text-align: right; }
+.ux-bt { display: block; height: 10px; border-radius: 4px; background: var(--ux-track); overflow: hidden; }
+.ux-bt i { display: block; height: 100%; background: var(--ux-s1); border-radius: 0 4px 4px 0; }
+.ux-daily { position: relative; padding-left: 0; }
+.ux-ymax { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.ux-cols { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--bg-mod-sel, #404249); }
+.ux-col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 2px; }
+.ux-col i { display: block; width: 100%; background: var(--ux-s1); border-radius: 4px 4px 0 0; min-height: 0; }
+.ux-col:hover i { filter: brightness(1.2); }
+.ux-xaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.ux-split { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; }
+.ux-split i { display: block; min-width: 4px; } .ux-split i.s1, .ux-legend i.s1 { background: var(--ux-s1); } .ux-split i.s2, .ux-legend i.s2 { background: var(--ux-s2); }
+.ux-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13px; color: var(--text); }
+.ux-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.ux-legend b { color: var(--header); } .ux-legend small { color: var(--text-muted); }
+.ux-funnels { display: flex; flex-direction: column; gap: 12px; }
+.ux-fun-t { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text); margin-bottom: 4px; }
+.ux-fun-t span { flex: 1; } .ux-fun-t b { color: var(--header); font-variant-numeric: tabular-nums; } .ux-fun-t small { color: var(--text-muted); }
+.uxstats .ux-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.uxstats .ux-ver { background: var(--bg-tert); color: var(--text); border: 0; border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 13px; }
+.uxstats .ux-warn { background: var(--bg-sec); border-left: 3px solid var(--yellow, #f0b232); padding: 10px 12px; border-radius: 6px; color: var(--text); font-size: 13px; }
+.uxstats .ux-warn .icon { fill: var(--yellow, #f0b232); vertical-align: -3px; }
+.ux-block { margin: 26px 0 10px; } .ux-block h3 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+.ux-block p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
+.ux-bar.muted .ux-bl { color: var(--text-muted); font-style: italic; } .ux-bar.muted .ux-bt i { opacity: .45; }
+.ux-line { font-size: 13px; color: var(--text); margin: 4px 0; } .ux-line b { color: var(--header); }
+.ux-times { display: flex; flex-direction: column; font-size: 13px; }
+.ux-trow { display: grid; grid-template-columns: minmax(0, 2fr) 80px 80px minmax(80px, 1fr) 70px; gap: 10px; align-items: center; padding: 7px 6px; border-radius: 4px; }
+.ux-trow:not(.head):hover { background: var(--bg-mod-hover); }
+.ux-trow.head { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; padding-bottom: 4px; }
+.ux-trow > span:first-child { color: var(--text); } .ux-trow b { color: var(--header); font-variant-numeric: tabular-nums; } .ux-trow small { color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.ux-hist { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+.ux-hist i { flex: 1; background: var(--ux-s1); border-radius: 2px 2px 0 0; min-height: 0; }
+@media (max-width: 640px) { .ux-trow { grid-template-columns: minmax(0, 1fr) 64px 64px; } .ux-trow > :nth-child(4), .ux-trow > :nth-child(5) { display: none; } }
+/* avaliação depois da chamada (callrate.js): cartão discreto no canto, não bloqueia nada */
+#callrate { position: fixed; right: 20px; bottom: 20px; z-index: 900; width: 320px; max-width: calc(100vw - 32px); background: var(--bg-float, #111214); color: var(--text); border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); animation: cr-in .18s ease-out; }
+#callrate.leaving { opacity: 0; transform: translateY(8px); transition: opacity .18s, transform .18s; }
+@keyframes cr-in { from { opacity: 0; transform: translateY(8px); } }
+#callrate .cr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; } #callrate b { color: var(--header); font-size: 14px; }
+#callrate .cr-x { border: 0; background: none; color: var(--text-muted); cursor: pointer; padding: 2px; border-radius: 4px; } #callrate .cr-x:hover { color: var(--header); background: var(--bg-mod-hover); } #callrate .cr-x .icon { fill: currentColor; }
+#callrate .cr-row { display: flex; align-items: center; gap: 8px; } #callrate .cr-row > .icon { fill: var(--green); }
+#callrate .cr-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 18px; line-height: 1; padding: 8px 6px; color: var(--text); font-family: inherit; border: 0; border-radius: 8px; background: var(--bg-mod-hover); cursor: pointer; transition: transform .1s, background .1s; }
+#callrate .cr-btn:hover { background: var(--bg-mod-sel, #404249); transform: translateY(-1px); }
+#callrate .cr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+#callrate .cr-chip { border: 0; border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg-mod-hover); cursor: pointer; } #callrate .cr-chip:hover { background: var(--bg-mod-sel, #404249); color: var(--header); }
+@media (max-width: 640px) { #callrate { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); } }
+:root.reduce-motion #callrate { animation: none; }
+/* "Ver o que é enviado" (uxview.js) */
+.uxv-open { display: inline-flex; align-items: center; gap: 6px; padding-left: 0; } .uxv-open .icon { fill: currentColor; }
+.uxv h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+.uxv-intro, .uxv-off { font-size: 13px; color: var(--text); margin: 0 0 4px; } .uxv-off .icon { fill: currentColor; vertical-align: -2px; }
+.uxv-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; max-height: 260px; overflow-y: auto; }
+.uxv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 10px; align-items: center; padding: 5px 8px; border-radius: 4px; background: var(--bg-tert); font-size: 13px; }
+.uxv-e { color: var(--text); } .uxv-d { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .uxv-n { color: var(--header); font-variant-numeric: tabular-nums; }
+.uxv-empty { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+.uxv-batch summary { cursor: pointer; font-size: 13px; color: var(--text); padding: 4px 0; } .uxv-batch .uxv-list { margin: 4px 0 8px; }
+.uxv-srv { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); line-height: 1.5; }
+.ux-digest .ux-dg-title { font-size: 15px; color: var(--header); font-weight: 600; margin: 0 0 8px; }
+.ux-dg { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text); }
+.ux-dg li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; }
+.ux-dg-ic { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bg-tert); margin-top: -1px; }
+.ux-dg-ic .icon { fill: var(--text-muted); } .ux-dg li.bom .ux-dg-ic .icon { fill: var(--green); } .ux-dg li.ruim .ux-dg-ic .icon { fill: var(--yellow, #f0b232); }
+.ux-digest .btn .icon { fill: currentColor; margin-right: 6px; vertical-align: -2px; }
+.ux-tiles.mini { margin-bottom: 10px; } .ux-tiles.mini .ux-tile { background: var(--bg-tert); padding: 10px 12px; } .ux-tiles.mini .ux-tile b { font-size: 22px; }
+#callrate .cr-btn span { font-size: 13px; font-weight: 600; white-space: nowrap; } #callrate .cr-btn.bad { background: var(--bg-mod-sel, #404249); color: var(--header); }
+#callrate .cr-hint { display: block; margin-top: 8px; font-size: 11px; color: var(--text-muted); }

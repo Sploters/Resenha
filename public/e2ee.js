@@ -16,6 +16,7 @@
 // tamanho dos arquivos.
 import { h, icon } from './util.js';
 import { S, modal, toast, confirmBox, savePrefs, channelById } from './state.js';
+import { flow } from './ux.js';
 
 const ITER = 600000, SALT_TAG = 'resenha-e2ee-dm-v1', WRAP_TAG = 'resenha-e2ee-wrap|';
 const PREFIX = 'e2ee:1:', RE = /^e2ee:1:([0-9a-f]{32})\.([0-9a-f]{32}):([A-Za-z0-9+/=]+):([A-Za-z0-9+/=]+)$/;
@@ -329,6 +330,7 @@ function passFields(confirm) {
 }
 const err = () => h('div.e2-err');
 export function setupModal(done) {
+  flow('e2ee', 'start');
   const { p1, p2, show } = passFields(true), e = err();
   const gen = h('button.btn.link.sm', { type: 'button', onclick: () => { const r = randomPassphrase(); p1.value = p2.value = r; p1.type = p2.type = 'text'; show.querySelector('input').checked = true; } }, 'Gerar uma frase para mim');
   modal('Ativar a criptografia de ponta a ponta', 'Escolha uma frase. Ela abre suas conversas protegidas em cada aparelho novo e nunca sai daqui: o servidor guarda só a sua chave trancada com ela.',
@@ -338,7 +340,7 @@ export function setupModal(done) {
       if (p1.value.length < 10) { e.textContent = 'Use pelo menos 10 caracteres.'; return false; }
       if (p1.value !== p2.value) { e.textContent = 'As frases não são iguais.'; return false; }
       e.textContent = 'Criando a chave…';
-      try { await createKey(p1.value); toast('Criptografia de ponta a ponta ativada'); done?.(); } catch (x) { e.textContent = x.message; return false; }
+      try { await createKey(p1.value); flow('e2ee', 'done'); toast('Criptografia de ponta a ponta ativada'); done?.(); } catch (x) { e.textContent = x.message; return false; }
     } }], { sticky: true });
 }
 export function unlockModal(done) {

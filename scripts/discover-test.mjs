@@ -73,10 +73,9 @@ try {
   P.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await P.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, r.token);
   await P.goto(BASE); await P.waitForSelector('#rail');
-  ok(await P.evaluate(() => [...document.querySelectorAll('#side-list .ch .name')].some(x => x.textContent === 'Descobrir')), 'entrada "Descobrir" na Home, abaixo de Procurar jogadores');
-  await P.evaluate(() => [...document.querySelectorAll('#side-list .ch')].find(x => /Descobrir/.test(x.textContent)).click());
+  await P.evaluate(() => window.__lc.go('@me', 'discover')); // seção Jogos, aba Início
   await P.waitForSelector('#discoverview .dint'); await sleep(1500);
-  ok(await P.evaluate(() => [...document.querySelectorAll('.dtab')].map(x => x.textContent).join(',') === 'Início,Notícias,Torneios'), 'só 3 abas: Início, Notícias, Torneios');
+  ok(await P.evaluate(() => [...document.querySelectorAll('.dtab')].map(x => x.textContent).join(',') === 'Procurar jogadores,Início,Notícias,Torneios'), 'abas da seção Jogos: Procurar jogadores, Início, Notícias, Torneios');
   const secs = () => P.evaluate(() => [...document.querySelectorAll('.dhsec')].map(s => ({ k: s.dataset.sec, cards: s.querySelectorAll('.dcard').length, rail: !!s.querySelector('.drail'), rows: s.querySelectorAll('.drow').length, more: s.querySelector('.dmore')?.textContent || '' })));
   const home = await secs();
   ok(['charts', 'deals', 'upcoming', 'tournaments', 'news'].every(k => home.some(x => x.k === k)), 'Início: Na Steam, Promoções, Lançamentos, Torneios e Notícias', home);

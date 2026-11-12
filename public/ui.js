@@ -2,6 +2,7 @@
 import { h, icon } from './util.js';
 import { SCREEN_PRESETS, NOISE_MODES } from './voice.js';
 import { S } from './state.js';
+import { track } from './ux.js';
 
 export const seg = (opts, val, on) => { // opts: objeto ou lista de [valor, rótulo] (para manter a ordem com chaves numéricas)
   const box = h('div.seg'); let cur = val;
@@ -10,11 +11,20 @@ export const seg = (opts, val, on) => { // opts: objeto ou lista de [valor, rót
   draw(val); return box;
 };
 export const toggle = (on, fn) => { const s = h('div.switch' + (on ? '.on' : ''), { role: 'switch', tabIndex: 0, onclick: () => { on = !on; s.classList.toggle('on', on); fn(on); }, onkeydown: (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); s.click(); } } }); return s; };
+// "Página › opção" de uma ⓘ: o título ao lado dela e, nas Configurações, o título da página (sem o texto da explicação)
+const textOf = (el, skip) => [...(el?.childNodes || [])].filter(n => n !== skip && !n.classList?.contains('itip')).map(n => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
+function tipKey(b) {
+  const label = textOf(b.parentElement, b), pageEl = b.closest('.pane')?.querySelector('h2'), page = pageEl && !pageEl.contains(b) ? textOf(pageEl) : '';
+  return (page ? page + ' › ' : '') + (label || '?');
+}
 // explicação atrás de um ⓘ: aparece ao passar o mouse, focar com o teclado ou tocar (no celular)
 export const infoTip = (content) => {
-  const b = h('button.itip', { type: 'button', 'aria-label': 'Mais informações', onclick: (e) => { e.preventDefault(); e.stopPropagation(); b.classList.toggle('open'); place(); } }, icon('info', 16), h('span.itip-pop', { role: 'tooltip' }, content));
+  const b = h('button.itip', { type: 'button', 'aria-label': 'Mais informações', onclick: (e) => { e.preventDefault(); e.stopPropagation(); if (b.classList.toggle('open')) seen(); place(); } }, icon('info', 16), h('span.itip-pop', { role: 'tooltip' }, content));
   const place = () => { const r = b.getBoundingClientRect(); b.classList.toggle('left', r.left > innerWidth - 300); b.classList.toggle('up', r.bottom > innerHeight - 160); };
-  b.addEventListener('mouseenter', place); b.addEventListener('focus', place); b.addEventListener('blur', () => b.classList.remove('open'));
+  // telemetria: explicação lida (clique, ou o mouse parado em cima por 0,7 s) conta uma vez por abertura do app
+  let dwell = 0; const seen = () => { clearTimeout(dwell); track('info_tip', tipKey(b), { once: true }); };
+  b.addEventListener('mouseenter', () => { place(); dwell = setTimeout(seen, 700); }); b.addEventListener('mouseleave', () => clearTimeout(dwell));
+  b.addEventListener('focus', place); b.addEventListener('blur', () => b.classList.remove('open'));
   return b;
 };
 // linha com um valor à vista (nome de usuário, versão…), não uma explicação
@@ -49,6 +59,9 @@ export function noiseCards(val, on, { compact = false } = {}) {
   return box;
 }
 export const section = (t) => h('h3.sec', t);
+// explicação visual curta: rótulo à esquerda e chips com ícone. groups: [[rótulo, tom ('ok'|'no'|'info'), [[ícone, texto], …]], …]
+export const factChips = (groups) => h('div.fchips', groups.filter(Boolean).map(([lbl, tone, items]) => h('div.fc-row.' + tone,
+  lbl && h('span.fc-lbl', lbl), h('div.fc-list', items.map(([ic, t]) => h('span.fchip', icon(ic, 14), t))))));
 export const slider = (min, max, value, step, onInput, fmt = (v) => v, onChange) => { // onChange: ao soltar (ex.: tocar uma prévia do volume)
   const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); }, onchange: () => onChange?.(+r.value) });
   return h('div.sl', r, out);

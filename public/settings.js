@@ -2,7 +2,7 @@ import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cl
 import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
-import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
+import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
@@ -23,6 +23,7 @@ import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
+import { track, clearUx, uxOn, settingsPage } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
@@ -102,13 +103,13 @@ function compactHints(pane) {
 
 // ============================ shell ============================
 const USER_GROUPS = [
-  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
+  ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
-const NAV_ICONS = { storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
+const NAV_ICONS = { uxstats: 'sliders', storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
   overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', reputation: 'shield', audit: 'clock', invites: 'invite' };
 const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
 
@@ -117,7 +118,7 @@ export function openSettings(kind, ctx) {
   const root = h('div#settings'), pane = h('div.pane'), nav = h('div.nav'), content = h('div.content', pane);
   const cleanups = []; const reg = (f) => cleanups.push(f);
   // how: 'back' = fechou pelo voltar do navegador; 'swap' = outra tela de configurações abre no lugar
-  const close = (how) => { if (how !== 'back') unBack(how === 'swap'); cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
+  const close = (how) => { settingsPage(null, { closing: true }); if (how !== 'back') unBack(how === 'swap'); cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
   // (antes o ouvinte de "modo leve mudou" só saía quando o modo leve mudava: segurava a tela inteira na memória a cada abertura)
   const onLite = () => drawNav();
   const esc = (e) => { if (e.key === 'Escape' && !document.getElementById('tedit') && !document.querySelector('.backdrop:not(.leaving)') && !pane.querySelector('.capturing') && !document.querySelector('.popout,.menu,.emoji-picker')) close(); };
@@ -125,16 +126,31 @@ export function openSettings(kind, ctx) {
   const R = {
     account: () => accountPage(close), profile: () => profilePage(), privacy: (r) => privacyPage(r), connections: (r) => connectionsPage(r), appearance: () => appearancePage(), accessibility: () => accessibilityPage(),
     voice: (r) => voicePage(ctx, r), stream: () => streamPage(), sounds: () => soundsPage(), soundboard: () => soundboardPage(), notifications: () => notificationsPage(), keys: () => keysPage(), extras: () => extrasPage(ctx), advanced: () => advancedPage(ctx), storage: () => (isServer ? serverStoragePage(gid) : storagePage()), news: () => newsPage(), report: () => reportPage(), app: () => appPage(), lite: () => litePage(ctx),
+    // painel de estatísticas de uso: só o administrador da instalação vê (carregado sob demanda)
+    uxstats: () => { const box = h('div', h('h2', 'Estatísticas de uso'), h('p.ux-empty', 'Carregando…')); import('./uxstats.js').then(m => box.replaceWith(m.uxStatsPage())); return box; },
     overview: () => overviewPage(gid), channels: () => channelsPage(gid), roles: () => rolesPage(gid), emojis: () => emojisPage(gid), sounds_srv: () => serverSoundsPage(gid), members: () => membersPage(gid), bans: () => bansPage(gid), reputation: () => repPage(gid), audit: () => auditPage(gid), invites: () => invitesPage(gid),
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
-  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
+  // telemetria: nome da página (para "abriu e saiu em menos de 2 s")
+  const pageLabel = (k) => k === 'profile' ? 'Perfil' : [...USER_GROUPS, ['', SERVER_PAGES], ['', [['app', 'Aplicativo (desktop)'], ['uxstats', 'Estatísticas de uso']]]].flatMap(([, l]) => l).find(([x]) => x === k)?.[1] || k;
+  const show = (key, initial = false) => { settingsPage(pageLabel(key), { initial }); cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
   const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
   const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
+  // Administração (só o administrador da instalação): o servidor diz se é; a lista ganha a seção quando a resposta chega
+  const ADMIN_GROUP = ['Administração', [['uxstats', 'Estatísticas de uso', 'telemetria estatísticas uso dados painel admin cliques funil']]];
+  if (!isServer && S.uxAdmin) groups.push(ADMIN_GROUP);
+  if (!isServer && S.uxAdmin === undefined) tryApi('GET', '/ux/access').then(r => { S.uxAdmin = !!r?.admin; if (S.uxAdmin && root.isConnected && !groups.includes(ADMIN_GROUP)) { groups.push(ADMIN_GROUP); drawNav(); } });
+  let emptyT = 0;
   const drawNav = () => {
     const q = search.value.trim().toLowerCase();
+    // telemetria: busca que não achou nada (o termo, depois de a pessoa parar de digitar por 1,5 s)
+    clearTimeout(emptyT);
+    if (q && !groups.some(([, items]) => items.some(([, l, kw]) => (l + ' ' + kw).toLowerCase().includes(q)))) emptyT = setTimeout(() => track('settings_search_empty', q.slice(0, 40), { once: true }), 1500);
     const meCard = !isServer && S.me && (!search.value.trim() || /perf|avatar|banner|bio|pronom|status/i.test(search.value)) && h('div.nme' + (current === 'profile' ? '.active' : ''), { 'data-k': 'profile', title: 'Editar perfil', onclick: () => show('profile') }, avatar(S.me, 40), h('div.nme-t', h('b', S.me.display_name), h('small', 'Editar perfil')), icon('edit', 16));
+    // o campo de busca é o mesmo elemento, mas mudá-lo de lugar no DOM tira o foco: sem isto só a 1ª letra entrava
+    const typing = document.activeElement === search, caret = search.selectionStart;
+    queueMicrotask(() => { if (typing && search.isConnected && document.activeElement !== search) { search.focus(); search.setSelectionRange(caret, caret); } });
     nav.replaceChildren(h('div.ninner', meCard, search, ...groups.flatMap(([title, items]) => {
       const list = items.filter(([k, l, kw]) => !q || (l + ' ' + kw).toLowerCase().includes(q));
       return list.length ? [h('h6', title), ...list.map(([k, l]) => h('div.ni' + (k === current ? '.active' : ''), { 'data-k': k, onclick: () => show(k) }, icon(NAV_ICONS[sKey(k) === 'sounds_srv' ? 'soundboard' : k] || 'dot', 18), h('span.nl', l), k === 'lite' && liteOn() && h('span.nlite', { title: 'O modo leve está ligado neste computador' }, 'Ativo')))] : [];
@@ -144,8 +160,8 @@ export function openSettings(kind, ctx) {
   };
   root.append(nav, content, h('button.close', { onclick: close, title: 'Fechar (Esc)' }, icon('x', 20), h('small', 'ESC')));
   document.getElementById('layer').append(root); document.addEventListener('keydown', esc);
-  const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage'].includes(kind) ? kind : 'account');
-  current = first; drawNav(); show(first);
+  const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats'].includes(kind) ? kind : 'account');
+  current = first; drawNav(); show(first, true);
   root._close = close;
   const unBack = backCloses(() => close('back')); whenGone(root, () => unBack()); // voltar do navegador/celular fecha as configurações
   document.addEventListener('lite-changed', onLite);
@@ -348,19 +364,25 @@ function e2eeCard(reg) {
   const kidTxt = (k) => k ? k.kid.slice(0, 20).match(/.{4}/g).join(' ') : '';
   const draw = () => {
     const st = e2eeState(), k = myFingerprintKey(), redraw = () => draw();
-    const limits = note('Protege as conversas diretas entre duas pessoas: mensagens, edições, arquivos, mensagens de voz e chamadas (voz, vídeo e tela) são cifrados no seu aparelho e só abrem no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda e repassa só dados embaralhados. Ainda não entram: reações e grupos. Busca e tradução não funcionam nas conversas protegidas, a transmissão a 120 FPS fica desligada nelas, e o servidor continua sabendo quem conversa com quem, quando e o tamanho dos arquivos.');
-    if (st === 'unsupported') return box.replaceChildren(note('Este navegador não oferece a criptografia (ela precisa do endereço com https://, ou do app desktop).'));
-    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase que só você sabe. Quando a outra pessoa também tiver ativado, as mensagens novas da conversa passam a ser protegidas sozinhas.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
+    // o que a criptografia cobre, em figura: você 🔒 → servidor (embaralhado) → 🔒 amigo, e chips do que entra/fica de fora
+    const limits = h('div',
+      h('div.e2-flow', h('span', icon('user', 22), 'Você'), h('i', icon('lock')), h('span.e2-srv', icon('globe', 22), h('code', '#x9$f…'), 'Servidor'), h('i', icon('lock')), h('span', icon('user', 22), 'Amigo')),
+      factChips([
+        ['Protegido', 'ok', [['dm', 'Mensagens'], ['edit', 'Edições'], ['clip', 'Arquivos'], ['mic', 'Áudios'], ['phone', 'Chamadas'], ['screen', 'Vídeo e tela']]],
+        ['Fica de fora', 'no', [['smile', 'Reações'], ['users', 'Grupos'], ['search', 'Busca'], ['translate', 'Tradução'], ['screen', '120 FPS']]],
+        ['Servidor vê', 'info', [['users', 'Quem fala com quem'], ['clock', 'Quando'], ['file', 'Tamanho dos arquivos']]]]));
+    if (st === 'unsupported') return box.replaceChildren(note('Precisa de https:// ou do app desktop.'));
+    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase secreta. Vale nas conversas em que os dois ativaram.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
     if (st === 'locked') return box.replaceChildren(
-      row('Trancada neste aparelho', 'Suas chaves existem, mas este aparelho ainda não tem a frase. Sem ela as mensagens protegidas aparecem trancadas e você não consegue enviar nas conversas protegidas.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
-      row('Esqueci a frase', 'Apaga suas chaves para começar de novo. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
+      row('Trancada neste aparelho', 'Digite a frase para ler e enviar mensagens protegidas aqui.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
+      row('Esqueci a frase', 'Apaga as chaves. Mensagens protegidas antigas ficam ilegíveis.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
     box.replaceChildren(
-      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: as pessoas voltam a te mandar mensagens sem criptografia. As protegidas antigas continuam abrindo.' : 'Ligado: as conversas com quem também ativou são protegidas. Clique no cadeado no topo da conversa para conferir o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
+      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: novas mensagens chegam sem criptografia.' : 'Ligado. O cadeado no topo da conversa mostra o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
       k && h('div.perm', h('div.rt', 'Sua chave'), h('code.e2-kid', { title: 'Identificador da sua chave pública' }, kidTxt(k))),
-      row('Trocar a frase', 'Muda só a frase que tranca as chaves; as conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
-      row('Trocar de chave', 'Começa a usar um par de chaves novo nas próximas mensagens (as antigas continuam abrindo).', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
-      row('Trancar neste aparelho', 'Esquece a chave aberta aqui (ex.: computador emprestado). Para ler de novo, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
-      row('Esqueci a frase', 'Apaga todas as suas chaves. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
+      row('Trocar a frase', 'As conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
+      row('Trocar de chave', 'Chave nova nas próximas mensagens; as antigas seguem abrindo.', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
+      row('Trancar neste aparelho', 'Para computador emprestado. Depois, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
+      row('Esqueci a frase', 'Apaga as chaves. Mensagens protegidas antigas ficam ilegíveis.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
       limits);
   };
   if (!e2eeSupported()) draw(); else { box.replaceChildren(h('div.hintline.keep', 'Carregando…')); e2eeLoad().then(draw); }
@@ -380,8 +402,15 @@ function privacyPage(reg) {
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
     section('Criptografia de ponta a ponta'), e2eeCard(reg),
-    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apague de uma vez as mensagens que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período, por texto ou só as com arquivos. Mostra quantas e onde antes, deixa baixar uma cópia e inclui servidores de que você já saiu.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir'))),
+    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apaga de uma vez as mensagens que você enviou.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir')),
+      factChips([
+        ['Onde', 'info', [['globe', 'Tudo'], ['dm', 'Conversas diretas'], ['hash', 'Um servidor'], ['logout', 'Servidores que saiu']]],
+        ['Filtros', 'info', [['calendar', 'Período'], ['search', 'Texto'], ['clip', 'Com arquivos']]],
+        ['Antes', 'ok', [['eye', 'Mostra quantas e onde'], ['dl', 'Baixar uma cópia']]]])),
     section('Usuários bloqueados'), blockedCard(),
+    section('Ajudar a melhorar o app'), card(row('Enviar estatísticas de uso anônimas', 'Só contagens, sem dizer quem: por exemplo, quantas vezes o Esc é usado para voltar aos Amigos, quanto demora para abrir um canal ou quantas pessoas usaram o app hoje. Nunca mensagens nem nomes. Ficam 60 dias.', toggle(uxOn(), (v) => { S.prefs.uxStats = v; if (!v) clearUx(); save(); })),
+      factChips([['Envia', 'ok', [['pointer', 'Cliques em botões e abas'], ['info', 'Explicações abertas'], ['search', 'Buscas sem resultado'], ['clock', 'Tempos de carregamento'], ['warn', 'Erros do app'], ['users', 'Uso por dia (sem identificar)']]], ['Nunca', 'no', [['dm', 'Mensagens'], ['user', 'Quem fez'], ['file', 'Arquivos']]]]),
+      h('button.btn.link.sm.uxv-open', { onclick: () => import('./uxview.js').then(m => m.openUxView()) }, icon('eye', 16), 'Ver o que é enviado')),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
 }
@@ -712,7 +741,7 @@ function notificationsPage() {
 const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS' };
 function keysPage() {
   const cap = (key, label, desktopKey) => captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs[key] || KEY_DEFAULTS[key], (c) => { S.prefs[key] = c; save(); if (desktop && desktopKey) desktop.setSettings({ [desktopKey]: comboToAccel(c) }); }, { combo: true });
-  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Ctrl + ↑ / ↓', 'Escolher a mensagem a responder'], ['Esc', 'Cancelar resposta / fechar'], ['Shift + Enter', 'Quebra de linha']];
+  const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Ctrl + ↑ / ↓', 'Escolher a mensagem a responder'], ['Esc', 'Cancelar resposta / fechar / sair da conversa direta'], ['Shift + Enter', 'Quebra de linha']];
   return h('div', h('h2', 'Atalhos'),
     card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', cap('keyMute', '', 'hotkeyMute')),
       row('Ensurdecer / ativar áudio', null, cap('keyDeafen', '', 'hotkeyDeafen')),
