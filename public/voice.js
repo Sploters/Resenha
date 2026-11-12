@@ -614,6 +614,8 @@ export class Voice {
     const share = avail === Infinity || now - this.adaptFrom < 10000 ? Infinity : avail / 4000;
     const byBw = [...AUTO_STEPS].reverse().find(k => k <= share) || AUTO_STEPS[0], bwLow = byBw < this.autoKbps && this.bwLowPrev;
     this.bwLowPrev = byBw < this.autoKbps;
+    // (no SFU, `loss` é a pior perda entre quem te ouve, de propósito do mediasoup: baixar a taxa e mandar mais correção
+    // ajuda o ouvinte com internet ruim; por isso aqui fica o RTCP, e não a perda de verdade do seu envio)
     // perda ou ping alto: menos bits por pacote ajuda a voz a chegar inteira (a correção de erros do Opus usa a folga)
     const want = loss > .08 || rtt > 400 ? 32 : loss > .03 || rtt > 250 ? 48 : bwLow || byBw >= this.autoKbps ? Math.min(byBw, AUTO_MAX) : this.autoKbps;
     // sobe um nível por vez e só depois de estabilizar; desce na hora
@@ -1091,8 +1093,14 @@ export class Voice {
     const pcs = this.sfu ? [this.sfu.send, this.sfu.recv].filter(Boolean) : [...this.peers.values()].map(p => p.pc).filter(Boolean);
     if (!pcs.length) return;
     this._cqBusy = true;
-    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p'); }
+    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up); }
     finally { this._cqBusy = false; }
+  }
+  // perda real da voz que você envia, contada pelo servidor: { count, lost } acumulados, ou null (sem voz saindo / servidor antigo).
+  // (o fractionLost que o navegador recebe no SFU é a pior perda entre quem te ouve, não a sua: ver server/sfu.js 'upstats')
+  async upStats() {
+    if (!this.sfu?.producers?.mic) return null;
+    try { const r = await Promise.race([this.sfuReq('upstats'), new Promise((_, no) => setTimeout(() => no(new Error('tempo')), 3000))]); return Number.isFinite(r?.count) ? r : null; } catch { return null; }
   }
   // latência (ms): até o servidor no SFU; pior par na malha; null se ainda não há medida
   async ping() {
@@ -1113,11 +1121,13 @@ export class Voice {
         const rep = await t.getStats(), byId = new Map([...rep.values()].map(r => [r.id, r]));
         for (const r of rep.values()) {
           if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && !out.proto) { const lc = byId.get(r.localCandidateId); out.proto = lc?.protocol || null; out.candidate = lc?.candidateType || null; }
-          if (r.type === 'remote-inbound-rtp' && r.kind === 'audio' && r.fractionLost != null) out.sendLoss = Math.max(out.sendLoss ?? 0, r.fractionLost);
           if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += Math.max(0, r.packetsLost || 0); recv += r.packetsReceived || 0; if (r.jitter != null) jit.push(r.jitter * 1000); }
         }
       } catch { }
     }
+    // perda saindo: pelo servidor (o RTCP do SFU traz a pior perda entre quem te ouve, que não é culpa da sua rede)
+    const up = await this.upStats(), pu = this._ciUp; this._ciUp = up;
+    if (up && pu && up.count >= pu.count && up.lost >= pu.lost) { const dl = up.lost - pu.lost, dr = up.count - pu.count; if (dl + dr > 0) out.sendLoss = dl / (dl + dr); }
     const prev = this._ci; this._ci = { lost, recv };
     if (prev && recv > prev.recv) { const dl = lost - prev.lost, dr = recv - prev.recv; out.recvLoss = Math.max(0, dl) / (Math.max(0, dl) + dr); }
     if (jit.length) out.jitterMs = Math.round(Math.max(...jit));

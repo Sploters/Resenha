@@ -18,6 +18,8 @@ export const QB = {
   freeze: [0, 2, 5], // travadas do vídeo recebido na chamada toda
   drop: [0, 1], // quedas da conexão (0, 1, 2 ou mais)
 };
+// mínimo de pacotes de voz para calcular perda: num momento (5 s; voz falando = 50/s) e na chamada toda (~10 s de fala)
+const MIN_PK = 100, MIN_PK_CALL = 500;
 const bucket = (v, b) => { const i = b.findIndex(x => v <= x); return i < 0 ? b.length : i; };
 // um momento (5 s) é "médio" ou "ruim" pelo pior indicador; devolve [nível, causa]
 const FAIR = { rtt: 200, loss_in: 2, loss_out: 2, jitter: 30, conceal: 3 }, POOR = { rtt: 400, loss_in: 5, loss_out: 5, jitter: 60, conceal: 8 };
@@ -28,9 +30,12 @@ export function levelOf(s) {
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 export class CallQuality {
-  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0; this.inPk = 0; this.inLost = 0; this.proto = null; this.relay = false; }
+  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.proto = null; this.relay = false; }
   // reps: relatórios de getStats() de cada conexão (SFU: envio e recebimento; malha: uma por pessoa)
-  add(reps, mode = this.mode) {
+  // up (só SFU): { count, lost } acumulados da voz que você envia, contados pelo servidor (op 'upstats' em server/sfu.js).
+  // No SFU o fractionLost do RTCP NÃO é a sua perda: com a correção de erros do Opus, o mediasoup põe nele a pior perda
+  // entre quem te ouve (a internet ruim de um ouvinte virava "perda saindo" sua). Sem `up`, no SFU a perda saindo fica sem medida.
+  add(reps, mode = this.mode, up = null) {
     this.mode = mode;
     let rtt = null, sendLoss = null, lost = 0, recv = 0, jit = null, conc = 0, tot = 0;
     for (const rep of reps) {
@@ -42,7 +47,7 @@ export class CallQuality {
           if (lc?.protocol) this.proto = this.proto === 'tcp' ? 'tcp' : lc.protocol; // TCP em algum momento = UDP bloqueado
           if (lc?.candidateType === 'relay' || rc?.candidateType === 'relay') this.relay = true;
         }
-        if (r.type === 'remote-inbound-rtp' && r.kind === 'audio' && r.fractionLost != null) sendLoss = Math.max(sendLoss ?? 0, r.fractionLost * 100);
+        if (mode !== 'sfu' && r.type === 'remote-inbound-rtp' && r.kind === 'audio' && r.fractionLost != null) sendLoss = Math.max(sendLoss ?? 0, r.fractionLost * 100);
         if (r.type === 'inbound-rtp' && r.kind === 'audio') {
           const p = this.prev.get(r.id) || {}; // stream novo começou nesta chamada: conta desde o zero
           const dl = Math.max(0, (r.packetsLost || 0) - (p.l || 0)), dr = Math.max(0, (r.packetsReceived || 0) - (p.r || 0));
@@ -57,7 +62,17 @@ export class CallQuality {
       }
     }
     this.inPk += recv; this.inLost += lost;
-    const s = { rtt, loss_out: sendLoss, loss_in: recv + lost > 0 ? (lost / (recv + lost)) * 100 : null, jitter: jit, conceal: tot > 0 ? (conc / tot) * 100 : null };
+    if (mode === 'sfu' && up && Number.isFinite(up.count) && Number.isFinite(up.lost)) {
+      const p = this.upPrev; this.upPrev = up;
+      // contadores voltaram (voz reenviada, nova produção): recomeça a contar daqui
+      if (p && up.count >= p.count && up.lost >= p.lost) {
+        const dr = up.count - p.count, dl = up.lost - p.lost;
+        this.upPk += dr; this.upLost += dl;
+        if (dr + dl >= MIN_PK) sendLoss = (dl / (dr + dl)) * 100;
+      }
+    }
+    // perda chegando só com amostra que diga algo: quem está mutado manda ~4 pacotes/s (DTX), e aí 2 perdidos já viravam "10%"
+    const s = { rtt, loss_out: sendLoss, loss_in: recv + lost >= MIN_PK ? (lost / (recv + lost)) * 100 : null, jitter: jit, conceal: tot > 0 ? (conc / tot) * 100 : null };
     if (Object.values(s).some(v => v != null)) this.samples.push(s);
     return s;
   }
@@ -75,8 +90,9 @@ export class CallQuality {
     let cause = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     if (grade !== 'good' && !cause) cause = this.drops ? 'drop' : this.freezes ? 'freeze' : null;
     const m = {
-      rtt: med('rtt'), jitter: med('jitter'), loss_out: med('loss_out'),
-      loss_in: this.inPk + this.inLost > 0 ? (this.inLost / (this.inPk + this.inLost)) * 100 : null, // da chamada toda
+      rtt: med('rtt'), jitter: med('jitter'),
+      loss_out: this.mode === 'sfu' ? (this.upPk + this.upLost >= MIN_PK_CALL ? (this.upLost / (this.upPk + this.upLost)) * 100 : null) : med('loss_out'),
+      loss_in: this.inPk + this.inLost >= MIN_PK_CALL ? (this.inLost / (this.inPk + this.inLost)) * 100 : null, // da chamada toda
       conceal: med('conceal'), freeze: this.freezes, drop: this.drops,
     };
     const net = Object.entries(m).filter(([, v]) => v != null).map(([k, v]) => k + ':' + bucket(v, QB[k]));

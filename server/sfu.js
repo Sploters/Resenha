@@ -238,6 +238,17 @@ export async function sfuRequest(cid, uid, op, d) {
     }
     case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) d.paused ? await c.pause() : await c.resume(); return {}; }
     case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') await c.setPreferredLayers({ spatialLayer: Math.max(0, Math.min(2, d.spatial | 0)), temporalLayer: 2 }).catch(() => { }); return {}; }
+    // perda de verdade da voz que esta pessoa envia, vista pelo servidor. O relatório RTCP que o navegador recebe não serve:
+    // com a correção de erros do Opus ligada, o mediasoup põe nele a PIOR perda entre quem ouve (para o Opus mandar mais
+    // correção), então a internet ruim de um ouvinte aparecia como "perda saindo" de quem fala (public/callqual.js)
+    case 'upstats': {
+      let count = 0, lost = 0, seen = false;
+      for (const p of peer.producers.values()) {
+        if (p.kind !== 'audio' || p.closed) continue;
+        for (const st of await p.getStats().catch(() => [])) if (st.type === 'inbound-rtp') { seen = true; count += st.packetCount || 0; lost += Math.max(0, st.packetsLost || 0); }
+      }
+      return seen ? { count, lost } : {};
+    }
     case 'resume': { await peer.consumers.get(String(d.consumer_id))?.resume(); return {}; }
     default: throw new Error('operação desconhecida');
   }
