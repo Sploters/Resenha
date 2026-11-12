@@ -19,7 +19,7 @@ export const QB = {
   drop: [0, 1], // quedas da conexão (0, 1, 2 ou mais)
 };
 // mínimo de pacotes de voz para calcular perda: num momento (5 s; voz falando = 50/s) e na chamada toda (~10 s de fala)
-const MIN_PK = 100, MIN_PK_CALL = 500;
+const MIN_PK = 100, MIN_PK_CALL = 500, MIN_RX = 100; // MIN_RX: pacotes recebidos de um fluxo numa amostra de 5 s (~20/s = alguém falando)
 const bucket = (v, b) => { const i = b.findIndex(x => v <= x); return i < 0 ? b.length : i; };
 // um momento (5 s) é "médio" ou "ruim" pelo pior indicador; devolve [nível, causa]
 const FAIR = { rtt: 200, loss_in: 2, loss_out: 2, jitter: 30, conceal: 3 }, POOR = { rtt: 400, loss_in: 5, loss_out: 5, jitter: 60, conceal: 8 };
@@ -30,7 +30,7 @@ export function levelOf(s) {
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 export class CallQuality {
-  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.proto = null; this.relay = false; }
+  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.padGaps = 0; this.rxAll = 0; this.proto = null; this.relay = false; }
   // reps: relatórios de getStats() de cada conexão (SFU: envio e recebimento; malha: uma por pessoa)
   // up (só SFU): { count, lost } acumulados da voz que você envia, contados pelo servidor (op 'upstats' em server/sfu.js).
   // No SFU o fractionLost do RTCP NÃO é a sua perda: com a correção de erros do Opus, o mediasoup põe nele a pior perda
@@ -53,7 +53,20 @@ export class CallQuality {
           const dl = Math.max(0, (r.packetsLost || 0) - (p.l || 0)), dr = Math.max(0, (r.packetsReceived || 0) - (p.r || 0));
           const c = (r.concealedSamples || 0) - (r.silentConcealedSamples || 0), dc = Math.max(0, c - (p.c || 0)), dt = Math.max(0, (r.totalSamplesReceived || 0) - (p.t || 0));
           this.prev.set(r.id, { l: r.packetsLost || 0, r: r.packetsReceived || 0, c, t: r.totalSamplesReceived || 0 });
-          lost += dl; recv += dr; conc += dc; tot += dt;
+          conc += dc; tot += dt; this.rxAll += dr;
+          // perda chegando, com dois cuidados (medidos em scripts/call-quality-test.mjs):
+          // 1) quem está calado/mutado manda poucos pacotes (DTX): sem ~20/s não dá para tirar porcentagem
+          // 2) buracos que não são voz: com perda na subida, o Chrome de quem fala manda "enchimento" (padding) de sondagem de
+          //    banda no mesmo fluxo do áudio (~300 kbps, pacotes vazios); o SFU descarta os vazios que chegam, mas os perdidos no
+          //    caminho viram buracos na numeração e aparecem aqui como perdidos (12% de perda real virava 35%–75%). Perda de voz de
+          //    verdade sempre vira voz preenchida pelo decodificador (a correção do Opus salva só parte: 0,7–1,5 quadro preenchido
+          //    por pacote perdido nas medidas); com 2x+ mais perdidos que quadros preenchidos, o excesso é enchimento e fica de fora.
+          if (dr >= MIN_RX) {
+            const filled = dc / 960; // quadros de 20 ms preenchidos (48 kHz)
+            let use = dl;
+            if (dl > 2 * filled + 10) { use = Math.round(filled); this.padGaps += dl - use; }
+            lost += use; recv += dr;
+          }
           if (r.jitter != null && dr > 0) jit = Math.max(jit ?? 0, r.jitter * 1000);
         }
         if (r.type === 'inbound-rtp' && r.kind === 'video' && r.freezeCount != null) {
@@ -81,7 +94,7 @@ export class CallQuality {
   // resumo da chamada inteira (null = pouco dado ou ninguém falando com você)
   summary(ms) {
     const S = this.samples;
-    if (S.length < 3 || this.inPk < 50 || ms < 20e3) return null;
+    if (S.length < 3 || this.rxAll < 50 || ms < 20e3) return null; // rxAll: chegou voz de alguém (mesmo de quem estava mutado)
     const med = (k) => median(S.map(s => s[k]).filter(v => v != null));
     const levels = S.map(levelOf), n = levels.length, poor = levels.filter(l => l[0] === 2).length, bad = levels.filter(l => l[0] >= 1).length;
     const tally = {}; for (const [lv, k] of levels) if (lv >= (poor / n >= 0.2 ? 2 : 1) && k) tally[k] = (tally[k] || 0) + 1;

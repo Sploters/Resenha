@@ -79,6 +79,7 @@ try {
   ok(fx(ruim.fala, 'loss_out') === 'loss_out:0' && (fx(ruim.q, 'loss_out') ?? 'loss_out:0') === 'loss_out:0', 'perda só na descida: a "perda saindo" de quem fala e de quem ouve fica na faixa de baixo', { fala: ruim.fala, ouve: ruim.q?.net });
   const sobe = await call({ loss: 0.12, only: 'up' });
   console.log('  12% de perda só na subida — quem fala:', JSON.stringify(sobe.fala), ' quem ouve:', JSON.stringify(sobe.q));
+  ok(!fx(sobe.fala, 'loss_in'), 'perda na subida do ouvinte mutado: quem fala não tira porcentagem de perda dos poucos pacotes dele (antes chegou a dar 75%, buracos do enchimento)', sobe.fala);
   ok(/^loss_out:[3-4]$/.test(fx(sobe.fala, 'loss_out') || '') && /^loss_in:[2-4]$/.test(fx(sobe.q, 'loss_in') || ''), 'perda só na subida: aparece como "perda saindo" de quem fala (e chegando para quem ouve)', { fala: sobe.fala, ouve: sobe.q });
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); try { srv.kill('SIGKILL'); } catch { } front.close(); fs.rmSync(DATA, { recursive: true, force: true }); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

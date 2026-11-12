@@ -218,21 +218,23 @@ try {
   // coletor com relatórios de getStats() simulados: rede boa, rede ruim (perda e atraso) e sozinho na sala
   const cq = await Q.evaluate(async () => {
     const { CallQuality } = await import('/callqual.js');
-    const rep = (k, { rtt = 0.04, lost = 0, sl = 0, jit = 0.005, conc = 0, proto = 'udp', type = 'host', freeze = 0 } = {}) => new Map([
+    const rep = (k, { rtt = 0.04, rec = 250, lost = 0, sl = 0, jit = 0.005, conc = 0, proto = 'udp', type = 'host', freeze = 0 } = {}) => new Map([
       ['cp', { id: 'cp', type: 'candidate-pair', nominated: true, state: 'succeeded', currentRoundTripTime: rtt, localCandidateId: 'lc', remoteCandidateId: 'rc' }],
       ['lc', { id: 'lc', type: 'local-candidate', protocol: proto, candidateType: type }], ['rc', { id: 'rc', type: 'remote-candidate', candidateType: 'host' }],
       ['ri', { id: 'ri', type: 'remote-inbound-rtp', kind: 'audio', fractionLost: sl }],
-      ['ia', { id: 'ia', type: 'inbound-rtp', kind: 'audio', packetsReceived: 250 * k, packetsLost: lost * k, jitter: jit, totalSamplesReceived: 240000 * k, concealedSamples: conc * 240000 * k, silentConcealedSamples: 0 }],
+      ['ia', { id: 'ia', type: 'inbound-rtp', kind: 'audio', packetsReceived: rec * k, packetsLost: lost * k, jitter: jit, totalSamplesReceived: 240000 * k, concealedSamples: conc * 240000 * k, silentConcealedSamples: 0 }],
       ['iv', { id: 'iv', type: 'inbound-rtp', kind: 'video', freezeCount: freeze * k }]]);
     const run = (o, n = 12, mode = 'sfu', drops = 0) => { const q = new CallQuality(mode); for (let k = 1; k <= n; k++) q.add([rep(k, o)], mode); for (let i = 0; i < drops; i++) q.drop(Date.now() + i * 10e3); return q.summary(n * 5000); };
     const lonely = new CallQuality('sfu'); for (let k = 1; k <= 12; k++) lonely.add([new Map([['cp', { id: 'cp', type: 'candidate-pair', nominated: true, currentRoundTripTime: 0.03 }]])]);
     const twice = new CallQuality('sfu'); twice.drop(1000); twice.drop(2000); // envio e recebimento caindo juntos = 1 queda
-    return { good: run({}), poor: run({ lost: 20, rtt: 0.45, sl: 0.07, proto: 'tcp', type: 'relay' }, 12, 'p2p'), drops: run({}, 12, 'sfu', 2), fair: run({ conc: 0.05 }), lonely: lonely.summary(60e3), short: run({}, 2), twice: twice.drops };
+    return { good: run({}), poor: run({ lost: 20, conc: 0.06, rtt: 0.45, sl: 0.07, proto: 'tcp', type: 'relay' }, 12, 'p2p'), pad: run({ lost: 150, conc: 0.02 }), quiet: run({ lost: 20, rec: 20 }), drops: run({}, 12, 'sfu', 2), fair: run({ conc: 0.05 }), lonely: lonely.summary(60e3), short: run({}, 2), twice: twice.drops };
   });
   ok(cq.good?.grade === 'good' && !cq.good.cause && cq.good.net.includes('rtt:0') && cq.good.net.includes('loss_in:0') && cq.good.net.includes('mode:sfu') && cq.good.net.includes('proto:udp') && cq.good.net.includes('route:direct'), 'qualidade: rede boa vira "good", atraso e perda na faixa de baixo, SFU por UDP direto', cq.good);
   ok(cq.poor?.grade === 'poor' && cq.poor.net.includes('rtt:4') && cq.poor.net.includes('loss_in:3') && cq.poor.net.includes('loss_out:3') && cq.poor.net.includes('proto:tcp') && cq.poor.net.includes('route:relay') && cq.poor.net.includes('mode:p2p') && ['rtt', 'loss_in', 'loss_out'].includes(cq.poor.cause), 'qualidade: perda de 7% e atraso de 450 ms viram "poor", por TCP e relay, com a causa', cq.poor);
   ok(cq.drops?.grade === 'poor' && cq.drops.cause === 'drop' && cq.drops.net.includes('drop:2') && cq.twice === 1, 'qualidade: 2 quedas = "poor" (causa: conexão caiu); envio e recebimento caindo juntos contam 1', { d: cq.drops, twice: cq.twice });
   ok(cq.fair?.grade === 'fair' && cq.fair.cause === 'conceal' && cq.fair.net.includes('conceal:2'), 'qualidade: 5% da voz picotada = "fair" (causa: voz picotada)', cq.fair);
+  ok(cq.pad?.net.includes('loss_in:1') && cq.pad.net.includes('conceal:1'), 'qualidade: buracos de "enchimento" (150 perdidos com só 2% de voz preenchida) não contam como perda de voz: fica a perda que virou falha (~2%)', cq.pad);
+  ok(cq.quiet && !cq.quiet.net.some(d => d.startsWith('loss_in:')), 'qualidade: de quem quase não manda pacotes (calado ou mutado) não se tira porcentagem de perda', cq.quiet);
   ok(cq.lonely === null && cq.short === null, 'qualidade: sozinho na sala (nenhuma voz chegando) ou chamada curta não conta');
   r = await api(eu, 'POST', '/ux', { device: 'mobile', events: [{ e: 'call_quality', d: 'good', n: 6 }, { e: 'call_quality', d: 'poor', n: 2 }, { e: 'call_quality', d: 'fair', n: 2 }, { e: 'call_net', d: 'rtt:0', n: 6 }, { e: 'call_net', d: 'rtt:4', n: 2 }, { e: 'call_net', d: 'rtt:3', n: 2 },
     { e: 'call_net', d: 'proto:udp', n: 9 }, { e: 'call_net', d: 'proto:tcp', n: 1 }, { e: 'call_net', d: 'route:direct', n: 10 }, { e: 'call_net', d: 'mode:sfu', n: 10 }, { e: 'call_qcause', d: 'loss_in', n: 3 }, { e: 'call_qcause', d: 'rtt', n: 1 },
