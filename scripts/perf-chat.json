@@ -1,0 +1,174 @@
+{
+ "cpu": 4,
+ "mensagens_por_chat": 3000,
+ "dm: abrir": {
+  "parede_ms": 1846,
+  "script_ms": 58,
+  "estilo_ms": 58,
+  "layout_ms": 76,
+  "tarefas_ms": 445,
+  "pior_quadro_ms": 195,
+  "quadros_longos": 2,
+  "pior_interacao_ms": 0,
+  "elementos": 1327,
+  "mensagens_no_chat": 50,
+  "heap_mb": 3.8,
+  "pior_quadro_scripts": [
+   "181ms Response.text.then  state.js:17399"
+  ]
+ },
+ "dm: rolar 10 páginas": {
+  "parede_ms": 4657,
+  "script_ms": 71,
+  "estilo_ms": 565,
+  "layout_ms": 283,
+  "tarefas_ms": 2923,
+  "pior_quadro_ms": 268,
+  "quadros_longos": 10,
+  "pior_interacao_ms": 0,
+  "elementos": 5463,
+  "mensagens_no_chat": 250,
+  "heap_mb": 4.7,
+  "por_pagina_ms": [
+   313,
+   442,
+   320,
+   407,
+   526,
+   722,
+   202,
+   303,
+   278,
+   243
+  ],
+  "pior_quadro_scripts": [
+   "210ms Response.text.then  state.js:17399"
+  ]
+ },
+ "dm: receber 30 (1/s)": {
+  "parede_ms": 31658,
+  "script_ms": 293,
+  "estilo_ms": 263,
+  "layout_ms": 110,
+  "tarefas_ms": 1383,
+  "pior_quadro_ms": 56,
+  "quadros_longos": 1,
+  "pior_interacao_ms": 0,
+  "elementos": 1753,
+  "mensagens_no_chat": 80,
+  "heap_mb": 3.7,
+  "recusadas": 0,
+  "ultima_na_tela_e_no_fim": true,
+  "pior_quadro_scripts": [
+   "25ms DOMWebSocket.onmessage  app.js:15639"
+  ]
+ },
+ "dm: digitar 40 letras": {
+  "parede_ms": 3517,
+  "script_ms": 54,
+  "estilo_ms": 66,
+  "layout_ms": 84,
+  "tarefas_ms": 816,
+  "pior_quadro_ms": 0,
+  "quadros_longos": 0,
+  "pior_interacao_ms": 0,
+  "elementos": 1753,
+  "mensagens_no_chat": 80,
+  "heap_mb": 4
+ },
+ "canal: abrir": {
+  "parede_ms": 1736,
+  "script_ms": 46,
+  "estilo_ms": 63,
+  "layout_ms": 38,
+  "tarefas_ms": 457,
+  "pior_quadro_ms": 220,
+  "quadros_longos": 1,
+  "pior_interacao_ms": 0,
+  "elementos": 1581,
+  "mensagens_no_chat": 50,
+  "heap_mb": 4,
+  "pior_quadro_scripts": [
+   "58ms ViewTransitionCallback  app.js:45686",
+   "104ms Response.text.then  state.js:17399"
+  ]
+ },
+ "canal: rolar 10 páginas": {
+  "parede_ms": 4433,
+  "script_ms": 47,
+  "estilo_ms": 467,
+  "layout_ms": 220,
+  "tarefas_ms": 2918,
+  "pior_quadro_ms": 242,
+  "quadros_longos": 10,
+  "pior_interacao_ms": 0,
+  "elementos": 6097,
+  "mensagens_no_chat": 250,
+  "heap_mb": 5.5,
+  "por_pagina_ms": [
+   230,
+   241,
+   400,
+   450,
+   536,
+   651,
+   254,
+   184,
+   386,
+   195
+  ],
+  "pior_quadro_scripts": [
+   "203ms Response.text.then  state.js:17399"
+  ]
+ },
+ "canal: receber 60 (4/s)": {
+  "parede_ms": 16762,
+  "script_ms": 298,
+  "estilo_ms": 420,
+  "layout_ms": 165,
+  "tarefas_ms": 1931,
+  "pior_quadro_ms": 95,
+  "quadros_longos": 2,
+  "pior_interacao_ms": 0,
+  "elementos": 2828,
+  "mensagens_no_chat": 110,
+  "heap_mb": 6.1,
+  "recusadas": 0,
+  "ultima_na_tela_e_no_fim": true,
+  "pior_quadro_scripts": [
+   "75ms DOMWebSocket.onmessage  app.js:15639"
+  ]
+ },
+ "canal: digitar 40 letras": {
+  "parede_ms": 3585,
+  "script_ms": 59,
+  "estilo_ms": 76,
+  "layout_ms": 105,
+  "tarefas_ms": 1248,
+  "pior_quadro_ms": 0,
+  "quadros_longos": 0,
+  "pior_interacao_ms": 0,
+  "elementos": 2828,
+  "mensagens_no_chat": 110,
+  "heap_mb": 6.2
+ },
+ "alternar dm <-> canal (10x)": {
+  "parede_ms": 5699,
+  "script_ms": 654,
+  "estilo_ms": 544,
+  "layout_ms": 293,
+  "tarefas_ms": 3148,
+  "pior_quadro_ms": 196,
+  "quadros_longos": 11,
+  "pior_interacao_ms": 3712,
+  "elementos": 1753,
+  "mensagens_no_chat": 80,
+  "heap_mb": 6,
+  "mediana_ms": 166,
+  "pior_ms": 250,
+  "pior_quadro_scripts": [
+   "148ms ViewTransitionCallback  app.js:45686"
+  ],
+  "pior_interacao": "keydown em +-3547 ms"
+ }
+}

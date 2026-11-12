@@ -38,7 +38,8 @@
 @keyframes lc-up { from { opacity: 0; transform: translateY(10px); } }
 @keyframes lc-left { from { opacity: 0; transform: translateX(-12px); } }
 @keyframes lc-switch { from { opacity: 0; transform: translateY(8px); } }
-@keyframes lc-msg { from { opacity: 0; transform: translateY(12px); background: color-mix(in srgb, var(--brand) 18%, transparent); } }
+/* só opacidade e deslocamento (sem repintar o fundo a cada quadro); usada só na própria mensagem (app.js appendMessage) */
+@keyframes lc-msg { from { opacity: 0; transform: translateY(12px); } }
 html.anim .backdrop { animation: lc-fade .16s ease-out; }
 html.anim .backdrop > .modal { animation: lc-pop .22s cubic-bezier(.2, .9, .3, 1.15); }
 html.anim .menu { animation: lc-pop .12s ease-out; transform-origin: top left; }

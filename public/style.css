@@ -146,6 +146,10 @@ label.f input:focus, label.f textarea:focus { outline: 1px solid var(--brand); }
 .mgrid.n1 img { max-width: 100%; max-height: 300px; display: block; }
 #chat.side .mgrid.n1 .mtile { max-width: min(320px, 100%); } #chat.side .mgrid.n1 img { max-height: 240px; } /* chat lateral: tamanho único menor */
 #chat.side .mgrid { max-width: 100%; }
+/* foto com o tamanho conhecido (largura/altura vêm na mensagem): o espaço já fica reservado antes de carregar, no mesmo tamanho
+   que ela teria (até 400×300; 320×240 no chat lateral). Sem isso cada foto que chegava empurrava o chat. */
+.mgrid.n1 img.sized { width: min(var(--mw, 400px), calc(var(--mh, 300px) * var(--ar))); height: auto; aspect-ratio: var(--ar); max-height: none; background: var(--bg-mod-hover, rgba(127,127,127,.12)); }
+#chat.side .mgrid.n1 img.sized { --mw: 320px; --mh: 240px; }
 .mgrid:not(.n1) img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mgrid.n2 { grid-template-columns: 1fr 1fr; grid-auto-rows: 220px; }
 .mgrid.n3 { grid-template-columns: 2fr 1fr; grid-template-rows: 150px 150px; } .mgrid.n3 .mtile:first-child { grid-row: span 2; }

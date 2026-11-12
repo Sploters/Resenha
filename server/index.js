@@ -10,6 +10,7 @@ import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
+import { imageSize } from './imgsize.js';
 import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad } from './sfu.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
@@ -936,6 +937,8 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
         o.voice = true; o.duration = Math.max(0, Math.min(3600, +a.duration || 0));
         o.waveform = /^[A-Za-z0-9+/=]{0,400}$/.test(a.waveform || '') ? a.waveform : '';
       }
+      // foto: largura e altura lidas do arquivo (o chat reserva o espaço antes dela carregar; server/imgsize.js)
+      if (!o.enc && /^image\//.test(o.type)) { const sz = imageSize(path.join(UPLOAD_DIR, path.basename(a.url.split('/')[2] || ''))); if (sz) Object.assign(o, sz); }
       return o;
     });
   if (!content.trim() && !atts.length) return bad(res, 'Mensagem vazia');

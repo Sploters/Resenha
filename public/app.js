@@ -1701,6 +1701,10 @@ async function catchUp(cid) {
 async function loadChannel(cid) {
   const box = $('#msgs');
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
+  // voltando a um chat lido para trás (até 300 guardadas): abre no fim, então monta só as 50 mais novas. As outras voltam
+  // do servidor ao rolar para cima (~4 ms cada página). Antes eram montadas todas (300 mensagens = quadro de ~1 s na CPU 4x)
+  const cached = S.messages.get(cid);
+  if (cached && cached.length > OPEN_KEEP + 30) { cached.splice(0, cached.length - OPEN_KEEP); S.loaded.set(cid, false); }
   if (!S.messages.has(cid)) {
     box.replaceChildren(skeleton('msgs', 9));
     const list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!list) return;
@@ -1739,12 +1743,14 @@ function renderMessages(keepPos) {
   const box = $('#msgs'); if (!box) return;
   const ch = channelById(S.view.cid), list = S.messages.get(ch.id) || [];
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120, old = box.scrollTop;
-  box.replaceChildren(...[h('div.grow'), S.loaded.get(ch.id) && welcomeBlock(ch)].filter(Boolean));
+  // monta tudo fora da página e entra de uma vez (antes: um append por mensagem direto no chat)
+  const frag = document.createDocumentFragment(); frag.append(h('div.grow')); if (S.loaded.get(ch.id)) frag.append(welcomeBlock(ch));
   let prev = null;
   for (const m of list) {
-    if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
-    box.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
+    if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
   }
+  box.replaceChildren(frag);
   if (S.pending.length) renderPending();
   box.stick = !(keepPos && !near);
   box.scrollTop = box.stick ? box.scrollHeight : old;
@@ -1774,14 +1780,17 @@ function appendMessage(m) {
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160 || m.author_id === S.me.id;
   const prev = list[list.length - 2];
   if (!prev || !sameDay(prev.created_at, m.created_at)) box.append(h('div.daysep', h('span', dayLabel(m.created_at))));
-  const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null); mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700);
+  const mel = msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null);
+  // animação de entrada só na própria mensagem: em cada quadro dela o Chrome recompõe as camadas do chat inteiro (receber
+  // 30 mensagens dos outros: 4,8 s de trabalho da página com a animação, 1,0 s sem, CPU 4x)
+  if (m.author_id === S.me.id) { mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700); }
   box.append(mel);
   if (near) { box.stick = true; trimChat(m.channel_id); box.scrollTop = box.scrollHeight; }
 }
 // Canal aberto por horas: as mensagens que chegam iam se acumulando no chat e na memória para sempre (~900 por hora num
 // canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
 // busca as antigas de novo no servidor (o mesmo caminho do histórico).
-const CHAT_MAX = 250, CHAT_KEEP = 150;
+const CHAT_MAX = 250, CHAT_KEEP = 150, OPEN_KEEP = 50;
 // Lendo o histórico para cima: o chat guarda no máximo HIST_MAX mensagens. Passando disso, as mais novas saem de baixo e o
 // chat fica "vendo mensagens antigas" (rolar até o fim busca de novo; o botão volta ao presente). Descendo de volta, saem as
 // de cima. Antes cada página de 50 se somava para sempre: lendo 2.000 mensagens para trás eram 2.000 no chat e cada
@@ -1997,7 +2006,7 @@ function appendAttachments(el, m, canDel) {
   } }, icon('trash', 16));
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) =>
-    h('div.mtile', h('img', { src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
+    h('div.mtile', h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
   if (m.clip) el.append(clipMsgCard(m)); // clipe: cartão leve no lugar do player (o vídeo fica na galeria)
   for (const { f } of atts.filter(a => (!isImg(a.f) || a.f.expired) && !(m.clip && a.f.url === m.clip.url))) { const a = attachEl(f); a.classList.add('mtile'); el.append(a); } // áudio/arquivo: excluir fica na barra da mensagem
 }

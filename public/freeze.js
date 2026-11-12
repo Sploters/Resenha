@@ -38,11 +38,21 @@ const scan = (root) => {
   root.querySelectorAll?.('img').forEach(applyImg);
   root.querySelectorAll?.(TILE).forEach(applyTile);
 };
-export const refreshFreeze = () => scan(document.body);
-new MutationObserver((ms) => {
-  if (mode() === 'always' && !document.querySelector('[data-orig],[data-origbg]')) return;
+// Observa a página só quando algo pode precisar congelar (modo diferente de "Sempre"): no padrão, cada mensagem que chegava
+// gerava registros de mudança e uma busca na página inteira por [data-orig] só para concluir que não havia nada a fazer.
+const obs = new MutationObserver((ms) => {
   for (const m of ms) {
     if (m.type === 'childList') m.addedNodes.forEach(n => n.nodeType === 1 && scan(n));
     else if (m.target.nodeType === 1 && (m.oldValue || '').includes('speaking') !== m.target.classList.contains('speaking')) scan(m.target);
   }
-}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+});
+let watching = false;
+const syncWatch = () => {
+  const need = mode() !== 'always';
+  if (need === watching) return; watching = need;
+  if (need) { obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true }); scan(document.body); }
+  else { obs.disconnect(); obs.takeRecords(); scan(document.body); } // voltando para "Sempre": devolve as animações
+};
+// troca nas configurações chama refreshFreeze; a preferência também pode chegar de outro aparelho: confere a cada 5 s
+export const refreshFreeze = () => { const was = watching; syncWatch(); if (was === watching) scan(document.body); };
+setTimeout(syncWatch); setInterval(syncWatch, 5000); // no próximo tique: S.prefs e o corpo da página já existem
