@@ -187,7 +187,7 @@ try {
   ok(!(await rateUi(10e3, true)) && !(await rateUi(60e3, false)), 'avaliação não aparece em chamada curta (< 30 s) nem sozinho na sala');
   ok(await rateUi(60e3, true), 'avaliação aparece depois de chamada com outra pessoa (forçada no teste; normal é ~5%, 1x por semana)');
   ok(await Q.evaluate(() => document.activeElement === document.body || !document.getElementById('callrate').contains(document.activeElement)), 'o cartão não rouba o foco');
-  await Q.evaluate(() => [...document.querySelectorAll('#callrate .cr-btn')].find(b => b.textContent === '👎').click()); await sleep(200);
+  await Q.evaluate(() => [...document.querySelectorAll('#callrate .cr-btn')].find(b => /Tive problema/.test(b.textContent)).click()); await sleep(200);
   await Q.evaluate(() => [...document.querySelectorAll('#callrate .cr-chip')].find(b => /Eco/.test(b.textContent)).click()); await sleep(300);
   ok(await Q.evaluate(() => /Obrigado/.test(document.getElementById('callrate')?.textContent || '')), '👎 → motivo → "Obrigado!"');
   await Q.evaluate(() => localStorage.removeItem('lc_callrate_force'));
@@ -201,10 +201,10 @@ try {
   ok(await Q.evaluate(() => document.querySelector('.modal .uxv-list .uxv-row') === null || /Nada\./.test(document.querySelectorAll('.modal .uxv-list, .modal .uxv-empty')[0]?.textContent)), '"Enviar agora" esvazia a fila');
   await Q.keyboard.press('Escape'); await sleep(200); await Q.keyboard.press('Escape'); await sleep(300);
   full = (await api(admin, 'GET', '/ux')).data;
-  ok(full.chamadas.perguntas === 5 && full.chamadas.boas === 2 && full.chamadas.ruins === 2 && full.chamadas.taxa_boas === 50 && full.chamadas.problemas.find(p => p.k === 'echo')?.n === 2, 'painel: 50% de chamadas boas, problema "Eco" citado 2 vezes', full.chamadas);
+  ok(full.chamadas.perguntas === 5 && full.chamadas.boas === 2 && full.chamadas.ruins === 2 && full.chamadas.taxa_problema === 40 && full.chamadas.problemas.find(p => p.k === 'echo')?.n === 2, 'painel: problema relatado em 40% das chamadas perguntadas (2 de 5; fechar não conta como resposta ruim), "Eco" citado 2 vezes', full.chamadas);
   // resumo da semana
   const dg = (await api(admin, 'GET', '/ux/digest')).data;
-  ok(dg.linhas?.some(l => l.tipo === 'pessoas') && dg.linhas.some(l => l.tipo === 'erros' && /Novos:/.test(l.texto)) && dg.linhas.some(l => l.tipo === 'chamadas' && /Eco/.test(l.texto)) && /Resumo da semana/.test(dg.texto), 'resumo da semana com pessoas, erros novos e chamadas', dg);
+  ok(dg.linhas?.some(l => l.tipo === 'pessoas') && dg.linhas.some(l => l.tipo === 'erros' && /Novos:/.test(l.texto)) && dg.linhas.some(l => l.tipo === 'chamadas' && /problema relatado em 40% das 5 perguntadas/.test(l.texto) && /Eco/.test(l.texto)) && /Resumo da semana/.test(dg.texto), 'resumo da semana com pessoas, erros novos e chamadas', dg);
   ok((await api(eu, 'GET', '/ux/digest')).status === 403 && (await api(eu, 'POST', '/ux/digest/send')).status === 403, 'resumo só para o administrador');
   await A.evaluate(() => document.getElementById('toast')?.remove());
   await api(admin, 'POST', '/ux/digest/send'); await sleep(800);

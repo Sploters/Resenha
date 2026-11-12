@@ -197,7 +197,9 @@ export function mountUx(app, { auth, wrap, bad, isAdmin, prefsOf = () => ({}), s
     for (const t of Object.values(tempos)) { t.geral = quantiles(t.todos); for (const [k, v] of Object.entries(t.aparelhos)) t.aparelhos[k] = quantiles(v); delete t.todos; }
     const por_dia = all(`SELECT day, event, SUM(n) n FROM ux_daily WHERE day >= ?${vWhere} GROUP BY day, event ORDER BY day`, since, ...vArgs);
     const cr = eventos.call_rating?.detalhes || {}, good = cr.good?.total || 0, badN = cr.bad?.total || 0, shown = cr.shown?.total || 0;
-    const chamadas = { perguntas: shown, responderam: good + badN, boas: good, ruins: badN, taxa_boas: good + badN ? Math.round((good / (good + badN)) * 100) : null,
+    // quase ninguém aperta 👍 (quem não teve problema só fecha): a medida honesta é "das chamadas perguntadas, em quantas
+    // relataram problema" (fechar/ignorar = sem problema relatado). A taxa de boas entre quem respondeu fica só de apoio
+    const chamadas = { perguntas: shown, responderam: good + badN, boas: good, ruins: badN, taxa_problema: shown ? Math.round((Math.min(badN, shown) / shown) * 100) : null, taxa_boas: good + badN ? Math.round((good / (good + badN)) * 100) : null,
       problemas: Object.entries(eventos.call_issue?.detalhes || {}).map(([k, v]) => ({ k, nome: UX_CALL_ISSUES[k] || k, n: v.total })) };
     res.json({ desde: since, dias: days, guarda_dias: UX_KEEP_DAYS, ligado: UX_ENABLED(), minimo_grupo: min, versao: version, versoes, faixas_ms: UX_BUCKETS.map(x => (x === Infinity ? null : x)), eventos, funis, tempos, chamadas, por_dia, pessoas: people(since) });
   }));
@@ -251,11 +253,13 @@ export function buildDigest(now = Date.now()) {
     L.push({ tipo: 'tempo', tom: worse ? 'ruim' : better ? 'bom' : 'neutro', texto: `Para ${nome}: metade até ${fmtMs(q.p50)}, 95% até ${fmtMs(q.p95)}` + (qB && qB.n >= 5 && q.p95 !== qB.p95 ? ` (antes 95% até ${fmtMs(qB.p95)}).` : '.') });
   }
   // chamadas
-  const g = sum('call_rating', A, 'good'), b = sum('call_rating', A, 'bad');
-  if (g + b) {
+  // (problemas relatados sobre as chamadas perguntadas: quem não teve problema costuma só fechar o cartão)
+  const asked = sum('call_rating', A, 'shown'), b = sum('call_rating', A, 'bad'), askedB = sum('call_rating', B, 'shown'), bB = sum('call_rating', B, 'bad');
+  if (asked >= 3) {
     const top = get("SELECT detail, SUM(n) n FROM ux_daily WHERE event='call_issue' AND day BETWEEN ? AND ? GROUP BY detail ORDER BY n DESC LIMIT 1", ...A);
-    const p = Math.round((g / (g + b)) * 100);
-    L.push({ tipo: 'chamadas', tom: p < 80 ? 'ruim' : 'bom', texto: `Chamadas: ${p}% avaliadas como boas (${nf(g + b)} ${g + b === 1 ? 'resposta' : 'respostas'})` + (top ? `; problema mais citado: ${UX_CALL_ISSUES[top.detail] || top.detail}.` : '.') });
+    const p = Math.round((Math.min(b, asked) / asked) * 100), pB = askedB >= 3 ? Math.round((Math.min(bB, askedB) / askedB) * 100) : null;
+    L.push({ tipo: 'chamadas', tom: p >= 15 || (pB != null && p > pB + 5) ? 'ruim' : pB != null && p < pB - 5 ? 'bom' : 'neutro',
+      texto: `Chamadas: problema relatado em ${p}% das ${nf(asked)} perguntadas` + (pB != null ? ` (antes ${pB}%)` : '') + (top ? `; mais citado: ${UX_CALL_ISSUES[top.detail] || top.detail}.` : '.') });
   }
   // fluxos que caíram 10 pontos ou mais
   for (const [k, nome] of Object.entries(UX_FLOWS)) {

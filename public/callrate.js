@@ -1,4 +1,5 @@
-// Avaliação depois de uma chamada: um cartãozinho no canto ("Como foi a chamada? 👍 👎"). Se 👎, um toque diz o motivo.
+// Avaliação depois de uma chamada: um cartãozinho no canto ("Teve algum problema na chamada?"). Quem teve problema diz o
+// motivo em um toque; quem não teve quase sempre só fecha (por isso o painel mede "problema relatado / perguntadas").
 // Para não incomodar: só depois de chamada com outra pessoa e de pelo menos 30 s, em ~5% das chamadas, no máximo uma vez
 // por semana por aparelho, nunca com as estatísticas desligadas. Não rouba o foco, não bloqueia nada e some sozinho em 15 s.
 // Conta (public/ux.js): call_rating shown/good/bad/ignored e call_issue <motivo>.
@@ -34,10 +35,11 @@ export function showCallRating() {
   };
   const pick = (good) => { answered = true; track('call_rating', good ? 'good' : 'bad'); good ? thanks() : reasons(); };
   const box = h('div#callrate', { role: 'dialog', 'aria-label': 'Avaliar a chamada', onmouseenter: () => clearTimeout(timer), onmouseleave: () => !answered && arm(8e3) },
-    h('div.cr-head', h('b', 'Como foi a chamada?'), h('button.cr-x', { type: 'button', 'aria-label': 'Fechar', onclick: () => close('ignored') }, icon('x', 16))),
+    h('div.cr-head', h('b', 'Teve algum problema na chamada?'), h('button.cr-x', { type: 'button', 'aria-label': 'Fechar', onclick: () => close('ignored') }, icon('x', 16))),
     h('div.cr-row',
-      h('button.cr-btn', { type: 'button', 'aria-label': 'Boa', title: 'Boa', onclick: () => pick(true) }, '👍'),
-      h('button.cr-btn', { type: 'button', 'aria-label': 'Ruim', title: 'Ruim', onclick: () => pick(false) }, '👎')));
+      h('button.cr-btn.bad', { type: 'button', onclick: () => pick(false) }, '👎', h('span', 'Tive problema')),
+      h('button.cr-btn', { type: 'button', onclick: () => pick(true) }, '👍', h('span', 'Foi tudo bem'))),
+    h('small.cr-hint', 'Sem problema? Pode só fechar.'));
   document.body.append(box); arm(15e3);
   return box;
 }

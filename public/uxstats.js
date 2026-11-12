@@ -130,10 +130,11 @@ function digestCard() {
   return box;
 }
 // qualidade das chamadas: % de boas entre quem respondeu, taxa de resposta e os problemas mais citados
+// (a medida principal é "em quantas das perguntadas relataram problema": quem não teve problema quase sempre só fecha)
 function calls(c) {
   if (!c?.perguntas) return empty('Ninguém foi perguntado ainda (a pergunta aparece em ~5% das chamadas com outra pessoa).');
   return h('div',
-    h('div.ux-tiles.mini', tile(c.taxa_boas == null ? '—' : c.taxa_boas + '%', 'acharam boa', `${nf(c.boas)} de ${nf(c.responderam)}`), tile(pct(c.responderam, c.perguntas) + '%', 'responderam', `${nf(c.responderam)} de ${nf(c.perguntas)} perguntas`)),
+    h('div.ux-tiles.mini', tile(c.taxa_problema + '%', 'relataram problema', `${nf(c.ruins)} de ${nf(c.perguntas)} chamadas perguntadas`), tile(nf(c.boas), 'disseram que foi bem', 'fechar o cartão conta como "sem problema relatado"')),
     c.problemas.length ? bars(c.problemas.sort((a, b) => b.n - a.n).map(p => [p.nome, { total: p.n }])) : null);
 }
 
@@ -176,7 +177,7 @@ export function uxStatsPage() {
       h('div.ux-grid',
         card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))) : empty('Nenhuma queda neste período.')),
         card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k))),
-      card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas (👍 / 👎 e o motivo)', calls(data.chamadas)),
+      card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
 
       block('Erros', 'Agrupados pela forma: números, nomes entre aspas e endereços viram marcadores'),

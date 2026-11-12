@@ -1623,13 +1623,13 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .ux-hist i { flex: 1; background: var(--ux-s1); border-radius: 2px 2px 0 0; min-height: 0; }
 @media (max-width: 640px) { .ux-trow { grid-template-columns: minmax(0, 1fr) 64px 64px; } .ux-trow > :nth-child(4), .ux-trow > :nth-child(5) { display: none; } }
 /* avaliação depois da chamada (callrate.js): cartão discreto no canto, não bloqueia nada */
-#callrate { position: fixed; right: 20px; bottom: 20px; z-index: 900; width: 280px; max-width: calc(100vw - 32px); background: var(--bg-float, #111214); color: var(--text); border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); animation: cr-in .18s ease-out; }
+#callrate { position: fixed; right: 20px; bottom: 20px; z-index: 900; width: 320px; max-width: calc(100vw - 32px); background: var(--bg-float, #111214); color: var(--text); border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); animation: cr-in .18s ease-out; }
 #callrate.leaving { opacity: 0; transform: translateY(8px); transition: opacity .18s, transform .18s; }
 @keyframes cr-in { from { opacity: 0; transform: translateY(8px); } }
 #callrate .cr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; } #callrate b { color: var(--header); font-size: 14px; }
 #callrate .cr-x { border: 0; background: none; color: var(--text-muted); cursor: pointer; padding: 2px; border-radius: 4px; } #callrate .cr-x:hover { color: var(--header); background: var(--bg-mod-hover); } #callrate .cr-x .icon { fill: currentColor; }
 #callrate .cr-row { display: flex; align-items: center; gap: 8px; } #callrate .cr-row > .icon { fill: var(--green); }
-#callrate .cr-btn { flex: 1; font-size: 22px; line-height: 1; padding: 8px 0; border: 0; border-radius: 8px; background: var(--bg-mod-hover); cursor: pointer; transition: transform .1s, background .1s; }
+#callrate .cr-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 18px; line-height: 1; padding: 8px 6px; color: var(--text); font-family: inherit; border: 0; border-radius: 8px; background: var(--bg-mod-hover); cursor: pointer; transition: transform .1s, background .1s; }
 #callrate .cr-btn:hover { background: var(--bg-mod-sel, #404249); transform: translateY(-1px); }
 #callrate .cr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 #callrate .cr-chip { border: 0; border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg-mod-hover); cursor: pointer; } #callrate .cr-chip:hover { background: var(--bg-mod-sel, #404249); color: var(--header); }
@@ -1652,3 +1652,5 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .ux-dg-ic .icon { fill: var(--text-muted); } .ux-dg li.bom .ux-dg-ic .icon { fill: var(--green); } .ux-dg li.ruim .ux-dg-ic .icon { fill: var(--yellow, #f0b232); }
 .ux-digest .btn .icon { fill: currentColor; margin-right: 6px; vertical-align: -2px; }
 .ux-tiles.mini { margin-bottom: 10px; } .ux-tiles.mini .ux-tile { background: var(--bg-tert); padding: 10px 12px; } .ux-tiles.mini .ux-tile b { font-size: 22px; }
+#callrate .cr-btn span { font-size: 13px; font-weight: 600; white-space: nowrap; } #callrate .cr-btn.bad { background: var(--bg-mod-sel, #404249); color: var(--header); }
+#callrate .cr-hint { display: block; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
