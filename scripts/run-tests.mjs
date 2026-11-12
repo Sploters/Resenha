@@ -6,7 +6,7 @@
 //   node scripts/run-tests.mjs --all           # inclui os marcados como "fora" em tests.json (para descobrir o estado)
 // Um por vez porque vários testes usam a mesma porta e o servidor de voz (RTC) na porta padrão.
 // Sai com código 1 se algum falhar. No GitHub, o resumo vai para a página da execução ($GITHUB_STEP_SUMMARY).
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -65,6 +65,14 @@ console.log(`${files.length} teste(s)${shard ? ` (parte ${shard})` : ''}, um por
 const results = [];
 for (const f of files) {
   process.stdout.write(`▶ ${f} … `);
+  // preparo (tests.json → prepare): dados gerados (bancos grandes do scripts/load) ou programa compilado que o teste espera
+  // achar pronto. Só roda se o arquivo `needs` não existe (numa máquina nova, como a do GitHub).
+  const prep = cfg.prepare?.[f.replace(/\.mjs$/, '')];
+  if (prep && !fs.existsSync(prep.needs)) {
+    const t0 = Date.now(), [cmd, ...a] = prep.run;
+    try { execFileSync(cmd === 'node' ? process.execPath : cmd, a, { cwd: prep.cwd || '.', env: { ...process.env, ...(prep.env || {}) }, stdio: 'pipe', timeout: TIMEOUT }); process.stdout.write(`(preparo ${Math.round((Date.now() - t0) / 1000)} s) `); }
+    catch (e) { const r = { f, ok: false, code: 'preparo', secs: Math.round((Date.now() - t0) / 1000), fails: 0, out: `preparo falhou: ${prep.run.join(' ')}\n${String(e.stderr || e.message)}` }; results.push(r); console.log('FALHOU no preparo'); console.log(tail(r.out).replace(/^/gm, '    ')); continue; }
+  }
   let r = await runOne(f);
   // falhou: roda de novo uma vez; se passar, fica marcado como instável (aparece no resumo, mas não reprova)
   if (!r.ok && RETRY) { const r2 = await runOne(f); r = r2.ok ? { ...r2, flaky: true, first: r } : { ...r2, out: r.out + '\n--- 2ª tentativa ---\n' + r2.out }; }

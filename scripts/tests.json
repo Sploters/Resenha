@@ -6,6 +6,71 @@
     "desktop-share-test",
     "appaudio-watch-test"
   ],
+  "prepare": {
+    "big-data-test": {
+      "needs": "./.testdata-big/big.json",
+      "run": [
+        "node",
+        "scripts/load/seed-big.mjs"
+      ],
+      "env": {
+        "DATA_DIR": "./.testdata-big"
+      }
+    },
+    "image-sizes-test": {
+      "needs": "./.testdata-big/big.json",
+      "run": [
+        "node",
+        "scripts/load/seed-big.mjs"
+      ],
+      "env": {
+        "DATA_DIR": "./.testdata-big"
+      }
+    },
+    "chat-rich-test": {
+      "needs": "./.testdata-rich/rich.json",
+      "run": [
+        "node",
+        "scripts/load/seed-rich.mjs",
+        "3000"
+      ],
+      "env": {
+        "DATA_DIR": "./.testdata-rich"
+      }
+    },
+    "chat-trim-test": {
+      "needs": "./.testdata-churn/load.json",
+      "run": [
+        "node",
+        "scripts/load/seed.mjs",
+        "300"
+      ],
+      "env": {
+        "DATA_DIR": "./.testdata-churn"
+      }
+    },
+    "namefx-emoji-test": {
+      "needs": "./.testdata-churn/load.json",
+      "run": [
+        "node",
+        "scripts/load/seed.mjs",
+        "300"
+      ],
+      "env": {
+        "DATA_DIR": "./.testdata-churn"
+      }
+    },
+    "frontwatch-test": {
+      "needs": "native/lc-audio/target/release/lc-audio",
+      "run": [
+        "cargo",
+        "build",
+        "--release",
+        "--quiet"
+      ],
+      "cwd": "native/lc-audio"
+    }
+  },
   "off": {},
   "secs": {
     "abuse-regex-test": 11,

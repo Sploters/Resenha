@@ -78,14 +78,16 @@ jobs:
           # o binário do Electron vem num passo de instalação que às vezes é pulado: garante que está lá
           test -f node_modules/electron/path.txt || node node_modules/electron/install.js
 
-      # programa da transmissão nativa (Rust): a compilação fica guardada entre execuções
+      # programas nativos (Rust: transmissão nativa e áudio do jogo), compilados pelos testes que usam: ficam guardados
+      # entre execuções. Os bancos grandes de teste são gerados pelo executor (tests.json → prepare)
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             native/lc-stream/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('native/lc-stream/Cargo.lock') }}
+            native/lc-audio/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('native/lc-stream/Cargo.lock', 'native/lc-audio/Cargo.lock') }}
 
       - name: Rodar os testes (parte ${{ matrix.parte }} de 3)
         run: node scripts/run-tests.mjs --shard ${{ matrix.parte }}/3
