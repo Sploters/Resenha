@@ -1311,6 +1311,21 @@ function quickSwitch() {
   inp.onkeydown = (e) => { if (e.key === 'Enter') res.firstChild?.click(); };
 }
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && ready) { e.preventDefault(); quickSwitch(); } });
+// Esc numa conversa direta volta para Amigos (como no WhatsApp Web). Só quando o Esc não tem outra coisa para fazer:
+// a situação é lida ANTES dos outros ouvintes (captura na window), senão o Esc que fecha um menu ou cancela a resposta
+// também sairia da conversa
+let escBusy = false;
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const t = e.target, typingElsewhere = (/^(INPUT|SELECT)$/.test(t?.tagName) || (t?.tagName === 'TEXTAREA' && !t.closest('#composer')) || t?.isContentEditable);
+  escBusy = !!(typingElsewhere || S.replyTo || S.editing || S.searchOpen || dmFind.open || document.fullscreenElement
+    || document.querySelector('.backdrop:not(.leaving), #lightbox, #settings, #tedit, .ac, .capturing, .menu:not(.leaving), .popout:not(.static):not(.leaving), .emoji-picker:not(.leaving)'));
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || escBusy || e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (!ready || S.view.kind !== 'dm') return;
+  flushDraft(); go('@me'); // o rascunho fica guardado para a volta
+});
 // Ctrl+Shift+F: busca em tudo (DMs e servidores)
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f' && ready) { e.preventDefault(); if (!S.searchOpen) toggleGlobalSearch(); else $('#gs-q')?.focus(); } });
 

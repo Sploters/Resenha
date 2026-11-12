@@ -59,6 +59,17 @@ try {
   // abrir uma DM: a lista continua, "Amigos" volta ao meio
   await P.evaluate(async (uid) => { const t = localStorage.lc_token; const r = await fetch('/api/dms', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + t }, body: JSON.stringify({ user_id: uid }) }).then(r => r.json()); window.__lc.go('@me', r.id); }, U.ana.id); await sleep(800);
   ok(await P.evaluate(() => !!document.querySelector('#side-list .dmrow, #side-list .ch.active') && !!document.querySelector('#composer')), 'DM aberta com a lista de conversas ao lado');
+  // Esc: com resposta aberta só cancela a resposta; sem nada aberto, sai da conversa para Amigos
+  await P.evaluate(() => { window.__lc.S.replyTo = window.__lc.S.replyTo || { id: '1', author_id: window.__lc.S.me.id, content: 'x' }; }); await P.focus('#composer textarea'); await P.type('#composer textarea', 'rascunho');
+  await P.keyboard.press('Escape'); await sleep(400);
+  ok(await P.evaluate(() => window.__lc.S.view.kind === 'dm' && !window.__lc.S.replyTo), 'Esc com resposta aberta só cancela a resposta');
+  await P.keyboard.press('Escape'); await sleep(600);
+  ok(await P.evaluate(() => window.__lc.S.view.kind === 'home' && !!document.querySelector('#home .fgroup')), 'Esc na conversa volta para Amigos (como no WhatsApp Web)');
+  await P.evaluate((uid) => { const d = [...window.__lc.S.dms.values()].find(x => x.recipients?.some?.(r => (r.id || r) === uid)) || [...window.__lc.S.dms.values()][0]; window.__lc.go('@me', d.id); }, U.ana.id); await sleep(800);
+  ok(await P.evaluate(() => document.querySelector('#composer textarea')?.value === 'rascunho'), 'o rascunho continua lá ao voltar para a conversa');
+  await P.keyboard.press('Escape'); await sleep(500);
+  ok(await P.evaluate(() => window.__lc.S.view.kind === 'home'), 'Esc com o foco fora do campo também volta');
+  await P.evaluate(() => window.__lc.go('@me', [...window.__lc.S.dms.values()][0].id)); await sleep(700);
   await P.evaluate(() => document.querySelector('#rail .rail-fly .rail-item').click()); await sleep(600);
   ok(await P.evaluate(() => !!document.querySelector('#home .fgroup') && window.__lc.S.view.kind === 'home'), 'o ícone de Mensagens na barra volta para a lista de amigos');
   await P.evaluate(() => { location.hash = '#/@me/messages'; }); await sleep(600);
