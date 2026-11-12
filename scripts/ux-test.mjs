@@ -1,4 +1,4 @@
-// Telemetria de UX (etapa 1): servidor aceita só os eventos conhecidos e guarda contagens sem quem fez; só o administrador
+// Telemetria de UX (etapas 1 a 3): servidor aceita só os eventos conhecidos e guarda contagens sem quem fez; só o administrador
 // lê; o app conta Esc/ícone ao sair da conversa, abas de Jogos, ⓘ abertas e buscas sem resultado; desligar para de enviar.
 // Uso: node scripts/ux-test.mjs
 import puppeteer from 'puppeteer-core';
@@ -32,7 +32,7 @@ try {
   ev = await stats(admin);
   ok(n(ev, 'back_to_friends', 'esc') === 5, 'envios de pessoas diferentes somam no mesmo total');
   { const db = new DatabaseSync(DATA + '/resenha.db', { readOnly: true }); const cols = db.prepare('PRAGMA table_info(ux_daily)').all().map(c => c.name); db.close();
-    ok(cols.join() === 'day,device,event,detail,n', 'a tabela não tem coluna de usuário (só dia, aparelho, evento, detalhe, contagem)', cols); }
+    ok(cols.join() === 'day,version,device,event,detail,n', 'a tabela não tem coluna de usuário (só dia, versão, aparelho, evento, detalhe, contagem)', cols); }
   ok((await fetch(BASE + '/api/ux', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"events":[]}' })).status === 401, 'sem login não envia');
 
   // ---------- app ----------
@@ -65,7 +65,7 @@ try {
   ok(n(ev, 'back_to_friends', 'rail') === 1, 'ícone de Mensagens na conversa conta como "rail"');
   ok(n(ev, 'games_open', '-') === 1 && n(ev, 'games_tab', 'news') - n(before, 'games_tab', 'news') === 1, 'abrir Jogos e a aba Notícias são contados', ev.games_tab);
   ok(n(ev, 'info_tip', 'Privacidade e segurança › Apagar minhas mensagens') === 1, 'ⓘ aberta conta uma vez, com "Página › opção"', ev.info_tip);
-  ok(n(ev, 'settings_search_empty', 'xyzinexistente') === 1, 'busca sem resultado nas Configurações é contada', ev);
+  ok(ev.settings_search_empty?.total === 1 && !n(ev, 'settings_search_empty', 'xyzinexistente') && Object.keys(ev.settings_search_empty.detalhes).some(k => /^\(outros: 1 com menos de 5/.test(k)), 'busca sem resultado é contada, mas o termo único fica escondido em "outros" (grupo pequeno)', ev.settings_search_empty);
   // desligar: nada mais vai
   await P.evaluate(() => { const s = document.querySelector('#settings .nsearch'); s.value = ''; s.dispatchEvent(new Event('input')); });
   await sleep(300);
@@ -111,10 +111,79 @@ try {
   ok(await A.evaluate(() => [...document.querySelectorAll('#settings h6')].some(x => x.textContent === 'Administração')), 'administrador vê "Administração" nas Configurações');
   await A.evaluate(() => [...document.querySelectorAll('#settings .ni')].find(x => /Estatísticas de uso/.test(x.textContent)).click()); await sleep(1500);
   const panel = await A.evaluate(() => ({ tiles: document.querySelectorAll('.ux-tile').length, cards: [...document.querySelectorAll('.ux-card h3')].map(x => x.textContent), cols: document.querySelectorAll('.ux-col').length, split: document.querySelectorAll('.ux-split i').length, fun: document.querySelectorAll('.ux-fun').length }));
-  ok(panel.tiles === 4 && panel.cards.length === 8 && panel.cols === 30 && panel.split === 2 && panel.fun >= 2, 'painel: 4 números, 8 quadros, 30 colunas por dia, Esc × ícone e funis', panel);
+  ok(panel.tiles === 8 && panel.cards.length >= 16 && panel.cols >= 60 && panel.split === 2 && panel.fun >= 2, 'painel: 8 números, todos os quadros, colunas por dia (eventos e pessoas), Esc × ícone e funis', panel);
   if (process.env.SHOTS) await A.screenshot({ path: process.env.SHOTS + '/ux-painel.png', fullPage: false });
   await A.evaluate(() => [...document.querySelectorAll('.uxstats .seg button, .uxstats .seg *')].find(x => x.textContent.trim() === '7 dias')?.click()); await sleep(900);
-  ok(await A.evaluate(() => document.querySelectorAll('.ux-col').length === 7), 'trocar para 7 dias redesenha com 7 colunas');
+  ok(await A.evaluate(() => document.querySelectorAll('.ux-daily')[1]?.querySelectorAll('.ux-col').length === 7), 'trocar para 7 dias redesenha com 7 colunas');
+
+  // ---------- etapa 3: versão, grupos pequenos, erros, tempos, pessoas, navegação, custo ----------
+  await api(eu, 'POST', '/ux', { version: 'vteste', device: 'desktop', events: [{ e: 'games_open', d: '', n: 2 }, { e: 'timing', d: 'channel_switch:9', n: 1 }, { e: 'voice_fail', d: 'ice_failed', n: 1 }] });
+  full = (await api(admin, 'GET', '/ux?version=vteste')).data;
+  ok(full.eventos.games_open?.total === 2 && Object.keys(full.eventos).join() === 'games_open,voice_fail' && full.versoes.some(v => v.version === 'vteste'), 'filtro por versão mostra só o que veio daquela versão (faixa inválida descartada)', { ev: Object.keys(full.eventos), versoes: full.versoes });
+  // retenção: duas contas de 3 dias atrás, uma voltou no dia seguinte (escritas direto no banco, como se fossem antigas)
+  { const db = new DatabaseSync(DATA + '/resenha.db'); const d = (k) => new Date(Date.now() - k * 86400e3).toISOString().slice(0, 10);
+    db.prepare('INSERT INTO ux_user(h,cohort) VALUES(?,?),(?,?)').run('teste1', d(3), 'teste2', d(3));
+    db.prepare('INSERT INTO ux_seen(day,h) VALUES(?,?),(?,?),(?,?)').run(d(3), 'teste1', d(3), 'teste2', d(2), 'teste1'); db.close(); }
+  // ana (estatísticas ligadas) vira amiga de eu (que desligou): só a ana conta o passo "fez um amigo"
+  const euId = await P.evaluate(() => window.__lc.S.me.id);
+  await api(eu, 'POST', '/relationships', { username: 'ana' }); await api(ana, 'PUT', '/relationships/' + euId, {});
+  await api(eu, 'POST', `/channels/${dm}/messages`, { content: 'oi (eu desligou as estatísticas)' });
+  const Q = await (await browser.createBrowserContext()).newPage(); await Q.setViewport({ width: 1400, height: 900 });
+  await Q.goto(BASE); await Q.evaluate((t) => localStorage.setItem('lc_token', t), ana); await Q.goto(BASE); await Q.waitForSelector('#rail .rail-wrap', { timeout: 15000 }); await sleep(800);
+  const qflush = () => Q.evaluate(async () => { await (await window.__lc.import('ux.js')).flushUx(); });
+  // troca de canal medida + mensagem enviada pelo campo (tempo de envio e 1ª mensagem)
+  await Q.evaluate((id) => window.__lc.go('@me', id), dm); await Q.waitForSelector('#composer textarea'); await sleep(600);
+  await Q.type('#composer textarea', 'oi eu'); await Q.keyboard.press('Enter'); await sleep(800);
+  // ida e volta rápida: Amigos → conversa → Amigos em menos de 3 s
+  await Q.evaluate(() => window.__lc.go('@me')); await sleep(300); await Q.evaluate((id) => window.__lc.go('@me', id), dm); await sleep(500); await Q.evaluate(() => window.__lc.go('@me')); await sleep(400);
+  // menu aberto e fechado sem escolher (botão direito numa conversa da lista, depois Esc)
+  await Q.click('#side-list .dmrow', { button: 'right' }).catch(() => { }); await sleep(300); await Q.keyboard.press('Escape'); await sleep(400);
+  // Configurações: entrar em Aparência e sair em menos de 2 s
+  await Q.evaluate(() => window.__lc.openSettings('account')); await sleep(900);
+  const nav = (rx) => Q.evaluate((rx) => { const el = [...document.querySelectorAll('#settings .ni')].find(x => new RegExp(rx).test(x.textContent)); const r = el.getBoundingClientRect(); return [r.x + 20, r.y + r.height / 2]; }, rx);
+  let [x, y] = await nav('^Aparência'); await Q.mouse.click(x, y); await sleep(500); [x, y] = await nav('^Sons'); await Q.mouse.click(x, y); await sleep(600);
+  await Q.keyboard.press('Escape'); await sleep(300);
+  // erro de JavaScript e aviso de erro na tela (agrupados sem números nem nomes)
+  await Q.addScriptTag({ content: `setTimeout(() => { throw new Error('Falha 123 ao abrir "fulano"'); });` }); // script da própria página (o de fora vira "Script error.")
+  await Q.evaluate(async () => (await window.__lc.import('state.js')).toast('Falhou 42 vezes', true)); await sleep(400);
+  const cost = await Q.evaluate(async () => { const c = (await window.__lc.import('ux.js')).uxCost; return { n: c.n, avg: c.total / Math.max(1, c.n), max: c.max }; });
+  const qver = await Q.evaluate(async () => (await window.__lc.import('ux.js')).UX_VERSION);
+  await qflush(); await sleep(400);
+  full = (await api(admin, 'GET', '/ux')).data; ev = full.eventos;
+  ok(cost.n >= 2 && cost.avg < 1, 'telemetria custa menos de 1 ms por clique (média)', cost);
+  { const db = new DatabaseSync(DATA + '/resenha.db', { readOnly: true }); const vs = db.prepare("SELECT DISTINCT version FROM ux_daily WHERE version <> ''").all().map(r => r.version); db.close();
+    ok(qver && qver !== 'dev' && vs.includes(qver), 'cada envio leva a versão do app (a do endereço dos módulos)', { qver, vs }); }
+  ok(Object.keys(ev.js_error?.detalhes || {}).some(k => /Falha # ao abrir "…"/.test(k)) && !Object.keys(ev.js_error?.detalhes || {}).some(k => /fulano|123|Script error/.test(k)), 'erro de JavaScript agrupado sem números nem nomes', ev.js_error);
+  ok(ev.error_shown?.total >= 1, 'aviso de erro mostrado é contado (texto escondido enquanto o grupo for pequeno)', ev.error_shown);
+  ok(full.tempos?.channel_switch?.geral?.n >= 1 && full.tempos?.msg_send?.geral?.n >= 1, 'tempo de troca de canal e de envio medidos (mediana e 95%)', full.tempos);
+  ok(n(ev, 'u_turn', 'Amigos → Conversa direta') >= 1, 'ida e volta rápida Amigos → conversa → Amigos', ev.u_turn);
+  ok(ev.menu_open?.total >= 1 && ev.menu_abandoned?.total >= 1, 'menu fechado sem escolher é contado', { open: ev.menu_open, ab: ev.menu_abandoned });
+  ok(n(ev, 'quick_exit', 'configurações › Aparência') === 1, 'página das Configurações deixada em menos de 2 s', ev.quick_exit);
+  const P2 = full.pessoas;
+  ok(P2.ativos.hoje === 3 && P2.ativos.d7 === 5, 'ativos hoje e em 7 dias (pessoas diferentes, sem repetir)', P2.ativos);
+  ok(P2.retencao.d1.elegiveis === 2 && P2.retencao.d1.voltaram === 1 && P2.retencao.d1.taxa === 50, 'retenção no dia seguinte: 1 de 2 = 50%', P2.retencao);
+  const step = (k) => P2.funil_novos.find(s => s.passo === k)?.n;
+  ok(P2.novos === 5 && step('friend') === 1 && step('message') === 1 && step('returned') === 1, 'funil do usuário novo: amigo e 1ª mensagem só de quem deixou ligado; voltou outro dia', P2);
+  { const db = new DatabaseSync(DATA + '/resenha.db', { readOnly: true }); const t = db.prepare("SELECT name FROM sqlite_master WHERE name IN ('ux_seen','ux_user','ux_first')").all().length;
+    const cols = ['ux_seen', 'ux_user', 'ux_first'].flatMap(n => db.prepare(`PRAGMA table_info(${n})`).all().map(c => c.name)); const ids = db.prepare('SELECT id FROM users').all().map(r => r.id);
+    const leak = db.prepare('SELECT h FROM ux_seen UNION SELECT h FROM ux_user').all().some(r => ids.includes(r.h)); db.close();
+    ok(t === 3 && !cols.some(c => /user|uid|name/.test(c)) && !leak, 'tabelas de pessoas guardam só um código embaralhado (nem id, nem nome)', cols); }
+  if (process.env.SHOTS) { // print do painel inteiro com os dados da etapa 3
+    await A.evaluate(() => [...document.querySelectorAll('.uxstats .seg *')].find(x => x.textContent.trim() === '30 dias')?.click()); await sleep(1200);
+    const hgt = await A.evaluate(() => document.querySelector('.uxstats').scrollHeight + 120);
+    await A.setViewport({ width: 1400, height: Math.min(6000, hgt), deviceScaleFactor: 1 }); await sleep(600);
+    await A.screenshot({ path: process.env.SHOTS + '/ux-painel-full.png' });
+  }
+  // chave geral no servidor: UX_TELEMETRY=0
+  { const P3 = 3243, B3 = `http://localhost:${P3}`, D3 = './.testdata-ux-off'; fs.rmSync(D3, { recursive: true, force: true });
+    const s3 = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: P3, HTTPS: '0', DATA_DIR: D3, UX_TELEMETRY: '0' }, stdio: 'ignore' });
+    for (let i = 0; i < 50; i++) { try { await fetch(B3 + '/api/server-info'); break; } catch { await sleep(200); } }
+    const t3 = (await fetch(B3 + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'zeca', password: 'senha123' }) }).then(r => r.json())).token;
+    const post = await fetch(B3 + '/api/ux', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + t3 }, body: JSON.stringify({ events: [{ e: 'games_open', d: '', n: 1 }] }) }).then(r => r.json());
+    const acc = await fetch(B3 + '/api/ux/access', { headers: { authorization: 'Bearer ' + t3 } }).then(r => r.json());
+    const g = await fetch(B3 + '/api/ux', { headers: { authorization: 'Bearer ' + t3 } }).then(r => r.json());
+    s3.kill(); await sleep(300); fs.rmSync(D3, { recursive: true, force: true });
+    ok(post.disabled === true && acc.enabled === false && !g.eventos.games_open && g.pessoas.ativos.hoje === 0, 'UX_TELEMETRY=0 desliga tudo (eventos e contagem de pessoas)', { post, acc, ativos: g.pessoas?.ativos }); }
 } catch (e) { console.log('  FAIL', e.stack); fails++; }
 await browser.close(); srv.kill(); fs.rmSync(DATA, { recursive: true, force: true });
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); process.exit(fails ? 1 : 0);

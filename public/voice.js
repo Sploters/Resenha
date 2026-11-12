@@ -4,6 +4,7 @@
 
 import { playSound } from './sounds.js';
 import { createFx, loadFx, FX_IDS } from './voicefx.js';
+import { track, stopTimer, cancelTimer } from './ux.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -216,7 +217,7 @@ export class Voice {
   sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
   onJoined({ channel_id, peers, sfu }) {
     if (channel_id !== this.channelId) return;
-    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
+    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
     else for (const uid of peers) this.connect(uid, true);
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }
@@ -244,7 +245,7 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
-      t.on('connectionstatechange', (s) => { if (s === 'failed') t.restartIce?.(); this.onUpdate(true); });
+      t.on('connectionstatechange', (s) => { if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
       // Chromium não entrega mais os quadros ao worker)
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));

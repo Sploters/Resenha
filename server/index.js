@@ -30,7 +30,7 @@ import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
-import { mountUx } from './ux.js';
+import { mountUx, uxSeen, uxSignup, uxFirst } from './ux.js';
 import { mountLfg } from './lfg.js';
 import { mountDiscover } from './discover.js';
 import { translate, translateEnabled, engineName } from './translate.js';
@@ -346,7 +346,7 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
 mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
-mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid }); // telemetria de UX: só contagens, sem quem fez
+mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid, prefsOf: (uid) => { const s = getUser(uid)?.settings; return s ? JSON.parse(s) : {}; } }); // telemetria de UX: só contagens, sem quem fez
 // endereço de arquivo enviado (/files/..., sem aspas, barras invertidas nem espaços: esses valores
 // vão parar em url("...") no CSS e em atributos; com aspas dava para fechar o url() e injetar CSS)
 const isFileUrl = (v) => typeof v === 'string' && /^\/files\/[^\s"\\<>]{1,700}$/.test(v);
@@ -376,6 +376,7 @@ app.post('/api/register', wrap((req, res) => {
     DEFAULT_AVATARS.length ? DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)] : null, Date.now());
   const token = crypto.randomBytes(32).toString('hex');
   run('INSERT INTO sessions(token,user_id,created_at,agent) VALUES(?,?,?,?)', token, id, Date.now(), clean(req.headers['user-agent'], 200));
+  uxSignup(id); // telemetria: começa a "turma" do dia (funil do usuário novo e retenção), sem guardar quem
   res.json({ token });
 }));
 app.post('/api/login', wrap((req, res) => {
@@ -413,6 +414,7 @@ app.patch('/api/me', auth, wrap((req, res) => {
   };
   if (!f.theme_primary || !f.theme_accent) f.theme_primary = f.theme_accent = null; // tema só com as duas cores
   if (f.avatar && !isFileUrl(f.avatar) && !DEFAULT_AVATARS.includes(f.avatar)) f.avatar = u.avatar;
+  if (f.avatar !== u.avatar && isFileUrl(f.avatar)) uxFirst(req.uid, 'avatar'); // telemetria: pôs uma foto própria
   run('UPDATE users SET display_name=?,bio=?,avatar=?,color=?,banner_color=?,custom_status=?,status=?,pronouns=?,banner=?,avatar_pos=?,banner_pos=?,status_emoji=?,theme_primary=?,theme_accent=?,name_style=? WHERE id=?',
     f.display_name, f.bio, f.avatar, f.color, f.banner_color, f.custom_status, f.status, f.pronouns, f.banner, f.avatar_pos, f.banner_pos, f.status_emoji, f.theme_primary, f.theme_accent, f.name_style, req.uid);
   broadcastPresence(req.uid);
@@ -962,6 +964,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
   const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mn.ids };
   dispatch(channelAudience(ch), 'MESSAGE_CREATE', msg);
+  uxFirst(req.uid, 'message');
   dispatch([req.uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: true, tab: req.get('x-lc-tab') || null }); // respondeu num aparelho: lido em todos
   res.json(ch.guild_id && reputation.slowWait(ch.guild_id, req.uid) ? { ...msg, slow_wait: reputation.slowWait(ch.guild_id, req.uid) } : msg);
 }));
@@ -1349,7 +1352,7 @@ app.put('/api/relationships/:id', auth, wrap((req, res) => { // aceitar / bloque
   const o = req.params.id;
   if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado. Confira o nome de usuário (o @ do perfil, não o nome de exibição).', 404);
   if (req.body.type === 2) { friendLost(o, req.uid); setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
-  else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); }
+  else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); uxFirst(req.uid, 'friend'); uxFirst(o, 'friend'); }
   else return bad(res, 'Sem pedido pendente');
   res.json({});
 }));
@@ -1769,6 +1772,7 @@ wss.on('connection', (ws) => {
   conns.get(uid).add(ws); legacyConns.add(ws);
   ws.alive = true; ws.on('pong', () => (ws.alive = true));
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
+  uxSeen(uid); // telemetria: usou o app hoje (uma vez por dia, sem guardar quem)
   { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin(), now: Date.now() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastStatus(uid); activity.poke(); }
   if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
@@ -1849,6 +1853,7 @@ wss.on('connection', (ws) => {
           room.set(uid, st);
           if (!sfuEnabled()) send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers });
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(ch.id, uid, st), guild_id: ch.guild_id });
+          uxFirst(uid, 'voice');
           musicOnJoin(ch.id, ws);
           if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));

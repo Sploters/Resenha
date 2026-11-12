@@ -23,7 +23,7 @@ import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
-import { track, clearUx, uxOn } from './ux.js';
+import { track, clearUx, uxOn, settingsPage } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
@@ -118,7 +118,7 @@ export function openSettings(kind, ctx) {
   const root = h('div#settings'), pane = h('div.pane'), nav = h('div.nav'), content = h('div.content', pane);
   const cleanups = []; const reg = (f) => cleanups.push(f);
   // how: 'back' = fechou pelo voltar do navegador; 'swap' = outra tela de configurações abre no lugar
-  const close = (how) => { if (how !== 'back') unBack(how === 'swap'); cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
+  const close = (how) => { settingsPage(null, { closing: true }); if (how !== 'back') unBack(how === 'swap'); cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
   // (antes o ouvinte de "modo leve mudou" só saía quando o modo leve mudava: segurava a tela inteira na memória a cada abertura)
   const onLite = () => drawNav();
   const esc = (e) => { if (e.key === 'Escape' && !document.getElementById('tedit') && !document.querySelector('.backdrop:not(.leaving)') && !pane.querySelector('.capturing') && !document.querySelector('.popout,.menu,.emoji-picker')) close(); };
@@ -132,7 +132,9 @@ export function openSettings(kind, ctx) {
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
-  const show = (key) => { cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
+  // telemetria: nome da página (para "abriu e saiu em menos de 2 s")
+  const pageLabel = (k) => k === 'profile' ? 'Perfil' : [...USER_GROUPS, ['', SERVER_PAGES], ['', [['app', 'Aplicativo (desktop)'], ['uxstats', 'Estatísticas de uso']]]].flatMap(([, l]) => l).find(([x]) => x === k)?.[1] || k;
+  const show = (key, initial = false) => { settingsPage(pageLabel(key), { initial }); cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
   const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
   const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
   // Administração (só o administrador da instalação): o servidor diz se é; a lista ganha a seção quando a resposta chega
@@ -159,7 +161,7 @@ export function openSettings(kind, ctx) {
   root.append(nav, content, h('button.close', { onclick: close, title: 'Fechar (Esc)' }, icon('x', 20), h('small', 'ESC')));
   document.getElementById('layer').append(root); document.addEventListener('keydown', esc);
   const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats'].includes(kind) ? kind : 'account');
-  current = first; drawNav(); show(first);
+  current = first; drawNav(); show(first, true);
   root._close = close;
   const unBack = backCloses(() => close('back')); whenGone(root, () => unBack()); // voltar do navegador/celular fecha as configurações
   document.addEventListener('lite-changed', onLite);
@@ -406,8 +408,8 @@ function privacyPage(reg) {
         ['Filtros', 'info', [['calendar', 'Período'], ['search', 'Texto'], ['clip', 'Com arquivos']]],
         ['Antes', 'ok', [['eye', 'Mostra quantas e onde'], ['dl', 'Baixar uma cópia']]]])),
     section('Usuários bloqueados'), blockedCard(),
-    section('Ajudar a melhorar o app'), card(row('Enviar estatísticas de uso anônimas', 'Só contagens, sem dizer quem: por exemplo, quantas vezes as pessoas usam o Esc para voltar aos Amigos. Nunca mensagens nem nomes. Ficam 60 dias.', toggle(uxOn(), (v) => { S.prefs.uxStats = v; if (!v) clearUx(); save(); })),
-      factChips([['Envia', 'ok', [['pointer', 'Cliques em botões e abas'], ['info', 'Explicações abertas'], ['search', 'Buscas sem resultado']]], ['Nunca', 'no', [['dm', 'Mensagens'], ['user', 'Quem fez'], ['file', 'Arquivos']]]])),
+    section('Ajudar a melhorar o app'), card(row('Enviar estatísticas de uso anônimas', 'Só contagens, sem dizer quem: por exemplo, quantas vezes o Esc é usado para voltar aos Amigos, quanto demora para abrir um canal ou quantas pessoas usaram o app hoje. Nunca mensagens nem nomes. Ficam 60 dias.', toggle(uxOn(), (v) => { S.prefs.uxStats = v; if (!v) clearUx(); save(); })),
+      factChips([['Envia', 'ok', [['pointer', 'Cliques em botões e abas'], ['info', 'Explicações abertas'], ['search', 'Buscas sem resultado'], ['clock', 'Tempos de carregamento'], ['warn', 'Erros do app'], ['users', 'Uso por dia (sem identificar)']]], ['Nunca', 'no', [['dm', 'Mensagens'], ['user', 'Quem fez'], ['file', 'Arquivos']]]])),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
 }

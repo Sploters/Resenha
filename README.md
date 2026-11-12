@@ -90,6 +90,8 @@ A interface é entregue comprimida e com cache longo (versão do servidor no end
 
 **Alerta de lentidão:** resposta acima de 1 s (ou o servidor travando) avisa o administrador da instalação na hora, no app dele; no máximo um aviso por rota a cada 15 min. Para receber no celular mesmo com o app fechado, defina `ALERT_WEBHOOK` com um tópico do [ntfy](https://ntfy.sh) (ex.: `https://ntfy.sh/resenha-seu-topico-secreto`, e assine o tópico no app ntfy) ou um webhook de canal do Discord. `ALERT_MS` muda o limite. Tempos por rota, alertas, velocidade real dos usuários e o atraso do servidor (event loop): `GET /api/perf` (só o administrador).
 
+**Estatísticas de uso (telemetria de UX):** o app conta, sem identificar ninguém, como está sendo usado: pessoas ativas, retenção e o funil de quem é novo, tempos de abrir canal, mandar mensagem e entrar na voz, quedas de conexão, erros do app, idas e voltas rápidas, menus abandonados, buscas sem resultado, funis e cliques com raiva ou sem efeito. Fica tudo no seu servidor, como contagens por dia e versão do app, e é apagado depois de 60 dias. O administrador da instalação vê em Configurações → Administração → Estatísticas de uso (ou `GET /api/ux`). Cada pessoa pode desligar em Privacidade e segurança. `UX_TELEMETRY=0` desliga a coleta no servidor inteiro, e `UX_MIN_COUNT` (padrão 5) é o mínimo de ocorrências para o painel mostrar um termo buscado ou um aviso de erro, para não apontar ninguém em grupos pequenos.
+
 **Teste de carga** (`scripts/load/`), numa pasta de dados de teste, nunca a de verdade:
 ```
 DATA_DIR=./.loaddata node scripts/load/seed.mjs 1000                 # 1000 pessoas no mesmo servidor, 20 canais com histórico

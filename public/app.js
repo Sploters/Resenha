@@ -29,7 +29,7 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
-import { track, flow, watchClicks } from './ux.js';
+import { track, flow, watchClicks, startTimer, stopTimer, cancelTimer, timing, navTo } from './ux.js';
 let discoverMod = null;
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
 // Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
@@ -73,7 +73,7 @@ const qrCodeInUrl = () => { const m = /^\/qr\/([\w-]{20,64})\/?$/.exec(location.
 import { initAppUpdate, installAppUpdate, myDesktopVersion, refreshDesktopVersion, latestDesktop, isOlder } from './appupdate.js';
 applyTheme();
 
-let ws, voice, retry = 0, ready = false, pendingInvite = null;
+let ws, voice, retry = 0, ready = false, pendingInvite = null, offlineSince = 0;
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 // qual servidor esta tela mostra (null: nenhum, ou janela escondida): o servidor só manda a presença dos membros dele
@@ -197,6 +197,8 @@ function connect() {
     evQ = p; p.then(() => { if (evQ === p) evQ = null; });
   };
   ws.onopen = () => {
+    // telemetria: caiu e voltou (conta a queda e quanto tempo ficou sem conexão, mesmo com a aba escondida)
+    if (offlineSince) { track('ws_reconnect', '', { bg: true }); timing('ws_offline', Date.now() - offlineSince, { bg: true }); offlineSince = 0; }
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
     const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent, kind: devKind() });
@@ -205,6 +207,7 @@ function connect() {
   };
   ws.onclose = async () => {
     if (!S.token) return;
+    if (ready && !offlineSince) offlineSince = Date.now();
     try { await api('GET', '/users/0'); } catch (e) { if (e.status === 401) { localStorage.removeItem('lc_token'); S.token = null; return showAuth(); } }
     if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, 'Conexão perdida. Reconectando…'));
     connect.t = setTimeout(connect, reconnectDelay(retry++)); // com sorteio: num reinício, não voltam todos juntos
@@ -394,8 +397,8 @@ function onEvent(t, d) {
     case 'MUSIC_RES': musicOnRes(d); break;
     case 'SOUNDS_UPDATE': { const g = guild(d.guild_id); if (g) { g.sounds = d.sounds; document.dispatchEvent(new Event('sb-changed')); } break; }
     case 'EMOJIS_UPDATE': { const g = guild(d.guild_id); if (g) { g.emojis = d.emojis; renderMessages(true); } break; }
-    case 'VOICE_JOINED': voice.onJoined(d); break;
-    case 'VOICE_DENIED': if (voice.channelId === d.channel_id) { voice.leave(); if (d.code === 'outdated') outdatedModal(d); else toast(d.reason, true); } break;
+    case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
+    case 'VOICE_DENIED': if (voice.channelId === d.channel_id) { track('voice_fail', /^[a-z_]{1,24}$/.test(d.code || '') ? d.code : 'denied'); cancelTimer('voice_connect'); voice.leave(); if (d.code === 'outdated') outdatedModal(d); else toast(d.reason, true); } break;
     case 'VOICE_PEER_LEFT': voice.onPeerLeft(d); break;
     case 'VOICE_SIGNAL': voice.onSignal(d); break;
     case 'SFU_RES': voice.onSfuRes(d); break;
@@ -553,7 +556,10 @@ let lastChNames = chNameKey();
 document.addEventListener('settings-closed', () => { if (!ready || chNameKey() === lastChNames) return; lastChNames = chNameKey(); renderSide(); if (S.view.cid) renderMain(); });
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
+// telemetria: nome do tipo de tela (nunca o nome do canal ou da pessoa) e a chave para reconhecer "voltou para a mesma"
+const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes' };
 function applyRoute(first) {
+  const prevCid = S.view?.cid;
   queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
   const clipId = /^#\/clip\/(\d+)/.exec(location.hash)?.[1];
   if (clipId) { history.replaceState(null, '', routeBack); openClip(clipId); if (!first && S.view.gid) return; }
@@ -583,6 +589,10 @@ function applyRoute(first) {
   if (S.favMode) S.prefs.favLast = S.view.cid;
   S.replyTo = null; S.editing = null; clearPending(); closeFloating();
   $('#app').classList.remove('nav-open');
+  if (!first) {
+    if ((S.view.kind === 'guild' || S.view.kind === 'dm') && S.view.cid && S.view.cid !== prevCid) startTimer('channel_switch', S.view.cid);
+    navTo(S.view.kind + ':' + (S.view.cid || S.view.gid || ''), SCREEN[S.view.kind] || S.view.kind);
+  }
   syncWatching(null); renderRail(); renderSide(); renderMain();
   if (!S.inVT) for (const sel of ['#msgs', '#stage', '#members', '#side .list']) { const e = $(sel); if (e) { e.classList.remove('sw'); void e.offsetWidth; e.classList.add('sw'); } } // com a transição de tela, ela já anima
 }
@@ -1265,7 +1275,8 @@ function watchFriend(uid, ch) {
 }
 function joinVoice(cid) {
   if (voice.channelId === cid) return;
-  voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
+  startTimer('voice_connect', cid); // telemetria: para quando o áudio conecta (voice.js) ou quando a sala aceita sem servidor de mídia
+  voice.join(cid).then(() => { if (voice.error) { track('voice_fail', 'join_error'); cancelTimer('voice_connect'); toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }
 // barra de perfil: o avatar fica na barra dos servidores (bolinha de status embaixo, vermelha em cima se o microfone ou o
 // som estiver desligado) e a barra com nome, microfone, fone e configurações sai dele. Com a lista de canais visível a
@@ -1698,6 +1709,7 @@ async function loadChannel(cid) {
   }
   if (S.view.cid !== cid) return;
   renderMessages(false); ack(cid); renderTyping();
+  requestAnimationFrame(() => stopTimer('channel_switch', cid)); // telemetria: do clique até as mensagens na tela
   const msgs = $('#msgs');
   msgs.onscroll = async () => {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
@@ -2551,7 +2563,8 @@ async function sendMsg(ta, ch) {
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {
-    const r = await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); dropGhost(ghost);
+    const t0 = performance.now(), r = await api('POST', `/channels/${ch.id}/messages`, body); freePending(sent); dropGhost(ghost);
+    timing('msg_send', performance.now() - t0); // telemetria: do Enter até o servidor confirmar
     if (r?.slow_wait && ch.guild_id) { (S.slowUntil ||= {})[ch.guild_id] = Date.now() + r.slow_wait * 1000; renderSoftmute(); } // limitado: mostra quando pode mandar a próxima
   }
   catch (e) { // falhou: devolve o texto e os anexos (antes os anexos sumiam)

@@ -290,7 +290,9 @@ export function notifPolicy(ch) {
 
 // ---------- UI utilitários ----------
 const layer = () => document.getElementById('layer');
+export const toastHooks = []; // telemetria (public/ux.js): conta os avisos de erro mostrados
 export function toast(msg, err) {
+  for (const f of toastHooks) { try { f(msg, err); } catch { } }
   document.getElementById('toast')?.remove();
   const t = h('div#toast' + (err ? '.err' : ''), msg); document.body.append(t);
   setTimeout(() => leave(t, 160), 3500);
@@ -332,8 +334,10 @@ function place(el, x, y) {
   el.style.top = Math.max(EDGE, Math.min(y, innerHeight - r.height - EDGE)) + 'px';
   originAt(el, x, y); // cresce a partir do clique
 }
+export const menuHooks = []; // telemetria (public/ux.js): menu aberto / fechado sem escolher nada
 export function menu(e, items) {
   e.preventDefault(); closeFloating();
+  let picked = false;
   // item: { label, fn, danger, icon (nome do ícone, à esquerda), checked (caixa marcável), sub: [itens] (submenu ao passar o mouse) }
   const build = (list, depth) => h('div.menu', { 'data-depth': depth }, list.filter(Boolean).map(i => {
     if (i === '-') return h('div.sp');
@@ -345,12 +349,14 @@ export function menu(e, items) {
       const open = () => { closeDeeper(); const r = row.getBoundingClientRect(), sub = build(i.sub, depth + 1); place(sub, r.right + 2, r.top - 6); const w = sub.getBoundingClientRect(); if (w.right > innerWidth - EDGE) sub.style.left = Math.max(EDGE, r.left - w.width - 2) + 'px'; };
       row.onmouseenter = open; row.onclick = open;
     } else { row.onmouseenter = closeDeeper; row.onclick = () => {
+        picked = true;
         if (!cbx) { closeFloating(); i.fn?.(); return; }
         i.checked = !i.checked; i.fn?.(); cbx.classList.toggle('on', i.checked); cbx.replaceChildren(...(i.checked ? [icon('check', 16)] : [])); // caixa de seleção: o menu fica aberto
       }; }
     return row;
   }));
-  place(build(items, 0), e.clientX, e.clientY);
+  const root = build(items, 0); place(root, e.clientX, e.clientY);
+  if (menuHooks.length) { menuHooks.forEach(f => { try { f('open', e); } catch { } }); whenGone(root, () => { if (!picked) menuHooks.forEach(f => { try { f('abandoned', e); } catch { } }); }); }
 }
 export function popout(anchor, node, side = 'right') {
   closeFloating();

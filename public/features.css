@@ -1606,3 +1606,19 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .ux-funnels { display: flex; flex-direction: column; gap: 12px; }
 .ux-fun-t { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text); margin-bottom: 4px; }
 .ux-fun-t span { flex: 1; } .ux-fun-t b { color: var(--header); font-variant-numeric: tabular-nums; } .ux-fun-t small { color: var(--text-muted); }
+.uxstats .ux-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.uxstats .ux-ver { background: var(--bg-tert); color: var(--text); border: 0; border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 13px; }
+.uxstats .ux-warn { background: var(--bg-sec); border-left: 3px solid var(--yellow, #f0b232); padding: 10px 12px; border-radius: 6px; color: var(--text); font-size: 13px; }
+.uxstats .ux-warn .icon { fill: var(--yellow, #f0b232); vertical-align: -3px; }
+.ux-block { margin: 26px 0 10px; } .ux-block h3 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+.ux-block p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
+.ux-bar.muted .ux-bl { color: var(--text-muted); font-style: italic; } .ux-bar.muted .ux-bt i { opacity: .45; }
+.ux-line { font-size: 13px; color: var(--text); margin: 4px 0; } .ux-line b { color: var(--header); }
+.ux-times { display: flex; flex-direction: column; font-size: 13px; }
+.ux-trow { display: grid; grid-template-columns: minmax(0, 2fr) 80px 80px minmax(80px, 1fr) 70px; gap: 10px; align-items: center; padding: 7px 6px; border-radius: 4px; }
+.ux-trow:not(.head):hover { background: var(--bg-mod-hover); }
+.ux-trow.head { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; padding-bottom: 4px; }
+.ux-trow > span:first-child { color: var(--text); } .ux-trow b { color: var(--header); font-variant-numeric: tabular-nums; } .ux-trow small { color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.ux-hist { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+.ux-hist i { flex: 1; background: var(--ux-s1); border-radius: 2px 2px 0 0; min-height: 0; }
+@media (max-width: 640px) { .ux-trow { grid-template-columns: minmax(0, 1fr) 64px 64px; } .ux-trow > :nth-child(4), .ux-trow > :nth-child(5) { display: none; } }
