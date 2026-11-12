@@ -861,15 +861,17 @@ const friendsIn = (g) => [...S.rels.values()].filter(r => r.type === 1 && g.memb
 const friendNames = (list) => list.length === 1 ? list[0].display_name : list.length === 2 ? `${list[0].display_name} e ${list[1].display_name}` : `${list[0].display_name}, ${list[1].display_name} e mais ${list.length - 2}`;
 const avStack = (list, size = 20) => h('span.avstack', list.slice(0, 3).map(u => avatar(u, size, { status: false })));
 function friendsInServer(g) {
-  const list = friendsIn(g), q = h('input', { type: 'search', placeholder: 'Buscar amigos' }), box = h('div.fis-list');
+  const list = friendsIn(g), q = h('input.fis-in', { type: 'search', placeholder: 'Buscar amigos', 'aria-label': 'Buscar amigos neste servidor', autocomplete: 'off', spellcheck: 'false' }), box = h('div.fis-list');
+  const clr = h('button.fis-clr', { type: 'button', title: 'Limpar', 'aria-label': 'Limpar busca', hidden: true, onclick: () => { q.value = ''; draw(); q.focus(); } }, icon('x', 14));
+  const qbox = h('label.fis-q', icon('search', 16), q, clr);
   const draw = () => { const f = q.value.trim().toLowerCase(); const rows = list.filter(u => !f || u.display_name.toLowerCase().includes(f) || u.username?.toLowerCase().includes(f) || (nameOf(u.id, g.id) || '').toLowerCase().includes(f));
     box.replaceChildren(...(rows.length ? rows.map(u => { const nick = nameOf(u.id, g.id), m = member(g.id, u.id);
       return h('div.fis-row', h('div.fis-av', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, avatar(u, 36)),
         h('div.fis-t', h('b', { onclick: (e) => profile(e.currentTarget, u.id, g.id) }, u.display_name), h('small', [nick !== u.display_name && `aqui: ${nick}`, '@' + u.username, m?.joined_at && 'entrou em ' + new Date(m.joined_at).toLocaleDateString('pt-BR')].filter(Boolean).join(' · '))),
         h('button.ibtn', { title: 'Mandar mensagem', onclick: () => { closeModals(); openDM(u.id); } }, icon('dm', 18)));
     }) : [h('div.dm-empty', list.length ? 'Nenhum amigo com esse nome' : 'Nenhum amigo seu está neste servidor ainda.')])); };
-  q.oninput = draw; draw();
-  modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && q, box),
+  q.oninput = () => { clr.hidden = !q.value; draw(); }; q.onkeydown = (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); e.preventDefault(); q.value = ''; clr.hidden = true; draw(); } }; draw();
+  modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && qbox, box),
     [list.length ? null : { label: 'Convidar amigos', fn: () => inviteModal(g) }, { label: 'Fechar', cls: 'grey' }].filter(Boolean), { width: '460px' });
   setTimeout(() => q.focus());
 }
