@@ -1035,9 +1035,11 @@ const catObs = new IntersectionObserver((es) => { let n = 0; for (const en of es
 const uaObs = new ResizeObserver(() => {
   const area = document.getElementById('user-area'); if (!area) return;
   uaObs.unobserve(area); // uma medida por desenho, como antes (abrir ao passar o mouse não mexe nas margens)
-  const hgt = area.offsetHeight;
-  $('#app').style.setProperty('--ua-h', hgt + 'px'); // a barra dos servidores reserva espaço pro seu perfil
-  $('#app').style.setProperty('--ua-side-h', hgt + 'px'); // e a lista de canais termina acima dele
+  const hgt = area.offsetHeight, bar = area.querySelector('.pbar')?.offsetHeight || hgt;
+  // a barra dos servidores reserva só o espaço do perfil: o painel de voz fica sobre a lista de canais, então a caixa de
+  // entrada não sobe ao entrar numa chamada
+  $('#app').style.setProperty('--ua-h', bar + 'px');
+  $('#app').style.setProperty('--ua-side-h', hgt + 'px'); // a lista de canais termina acima do perfil e do painel de voz
 });
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
