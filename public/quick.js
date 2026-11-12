@@ -106,7 +106,7 @@ export function openAudioPanel(anchor, voice, kind, { openSettings } = {}) {
 }
 
 // Teste de microfone (medidor + ouvir a si mesmo) e filtros: ruído, eco, porta de ruído
-export function openMicPanel(anchor, voice, { openSettings } = {}) {
+export function openMicPanel(anchor, voice, { openSettings, fx } = {}) {
   const rebuild = async () => { const wasOn = loop; if (voice.active) await voice.rebuildMic(); if (wasOn) voice.micGraph?.setLoopback(true); };
   const fill = h('div.mfill'), meter = h('div.mmeter', fill);
   let loop = false;
@@ -120,6 +120,9 @@ export function openMicPanel(anchor, voice, { openSettings } = {}) {
     h('h4', 'Redução de ruído'), noiseCards(S.prefs.noiseMode, v => { if ((S.prefs.noiseMode || 'standard') === v) return; S.prefs.noiseMode = v; savePrefs(); rebuild(); }, { compact: true }),
     h('div.qrow', h('span', 'Cancelamento de eco'), toggle(S.prefs.echo !== false, v => { S.prefs.echo = v; savePrefs(); rebuild(); })),
     h('div.qrow', h('span', 'Porta de ruído'), toggle(!!S.prefs.gate, v => { S.prefs.gate = v; savePrefs(); rebuild(); })),
+    fx && h('h4', 'Efeito de voz'),
+    fx && h('button.mfx' + (fx.info ? '.on' : ''), { type: 'button', onclick: () => fx.open() },
+      h('span.mfx-ic', fx.icon(fx.info?.id || 'none', 22)), h('span.mfx-t', h('b', fx.info ? fx.info.label : 'Sem efeito'), h('small', fx.info ? 'Clique para trocar ou desligar' : 'Robô, esquilo, eco e outros')), icon('chevr', 16)),
     openSettings && h('button.btn.link', { style: { marginTop: '8px' }, onclick: () => { closeFloating(); openSettings('voice'); } }, 'Mais opções de voz…'));
   const el = popout(anchor, body, 'up'); el.classList.add('quick');
   const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();

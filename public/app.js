@@ -1240,14 +1240,14 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada', abrEl()),
-      h('span.vp-btns', h('button.ibtn', { title: 'Testar microfone, ruído e eco', onclick: (e) => openMicPanel(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('waves', 20)),
+    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada'),
+      h('span.vp-btns', voiceBtn(),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
-    h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`),
+    h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
+      fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label)),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
-      fxButton(20, false),
       ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
       sbButton()));
 }
@@ -1261,7 +1261,7 @@ function sbButton() {
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
 const newsActions = {
-  fx: () => { const b = [...document.querySelectorAll('#voice-panel .row button')].find(x => /Efeito/.test(x.title)); if (voice?.active && b) b.click(); else toast('Entre numa sala de voz e clique no botão de máscara do painel de voz (ou Ctrl+Shift+E).'); },
+  fx: () => { const b = document.querySelector('#voice-panel .vp-voice'); if (voice?.active && b) openVoiceFx(b); else toast('Entre numa sala de voz e clique no botão "Sua voz" do painel de voz (ou Ctrl+Shift+E).'); },
   gifs: () => { const b = $('#composer .gifbtn'); if (b) b.click(); else toast('Abra um chat e clique em GIF, ao lado do emoji.'); },
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },
   lfg: () => go('@me', 'lfg'),
@@ -1282,6 +1282,14 @@ const newsActions = {
   ping: () => { const b = $('#vp-ping'); if (b) b.click(); else toast('Entre numa sala de voz e clique no ícone de sinal do painel de voz.'); },
 };
 // botão de efeitos de voz (painel de voz e controles da sala): com efeito ligado mostra o ícone dele
+// "Sua voz" (painel de voz): teste do microfone, ruído, eco e efeitos de voz num lugar só; colorido com efeito ligado
+const openVoiceFx = (anchor) => openFxPicker(anchor, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
+function voiceBtn() {
+  const f = fxInfo(voice?.fx);
+  return h('button.ibtn.vp-voice' + (f ? '.fxon' : ''), { title: f ? `Sua voz — efeito: ${f.label}` : 'Sua voz: microfone, ruído, eco e efeitos', 'aria-label': 'Sua voz',
+    onclick: (e) => { const a = e.currentTarget; openMicPanel(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()), fx: { info: fxInfo(voice?.fx), icon: (id, n) => fxIcon(id, n), open: () => openVoiceFx(a) } }); } },
+    f ? fxIcon(f.id, 20) : icon('waves', 20));
+}
 function fxButton(size, round, cls = '') {
   const f = fxInfo(voice?.fx);
   return h('button' + (round ? '.roundbtn' : '') + (f ? '.fxon' : '') + cls, { title: f ? `Efeito de voz: ${f.label} (clique para trocar)` : 'Efeitos de voz', onclick: (e) => openFxPicker(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) },
@@ -3297,7 +3305,7 @@ const setIf = (el, k, v) => { if (el[k] !== v) el[k] = v; };
 function paintPing(el) {
   const p = lastPing();
   setIf(el, 'className', 'ping ' + pingLevel(p));
-  setIf(el, 'title', p == null ? 'Medindo a conexão…' : `Ping: ${p} ms (clique para ver o gráfico)`);
+  setIf(el, 'title', p == null ? 'Medindo a conexão…' : `Ping: ${p} ms — clique para ver a conexão e a qualidade da voz`);
 }
 // ida e volta pelo gateway: funciona mesmo sem transporte de mídia conectado (sem microfone, sozinho ouvindo)
 const wsPings = new Map(); let wsPingN = 0;
@@ -3328,20 +3336,20 @@ let pingTick = 0;
 setInterval(() => (voice?.active ? (!document.hidden || ++pingTick % 5 === 0) && updatePing() : (pingHist.length = 0)), 1000);
 // qualidade da voz: selo no painel (nível atual) e ajuste automático a cada 3 s
 const isAutoAbr = () => S.prefs.voiceBitrate === 'auto' || S.prefs.voiceBitrate == null;
-const abrEl = () => { const el = h('button#vp-abr.abr', { onclick: (e) => openAbrPicker(e.currentTarget) }); paintAbr(el); return el; };
+// (fica dentro do popup do sinal de conexão: a qualidade enviada depende dela, e ninguém precisa ver o número o tempo todo)
 function paintAbr(el) {
   const k = voice.micKbps(), auto = isAutoAbr();
-  setIf(el, 'textContent', (auto ? 'Auto · ' : '') + k + 'k');
-  setIf(el, 'title', `Qualidade da voz: ${k} kbps${auto ? ' (automático)' : ''}${voice.sentKbps != null ? ` — enviando ~${voice.sentKbps} kbps agora` : ''}. Clique para mudar.`);
+  setIf(el, 'textContent', `${auto ? 'Automático · ' : ''}${k} kbps${voice.sentKbps != null ? ` (enviando ~${voice.sentKbps})` : ''}`);
 }
-function openAbrPicker(anchor) {
-  const body = h('div.qpop', h('h4', 'Qualidade da voz'), seg(VOICE_BITRATES, isAutoAbr() ? 'auto' : S.prefs.voiceBitrate, (v) => { S.prefs.voiceBitrate = v; savePrefs(); voice.retuneAudio(); paintAbr(anchor); }),
-    h('div.hintline', 'Automático: voz mono a 64 kbps (já soa perfeita), descendo para 48 ou 32 se a sua conexão piorar. 128 kbps ou mais só vale para música, e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala.'));
-  const el = popout(anchor, body, 'up'); el.classList.add('quick', 'abrpop');
+function abrSection() {
+  const now = h('b.abr-now'); paintAbr(now);
+  return h('div.abrsec', h('div.abrsec-h', h('h4', 'Qualidade da voz'), now),
+    seg(VOICE_BITRATES, isAutoAbr() ? 'auto' : S.prefs.voiceBitrate, (v) => { S.prefs.voiceBitrate = v; savePrefs(); voice.retuneAudio(); paintAbr(now); }),
+    h('div.hintline', 'Automático (recomendado): voz mono a 64 kbps, que já soa perfeita, descendo para 48 ou 32 se a sua conexão piorar. 128 kbps ou mais só vale para música, e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala.'));
 }
 setInterval(() => {
   if (!voice?.active) return;
-  voice.adaptAudio().catch(() => { }).then(() => { const el = document.getElementById('vp-abr'); if (el) paintAbr(el); });
+  voice.adaptAudio().catch(() => { }).then(() => document.querySelectorAll('.abr-now').forEach(paintAbr));
 }, 3000);
 function openPingChart(anchor) {
   const W = 300, H = 120, L = 34, R = 8, T = 10, B = 20;
@@ -3349,7 +3357,7 @@ function openPingChart(anchor) {
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('class', 'pchart'); svg.setAttribute('role', 'img');
   const avgEl = h('b'), lastEl = h('b'), rangeEl = h('b'), tip = h('div.ptip.hidden'), connBox = h('div.pconn');
   const body = h('div.qpop.pingpop', h('h4', 'Ping até o servidor — último minuto'), h('div.pwrap', svg, tip),
-    h('div.pstats', h('div', h('small', 'Último'), lastEl), h('div', h('small', 'Média'), avgEl), h('div', h('small', 'Mín – máx'), rangeEl)), connBox);
+    h('div.pstats', h('div', h('small', 'Último'), lastEl), h('div', h('small', 'Média'), avgEl), h('div', h('small', 'Mín – máx'), rangeEl)), connBox, abrSection());
   const ns = (tag, attrs) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
   let pts = [];
   const draw = () => {
@@ -3443,7 +3451,13 @@ function startGameDetect() {
 // ---------- atalhos / desktop ----------
 // clipe: o atalho padrão passou de Ctrl+Alt+C para F8 (tecla única, dá para apertar no meio do jogo). Quem estava no
 // padrão antigo muda junto; quem escolheu outro atalho fica com o seu.
+// qualidade da voz: automático passa a valer para todos (uma vez; depois cada um pode escolher outra de novo)
+function migrateAbrAuto() {
+  if (S.prefs.abrAutoV === 1) return;
+  S.prefs.voiceBitrate = 'auto'; S.prefs.abrAutoV = 1; savePrefs(); voice?.active && voice.retuneAudio();
+}
 function migrateClipKey() {
+  migrateAbrAuto();
   if (S.prefs.keyClipV === 2) return;
   if (!S.prefs.keyClip || S.prefs.keyClip === 'Ctrl+Alt+KeyC') S.prefs.keyClip = 'F8';
   S.prefs.keyClipV = 2; savePrefs();
