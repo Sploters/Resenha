@@ -7,6 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
+import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
@@ -24,11 +25,19 @@ import { refreshFreeze } from './freeze.js';
 import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
-import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch } from './lite.js';
+import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWatch } from './lite.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
-const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
+let discoverMod = null;
+const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
+// Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
+// lista de membros segurava o #members antigo — e, por ele, o chat antigo inteiro (~600 elementos, mensagens de voz com
+// as barras e os ouvintes) —; o Descobrir segurava a própria tela depois de sair dela. Uma tela de cada vez, mas à toa.
+function releaseOldScreens() {
+  if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
+  discoverMod?.release();
+}
 import { initFiles, renderFiles, filesPreset, onFilesMessage } from './files.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
@@ -191,7 +200,7 @@ function connect() {
     if (!S.token) return;
     try { await api('GET', '/users/0'); } catch (e) { if (e.status === 401) { localStorage.removeItem('lc_token'); S.token = null; return showAuth(); } }
     if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, 'Conexão perdida. Reconectando…'));
-    connect.t = setTimeout(connect, Math.min(1000 * 2 ** retry++, 8000));
+    connect.t = setTimeout(connect, reconnectDelay(retry++)); // com sorteio: num reinício, não voltam todos juntos
   };
 }
 
@@ -212,6 +221,7 @@ function ingestGuild(g) {
 function onEvent(t, d) {
   switch (t) {
     case 'READY': {
+      const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
       S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
@@ -249,7 +259,7 @@ function onEvent(t, d) {
       e2eeLoad(true);
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady();
-      applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(!!voice?.active); startUsageWatch(() => voice); // pico de consumo (Modo leve)
+      applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
       if (!S.synced) Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()]).then(([r]) => { // sincroniza preferências entre dispositivos
@@ -268,7 +278,11 @@ function onEvent(t, d) {
         renderSide();
       }).catch(() => { S.synced = true; });
       if (pendingInvite) { const c = pendingInvite; pendingInvite = null; history.replaceState({}, '', '/'); joinInvite(c); }
+      // reconectou: o que chegou com a conexão caída não veio por evento. Os canais guardados (fora o aberto) são
+      // esquecidos e carregam de novo ao abrir; o aberto busca o que falta (scripts/tab-lifecycle-test.mjs)
+      if (wasReady) for (const cid of [...S.messages.keys()]) if (cid !== S.view.cid) { S.messages.delete(cid); S.loaded.delete(cid); }
       applyRoute(true);
+      if (wasReady && S.view.cid && S.messages.has(S.view.cid)) catchUp(S.view.cid);
       if (S.prefs.desktopNotif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
       break;
     }
@@ -381,6 +395,7 @@ function onEvent(t, d) {
     case 'SFU_NEW_PRODUCER': voice.onSfuProducer(d); break;
     case 'SFU_CODEC_FALLBACK': voice.onCodecFallback(d); break;
     case 'SFU_CONSUMER_CLOSED': voice.onSfuConsumerClosed(d); break;
+    case 'SFU_SPEAKING': if (voice.channelId === d.channel_id) voice.onSfuSpeaking(d); break;
     case 'NATIVE_SCREEN_END': nativeEnded(d); voice?.onNativeEnded(d); break;
     case 'TYPING': {
       let m = S.typing.get(d.channel_id); if (!m) S.typing.set(d.channel_id, m = new Map());
@@ -487,7 +502,7 @@ S.onPrefsMerged = prefsChanged; // a resposta do envio trouxe mudanças de outro
 document.addEventListener('focus-mode', () => { if (ready) renderSide(); });
 setInterval(() => { const f = S.prefs.focusUntil; if (typeof f === 'number' && f <= Date.now()) { delete S.prefs.focusUntil; savePrefs(); if (ready) { renderSide(); toast('Modo foco terminou: os servidores voltaram a avisar'); } } }, 30000);
 // outra aba do app neste navegador mudou as preferências (state.js): aplica aqui também
-document.addEventListener('prefs-changed-elsewhere', () => { if (!ready) return; applyTheme(); syncThrottle(!!voice?.active); renderRail(); renderSide(); renderMembers(); });
+document.addEventListener('prefs-changed-elsewhere', () => { if (!ready) return; applyTheme(); syncThrottle(voice); renderRail(); renderSide(); renderMembers(); });
 // este aparelho está em uso? (janela em foco, visível e com mexida nos últimos 2 min) — o servidor repassa aos outros
 let lastActive = null, lastInput = Date.now();
 const devKind = () => (desktop ? 'desktop' : matchMedia('(pointer: coarse)').matches ? 'mobile' : 'web');
@@ -1542,6 +1557,7 @@ const renderHomeIfHome = () => { if (S.view.kind === 'home') renderMain(); };
 function renderMain() {
   const main = $('#main'); if (!main) return;
   const v = S.view;
+  setTimeout(releaseOldScreens); // depois de trocar a tela: solta o que guardava a tela anterior
   if (v.kind === 'home') return renderHome(main);
   if (v.kind === 'clips') return renderClips(main, v.gid);
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
@@ -1658,6 +1674,20 @@ function stickToBottom(box) {
 }
 
 // ---------- mensagens ----------
+// Canal aberto depois de reconectar: pede as mais novas. Se o que estava na tela já era o fim do canal, a lista nova
+// substitui (pega também edições e apagadas do meio-tempo); se a pessoa estava lendo mais acima, entram só as novas.
+async function catchUp(cid) {
+  const cur = S.messages.get(cid); if (!cur || detached.has(cid)) return; // lendo mensagens antigas: as novas vêm ao rolar até o fim
+  const after = (a, b) => a.length !== b.length ? a.length > b.length : a > b; // ids são números grandes em texto
+  const last = cur.at(-1)?.id;
+  const fresh = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!fresh || S.messages.get(cid) !== cur) return;
+  fresh.forEach(m => mergeUser(m.author));
+  const box = $('#msgs'), atEnd = !box || box.stick !== false, overlap = !last || fresh.some(m => m.id === last) || fresh.length < 50;
+  if (!overlap) { S.messages.delete(cid); S.loaded.delete(cid); if (S.view.cid === cid) loadChannel(cid); return; } // mais de 50 novas: recomeça do fim
+  if (atEnd || !fresh.length) cur.splice(0, cur.length, ...cur.filter(m => fresh.length && after(fresh[0].id, m.id)), ...fresh);
+  else for (const m of fresh) if (after(m.id, last)) cur.push(m);
+  if (S.view.cid === cid) renderMessages(true);
+}
 async function loadChannel(cid) {
   const box = $('#msgs');
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
@@ -1674,7 +1704,7 @@ async function loadChannel(cid) {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
       msgs.dataset.loading = 1; const cur = S.messages.get(cid), newer = await tryApi('GET', `/channels/${cid}/messages?limit=50&after=${cur[cur.length - 1]?.id}`); delete msgs.dataset.loading;
       if (S.messages.get(cid) !== cur || S.view.cid !== cid || !msgs.isConnected) return; // trocou de canal ou a lista foi refeita no meio
-      if (newer?.length) { newer.forEach(x => mergeUser(x.author)); cur.push(...newer); renderMessages(true); }
+      if (newer?.length) { newer.forEach(x => mergeUser(x.author)); cur.push(...newer); keepAnchor(msgs, () => { if (cur.length > HIST_MAX) { cur.splice(0, cur.length - HIST_KEEP); S.loaded.set(cid, false); } renderMessages(true); }); }
       if (newer && newer.length < 50) { detached.delete(cid); $('#detached-bar')?.remove(); }
       return;
     }
@@ -1688,6 +1718,7 @@ async function loadChannel(cid) {
     list.unshift(...older); const prevH = msgs.scrollHeight;
     if (!prependMessages(cid, older)) renderMessages(false);
     msgs.scrollTop = msgs.scrollHeight - prevH;
+    if (list.length > HIST_MAX) dropNewest(cid);
   };
 }
 function welcomeBlock(ch) {
@@ -1741,6 +1772,25 @@ function appendMessage(m) {
 // canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
 // busca as antigas de novo no servidor (o mesmo caminho do histórico).
 const CHAT_MAX = 250, CHAT_KEEP = 150;
+// Lendo o histórico para cima: o chat guarda no máximo HIST_MAX mensagens. Passando disso, as mais novas saem de baixo e o
+// chat fica "vendo mensagens antigas" (rolar até o fim busca de novo; o botão volta ao presente). Descendo de volta, saem as
+// de cima. Antes cada página de 50 se somava para sempre: lendo 2.000 mensagens para trás eram 2.000 no chat e cada
+// redesenho passava por todas (scripts/history-window-test.mjs).
+const HIST_MAX = 300, HIST_KEEP = 200;
+function dropNewest(cid) {
+  const list = S.messages.get(cid), box = $('#msgs'); if (!list || !box || list.length <= HIST_MAX) return;
+  const cut = list.splice(HIST_KEEP);
+  for (const m of cut) box.querySelector(`:scope > [data-mid="${m.id}"]`)?.remove();
+  while (box.lastElementChild?.classList.contains('daysep')) box.lastElementChild.remove(); // separador de dia que ficou sem mensagem
+  box.stick = false; detached.add(cid); detachedBar(cid, 'Você está vendo mensagens antigas');
+}
+// redesenho que tira coisas de cima: a mensagem que estava no topo da tela continua no mesmo lugar
+function keepAnchor(box, fn) {
+  const top = box.getBoundingClientRect().top, el = [...box.querySelectorAll(':scope > [data-mid]')].find(e => e.getBoundingClientRect().bottom > top);
+  const id = el?.dataset.mid, off = el ? el.getBoundingClientRect().top - top : 0;
+  fn();
+  const again = id && box.querySelector(`:scope > [data-mid="${id}"]`); if (again) box.scrollTop += again.getBoundingClientRect().top - top - off;
+}
 function trimChat(cid) {
   const list = S.messages.get(cid), box = $('#msgs'); if (!list || list.length <= CHAT_MAX || !box || S.view.cid !== cid || detached.has(cid)) return;
   const cut = list.length - CHAT_KEEP, first = list[cut], firstEl = box.querySelector(`:scope > [data-mid="${first.id}"]`); if (!firstEl) return;
@@ -2115,9 +2165,12 @@ async function jumpToTop() {
   S.messages.set(cid, list); S.loaded.set(cid, true); $('#detached-bar')?.remove();
   renderMessages(false); const box = $('#msgs'); box.stick = false; box.scrollTop = 0;
   if (list.length >= 50) {
-    detached.add(cid);
-    $('#chat')?.append(h('div#detached-bar', h('span', 'Você está vendo o início do canal'), h('button.btn', { onclick: () => { $('#detached-bar')?.remove(); loadChannel(cid); } }, 'Ir para o presente')));
+    detached.add(cid); detachedBar(cid, 'Você está vendo o início do canal');
   }
+}
+function detachedBar(cid, text) {
+  if ($('#detached-bar')) return;
+  $('#chat')?.append(h('div#detached-bar', h('span', text), h('button.btn', { onclick: () => { $('#detached-bar')?.remove(); loadChannel(cid); } }, 'Ir para o presente')));
 }
 function mentionAvatar(u) {
   return u.avatar ? h('img.mav', { src: imgUrl(u.avatar, 20), alt: '', loading: 'lazy' }) : h('span.mav.mini', { style: { background: u.color || '#5865f2' } }, (u.display_name || u.username || '?')[0].toUpperCase());
@@ -2326,12 +2379,27 @@ function showResults(title, list, kind = 'search') {
 }
 
 // ---------- compositor ----------
+// Rascunho por canal, guardado neste aparelho (lc_drafts): trocar de canal, recarregar ou o navegador descartar a aba
+// (no celular é comum) não apaga o que estava sendo escrito. Até 50 canais; o mais antigo sai.
+const DRAFTS = 'lc_drafts';
+const readDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS) || '{}'); } catch { return {}; } };
+function saveDraft(cid, text) {
+  const d = readDrafts(); if ((d[cid]?.t || '') === (text || '')) return;
+  if (text) d[cid] = { t: text.slice(0, 4000), at: Date.now() }; else delete d[cid];
+  const ks = Object.keys(d); if (ks.length > 50) ks.sort((a, b) => d[a].at - d[b].at).slice(0, ks.length - 50).forEach(k => delete d[k]);
+  try { localStorage.setItem(DRAFTS, JSON.stringify(d)); } catch { }
+}
+// o campo na tela agora: a aba pode ser congelada ou fechada a qualquer momento (pagehide/freeze), então grava já
+const flushDraft = () => { const ta = $('#composer textarea'); if (ta?.dataset.cid) { clearTimeout(ta._dt); saveDraft(ta.dataset.cid, ta.value); } };
+for (const ev of ['pagehide', 'freeze']) addEventListener(ev, flushDraft, { capture: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushDraft(); });
 function composer(ch, label) {
-  const ta = h('textarea', { placeholder: `Conversar em ${label}`, rows: 1, maxLength: 4000 });
+  const ta = h('textarea', { placeholder: `Conversar em ${label}`, rows: 1, maxLength: 4000, value: readDrafts()[ch.id]?.t || '' });
+  ta.dataset.cid = ch.id; ta.addEventListener('blur', flushDraft);
   const grow = () => { ta.style.height = '0'; ta.style.height = Math.min(ta.scrollHeight, 400) + 'px'; };
   let lastTyping = 0;
   const fileIn = h('input', { type: 'file', multiple: true, style: { display: 'none' }, onchange: () => { [...fileIn.files].forEach(addFile); fileIn.value = ''; } });
-  ta.addEventListener('input', () => { grow(); if (Date.now() - lastTyping > 3000 && ta.value) { lastTyping = Date.now(); gwSend('TYPING', { channel_id: ch.id }); } autocomplete(ta); });
+  ta.addEventListener('input', () => { grow(); clearTimeout(ta._dt); ta._dt = setTimeout(() => saveDraft(ch.id, ta.value), 400); if (Date.now() - lastTyping > 3000 && ta.value) { lastTyping = Date.now(); gwSend('TYPING', { channel_id: ch.id }); } autocomplete(ta); });
   ta.addEventListener('paste', (e) => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); fs.forEach(addFile); } });
   ta.addEventListener('keydown', (e) => {
     const ac = $('.ac');
@@ -2377,7 +2445,7 @@ function composer(ch, label) {
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
   wrap.append(topBtn);
   setTimeout(() => {
-    renderReplyBar(); renderPendingPrev(); renderSoftmute(); ta.focus();
+    renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); ta.setSelectionRange(ta.value.length, ta.value.length); } ta.focus();
     const box = $('#msgs'); if (!box) return;
     const upd = () => topBtn.classList.toggle('hidden', box.scrollHeight - box.clientHeight < 200 || box.scrollTop < 120 || !!$('#detached-bar'));
     box.addEventListener('scroll', upd, { passive: true }); upd();
@@ -2474,7 +2542,7 @@ async function sendMsg(ta, ch) {
   if (/^\$[a-z]{2,3}(-[A-Z]{2})?\s/.test(content)) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
-  ta.value = ''; $('.ac')?.remove();
+  ta.value = ''; clearTimeout(ta._dt); saveDraft(ch.id, ''); $('.ac')?.remove();
   const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee }) => ({ url, name, size, type, ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
@@ -2483,7 +2551,7 @@ async function sendMsg(ta, ch) {
     if (r?.slow_wait && ch.guild_id) { (S.slowUntil ||= {})[ch.guild_id] = Date.now() + r.slow_wait * 1000; renderSoftmute(); } // limitado: mostra quando pode mandar a próxima
   }
   catch (e) { // falhou: devolve o texto e os anexos (antes os anexos sumiam)
-    dropGhost(ghost); toast(e.message, true); ta.value = typed;
+    dropGhost(ghost); toast(e.message, true); ta.value = typed; saveDraft(ch.id, typed);
     if (e.data?.softmute && ch.guild_id) { (S.slowUntil ||= {})[ch.guild_id] = Date.now() + e.data.retry_after * 1000; renderSoftmute(); }
     if (S.view.cid === ch.id) { S.pending = [...sent, ...S.pending]; renderPendingPrev(); } else freePending(sent);
   }
@@ -2885,7 +2953,7 @@ function renderVoiceUI(speakOnly) {
   autoClosed(); // transmissão nova de outra pessoa começa fechada
   updatePip(pipCtx);
   if (!voice.active) { stopAllBuffers(); for (const v of vidCache.values()) v.srcObject = null; vidCache.clear(); pruneBoardCanvases(new Set()); } // saiu da sala: nada do palco fica preso
-  syncThrottle(voice.active);
+  syncThrottle(voice);
   const stage = $('#stage'); if (!stage) return syncWatching(null);
   const ch = channelById(S.view.cid); if (!ch || ![1, 2].includes(ch.type)) return syncWatching(null);
   const dm = ch.type === 1, gid = ch.guild_id;
@@ -3383,7 +3451,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, savePrefs, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, savePrefs, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

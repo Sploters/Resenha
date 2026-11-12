@@ -4,6 +4,7 @@ import { S, savePrefs, applyTheme, toast, desktop } from './state.js';
 import { toggle, row, section } from './ui.js';
 import { refreshFreeze } from './freeze.js';
 import { stopAllBuffers } from './clips.js';
+import { leave } from './motion.js';
 
 const HEAVY_NOISE = ['rnnoise', 'gtcrn'];
 const scr = () => ({ res: 1080, fps: 30, hint: 'motion', audio: true, ...S.prefs.screen });
@@ -15,15 +16,22 @@ const ITEMS = [
   { key: 'clipsOn', lite: (v) => (v !== false ? false : undefined), title: 'Gravação de clipes em segundo plano', desc: 'Para de gravar os últimos 60 s das transmissões que você assiste.' },
   { key: 'screen', lite: (v) => { const o = { res: 1080, fps: 30, ...v }; return o.res === 'source' || o.res > 720 || o.fps > 30 ? { ...scr(), res: 720, fps: 30 } : undefined; }, title: 'Transmissão em 720p • 30 fps', desc: 'Valor inicial ao transmitir a tela (dá para mudar na hora). Codificar menos pixels deixa mais folga para o jogo.' },
 ];
-if (desktop) ITEMS.push({ key: null, title: 'Economia em segundo plano', desc: 'Com o app minimizado e fora de chamada, o Windows pode desacelerar a Resenha.' });
+if (desktop) ITEMS.push({ key: null, title: 'Economia em segundo plano', desc: 'Com o app minimizado, na bandeja ou atrás de um jogo em tela cheia, o Windows pode desacelerar a Resenha — também em chamada (menos quando você está transmitindo).' });
 
 export const liteOn = () => !!S.prefs.lightMode;
 let skipGame = null, misses = 0, lastGame = null, lastGameTitle = null; // automático com o jogo aberto (gameChanged, abaixo)
 
-// app desktop: deixa o Chromium desacelerar a página escondida, mas nunca durante uma chamada (timers da voz)
+// app desktop: deixa o Chromium desacelerar a página escondida (minimizada, na bandeja ou coberta pelo jogo: timers de JS
+// no máximo 1x/s, sem desenhar). Vale também em chamada: a voz não depende de timers da página (microfone, efeitos e cifra
+// rodam na thread de áudio e no worker; a voz dos outros e o soundboard tocam pelo áudio; o atalho do PTT só existe com a
+// janela em foco). Medido (scripts/call-throttle-test.mjs): com o microfone capturando o Chromium nem desacelera os timers,
+// então em chamada o ganho é pequeno — a página escondida já gasta ~2–3 ms/s por pausar vídeo, "falando" e desenho sozinha.
+// Fica de fora quem está transmitindo: os medidores da transmissão (fps real, imagem preta, janela minimizada, qualidade
+// automática) rodam a cada 1–3 s.
 let throttled = null;
-export function syncThrottle(inCall) {
-  const on = liteOn() && !inCall;
+export const throttleWanted = (voice) => liteOn() && !(voice?.active && (voice.screen || voice.native));
+export function syncThrottle(voice) {
+  const on = throttleWanted(voice);
   if (on === throttled || !desktop?.setThrottle) return;
   throttled = on; desktop.setThrottle(on);
 }
@@ -46,7 +54,7 @@ export function setLite(on, voice, opts = {}) {
   P.lightMode = on; savePrefs(); applyTheme(); refreshFreeze();
   if (P.clipsOn === false) stopAllBuffers();
   if (voice?.active && P.noiseMode !== prevNoise) voice.rebuildMic();
-  syncThrottle(!!voice?.active);
+  syncThrottle(voice);
   document.dispatchEvent(new Event('lite-changed')); // avisos discretos (Configurações, cartão do usuário) se atualizam
   toast(opts.auto ? (on ? `${opts.game || 'Jogo'} aberto: modo leve ligado até você fechar o jogo` : 'Jogo fechado: modo leve desligado') : on ? 'Modo leve ativado' : 'Modo leve desativado: configurações anteriores de volta');
 }
@@ -74,6 +82,52 @@ export function gameChanged(game, voice) {
   if (P.liteAutoGame && liteOn()) setLite(false, voice, { auto: true });
   if (P.liteAutoGame) { delete P.liteAutoGame; savePrefs(); }
 }
+
+// ---------- processador no limite: sugerir uma redução de ruído mais leve ----------
+// Custo medido (scripts/noise-cpu.mjs, % de um núcleo além de "Nenhuma"): Padrão ~0,2, RNNoise ~3, GTCRN ~7,6. Com a pressão
+// de CPU do sistema (PressureObserver: jogo, transmissão, PC fraco) em "serious"/"critical" por 15 s seguidos, em chamada
+// e com uma das IAs ligada, oferece trocar por uma mais leve (GTCRN → RNNoise → Padrão). Uma vez por filtro por sessão; com
+// a janela escondida espera ela voltar (a sugestão tem botão). O modo leve automático (jogo) não mexe no ruído sozinho:
+// esta é a forma de a pessoa decidir. Sem PressureObserver (navegador antigo): não sugere.
+export const LIGHTER_NOISE = { gtcrn: 'rnnoise', rnnoise: 'standard' };
+const NOISE_NAME = { gtcrn: 'Máxima (GTCRN)', rnnoise: 'Forte (RNNoise)', standard: 'Leve (navegador)' };
+const PR = { hotMs: 15000, obs: null, state: 'nominal', since: 0, t: 0, offered: new Set(), pending: false, getVoice: null, shown: null };
+const isHot = (st) => st === 'serious' || st === 'critical';
+export function startPressureWatch(getVoice) {
+  PR.getVoice = getVoice;
+  if (PR.obs || typeof window.PressureObserver !== 'function') return;
+  try {
+    PR.obs = new PressureObserver((recs) => pressureChanged(recs[recs.length - 1]?.state));
+    PR.obs.observe('cpu', { sampleInterval: 2000 }).catch(() => { PR.obs = null; });
+  } catch { PR.obs = null; }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && PR.pending) checkPressure(); });
+}
+export function pressureChanged(st) {
+  if (!st) return;
+  const was = isHot(PR.state); PR.state = st;
+  if (isHot(st) && !was) { PR.since = Date.now(); clearTimeout(PR.t); PR.t = setTimeout(checkPressure, PR.hotMs); }
+  else if (!isHot(st)) { clearTimeout(PR.t); PR.pending = false; }
+}
+function checkPressure() {
+  PR.pending = false;
+  const v = PR.getVoice?.(), mode = S.prefs.noiseMode || 'standard', next = LIGHTER_NOISE[mode];
+  if (!isHot(PR.state) || Date.now() - PR.since < PR.hotMs - 50 || !v?.active || !next || PR.offered.has(mode)) return;
+  if (document.hidden) { PR.pending = true; return; } // jogando com a janela atrás: mostra quando ela voltar
+  PR.offered.add(mode); suggestNoise(mode, next, v);
+}
+function suggestNoise(mode, next, voice) {
+  document.getElementById('toast')?.remove();
+  let t = 0;
+  const close = () => { clearTimeout(t); if (el.isConnected) leave(el, 160); };
+  const el = h('div#toast.lite-sug', { role: 'status' },
+    h('div', h('b', 'Seu processador está no limite.'), ` A redução de ruído ${NOISE_NAME[mode]} usa ${mode === 'gtcrn' ? '~2,5x a CPU da Forte' : 'IA o tempo todo'}; a ${NOISE_NAME[next]} pesa bem menos.`),
+    h('div.lite-sug-b',
+      h('button.btn.sm', { type: 'button', onclick: () => { close(); S.prefs.noiseMode = next; savePrefs(); if (voice?.active) voice.rebuildMic(); document.dispatchEvent(new Event('lite-changed')); toast(`Redução de ruído: ${NOISE_NAME[next]}`); } }, 'Trocar para ' + NOISE_NAME[next].split(' ')[0]),
+      h('button.btn.link.sm', { type: 'button', onclick: close }, 'Agora não')));
+  document.body.append(el); PR.shown = el;
+  t = setTimeout(close, 15000);
+}
+export const _pressure = PR; // testes
 
 export function litePage(ctx) {
   const box = h('div');
@@ -170,9 +224,9 @@ function usagePanel(ctx) {
   let t = 0;
   const heavy = () => {
     const v = ctx?.voice, P = S.prefs, out = [];
-    if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', 'Processa sua voz o tempo todo. A "Padrão" do navegador é bem mais leve.']);
+    if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', `Processa sua voz o tempo todo (${P.noiseMode === 'gtcrn' ? 'a Máxima, ~7%' : 'a Forte, ~3%'} de um núcleo num PC comum). A "Leve" do navegador quase não pesa.`]);
     if (S.watching?.size) out.push([`Assistindo ${S.watching.size} transmiss${S.watching.size === 1 ? 'ão' : 'ões'}`, 'Cada vídeo decodificado pesa na placa de vídeo. Feche as que não está vendo.']);
-    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos 60 s de cada transmissão assistida para o atalho de clipe.']);
+    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos 60 s de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p) e ocupa até ~50 MB de memória cada.']);
     if (v?.screen) out.push(['Você está transmitindo', 'Capturar e comprimir a tela pesa. 720p • 30 fps alivia bastante.']);
     if (v?.cam) out.push(['Câmera ligada', 'Comprimir a câmera usa CPU.']);
     if (P.animations !== false) out.push(['Animações da interface', 'Pouco, mas somam com o jogo.']);

@@ -1,5 +1,6 @@
-import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons } from './util.js';
+import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons, whenGone } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
+import { backCloses } from './backclose.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
 import { e2eeOutgoing, decryptDeep } from './e2ee.js';
@@ -295,14 +296,16 @@ export function toast(msg, err) {
   setTimeout(() => leave(t, 160), 3500);
 }
 export function modal(title, sub, body, buttons = [], opts = {}) {
-  const close = () => leave(bd, 160); // a janela encolhe e some (mais rápido que a entrada)
+  // a janela encolhe e some (mais rápido que a entrada); voltar do navegador/celular também fecha
+  const close = (how) => { if (how !== 'back') unBack(); if (bd.isConnected && !bd.classList.contains('leaving')) leave(bd, 160); };
   const bd = h('div.backdrop', { onmousedown: (e) => { if (e.target === bd && !opts.sticky) close(); } },
     h('div.modal', opts.width ? { style: { width: opts.width } } : null,
       h('div.mh', h('h2', title), sub && h('p', sub)),
       h('div.mb', body),
       h('div.mf', buttons.map(b => h('button.btn' + (b.cls ? '.' + b.cls : ''), { onclick: async () => { if (b.fn) { const r = await b.fn(); if (r === false) return; } if (!b.keep) close(); } }, b.label)))));
   layer().append(bd); bd.querySelector('input,textarea')?.focus();
-  return { close, el: bd };
+  const unBack = backCloses(() => close('back')); whenGone(bd, () => unBack()); // tirada da tela por outro caminho: sai do histórico também
+  return { close: () => close(), el: bd };
 }
 export function confirmBox(title, text, label = 'Confirmar') {
   return new Promise(res => modal(title, text, h('div'), [{ label: 'Cancelar', cls: 'link', fn: () => res(false) }, { label, cls: 'red', fn: () => res(true) }]));
@@ -392,20 +395,26 @@ export function emojiPicker(anchor, onPick, opts = {}) {
 }
 // Com a aba parada, diagrama os emojis do painel escondido, aos poucos: a 1ª busca da fonte colorida de cada emoji
 // (cara no Windows) sai do clique que abre o painel. Uma vez por sessão; sem efeito na tela.
+// Trace real (2026-11-11): 24 emojis por vez custavam 15–30 ms de layout cada e os 10 lotes caíam logo na abertura do app
+// (~150 ms entre 0,3 e 0,5 s, com a thread principal 70% ocupada). Agora começa 4 s depois de chamado, lotes de 6 e só
+// quando o navegador dá uma folga de pelo menos 12 ms (senão espera a próxima); sem prazo, para não furar a fila.
 let emojiWarm = false;
 export function warmEmojis() {
   if (emojiWarm) return; emojiWarm = true;
-  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f, { timeout: 5000 }) : (f) => setTimeout(f, 300);
+  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f) : (f) => setTimeout(() => f({ timeRemaining: () => 50 }), 300);
   const all = Object.values(EMOJIS).flat(); let i = 0;
   const box = h('div.emoji-grid', { 'aria-hidden': 'true', style: { position: 'fixed', left: '0', top: '0', width: '336px', visibility: 'hidden', pointerEvents: 'none', contain: 'layout style size', height: '0', overflow: 'hidden' } });
-  const step = () => {
+  const step = (dl) => {
     if (i >= all.length) return box.remove();
-    box.replaceChildren(...all.slice(i, i += 24).map(e => h('span', e)));
-    if (!box.isConnected) document.body.append(box);
-    void box.firstChild.getBoundingClientRect(); // diagrama agora, nesta folga
+    if (document.hidden) return setTimeout(() => idle(step), 2000); // aba escondida: a fonte não muda, espera voltar
+    while (i < all.length && dl.timeRemaining() > 12) {
+      box.replaceChildren(...all.slice(i, i += 6).map(e => h('span', e)));
+      if (!box.isConnected) document.body.append(box);
+      void box.firstChild.getBoundingClientRect(); // diagrama agora, nesta folga
+    }
     idle(step);
   };
-  idle(step);
+  setTimeout(() => idle(step), 4000);
 }
 export const lightbox = (src, opts) => openViewer(src, opts);
 

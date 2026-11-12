@@ -35,7 +35,7 @@ export const choiceCards = (opts, val, on) => {
 };
 // redução de ruído em cartões: cada nível mostra a voz (barras) e o ruído (pontinhos amarelos) que sobra
 // (configurações e painel do microfone; compact = os quatro numa linha, só o nome)
-export const NOISE_INFO = { off: ['Sem filtro', 'Voz crua, com todo o ruído', 1, null], standard: ['Leve', 'Filtro do navegador', .55, null], rnnoise: ['Forte', 'IA tira teclado e ventilador', .18, 'IA'], gtcrn: ['Máxima', 'IA mais forte, usa mais CPU', 0, 'IA+'] };
+export const NOISE_INFO = { off: ['Sem filtro', 'Voz crua, com todo o ruído', 1, null], standard: ['Leve', 'Filtro do navegador, quase sem CPU', .55, null], rnnoise: ['Forte', 'IA tira teclado e ventilador', .18, 'IA'], gtcrn: ['Máxima', 'IA mais forte, ~2,5x a CPU da Forte', 0, 'IA+'] };
 const VOICE_H = [18, 34, 52, 40, 60, 46, 28, 54, 38, 22], NOISE_H = [10, 6, 12, 8, 5, 11, 7, 9, 6, 12];
 export const noisePrev = (k, n = 10) => { const [, , lv, badge] = NOISE_INFO[k]; return h('span.nz-prev', h('span.nz-wave', VOICE_H.slice(0, n).map((v, i) => [h('i.nz-n', { style: { height: NOISE_H[i] + 'px', opacity: lv } }), h('i.nz-v', { style: { height: v + '%' } })])), badge && h('b.nz-badge', badge)); };
 export function noiseCards(val, on, { compact = false } = {}) {

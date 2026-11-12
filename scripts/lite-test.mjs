@@ -84,7 +84,7 @@ try {
   ok(rl2.noiseMode === 'gtcrn' && rl2.animations === before.animations && rl2.clipsOn === before.clipsOn, 'desativar depois: manual fica, resto volta');
   await page.evaluate(async () => { const p = window.__lc.S.prefs; p.noiseMode = 'rnnoise'; (await window.__lc.import('state.js')).savePrefs(); }); await sleep(1500);
 
-  // desktop (ponte falsa): economia só fora de chamada
+  // desktop (ponte falsa): economia fora e dentro da chamada, menos transmitindo
   const D = await browser.newPage(); await D.setViewport({ width: 1440, height: 900 });
   D.on('pageerror', e => { console.log('  PAGEERROR(desktop)', e.message); fails++; });
   await D.evaluateOnNewDocument((tok) => {
@@ -107,7 +107,11 @@ try {
   const vch = await D.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(c => c.type === 2), g.id);
   await D.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id); await sleep(500);
   await D.evaluate(() => [...document.querySelectorAll('#stage .btn')].find(b => /Entrar/.test(b.textContent)).click()); await sleep(2500);
-  ok(await D.evaluate(() => window.__lc.voice.active) && await thr() === false, 'em chamada: economia suspensa');
+  ok(await D.evaluate(() => window.__lc.voice.active) && await thr() === true, 'em chamada: economia continua ligada');
+  await D.evaluate(() => { const v = window.__lc.voice; v.screen = new MediaStream(); v.onUpdate(); }); await sleep(400);
+  ok(await thr() === false, 'transmitindo: economia suspensa (medidores da transmissão)');
+  await D.evaluate(() => { const v = window.__lc.voice; v.screen = null; v.onUpdate(); }); await sleep(400);
+  ok(await thr() === true, 'parou de transmitir: economia volta');
   const noise = await D.evaluate(() => ({ mode: window.__lc.S.prefs.noiseMode, err: window.__lc.voice.error }));
   ok(noise.mode === 'standard' && !noise.err, 'microfone da chamada com redução leve e sem erro');
   await D.evaluate(() => window.__lc.voice.leave()); await sleep(500);

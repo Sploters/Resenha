@@ -2,6 +2,8 @@ const remote = require('./remote');
 const native = require('./native');
 const clipFlash = require('./clipflash');
 const appAudio = require('./appaudio');
+const { createFrontWatch } = require('./frontwatch');
+let frontWatch = null; // janela coberta por um jogo em tela cheia (desktop/frontwatch.js)
 const updSplash = require('./updsplash');
 const { app, BrowserWindow, Tray, Menu, ipcMain, desktopCapturer, session, shell, globalShortcut, nativeImage, dialog, screen } = require('electron');
 const path = require('node:path');
@@ -150,9 +152,26 @@ function createWindow(forceShow) {
   win.webContents.on('media-started-playing', repaint); // vídeo/transmissão começou: garante que a janela redesenha (no PC com redesenho atrasado só aparecia ao mexer o mouse)
   for (const ev of ['show', 'restore', 'maximize', 'unmaximize', 'moved', 'focus']) win.on(ev, repaint);
   // estado real da janela para a página (ver public/state.js): minimizada ou na bandeja = escondida
-  const winState = () => { if (win && !win.isDestroyed()) win.webContents.send('win-state', { hidden: !win.isVisible() || win.isMinimized() }); };
+  // e, no Windows, com outro programa em tela cheia por cima no mesmo monitor (jogo; ver desktop/frontwatch.js)
+  let lastHidden = null;
+  const winState = (force) => {
+    if (!win || win.isDestroyed()) return;
+    const hidden = !win.isVisible() || win.isMinimized() || !!front?.covered;
+    if (hidden === lastHidden && force !== true) return; lastHidden = hidden;
+    win.webContents.send('win-state', { hidden, covered: !!front?.covered });
+  };
   for (const ev of ['show', 'hide', 'minimize', 'restore']) win.on(ev, winState);
-  win.webContents.on('did-finish-load', winState);
+  win.on('focus', () => { front?.focused(); winState(); }); // a Resenha veio para a frente: não espera a próxima leitura
+  win.webContents.on('did-finish-load', () => winState(true));
+  const helper = process.platform === 'win32' ? appAudio.helperPath() : null;
+  frontWatch?.stop(); frontWatch = null;
+  let front = null;
+  if (helper) {
+    let hwnd = ''; try { const b = win.getNativeWindowHandle(); hwnd = String(b.length >= 8 ? b.readBigUInt64LE(0) : b.readUInt32LE(0)); } catch { }
+    front = createFrontWatch({ exe: helper, hwnd, onChange: (c, i) => { log(c ? 'coberta por ' + (i?.exe || 'outro programa') + ' em tela cheia' : 'à vista de novo'); winState(); } });
+    front.start(); frontWatch = front;
+    win.on('closed', () => front.stop());
+  }
   screen.on('display-metrics-changed', repaint);
   // tela cheia de vídeo/transmissão/clipe: os botões nativos da barra de título (sobrepostos) ficavam desenhados por cima
   // e a página repintava com defeito; esconde a barra durante a tela cheia e repinta ao entrar e ao sair
@@ -320,7 +339,7 @@ ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));
 ipcMain.on('remote-input', (_e, ev) => remote.input(ev));
 ipcMain.on('remote-stop', () => remote.stop());
 remote.onRemoteEvent((k) => { if (win && !win.isDestroyed()) win.webContents.send('remote-event', k); });
-app.on('before-quit', () => { remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
+app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
 // transmissão a 120 FPS (desktop/native.js): o renderer pede a sessão ao servidor e passa as chaves para cá
 ipcMain.handle('native-capable', () => native.capable());
 ipcMain.handle('native-start', (_e, o) => native.start({ ...(o || {}), sourceId: (o && o.sourceId) || pickedSource }));

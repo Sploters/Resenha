@@ -28,8 +28,10 @@ const rooms = new Map(); // channelId -> { router, peers: Map<userId, Peer> }
 function listenInfos(port) {
   const out = [];
   if (process.env.RTC_ANNOUNCED_IP) {
-    const announcedAddress = process.env.RTC_ANNOUNCED_IP.split(',')[0].trim();
-    for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip: '0.0.0.0', announcedAddress, port });
+    // RTC_LISTEN_IP: escutar só numa interface (padrão: todas). O scripts/voice-network-test.mjs usa para pôr um relé com
+    // perda e atraso entre o navegador e o SFU (escuta em 127.0.0.2, anuncia 127.0.0.1, onde fica o relé)
+    const announcedAddress = process.env.RTC_ANNOUNCED_IP.split(',')[0].trim(), ip = process.env.RTC_LISTEN_IP || '0.0.0.0';
+    for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip, announcedAddress, port });
     return out;
   }
   const ips = process.env.RTC_IPS ? process.env.RTC_IPS.split(',').map(s => s.trim())
@@ -102,10 +104,27 @@ export function sfuLeave(cid, uid) {
 
 const producerInfo = (p, uid) => ({ producer_id: p.id, user_id: uid, kind: p.kind, source: p.appData.source });
 
+// "Falando" medido no servidor (AudioLevelObserver): para quem está ensurdecido, que não recebe as vozes (economiza banda e
+// processador) mas continua vendo quem fala. Só quem pediu ('levels') recebe SFU_SPEAKING, e só quando a lista muda.
+// Limiar de -50 dBov e 250 ms: bate com o medidor do app em ~83% das amostras, acendendo ~150 ms depois
+// (scripts/speaking-server-test.mjs).
+const LEVEL_DB = +(process.env.SFU_SPEAK_DB || -50);
+function levelsFor(r) {
+  return r.levelsP ||= r.router.createAudioLevelObserver({ maxEntries: 16, threshold: LEVEL_DB, interval: 250 }).then((o) => {
+    let last = '';
+    const push = (ids) => { const k = ids.sort().join(); if (k === last) return; last = k; for (const x of r.peers.values()) if (x.wantLevels) x.notify('SFU_SPEAKING', { ids }); };
+    o.on('volumes', (v) => push([...new Set(v.map(x => x.producer.appData.uid).filter(Boolean))]));
+    o.on('silence', () => push([]));
+    r.levelsNow = () => last ? last.split(',') : [];
+    return o;
+  });
+}
 // Publica o producer na sala e avisa os demais participantes
 function registerProducer(r, peer, source, p) {
   peer.producers.get(source)?.close();
   peer.producers.set(source, p);
+  if (source === 'mic' && p.kind === 'audio') levelsFor(r).then(o => o.addProducer({ producerId: p.id }).catch(() => { }), () => { });
+  p.appData.uid = peer.uid;
   p.on('transportclose', () => peer.producers.get(source) === p && peer.producers.delete(source));
   p.observer.on('close', () => {
     if (peer.producers.get(source) === p) peer.producers.delete(source);
@@ -212,6 +231,10 @@ export async function sfuRequest(cid, uid, op, d) {
       const drop = () => { if (peer.consumers.delete(c.id)) peer.notify('SFU_CONSUMER_CLOSED', { consumer_id: c.id }); };
       c.on('producerclose', drop); c.on('transportclose', () => peer.consumers.delete(c.id));
       return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters };
+    }
+    case 'levels': { // quer saber quem fala pelo servidor (ensurdecido): já recebe a lista de agora
+      peer.wantLevels = !!d.on; if (peer.wantLevels) await levelsFor(r);
+      return { ids: peer.wantLevels ? r.levelsNow?.() || [] : [] };
     }
     case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) d.paused ? await c.pause() : await c.resume(); return {}; }
     case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') await c.setPreferredLayers({ spatialLayer: Math.max(0, Math.min(2, d.spatial | 0)), temporalLayer: 2 }).catch(() => { }); return {}; }
