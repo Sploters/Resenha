@@ -8,7 +8,7 @@ fs.rmSync('.testdata-black', { recursive: true, force: true });
 const PORT = 3225, BASE = `http://localhost:${PORT}`;
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', RTC: '0', DATA_DIR: './.testdata-black' }, stdio: 'ignore' });
 await sleep(1800);
-const b = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--autoplay-policy=no-user-gesture-required'] });
+const b = await puppeteer.launch({ executablePath: process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 try {
   const p = await b.newPage(); await p.goto(BASE);
   await p.waitForSelector('#auth .auth-card'); await p.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);

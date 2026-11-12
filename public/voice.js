@@ -414,6 +414,7 @@ export class Voice {
     if (!this.screen) return null;
     const o = this.screenOpts || {}, want = +o.fps || 30, items = [];
     const st = await this.screenStats().catch(() => null), top = st?.[0];
+    if (!this.screen) return null; // a transmissão parou enquanto lia as estatísticas (this.screen.getAudioTracks quebrava logo abaixo)
     const fps = this.captureFps ?? top?.fps ?? null;
     if (this.screenNote === 'min') items.push(['bad', 'Janela minimizada: quem assiste vê a imagem parada. Restaure a janela (ou transmita a tela inteira).']);
     if (this.screenNote === 'closed') items.push(['bad', 'A janela transmitida foi fechada. Escolha outra fonte.']);

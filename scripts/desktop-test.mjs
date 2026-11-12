@@ -5,12 +5,14 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const electronPath = require('../desktop/node_modules/electron');
+// o app guarda servidor e login em <appData>/Resenha (desktop/main.js) e ignora --user-data-dir: aponta appData para .testdata3
+const testAppData = { XDG_CONFIG_HOME: process.cwd() + '/.testdata3/appdata', APPDATA: process.cwd() + '/.testdata3/appdata' };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 fs.rmSync('.testdata3', { recursive: true, force: true }); fs.rmSync('.testdata2', { recursive: true, force: true });
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: 3222, HTTPS: '0', DATA_DIR: './.testdata2' }, stdio: 'ignore' });
 await sleep(1500);
-const app = spawn(electronPath, ['desktop', '--remote-debugging-port=9333', '--user-data-dir=' + process.cwd() + '/.testdata3'], { stdio: 'ignore' });
+const app = spawn(electronPath, ['desktop', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), '--remote-debugging-port=9333', '--user-data-dir=' + process.cwd() + '/.testdata3'], { stdio: 'ignore', env: { ...process.env, ...testAppData } });
 let browser;
 try {
   for (let i = 0; i < 40 && !browser; i++) { await sleep(500); try { browser = await puppeteer.connect({ browserURL: 'http://127.0.0.1:9333', defaultViewport: null }); } catch { } }

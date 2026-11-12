@@ -2075,9 +2075,10 @@ function attachEl(f) {
       h('button.ibtn', { title: 'Baixar', style: { marginLeft: isMedia ? '4px' : 'auto' }, onclick: (e) => go(e.currentTarget, false) }, icon('dl')));
     return box;
   }
-  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url, dl = url.startsWith('blob:') ? url : url + '?download=1';
   // apagado para liberar espaço (Configurações → Armazenamento / expiração do servidor): a conversa continua fazendo sentido
+  // (antes da linha do link: o arquivo expirado não tem mais endereço, e f.url.startsWith quebrava a mensagem inteira)
   if (f.expired) return h('div.file.expired', { title: 'Apagado em ' + new Date(f.expired).toLocaleDateString('pt-BR') }, icon('file', 32), h('div', h('div.fn', f.name), h('div.fs', 'Arquivo expirado' + (f.size ? ' • ' + bytes(f.size) : ''))));
+  const ext = (f.name.split('.').pop() || '').toLowerCase(), url = f.url, dl = url.startsWith('blob:') ? url : url + '?download=1';
   if (f.voice) return voiceEl(f);
   if (isImg(f)) return h('div.attach', h('img', { src: url, alt: f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(url) }));
   // o vídeo só baixa no play (antes cada vídeo do chat começava a baixar ao abrir o canal); a miniatura vem do servidor

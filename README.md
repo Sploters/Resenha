@@ -119,14 +119,16 @@ O controle remoto usa o programa nativo `native/lc-input` (Rust); o `.exe` já c
 O cliente do SFU fica em `public/vendor/msc/` (gerado de `mediasoup-client`): `npm install && npm run build:vendor`.
 
 ## Testes
-    npm run check                                     # sintaxe de todo o JS (rápido, sem servidor)
-    BASE=http://localhost:3000 node scripts/e2e.mjs   # API + gateway + voz + soundboard + conta
-    BASE=http://localhost:3000 node scripts/features-test.mjs   # mensagem de voz, espectadores e tradução
-    node scripts/ui-test.mjs                          # navegador real: 2 usuários, voz pelo SFU, RNNoise, sons, painéis, configurações
-    RTC=0 node scripts/ui-test.mjs                    # o mesmo, com voz em malha P2P
-    node scripts/desktop-test.mjs                     # app Electron
-    node scripts/desktop-share-test.mjs               # Electron transmitindo a tela real para outro usuário
-Os testes de navegador usam o Edge do Windows por padrão; em outro sistema aponte `BROWSER` para um Chrome/Chromium (ex.: `BROWSER=/usr/bin/chromium node scripts/ui-test.mjs`). Também há `music-test` (bot de música de ponta a ponta com áudio de verdade; precisa de `yt-dlp` e `ffmpeg`), `layout-favs-test` (favoritos, busca ao lado, mudo no avatar e pico de consumo), `sync-rep-files-test` (aba Arquivos, sincronização entre aparelhos e reputação), `lfg-test`, `polls-test`, `clips-test`, `remote-test`, `callinvite-test`, `extras-test`, `themes-test`, `lite-test`, `activity-test`, `activity-ui-test`, `steam-test` (sobem o próprio servidor) e `fase2-test` (usa `API`, padrão `http://localhost:3000`).
+**Verificação automática (GitHub Actions, `.github/workflows/testes.yml`):** a cada envio, em qualquer branch, roda a verificação de sintaxe de todo o JS (~1 min). Ao enviar para a `main`, em todo pull request, com `[testes]` na mensagem do commit ou pelo botão *Run workflow* (aba Actions → Testes), roda **todos os testes de ponta a ponta**, divididos em 3 máquinas ao mesmo tempo (~15 min). O resultado aparece no commit (✅/❌) e na página da execução, com uma tabela de cada teste e o fim da saída dos que falharam. Teste que falha roda de novo uma vez; se passar na 2ª, aparece como *instável*, mas não reprova. Cada execução completa leva ~12 min e gasta cerca de 40 minutos da cota do GitHub Actions (3 máquinas) (no plano gratuito de repositório privado são 2.000 min/mês); um envio novo na mesma branch cancela a verificação anterior.
+
+**Na sua máquina:**
+
+    npm run check                          # sintaxe de todo o JS (rápido, sem servidor)
+    node scripts/run-tests.mjs             # todos os testes, um por vez, com resumo no fim
+    node scripts/run-tests.mjs ui privacy  # só os que têm esse pedaço no nome
+    node scripts/run-tests.mjs --shard 1/3 # uma parte (como no GitHub)
+
+O executor (`scripts/run-tests.mjs`) acha o navegador sozinho (Chromium do Playwright, Chrome/Chromium do sistema ou Edge; `BROWSER=<caminho>` escolhe outro), dá até 5 min para cada teste e derruba o servidor e o navegador que sobrarem. Os testes do app desktop e o `call-throttle-test` abrem janela de verdade: no Linux sem tela rodam numa tela virtual (`xvfb-run`). Precisam estar instalados: `ffmpeg`, `yt-dlp` (bot de música, sem usar o YouTube), Rust/`cargo` (transmissão nativa) e as dependências de `desktop/` (`cd desktop && npm ci`, para o Electron). Em `scripts/tests.json` ficam os testes que precisam de tela virtual, o **preparo** de cada um (bancos grandes do `scripts/load` e programas nativos em Rust, gerados na hora se ainda não existirem), o tempo de cada um (para dividir as partes) e os que estiverem fora da verificação (`off`, com o motivo). Cada teste também roda sozinho: `node scripts/ui-test.mjs` (`RTC=0` para voz em malha P2P), `node scripts/desktop-test.mjs`… Os que dependem de um servidor já rodando: `BASE=http://localhost:3000 node scripts/e2e.mjs` e `features-test`/`fase2-test` (sem `BASE`/`API`, sobem o próprio).
 
 ## Limitações conhecidas
 Sem o SFU (RTC=0 ou mediasoup indisponível) a voz cai para malha P2P, boa até ~6-8 pessoas por sala. Push-to-talk e atalhos de som só com o app em foco (global: mutar/ensurdecer). Sem threads, bots ou criptografia de ponta a ponta.
