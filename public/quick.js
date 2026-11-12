@@ -3,7 +3,7 @@ import { pulse } from './motion.js';
 import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { openNews } from './changelog.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, savePrefs, setDevice, popout, closeFloating, user, nameOf, focusOn, setFocus, menu } from './state.js';
+import { S, api, tryApi, toast, savePrefs, setDevice, popout, closeFloating, user, nameOf, focusOn, setFocus } from './state.js';
 import { seg, toggle, slider, noiseCards } from './ui.js';
 
 const STATUS = [['online', 'Online', 's-online', ''], ['idle', 'Ausente', 's-idle', ''], ['dnd', 'Não perturbe', 's-dnd', 'Silencia notificações'], ['invisible', 'Invisível', 's-offline', 'Aparece offline']];
@@ -136,28 +136,28 @@ export function openMicPanel(anchor, voice, { openSettings } = {}) {
 // ---------- modo foco ----------
 const hm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 export const focusLabel = () => (S.prefs.focusUntil === true ? 'ligado até você desligar' : 'ligado até ' + hm(S.prefs.focusUntil));
-export const FOCUS_TIMES = [['1 hora', 60], ['3 horas', 180], ['8 horas', 480], ['Até amanhã', 'tomorrow'], ['Até eu desligar', true]];
-export const focusUntilOf = (v) => (v === true ? true : v === 'tomorrow' ? new Date().setHours(24 + 8, 0, 0, 0) : Date.now() + v * 60000); // amanhã às 8h
-export function focusMenu(e, after) {
-  e.stopPropagation?.();
-  const done = (txt) => { after?.(); toast(txt); };
-  menu(e, [
-    { node: h('div.mfocus', h('b', 'Modo foco'), h('small', 'Só mensagens diretas e chamadas para você tocam som e mostram aviso. Os servidores continuam marcando não lidas, em silêncio — e seu status continua o mesmo.')) },
-    ...FOCUS_TIMES.map(([l, v]) => ({ label: l, icon: 'clock', fn: () => { setFocus(focusUntilOf(v)); done('Modo foco ligado: só mensagens diretas avisam'); } })),
-    focusOn() && '-', focusOn() && { label: 'Desligar modo foco', icon: 'x', fn: () => { setFocus(null); done('Modo foco desligado'); } },
-  ]);
-}
+export const FOCUS_TIMES = [['1 hora', 60], ['3 horas', 180], ['8 horas', 480], ['24 horas', 1440], ['Até eu desligar', true]];
+export const focusUntilOf = (v) => (v === true ? true : Date.now() + v * 60000);
+const FOCUS_TIP = 'Só mensagens diretas e chamadas avisam. Servidores ficam em silêncio.';
 export function openStatusPanel(anchor, { openSettings, openFullProfile, logout } = {}) {
   const body = h('div.mepop');
   let editing = false, fly = null, flyTimer = 0;
   const closeFly = () => { clearTimeout(flyTimer); fly?.remove(); fly = null; };
   const later = () => { clearTimeout(flyTimer); flyTimer = setTimeout(closeFly, 180); };
-  // status: popup ao lado que abre só de passar o mouse
-  const openFly = (row) => {
-    clearTimeout(flyTimer); if (fly) return;
-    fly = h('div.popout.mefly', { onmouseenter: () => clearTimeout(flyTimer), onmouseleave: later },
-      STATUS.map(([k, l, c, d]) => h('div.stat' + (S.me.status === k ? '.on' : ''), { onclick: async () => { const r = await tryApi('PATCH', '/me', { status: k }); if (r) { S.me = { ...S.me, status: k }; closeFly(); draw(); } } },
-        h('i.sdot.' + c), h('div', h('div', l), d && h('small', d)))));
+  // status e modo foco: popup ao lado que abre só de passar o mouse (o cartão continua aberto, como no status)
+  let flyKind = null;
+  const statusRows = () => STATUS.map(([k, l, c, d]) => h('div.stat' + (S.me.status === k ? '.on' : ''), { onclick: async () => { const r = await tryApi('PATCH', '/me', { status: k }); if (r) { S.me = { ...S.me, status: k }; closeFly(); draw(); } } },
+    h('i.sdot.' + c), h('div', h('div', l), d && h('small', d))));
+  const focusRows = () => {
+    const pick = (v, txt) => { setFocus(v); closeFly(); draw(); toast(txt); };
+    const cur = S.prefs.focusUntil;
+    return [h('div.mflyhead', h('b', 'Modo foco'), h('small', FOCUS_TIP)),
+      ...FOCUS_TIMES.map(([l, v]) => h('div.stat' + (v === true && cur === true ? '.on' : ''), { onclick: () => pick(focusUntilOf(v), 'Modo foco ligado: só mensagens diretas avisam') }, icon(v === true ? 'dm' : 'clock', 16), h('div', h('div', l)))),
+      focusOn() && h('div.stat.off', { onclick: () => pick(null, 'Modo foco desligado') }, icon('x', 16), h('div', h('div', 'Desligar modo foco')))];
+  };
+  const openFly = (row, kind = 'status') => {
+    clearTimeout(flyTimer); if (fly && flyKind === kind) return; closeFly(); flyKind = kind;
+    fly = h('div.popout.mefly', { onmouseenter: () => clearTimeout(flyTimer), onmouseleave: later }, kind === 'focus' ? focusRows() : statusRows());
     document.getElementById('layer').append(fly);
     const rr = row.getBoundingClientRect(), card = body.closest('.popout').getBoundingClientRect(), fb = fly.getBoundingClientRect();
     const right = card.right + 6, left = card.left - fb.width - 6;
@@ -176,7 +176,7 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
       ? h('div.mecs.edit', csInput, h('button.btn', { onclick: saveCs }, 'Salvar'))
       : h('div.mecs', { title: 'Definir status personalizado', onclick: () => { editing = true; draw(); csInput.focus(); setTimeout(() => body.querySelector('.mecs input')?.focus()); } },
         me.custom_status ? h('span', (me.status_emoji && !/^<:/.test(me.status_emoji) ? me.status_emoji + ' ' : '') + me.custom_status) : [icon('plus', 16), h('span.ph', 'Adicionar status personalizado')]);
-    const item = (ic, label, fn, extra, hover) => h('div.meitem', { onclick: fn, onmouseenter: hover ? (e) => openFly(e.currentTarget) : closeFly, onmouseleave: hover ? later : null }, h('span.mei', ic), h('span.mel', label), extra);
+    const item = (ic, label, fn, extra, hover) => h('div.meitem', { onclick: fn, onmouseenter: hover ? (e) => openFly(e.currentTarget, hover === true ? 'status' : hover) : closeFly, onmouseleave: hover ? later : null }, h('span.mei', ic), h('span.mel', label), extra);
     body.replaceChildren(
       h('div.mehead', banner, h('div.meav', { title: 'Ver perfil completo', onclick: () => { closeFly(); closeFloating(); openFullProfile?.(); } }, avatar(me, 80, { ring: 'var(--bg-float)' })), csBox),
       h('div.mebody',
@@ -186,7 +186,11 @@ export function openStatusPanel(anchor, { openSettings, openFullProfile, logout 
         h('div.megroup',
           item(icon('edit', 16), 'Editar perfil', () => { closeFloating(); openSettings?.('profile'); }),
           item(h('i.sdot.' + cur[2]), h('span', 'Status: ' + cur[1], me.status === 'invisible' && h('span', { title: 'Seu status e sua atividade ficam ocultos quando você está invisível', style: { marginLeft: '6px', display: 'inline-flex', color: 'var(--yellow, #f0b232)' } }, icon('warn', 14))), () => openFly(body.querySelector('.meitem:nth-child(2)')), h('span.mearrow', '›'), true),
-          item(icon('dm', 16), h('span', 'Modo foco', h('small.melite', focusOn() ? focusLabel() : 'só mensagens diretas avisam')), (e) => focusMenu(e, draw), h('span.mearrow' + (focusOn() ? '.on' : ''), focusOn() ? 'Ligado' : '›')),
+          // clique liga "até eu desligar" (ou desliga); passar o mouse abre os horários ao lado
+          item(icon('dm', 16), h('span', 'Modo foco', h('small.melite', focusOn() ? focusLabel() : 'só mensagens diretas avisam')),
+            () => { const on = !focusOn(); setFocus(on ? true : null); closeFly(); draw(); toast(on ? 'Modo foco ligado até você desligar' : 'Modo foco desligado'); },
+            // a seta abre os horários no clique também (celular não tem "passar o mouse")
+            h('span.mearrow' + (focusOn() ? '.on' : ''), { title: 'Escolher por quanto tempo', onclick: (e) => { e.stopPropagation(); openFly(e.currentTarget.closest('.meitem'), 'focus'); } }, focusOn() ? 'Ligado' : '›'), 'focus'),
           item(icon('sparkle', 16), 'Novidades', () => { closeFloating(); openNews(); }),
         ),
         S.prefs.lightMode && h('div.megroup',
