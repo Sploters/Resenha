@@ -49,6 +49,9 @@ export function noiseCards(val, on, { compact = false } = {}) {
   return box;
 }
 export const section = (t) => h('h3.sec', t);
+// explicação visual curta: rótulo à esquerda e chips com ícone. groups: [[rótulo, tom ('ok'|'no'|'info'), [[ícone, texto], …]], …]
+export const factChips = (groups) => h('div.fchips', groups.filter(Boolean).map(([lbl, tone, items]) => h('div.fc-row.' + tone,
+  lbl && h('span.fc-lbl', lbl), h('div.fc-list', items.map(([ic, t]) => h('span.fchip', icon(ic, 14), t))))));
 export const slider = (min, max, value, step, onInput, fmt = (v) => v, onChange) => { // onChange: ao soltar (ex.: tocar uma prévia do volume)
   const out = h('span.sval', fmt(value)), r = h('input', { type: 'range', min, max, step, value, oninput: () => { out.textContent = fmt(+r.value); onInput(+r.value); }, onchange: () => onChange?.(+r.value) });
   return h('div.sl', r, out);

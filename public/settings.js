@@ -2,7 +2,7 @@ import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cl
 import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
-import { seg, toggle, row, section, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
+import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
@@ -348,19 +348,25 @@ function e2eeCard(reg) {
   const kidTxt = (k) => k ? k.kid.slice(0, 20).match(/.{4}/g).join(' ') : '';
   const draw = () => {
     const st = e2eeState(), k = myFingerprintKey(), redraw = () => draw();
-    const limits = note('Protege as conversas diretas entre duas pessoas: mensagens, edições, arquivos, mensagens de voz e chamadas (voz, vídeo e tela) são cifrados no seu aparelho e só abrem no seu e no da outra pessoa — o servidor (e quem cuida dele) guarda e repassa só dados embaralhados. Ainda não entram: reações e grupos. Busca e tradução não funcionam nas conversas protegidas, a transmissão a 120 FPS fica desligada nelas, e o servidor continua sabendo quem conversa com quem, quando e o tamanho dos arquivos.');
-    if (st === 'unsupported') return box.replaceChildren(note('Este navegador não oferece a criptografia (ela precisa do endereço com https://, ou do app desktop).'));
-    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase que só você sabe. Quando a outra pessoa também tiver ativado, as mensagens novas da conversa passam a ser protegidas sozinhas.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
+    // o que a criptografia cobre, em figura: você 🔒 → servidor (embaralhado) → 🔒 amigo, e chips do que entra/fica de fora
+    const limits = h('div',
+      h('div.e2-flow', h('span', icon('user', 22), 'Você'), h('i', icon('lock')), h('span.e2-srv', icon('globe', 22), h('code', '#x9$f…'), 'Servidor'), h('i', icon('lock')), h('span', icon('user', 22), 'Amigo')),
+      factChips([
+        ['Protegido', 'ok', [['dm', 'Mensagens'], ['edit', 'Edições'], ['clip', 'Arquivos'], ['mic', 'Áudios'], ['phone', 'Chamadas'], ['screen', 'Vídeo e tela']]],
+        ['Fica de fora', 'no', [['smile', 'Reações'], ['users', 'Grupos'], ['search', 'Busca'], ['translate', 'Tradução'], ['screen', '120 FPS']]],
+        ['Servidor vê', 'info', [['users', 'Quem fala com quem'], ['clock', 'Quando'], ['file', 'Tamanho dos arquivos']]]]));
+    if (st === 'unsupported') return box.replaceChildren(note('Precisa de https:// ou do app desktop.'));
+    if (st === 'off') return box.replaceChildren(row('Proteger minhas conversas diretas', 'Ative com uma frase secreta. Vale nas conversas em que os dois ativaram.', h('button.btn.green', { onclick: () => setupModal(redraw) }, 'Ativar')), limits);
     if (st === 'locked') return box.replaceChildren(
-      row('Trancada neste aparelho', 'Suas chaves existem, mas este aparelho ainda não tem a frase. Sem ela as mensagens protegidas aparecem trancadas e você não consegue enviar nas conversas protegidas.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
-      row('Esqueci a frase', 'Apaga suas chaves para começar de novo. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
+      row('Trancada neste aparelho', 'Digite a frase para ler e enviar mensagens protegidas aqui.', h('button.btn.green', { onclick: () => unlockModal(redraw) }, 'Desbloquear')),
+      row('Esqueci a frase', 'Apaga as chaves. Mensagens protegidas antigas ficam ilegíveis.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')), limits);
     box.replaceChildren(
-      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: as pessoas voltam a te mandar mensagens sem criptografia. As protegidas antigas continuam abrindo.' : 'Ligado: as conversas com quem também ativou são protegidas. Clique no cadeado no topo da conversa para conferir o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
+      row('Proteger minhas conversas diretas', st === 'paused' ? 'Pausado: novas mensagens chegam sem criptografia.' : 'Ligado. O cadeado no topo da conversa mostra o número de segurança.', toggle(st === 'on', async (v) => { try { await setPaused(!v); } catch (e) { toast(e.message, true); } redraw(); })),
       k && h('div.perm', h('div.rt', 'Sua chave'), h('code.e2-kid', { title: 'Identificador da sua chave pública' }, kidTxt(k))),
-      row('Trocar a frase', 'Muda só a frase que tranca as chaves; as conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
-      row('Trocar de chave', 'Começa a usar um par de chaves novo nas próximas mensagens (as antigas continuam abrindo).', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
-      row('Trancar neste aparelho', 'Esquece a chave aberta aqui (ex.: computador emprestado). Para ler de novo, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
-      row('Esqueci a frase', 'Apaga todas as suas chaves. As mensagens protegidas antigas ficam ilegíveis para sempre.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
+      row('Trocar a frase', 'As conversas continuam iguais.', h('button.btn.grey', { onclick: () => changePassModal(redraw) }, 'Trocar')),
+      row('Trocar de chave', 'Chave nova nas próximas mensagens; as antigas seguem abrindo.', h('button.btn.grey', { onclick: () => newKeyModal(redraw) }, 'Chave nova')),
+      row('Trancar neste aparelho', 'Para computador emprestado. Depois, digite a frase.', h('button.btn.grey', { onclick: async () => { await lockHere(); redraw(); } }, 'Trancar')),
+      row('Esqueci a frase', 'Apaga as chaves. Mensagens protegidas antigas ficam ilegíveis.', h('button.btn.red', { onclick: () => resetModal(redraw) }, 'Apagar chaves')),
       limits);
   };
   if (!e2eeSupported()) draw(); else { box.replaceChildren(h('div.hintline.keep', 'Carregando…')); e2eeLoad().then(draw); }
@@ -380,7 +386,11 @@ function privacyPage(reg) {
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
     section('Criptografia de ponta a ponta'), e2eeCard(reg),
-    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apague de uma vez as mensagens que você enviou: em todo lugar, só nas conversas diretas ou num servidor, por período, por texto ou só as com arquivos. Mostra quantas e onde antes, deixa baixar uma cópia e inclui servidores de que você já saiu.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir'))),
+    section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apaga de uma vez as mensagens que você enviou.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir')),
+      factChips([
+        ['Onde', 'info', [['globe', 'Tudo'], ['dm', 'Conversas diretas'], ['hash', 'Um servidor'], ['logout', 'Servidores que saiu']]],
+        ['Filtros', 'info', [['calendar', 'Período'], ['search', 'Texto'], ['clip', 'Com arquivos']]],
+        ['Antes', 'ok', [['eye', 'Mostra quantas e onde'], ['dl', 'Baixar uma cópia']]]])),
     section('Usuários bloqueados'), blockedCard(),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));

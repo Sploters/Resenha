@@ -8,7 +8,7 @@ import { styleName } from './themes.js';
 import { S, api, tryApi, toast, confirmBox, guild, channelById, modal } from './state.js';
 import { openClip } from './clipsgallery.js';
 import { stagger } from './motion.js';
-import { toggle, row, section, seg } from './ui.js';
+import { toggle, row, section, seg, factChips } from './ui.js';
 
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
 export const initActivity = (c) => Object.assign(ctx, c);
@@ -336,8 +336,8 @@ function scheduleFeed() {
 }
 
 // ---------------------------------------------------------------- Configurações → Contas vinculadas
-const SYNC = { pending: 'Aguardando a primeira sincronização…', ok: 'Sincronizado', private: 'Perfil da Steam privado: o jogo atual não aparece. Deixe o perfil e os "Detalhes do jogo" públicos na Steam.',
-  not_found: 'A Steam não encontrou este perfil.', error: 'A Steam está indisponível no momento; tentamos de novo automaticamente.', unavailable: 'O servidor não consegue consultar a Steam (chave recusada ou ausente). Fale com o administrador.' };
+const SYNC = { pending: 'Sincronizando…', ok: 'Sincronizado', private: 'Perfil privado: deixe o perfil e os "Detalhes do jogo" públicos',
+  not_found: 'Perfil não encontrado', error: 'Steam fora do ar; tentando de novo', unavailable: 'Servidor sem acesso à Steam. Fale com o admin.' };
 export function connectionsPage(reg) {
   const box = h('div');
   const draw = async () => {
@@ -346,18 +346,20 @@ export function connectionsPage(reg) {
     catch (e) { return box.replaceChildren(h('p', { style: { color: 'var(--red)' } }, 'Não foi possível carregar: ' + e.message)); }
     box.replaceChildren(...ints.flatMap(i => {
       const a = i.account;
-      const head = h('div.accrow', a?.avatar ? h('img.conn-av', { src: a.avatar, alt: '' }) : h('div.conn-av.ph', icon('play', 28)), h('div', h('div.big', i.name), h('div.mut', a ? (a.display_name || 'Conta vinculada') + ' · ' + (!i.configured ? 'Aguardando o servidor configurar a chave da ' + i.name : (SYNC[a.sync_state] || '')) : 'Não vinculada')));
+      const head = h('div.accrow', a?.avatar ? h('img.conn-av', { src: a.avatar, alt: '' }) : h('div.conn-av.ph', icon('play', 28)), h('div', h('div.big', i.name), h('div.mut', a ? (a.display_name || 'Conta vinculada') + ' · ' + (!i.configured ? 'Falta a chave no servidor' : (SYNC[a.sync_state] || '')) : 'Não vinculada')));
       if (!a) return [section(i.name), h('div.card2', head,
-        h('p.hintline', 'Usamos o login oficial da ' + i.name + ' (nunca pedimos sua senha). Seu perfil e os "Detalhes do jogo" precisam estar públicos para o jogo atual aparecer.'),
-        !i.configured && h('p.hintline.keep', { style: { color: 'var(--yellow, #faa61a)' } }, 'Este servidor ainda não tem a chave da ' + i.name + ': dá para vincular, mas o jogo atual só aparece depois que o administrador configurar.'),
+        factChips([
+          ['Como funciona', 'ok', [['lock', 'Login oficial, sem senha'], ['gamepad', 'Mostra o jogo atual']]],
+          ['Precisa', 'info', [['eye', 'Perfil público'], ['eye', '"Detalhes do jogo" públicos']]],
+          !i.configured && ['Atenção', 'warn', [['warn', 'Jogo só aparece quando o admin configurar a chave']]]]),
         h('button.btn', { onclick: async () => { const r = await tryApi('POST', `/integrations/${i.id}/link`); if (r?.url) { window.open(r.url, '_blank', 'noopener'); toast('Conclua o login na janela que abriu e volte aqui.'); } } }, 'Vincular com a ' + i.name))];
       const patch = (body) => tryApi('PATCH', `/integrations/${i.id}`, body).then(r => { if (r) draw(); });
       return [section(i.name), h('div.card2', head,
         a.profile_url && h('a.act-link', { href: a.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir perfil ' + i.name),
-        row('Mostrar aos amigos o que estou jogando', 'Só amigos aceitos veem, em tempo real e no feed. Desligado, nada é consultado nem mostrado.', toggle(a.visibility === 'friends', (on) => patch({ visibility: on ? 'friends' : 'off' }))),
-        row('Mostrar aos amigos que vinculei esta conta', 'Independente da opção acima: dá para esconder o jogo sem esconder o vínculo (e vice-versa).', toggle(a.link_visibility === 'friends', (on) => patch({ link_visibility: on ? 'friends' : 'off' }))),
-        h('button.btn.red', { onclick: async () => { if (await confirmBox('Desvincular ' + i.name, 'Sua atividade deixa de ser consultada e o histórico dessa conta é apagado.', 'Desvincular')) { await tryApi('DELETE', `/integrations/${i.id}`); draw(); } } }, 'Desvincular')),
-      hidden.filter(g => g.platform === i.id).length > 0 && [section('Jogos escondidos'), h('div.card2', h('p.hintline', 'Estes jogos nunca aparecem como atividade.'), ...hidden.filter(g => g.platform === i.id).map(g => row(g.title || 'Jogo ' + g.game_id, null, h('button.btn.grey', { onclick: async () => { await tryApi('PUT', `/activity/games/${g.platform}/${g.game_id}`, { hidden: false }); draw(); } }, 'Mostrar de novo'))))]].flat().filter(Boolean);
+        row('Mostrar aos amigos o que estou jogando', 'Só amigos, ao vivo e no feed. Desligado, nada é consultado.', toggle(a.visibility === 'friends', (on) => patch({ visibility: on ? 'friends' : 'off' }))),
+        row('Mostrar aos amigos que vinculei esta conta', 'Independe da opção acima.', toggle(a.link_visibility === 'friends', (on) => patch({ link_visibility: on ? 'friends' : 'off' }))),
+        h('button.btn.red', { onclick: async () => { if (await confirmBox('Desvincular ' + i.name, 'Para de consultar e apaga o histórico desta conta.', 'Desvincular')) { await tryApi('DELETE', `/integrations/${i.id}`); draw(); } } }, 'Desvincular')),
+      hidden.filter(g => g.platform === i.id).length > 0 && [section('Jogos escondidos'), h('div.card2', h('p.hintline', 'Nunca aparecem como atividade.'), ...hidden.filter(g => g.platform === i.id).map(g => row(g.title || 'Jogo ' + g.game_id, null, h('button.btn.grey', { onclick: async () => { await tryApi('PUT', `/activity/games/${g.platform}/${g.game_id}`, { hidden: false }); draw(); } }, 'Mostrar de novo'))))]].flat().filter(Boolean);
     }));
   };
   S.refreshConnections = draw; reg?.(() => { S.refreshConnections = null; });
@@ -369,9 +371,11 @@ export const PC_VIS = { servers: 'Amigos e quem está nos meus servidores', frie
 function pcActivityBlock() {
   const box = h('div.card2', h('div', 'Carregando…'));
   const draw = (v) => box.replaceChildren(
-    h('p.hintline', 'O app desktop (Windows) reconhece o jogo aberto no seu PC — o mesmo jeito que a transmissão acha o jogo — e mostra "Jogando …" para os outros, sem precisar vincular conta. Só o nome do jogo é enviado.'),
+    factChips([
+      ['Como funciona', 'ok', [['layout', 'App desktop (Windows)'], ['gamepad', 'Detecta o jogo aberto'], ['user', 'Mostra "Jogando …"']]],
+      ['Privacidade', 'info', [['link', 'Sem vincular conta'], ['lock', 'Só o nome do jogo é enviado']]]]),
     row('Quem pode ver meu jogo do PC', null, seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seu jogo não aparece mais para ninguém.' : 'Pronto.'); } })),
-    !window.lcDesktop?.detectGame && h('p.hintline.keep', { style: { color: 'var(--text-muted)' } }, 'Neste aparelho a detecção não funciona (só no app desktop para Windows, versão 1.0.24 ou mais nova).'));
+    !window.lcDesktop?.detectGame && h('p.hintline.keep', { style: { color: 'var(--text-muted)' } }, 'Não funciona neste aparelho (só app desktop Windows 1.0.24+).'));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
   return [section('Jogo aberto no PC'), box];
 }

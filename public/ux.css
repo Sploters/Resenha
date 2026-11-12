@@ -768,3 +768,21 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 .ib-lost .ib-req-av { opacity: .75; }
 .mem-more { display: block; width: calc(100% - 16px); margin: 6px 8px 12px; padding: 8px; border: 0; border-radius: 6px; background: var(--bg-mod, rgba(127,127,127,.12)); color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
 .mem-more:hover { color: var(--header); }
+/* explicações em chips (factChips) e o fluxo da criptografia */
+.fchips { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.fc-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.fc-lbl { flex: 0 0 116px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); padding-top: 5px; }
+.fc-list { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.fchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; font-size: 13px; background: var(--bg-tert); color: var(--text); white-space: nowrap; }
+.fchip .icon { fill: currentColor; flex: none; }
+.fc-row.ok .fchip .icon { fill: var(--green); }
+.fc-row.no .fchip { color: var(--text-muted); } .fc-row.no .fchip .icon { fill: var(--red); }
+.fc-row.info .fchip .icon { fill: var(--text-muted); }
+.fc-row.warn .fchip .icon { fill: var(--yellow, #f0b232); }
+.e2-flow { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 14px; padding: 12px; border-radius: 8px; background: var(--bg-tert); font-size: 12px; color: var(--text-muted); }
+.e2-flow > span { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.e2-flow > span .icon { fill: var(--header); } .e2-flow .e2-srv .icon { fill: var(--text-muted); }
+.e2-flow code { font-size: 11px; letter-spacing: 1px; opacity: .7; }
+.e2-flow > i { flex: 1; max-width: 60px; border-top: 2px dashed var(--green); position: relative; }
+.e2-flow > i .icon { position: absolute; left: 50%; top: -9px; transform: translateX(-50%); width: 14px; height: 14px; fill: var(--green); background: var(--bg-tert); }
+@media (max-width: 520px) { .fc-lbl { flex-basis: 100%; padding-top: 0; } }
