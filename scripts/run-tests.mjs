@@ -42,6 +42,8 @@ console.log('Navegador: ' + (process.env.BROWSER || 'nenhum encontrado (defina B
 
 const HAS_XVFB = process.platform === 'linux' && ['/usr/bin/xvfb-run', '/usr/local/bin/xvfb-run'].some(p => fs.existsSync(p));
 const tail = (s, n = 25) => s.split('\n').filter(Boolean).slice(-n).join('\n');
+// resumo de uma falha: as linhas FAIL/erro da saída inteira (a verificação que falhou pode estar bem antes do fim) + o fim
+const failView = (s, n = 25) => { const L = s.split('\n').filter(Boolean), last = L.slice(-n), bad = L.slice(0, -n).filter(l => /^\s*(FAIL|ERRO|EXCE|PAGEERROR)\b|\[tempo limite|--- 2ª tentativa/.test(l)); return (bad.length ? bad.join('\n') + '\n…\n' : '') + last.join('\n'); };
 function runOne(f) {
   return new Promise((resolve) => {
     const t0 = Date.now(); let out = '';
@@ -78,7 +80,7 @@ for (const f of files) {
   if (!r.ok && RETRY) { const r2 = await runOne(f); r = r2.ok ? { ...r2, flaky: true, first: r } : { ...r2, out: r.out + '\n--- 2ª tentativa ---\n' + r2.out }; }
   results.push(r);
   console.log(r.ok ? `ok (${r.secs} s)${r.flaky ? ' — passou na 2ª tentativa' : ''}` : `FALHOU (${r.secs} s)`);
-  if (!r.ok) console.log(tail(r.out).replace(/^/gm, '    '));
+  if (!r.ok) console.log(failView(r.out).replace(/^/gm, '    '));
 }
 
 const bad = results.filter(r => !r.ok), flaky = results.filter(r => r.flaky), total = results.reduce((a, r) => a + r.secs, 0);
@@ -87,7 +89,7 @@ if (opt('--json')) fs.writeFileSync(opt('--json'), JSON.stringify(results.map(({
 if (process.env.GITHUB_STEP_SUMMARY) {
   const row = (r) => `| ${r.ok ? (r.flaky ? '⚠️ instável' : '✅') : '❌'} | \`${r.f.replace(/\.mjs$/, '')}\` | ${r.secs} s | ${r.ok ? '' : (r.fails ? r.fails + ' verificação(ões) falharam' : r.out.includes('[tempo limite') ? 'tempo limite' : 'código ' + r.code)} |`;
   const md = [`### Testes${shard ? ` — parte ${shard}` : ''}: ${results.length - bad.length} de ${results.length} passaram`, '', '| | Teste | Tempo | |', '|---|---|---|---|', ...[...bad, ...flaky, ...results.filter(r => r.ok && !r.flaky)].map(row), '',
-    ...bad.map(r => `<details><summary>❌ ${r.f}</summary>\n\n\`\`\`\n${tail(r.out, 40).replace(/```/g, "'''")}\n\`\`\`\n</details>`)].join('\n');
+    ...bad.map(r => `<details><summary>❌ ${r.f}</summary>\n\n\`\`\`\n${failView(r.out, 40).replace(/```/g, "'''")}\n\`\`\`\n</details>`)].join('\n');
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
 }
 process.exit(bad.length ? 1 : 0);

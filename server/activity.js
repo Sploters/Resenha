@@ -182,7 +182,13 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   }
 
   // ---- ganchos chamados pelas rotas ----
-  const poke = () => { if (!stopped && !running && now() - lastTickAt > 10000) setTimeout(() => tick().catch(() => { }), 200).unref?.(); };
+  // consulta logo (vinculou, ligou a visibilidade): vários pedidos juntos viram UMA consulta. Antes cada um agendava a sua
+  // para 200 ms depois (todos passavam pela checagem antes da primeira rodar) e a Steam recebia o mesmo lote várias vezes
+  let pokeTimer = null;
+  const poke = () => {
+    if (stopped || running || pokeTimer || now() - lastTickAt <= 10000) return;
+    pokeTimer = setTimeout(() => { pokeTimer = null; tick().catch(() => { }); }, 200); pokeTimer.unref?.();
+  };
   return {
     start() { stopped = false; setTimeout(() => tick().catch(() => { }), 3000).unref?.(); schedule(); },
     stop() { stopped = true; clearTimeout(timer); },

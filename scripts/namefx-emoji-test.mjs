@@ -51,6 +51,6 @@ try {
   // rola até o fim do painel: os blocos de baixo aparecem
   await p.evaluate(() => { const g = document.querySelector('.emoji-grid'); g.scrollTop = g.scrollHeight; }); await sleep(600);
   R.emojiVisibleAtEnd = await p.evaluate(() => { const g = document.querySelector('.emoji-grid'), r = g.getBoundingClientRect(); return [...g.querySelectorAll('span')].filter(s => { const b = s.getBoundingClientRect(); return b.width > 0 && b.top >= r.top && b.bottom <= r.bottom; }).length; });
-  await p.screenshot({ path: '/tmp/claude-0/-home-user/f6facd75-b8d5-4211-8830-31b422de7a9c/scratchpad/emoji-' + R.label + '.png' });
+  await p.screenshot({ path: '.testshots/emoji-' + R.label + '.png' });
 } finally { await browser.close(); srv.kill(); }
 console.log(JSON.stringify(R));
