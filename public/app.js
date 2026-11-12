@@ -228,6 +228,7 @@ function onEvent(t, d) {
   switch (t) {
     case 'READY': {
       const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
+      if (d.now) S.clockOff = d.now - Date.now(); // relógio do servidor - o deste aparelho (cronômetro da chamada vem com a hora do servidor)
       S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
@@ -829,8 +830,11 @@ function voiceCard(anchor, g) {
 }
 // cronômetro da chamada: conta desde que a sala deixou de estar vazia
 const fmtDur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, '0'); return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`; };
-const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t }, fmtDur(Date.now() - t)) : null; };
-setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur(Date.now() - +e.dataset.start); }), 1000);
+// started_at é a hora do SERVIDOR: com o relógio do PC 20 s adiantado a chamada começava em 0:20. data-srv marca os que
+// usam a hora do servidor (o "Tempo na chamada" do painel de voz usa a hora deste aparelho)
+const srvNow = () => Date.now() + (S.clockOff || 0);
+const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t, 'data-srv': '' }, fmtDur(srvNow() - t)) : null; };
+setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur((e.hasAttribute('data-srv') ? srvNow() : Date.now()) - +e.dataset.start); }), 1000);
 
 function addServerModal() {
   const name = h('input', { value: `Servidor de ${S.me.display_name}`, maxLength: 100 }), code = h('input', { placeholder: 'https://… ou código do convite' });

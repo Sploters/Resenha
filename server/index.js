@@ -1764,7 +1764,7 @@ wss.on('connection', (ws) => {
   conns.get(uid).add(ws); legacyConns.add(ws);
   ws.alive = true; ws.on('pong', () => (ws.alive = true));
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
-  { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
+  { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin(), now: Date.now() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastStatus(uid); activity.poke(); }
   if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
 

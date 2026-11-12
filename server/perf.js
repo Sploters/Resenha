@@ -93,11 +93,26 @@ export function mountPerf(app, { auth, wrap, bad, isAdmin, dataDir, notifyAdmin 
     res.json({});
   }));
 
+  // travadas do app (quadro > 1 s, com o script culpado): as últimas 60 em memória e todas em freeze.log
+  const freezes = [], freezeLog = path.join(dataDir, 'freeze.log'), str = (v, n) => String(v ?? '').slice(0, n);
+  app.post('/api/rum/freeze', auth, wrap((req, res) => {
+    const b = req.body || {}, dev = ['desktop', 'mobile', 'app'].includes(b.device) ? b.device : 'desktop';
+    for (const f of Array.isArray(b.freezes) ? b.freezes.slice(0, 30) : []) {
+      if (!f || !ok(f.ms, 600e3)) continue;
+      const x = { em: new Date().toISOString(), user: req.uid, device: dev, ms: Math.round(f.ms), bloqueio_ms: ok(f.blocking_ms, 600e3) ? Math.round(f.blocking_ms) : null, layout_ms: ok(f.layout_ms, 600e3) ? Math.round(f.layout_ms) : null,
+        tela: str(f.view, 40), chamada: !!f.call, camera: !!f.cam, tela_compartilhada: !!f.screen, ruido: str(f.noise, 20), escondida: !!f.hidden, elementos: ok(f.dom, 1e7) ? f.dom : null,
+        scripts: (Array.isArray(f.scripts) ? f.scripts.slice(0, 5) : []).map(s => ({ ms: ok(s?.ms, 600e3) ? Math.round(s.ms) : null, layout_ms: ok(s?.layout_ms, 600e3) ? Math.round(s.layout_ms) : null, invoker: str(s?.invoker, 120), fn: str(s?.fn, 80), src: str(s?.src, 80) })) };
+      rum.add(`${dev} travada`, x.ms); freezes.push(x); if (freezes.length > 60) freezes.shift();
+      fs.appendFile(freezeLog, JSON.stringify(x) + '\n', () => { });
+    }
+    res.json({});
+  }));
+
   // medidas de dentro do servidor que não são rotas HTTP (montar o READY, avisos para muita gente)
   mountPerf.time = (label, ms) => { routes.add(label, ms); if (ms > ALERT_MS) alert(label, `${label} levou ${fmt(ms)} (limite ${fmt(ALERT_MS)}).`); };
   app.get('/api/perf', auth, wrap((req, res) => {
     if (!isAdmin(req.uid)) return bad(res, 'Só o administrador da instalação', 403);
     let slow = ''; try { slow = fs.readFileSync(slowLog, 'utf8').trim().split('\n').slice(-50).join('\n'); } catch { }
-    res.json({ servidor_ms: routes.dump(), event_loop_ms: loopHist.dump(), alertas: alerts, alerta_ms: ALERT_MS, usuarios_ms: rum.dump(), lentas: slow, slow_ms: SLOW_MS, memoria_mb: Math.round(process.memoryUsage().rss / 2 ** 20), ligado_ha_min: Math.round(process.uptime() / 60) });
+    res.json({ servidor_ms: routes.dump(), event_loop_ms: loopHist.dump(), alertas: alerts, alerta_ms: ALERT_MS, usuarios_ms: rum.dump(), travadas: freezes.slice(-30), lentas: slow, slow_ms: SLOW_MS, memoria_mb: Math.round(process.memoryUsage().rss / 2 ** 20), ligado_ha_min: Math.round(process.uptime() / 60) });
   }));
 }
