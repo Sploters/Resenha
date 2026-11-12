@@ -184,6 +184,16 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       inteiro (mensagens, mensagens de voz com as barras e ouvintes), e o Descobrir segurava a própria tela depois de sair.
       Agora soltam ao trocar de tela (`releaseOldScreens`). O resto era o DevTools (o painel Elements guarda o que mostrou).
       Teste: `scripts/screen-release-test.mjs` (WeakRef + coleta de lixo; a versão anterior falha nos dois).
+- [x] ★ **Heap e timeline de outra sessão real** (2026-11-12, snapshot + 138 s de timeline de alocação). Estava bem:
+      memória JS 18–21 MB, e na timeline quase nada criado nos últimos ~45 s sobreviveu (sem vazamento contínuo); os
+      maiores blocos são código, CSS e strings externas, e o `CSSRuleSourceData` é do próprio DevTools. Mas sobravam
+      **1.716 elementos desanexados** (335 no snapshot). Separando o que o DevTools, a seleção do navegador e a pilha nativa
+      seguram (artefatos da captura), ficaram 5 retentores reais, todos telas que já tinham saído: a **galeria de clipes**
+      (`st.root`, 1.016 elementos com 30 `<video>`), os **Arquivos** (`st.root`, 109), a tela de **Amigos** (`S.redrawHome`)
+      e o painel **Ativo agora** (`S.redrawFeed` e o relógio de 30 s, que só se cancelava no tique seguinte, ~300 elementos),
+      e o **palco da chamada** pelo ResizeObserver (`observedStage`), que segurava junto o chat e o compositor ao lado.
+      Agora `releaseOldScreens` solta todos ao trocar de tela (a galeria também para os vídeos); voltar a cada tela continua
+      igual. `scripts/screen-release-test.mjs` cobre os 4 casos (a versão anterior falha em todos).
 - [x] ★ **Rede instável, servidor reiniciando e 500 reconectando** (2026-11-12).
       (1) **500 reconectando** (`scripts/reconnect-storm-test.mjs`, servidor reinicia com 500 conectadas): o app tentava de
       novo em 1, 2, 4, 8 s iguais para todos — voltavam no mesmo milissegundo e o servidor montava 500 READY de uma vez

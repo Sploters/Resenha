@@ -12,6 +12,8 @@ export const initClipsGallery = (c) => { ctx = c; };
 const st = { gid: null, filter: 'all', q: '', clips: [], total: 0, more: false, loading: false, root: null, focus: null, focusPages: 0, toTop: false };
 // "Ver na galeria" (do player em popup ou do clipe no chat): a galeria abre com aquele clipe à vista e destacado
 export function galleryFocus(id) { st.focus = id || null; st.focusPages = 0; }
+// saiu da galeria: solta a tela antiga (cartões e vídeos); os clipes carregados ficam para a volta
+export function releaseClips() { if (st.root && !st.root.isConnected) { st.root.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); }); st.root = null; } }
 const ago = (t) => { const s = (Date.now() - t) / 1000; if (s < 60) return 'agora'; if (s < 3600) return `há ${Math.floor(s / 60)} min`; if (s < 86400) return `há ${Math.floor(s / 3600)} h`; const d = Math.floor(s / 86400); return d < 30 ? `há ${d} d` : new Date(t).toLocaleDateString('pt-BR'); };
 const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 const canEdit = (c) => c.author.id === S.me.id || can(c.guild_id, PERM.MANAGE_MESSAGES);

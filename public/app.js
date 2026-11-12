@@ -34,12 +34,18 @@ const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobri
 // Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
 // lista de membros segurava o #members antigo — e, por ele, o chat antigo inteiro (~600 elementos, mensagens de voz com
 // as barras e os ouvintes) —; o Descobrir segurava a própria tela depois de sair dela. Uma tela de cada vez, mas à toa.
+// Heap e timeline de outra sessão real (2026-11-12): também ficavam presas a galeria de clipes (st.root, ~1.000 elementos
+// com 30 <video>), os Arquivos (st.root), a tela de Amigos (S.redrawHome) e a de atividade (S.redrawFeed) pelos redesenhos
+// guardados, e o palco de chamada antigo pelo ResizeObserver (observedStage, que segurava junto o chat e o compositor).
 function releaseOldScreens() {
   if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
-  discoverMod?.release();
+  discoverMod?.release(); releaseClips(); releaseFiles();
+  if (S.redrawHome && !document.getElementById('home')) S.redrawHome = null;
+  if (!document.getElementById('actfeed')) { S.redrawFeed = null; clearInterval(S.feedClock); S.feedClock = null; } // o relógio de 30 s do "Ativo agora" segurava o painel até o próximo tique
+  if (observedStage && !observedStage.isConnected) { stageObs.unobserve(observedStage); observedStage = null; }
 }
-import { initFiles, renderFiles, filesPreset, onFilesMessage } from './files.js';
-import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip } from './clipsgallery.js';
+import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles } from './files.js';
+import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
