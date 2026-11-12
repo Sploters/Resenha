@@ -3,6 +3,7 @@
 import { h, icon, avatar } from './util.js';
 import { S, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
 import { toggle } from './ui.js';
+import { gamesTabs } from './gamestabs.js';
 import { playSound } from './sounds.js';
 
 let ctx = {}; // injetado por app.js: go, profile(anchor, uid)
@@ -58,7 +59,7 @@ function draw() {
     games.map(x => h('button.lchip' + (st.game === x.id ? '.on' : ''), { style: { '--gc': x.color }, onclick: () => { st.game = x.id; draw(); } }, h('i'), x.name)));
   const links = (g ? [g] : games).flatMap(x => x.links.map(l => ({ ...l, game: x.name })));
   root.replaceChildren(
-    h('div#topbar', h('span.hash', icon('gamepad', 24)), h('span', 'Procurar jogadores'), h('span.topic', 'Anúncios de quem divide servidor com você ou é seu amigo'),
+    h('div#topbar', ...gamesTabs('lfg'),
       h('div.spacer'),
       h('button.btn.grey.sm', { onclick: () => profileModal() }, icon('edit', 16), 'Meu perfil de jogador'),
       h('button.btn.green.sm', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio')),

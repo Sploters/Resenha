@@ -1,4 +1,4 @@
-// Aba "Descobrir" (Home, abaixo de Procurar jogadores), em 3 abas:
+// Descobrir: abas Início, Notícias e Torneios da tela Jogos (ao lado de Procurar jogadores, gamestabs.js):
 // - Início: seções (Para você, Na Steam, Promoções, Lançamentos, Torneios, Notícias); cada uma é um carrossel
 //   horizontal (3 cartões visíveis, até 12) e "Ver tudo" abre a lista completa. "Para você" junta o que combina com os interesses da pessoa (jogos e
 //   assuntos que ela escolhe), salvos na conta junto com as outras preferências.
@@ -7,6 +7,7 @@
 // O servidor busca as fontes (server/discover.js); aqui só mostramos.
 import { h, icon } from './util.js';
 import { S, api, savePrefs } from './state.js';
+import { gamesTabs, takeDiscoverTab } from './gamestabs.js';
 
 const TABS = [['home', 'Início'], ['news', 'Notícias'], ['tournaments', 'Torneios']];
 const ALL = ['charts', 'deals', 'upcoming', 'tournaments', 'news'];
@@ -274,8 +275,7 @@ function draw() {
   const typing = document.activeElement?.name === 'discover-interest' ? document.activeElement.value : null;
   const body = st.tab === 'news' ? newsTab() : st.tab === 'tournaments' ? tournamentsTab() : homeTab();
   root.replaceChildren(
-    h('div#topbar', h('span.hash', icon('compass', 24)), h('span', 'Descobrir'),
-      h('div.dtabs', TABS.map(([k, l]) => h('button.dtab' + (st.tab === k ? '.on' : ''), { onclick: () => goTab(k) }, l))),
+    h('div#topbar', ...gamesTabs(st.tab, goTab),
       h('div.spacer'), h('button.ibtn', { title: 'Atualizar', onclick: () => (st.tab === 'home' ? ALL : [st.tab]).forEach(k => load(k, true)) }, icon('refresh', 20))),
     h('div.dbodywrap', ...[body].flat().filter(Boolean)));
   const wrap = root.querySelector('.dbodywrap'); if (wrap && scroll) wrap.scrollTop = scroll;
@@ -286,6 +286,7 @@ function draw() {
 // saiu da tela: solta a tela antiga (dados e escolhas ficam para a volta)
 export function release() { if (st.root && !st.root.isConnected) { st.root = null; dirty.clear(); drawAll = false; if (drawQ) { cancelAnimationFrame(drawQ); drawQ = 0; } } }
 export function renderDiscover(main) {
+  { const t = takeDiscoverTab(); if (TABS.some(([k]) => k === t)) { st.tab = t; st.page = 1; } } // aba escolhida no mural de jogadores
   st.root = h('div#discoverview'); main.replaceChildren(st.root); st.sy = 0; st.sx = {};
   st.root.addEventListener('scroll', (e) => { const t = e.target; if (t.classList?.contains('dbodywrap')) st.sy = t.scrollTop; else if (t.dataset?.rail) st.sx[t.dataset.rail] = t.scrollLeft; }, { capture: true, passive: true });
   ensure(); draw();

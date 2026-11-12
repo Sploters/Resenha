@@ -1094,9 +1094,9 @@ html.anim .appupd { animation: lc-pop .25s cubic-bezier(.2, .9, .3, 1.15); }
 /* ---------- Descobrir (discover.js): notícias, promoções, lançamentos e "Para você" ---------- */
 #discoverview { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--bg-pri, #313338); }
 #discoverview #topbar { flex: none; gap: 10px; } #discoverview #topbar .spacer { flex: 1; }
-#discoverview .dtabs { display: flex; gap: 2px; margin-left: 6px; }
-#discoverview .dtab { border: 0; background: none; color: var(--interactive); font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-#discoverview .dtab:hover { color: var(--header); background: var(--bg-mod-hover); } #discoverview .dtab.on { color: var(--header); background: var(--bg-mod-sel, #404249); }
+#discoverview .dtabs, #lfgview .dtabs { display: flex; gap: 2px; margin-left: 6px; }
+#discoverview .dtab, #lfgview .dtab { border: 0; background: none; color: var(--interactive); font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+#discoverview .dtab:hover, #lfgview .dtab:hover { color: var(--header); background: var(--bg-mod-hover); } #discoverview .dtab.on, #lfgview .dtab.on { color: var(--header); background: var(--bg-mod-sel, #404249); }
 #discoverview .dbodywrap { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
 #discoverview .dsec { display: flex; align-items: center; gap: 8px; margin: 22px 0 12px; font-size: 16px; color: var(--header); } #discoverview .dsec svg { fill: currentColor; color: var(--interactive); }
 #discoverview .dsec:first-child { margin-top: 4px; }
@@ -1562,3 +1562,9 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .pingpop .abrsec-h b { font-size: 12px; color: var(--header); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pingpop .abrsec .seg { flex-wrap: wrap; } .pingpop .abrsec .seg button { flex: 1 1 30%; }
 .pingpop .abrsec .hintline { margin-top: 6px; font-size: 12px; line-height: 1.35; color: var(--text-muted); }
+/* seção Jogos: Procurar jogadores e Descobrir na mesma tela, abas com ícone (gamestabs.js) */
+.gtabs .dtab { display: inline-flex; align-items: center; gap: 6px; }
+.gtabs .dtab .icon { fill: currentColor; flex: none; }
+.gtitle { font-weight: 600; color: var(--header); }
+#lfgview #topbar, #discoverview #topbar { overflow-x: auto; scrollbar-width: none; }
+@media (max-width: 640px) { .gtitle { display: none; } .gtabs .dtab span { display: none; } .gtabs .dtab.on span { display: inline; } }

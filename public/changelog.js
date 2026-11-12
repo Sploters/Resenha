@@ -9,8 +9,8 @@ export const NEWS = [
     id: '2026-11-12-1', title: 'Mensagens e Amigos juntos',
     items: [
       { i: 'users', t: 'Uma lista de amigos só', d: 'Online e Todos viraram uma lista única, separada em Pedidos, Online e Offline. Clique no nome do grupo para recolher ou expandir, como na lista de membros dos servidores; a escolha fica salva.' },
-      { i: 'dm', t: 'Mensagens e Amigos na mesma tela', d: 'Não há mais as abas Mensagens | Amigos: a lista da esquerda mostra "Amigos" no topo e as suas conversas embaixo, e o meio mostra os amigos e o "Ativo agora".', try: 'messages' },
-      { i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores e Descobrir ganharam uma seção própria: o ícone de controle na barra dos servidores, logo abaixo de "Adicionar um servidor".', try: 'lfg' },
+      { i: 'dm', t: 'Mensagens e Amigos na mesma tela', d: 'Não há mais as abas Mensagens | Amigos: a lista da esquerda mostra só as suas conversas, e o meio mostra os amigos e o "Ativo agora". Para voltar aos amigos, use o ícone de Mensagens na barra dos servidores.', try: 'messages' },
+      { i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores e Descobrir viraram uma tela só, com abas no topo (Procurar jogadores, Início, Notícias, Torneios). Fica no ícone de controle da barra dos servidores, logo abaixo de "Adicionar um servidor".', try: 'lfg' },
     ],
   },
   {

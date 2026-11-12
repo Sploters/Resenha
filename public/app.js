@@ -933,14 +933,13 @@ function renderSide() {
     // seção Jogos: própria, como um servidor (antes ficava dentro de Amigos)
     head = h('div#side-head.sh-plain', h('span.sh-title', 'Jogos'));
     list = h('div#side-list',
-      h('div.ch.lfgrow-side' + (S.view.kind === 'lfg' ? '.active' : ''), { onclick: () => go('@me', 'lfg'), title: 'Anúncios para fechar o squad' }, icon('gamepad'), h('span.name', 'Procurar jogadores')),
-      h('div.ch.lfgrow-side' + (S.view.kind === 'discover' ? '.active' : ''), { onclick: () => go('@me', 'discover'), title: 'Notícias, promoções, lançamentos e torneios de jogos' }, icon('compass'), h('span.name', 'Descobrir')));
+      // uma entrada só: Procurar jogadores e Descobrir viraram abas da mesma tela (gamestabs.js)
+      h('div.ch.lfgrow-side.active', { onclick: () => openGames(), title: 'Procurar jogadores, novidades, promoções e torneios' }, icon('gamepad'), h('span.name', 'Jogos')));
   } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
     // com buscar, nova mensagem e ordenar; fixadas no topo
     const btn = (ic, title, fn, on) => h('button.sh-btn' + (on ? '.on' : ''), { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 20));
     head = h('div#side-head.sh-plain', h('span.sh-title', 'Mensagens'), btn('plus', 'Nova mensagem', () => newMessageModal()));
-    const pending = [...S.rels.values()].filter(r => r.type === 3).length;
     const SORT_L = { recent: 'Mais recentes', unread: 'Não lidas', name: 'Nome (A–Z)' };
     const tools = h('div.dm-tools', h('button.dm-sort', { type: 'button', title: 'Ordenar conversas', onclick: (e) => dmSortMenu(e) }, icon('sort', 18), h('span', SORT_L[S.prefs.dmSort || 'recent'])),
       btn('search', 'Buscar conversa', () => { dmFind.open = !dmFind.open; if (!dmFind.open) dmFind.q = ''; renderSide(); if (dmFind.open) setTimeout(() => $('#dm-q')?.focus()); }, dmFind.open));
@@ -948,7 +947,6 @@ function renderSide() {
     const all = sortedDMs().filter(d => !q || (user(dmPeer(d).id).display_name + ' ' + user(dmPeer(d).id).username).toLowerCase().includes(q));
     const pins = pinnedDMs(), pinned = pins.map(id => all.find(d => dmPeer(d)?.id === id)).filter(Boolean), rest = all.filter(d => !pinned.includes(d));
     list = h('div#side-list.dmlist',
-      h('div.ch.friendsrow' + (S.view.kind === 'home' ? '.active' : ''), { onclick: () => go('@me'), title: 'Seus amigos, pedidos de amizade e o que estão fazendo agora' }, icon('users'), h('span.name', 'Amigos'), pending > 0 && h('span.pill', pending)),
       tools,
       dmFind.open && h('label.dm-q', icon('search', 14), h('input#dm-q', { type: 'search', placeholder: 'Buscar por nome', value: dmFind.q, oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120), onkeydown: (e) => { if (e.key === 'Escape') { dmFind.open = false; dmFind.q = ''; renderSide(); } } })),
       pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Fixadas'), ...pinned.map(d => dmRow(d, true)),

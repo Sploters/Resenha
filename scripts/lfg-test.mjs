@@ -61,8 +61,7 @@ try {
 
   // ---------- navegador ----------
   const A = await page(a.tok), B = await page(b.tok), C = await page(c.tok);
-  ok(await B.evaluate(() => [...document.querySelectorAll('#side-list .ch')].some(x => x.textContent.includes('Procurar jogadores'))), 'entrada "Procurar jogadores" logo abaixo de "Amigos"');
-  for (const X of [A, B, C]) await X.evaluate(() => [...document.querySelectorAll('#side-list .ch')].find(x => x.textContent.includes('Procurar jogadores')).click());
+  for (const X of [A, B, C]) await X.evaluate(() => window.__lc.go('@me', 'lfg')); // seção Jogos, aba Procurar jogadores
   await B.waitForSelector('#lfgview .lfgcard', { timeout: 5000 }).catch(() => { });
   const cardB = await B.evaluate(() => { const c = document.querySelector('#lfgview .lfgcard'); return c && { t: c.textContent, stat: c.querySelector('.lfgwho .lfgstat')?.href }; });
   ok(/Precisa de 2/.test(cardB?.t) && /Ouro – Platina/.test(cardB.t) && /Alice#BR1 · Platina/.test(cardB.t) && /Agora/.test(cardB.t) && /call tranquila/.test(cardB.t), 'cartão: vagas, faixa de elo, perfil do autor, agora e recado', cardB?.t?.slice(0, 160));
