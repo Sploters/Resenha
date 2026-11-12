@@ -7,7 +7,7 @@ const srv=spawn('node',['server/index.js'],{env:{...process.env,PORT,HTTPS:'0',D
 const call=(tok,m,p,b)=>fetch(BASE+'/api'+p,{method:m,headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
 const reg=async(n)=>{const r=await call('','POST','/register',{username:n,password:'senha123'});await call(r.token,'PATCH','/me',{});return r.token};
 const meta=JSON.parse(fs.readFileSync(D+'/load.json','utf8')); const a='load-0', g={id:meta.guild}; const bs=Array.from({length:30},(_,i)=>'load-'+(i+1));
-const br=await puppeteer.launch({executablePath:'/opt/pw-browsers/chromium-1243/chrome-linux64/chrome',headless:'new',args:['--no-sandbox']}); const p=await br.newPage(); await p.setViewport({width:1440,height:900});
+const br=await puppeteer.launch({executablePath: process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome',headless:'new',args:['--no-sandbox']}); const p=await br.newPage(); await p.setViewport({width:1440,height:900});
 await p.evaluateOnNewDocument(t=>{localStorage.lc_token=t},a); await p.goto(BASE); await p.waitForSelector('#rail .rail-wrap');
 const ch=meta.channels[7]; await p.evaluate((g,c)=>window.__lc.go(g,c),g.id,ch); await sleep(1500);
 let rej=0; for(let i=0;i<300;i++){ const r=await call(bs[i%30],'POST',`/channels/${ch}/messages`,{content:'msg '+i}); if(!r.id){rej++; if(rej<3) console.log('rejeitada',i,JSON.stringify(r));} await sleep(25); } console.log('rejeitadas',rej, 'S.messages', await p.evaluate(c=>window.__lc.S.messages.get(c)?.length,ch));

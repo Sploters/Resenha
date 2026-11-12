@@ -1,0 +1,91 @@
+# Verificação automática a cada atualização.
+# - Toda vez que algo é enviado (qualquer branch) e em todo pull request: verificação rápida de sintaxe de todo o JS
+#   (npm run check, ~1 min). Pega arquivo quebrado antes de chegar ao servidor.
+# - Ao enviar para a main, em pull requests e quando alguém pede (aba Actions → "Testes" → Run workflow): todos os testes
+#   de ponta a ponta (scripts/run-tests.mjs, a lista fica em scripts/tests.json), divididos em 3 máquinas que rodam ao mesmo
+#   tempo (~15 min). Em outra branch, ponha [testes] na mensagem do commit para rodar tudo também.
+#   Em cada máquina os testes vão um por vez, porque vários usam a mesma porta e o servidor de voz.
+#   Teste que falha roda de novo uma vez; se passar na 2ª, aparece como "instável" no resumo, mas não reprova.
+# O resultado aparece no commit (✅/❌), no pull request e na página da execução, com uma tabela de cada teste e o fim
+# da saída dos que falharam.
+name: Testes
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+# um envio novo na mesma branch cancela a verificação antiga dela (economiza minutos)
+concurrency:
+  group: testes-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sintaxe:
+    name: Sintaxe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verificar a sintaxe de todo o JS (servidor, app, desktop, scripts)
+        run: node scripts/check.mjs
+
+  testes:
+    name: Testes (parte ${{ matrix.parte }} de 3)
+    needs: sintaxe
+    # no push: só na main, ou em qualquer branch com [testes] na mensagem do commit (para testar antes de levar para a main)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[testes]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3]
+    env:
+      # navegador dos testes: o Chrome que já vem na máquina do GitHub
+      BROWSER: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Programas usados pelos testes (ffmpeg, tela virtual, yt-dlp)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg xvfb > /dev/null
+          pipx install yt-dlp
+          echo "YTDLP_PATH=$(command -v yt-dlp)" >> "$GITHUB_ENV"
+
+      - name: Dependências do servidor
+        run: npm ci --no-audit --no-fund
+
+      - name: Dependências do app desktop (Electron, para os testes do app)
+        working-directory: desktop
+        run: |
+          npm ci --no-audit --no-fund
+          # o binário do Electron vem num passo de instalação que às vezes é pulado: garante que está lá
+          test -f node_modules/electron/path.txt || node node_modules/electron/install.js
+
+      # programa da transmissão nativa (Rust): a compilação fica guardada entre execuções
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/lc-stream/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('native/lc-stream/Cargo.lock') }}
+
+      - name: Rodar os testes (parte ${{ matrix.parte }} de 3)
+        run: node scripts/run-tests.mjs --shard ${{ matrix.parte }}/3

@@ -79,7 +79,9 @@ export function openTrimmer(src, opts = {}) {
     if (!dur) { lab.textContent = 'Não consegui ler a duração deste vídeo.'; return; }
     a = 0; b = dur; paint();
     if (local) filmstrip(url, dur, 10, strip);
-    else { const img = h('img.trsprite', { src: src.strip(dur / 1000), alt: '', onload: () => strip.replaceChildren(img) }); } // faixa pronta do servidor (uma imagem)
+    // faixa pronta do servidor (uma imagem). loading 'eager': h() cria imagens com loading=lazy, e uma imagem preguiçosa fora da
+    // página nunca carrega (esta só entra na página no onload) — a linha do tempo ficava com os quadros vazios
+    else { const img = h('img.trsprite', { src: src.strip(dur / 1000), alt: '', loading: 'eager', onload: () => strip.replaceChildren(img) }); }
   });
   if (!local) src.keys().then((k) => { keysAt = k || []; paint(); }).catch(() => { });
   paint();

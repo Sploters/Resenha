@@ -16,7 +16,7 @@ for (const t of [A.token, B.token]) await call(t, 'PATCH', '/me', {});
 const g = await call(A.token, 'POST', '/guilds', { name: 'Abuso' });
 const inv = await call(A.token, 'POST', `/guilds/${g.id}/invites`, {});
 await call(B.token, 'POST', `/invites/${inv.code}`, {});
-const br = await puppeteer.launch({ executablePath: '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome', headless: 'new', protocolTimeout: 60000, args: ['--no-sandbox'] });
+const br = await puppeteer.launch({ executablePath: process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome', headless: 'new', protocolTimeout: 60000, args: ['--no-sandbox'] });
 const p = await br.newPage(); await p.setViewport({ width: 1440, height: 900 });
 await p.evaluateOnNewDocument(t => { localStorage.lc_token = t; }, A.token);
 await p.goto(BASE); await p.waitForSelector('#rail .rail-wrap', { timeout: 90000 });

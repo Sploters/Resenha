@@ -183,7 +183,7 @@ try {
   await B.evaluate((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(), a.id); await sleep(400); await clickCtl(B);
   await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Permitir').click()); await toastOf(B, 'liberou');
-  await A.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(x => /Parar transmissão/i.test(x.title))?.click()); await sleep(500);
+  await A.evaluate(() => document.querySelector('button.stopshare')?.click()); // botão vermelho de parar (o título já mudou de texto) await sleep(500);
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => /Parar transmissão/.test(x.textContent))?.click());
   ok(await toastOf(B, 'alice parou de transmitir'), 'dono parou de transmitir: sessão acaba e bob é avisado');
   ok(await A.evaluate(() => window.__rstop >= 3), 'app da alice desarmado ao parar de transmitir');
