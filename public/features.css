@@ -1541,3 +1541,7 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .gifpicker .gfoot .gsrc { margin-left: auto; display: inline-flex; gap: 2px; background: var(--bg-ter, rgba(127,127,127,.15)); border-radius: 6px; padding: 2px; }
 .gifpicker .gfoot .gsrc button { border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
 .gifpicker .gfoot .gsrc button.on { background: var(--bg-float, #fff2); color: var(--text); }
+/* sugestão do modo leve (processador no limite): o aviso de baixo com botões */
+#toast.lite-sug { display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 14px 10px 16px; border-left-color: var(--yellow, #f0b232); }
+#toast.lite-sug .lite-sug-b { display: flex; gap: 6px; flex-shrink: 0; }
+@media (max-width: 560px) { #toast.lite-sug { flex-direction: column; align-items: stretch; } }

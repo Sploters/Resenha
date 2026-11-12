@@ -69,8 +69,25 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       e pausada se a sala não está na tela. "Pausar vídeo fora da tela" desligado e janela flutuante (PiP) mantêm tudo.
       Medido (`scripts/cam-flow-test.mjs`, 2 câmeras falsas de 1280x720): grade de 2 **1.577 → 296 kbps (−81%)**; em outro
       canal ou janela escondida **~1.600 → 0 kbps**; câmera em destaque pede uma camada maior e a miniatura a menor.
-- [ ] CPU de cada filtro de ruído; modo leve sugerir um mais leve quando o processador estiver no limite.
-- [ ] Medir a gravação contínua dos clipes (F8) e a cifra quadro a quadro das chamadas protegidas.
+- [x] ★ **CPU de cada filtro de ruído e sugestão de um mais leve** (2026-11-12, `scripts/noise-cpu.mjs` → `noise-cpu.json`;
+      `lite.js startPressureWatch`, teste `scripts/noise-suggest-test.mjs`). O microfone do app (`createMic`) com um microfone
+      falso tocando fala com chiado, 15 s por modo, 2 rodadas alternadas, Xeon 2,1 GHz de 4 núcleos, % de um núcleo além de
+      "Nenhuma": **Leve (navegador) +0,2**, **Forte/RNNoise +3,0**, **Máxima/GTCRN +7,6** (a IA roda na thread de áudio da
+      página: 4,1 e 8,0%). Os textos das opções e do "Consumo agora" mostram isso. Em chamada com uma das IAs e o
+      processador **no limite** (pressão de CPU do sistema, `PressureObserver`, em "serious"/"critical" por 15 s seguidos —
+      jogo, transmissão, PC fraco) aparece "Seu processador está no limite… Trocar para Forte/Leve | Agora não": GTCRN →
+      RNNoise → navegador, o microfone é refeito sem sair da sala, uma vez por filtro por sessão; com a janela escondida
+      (jogando) espera ela voltar. O modo leve automático do jogo continua sem mexer no ruído sozinho: assim a pessoa decide.
+      Navegador sem `PressureObserver`: não sugere.
+- [x] ★ **Gravação contínua dos clipes e cifra das chamadas protegidas, medidas** (2026-11-12, `scripts/media-cpu.mjs` →
+      `media-cpu.json`, 15 s × 3 rodadas alternadas, mesma máquina). **Clipes**: uma transmissão 1080p 30 fps assistida
+      custa 10,9% sem o buffer e **29,1% com ele (+18,2% de um núcleo por transmissão)** — o MediaRecorder recomprime em
+      H.264 por software (Chromium sem codificador da placa; no Windows o Chrome/Electron costuma usar o da placa e pesa bem
+      menos, falta medir lá); a ~6 Mb/s o buffer cheio (65 s) ocupa **~48 MB** por transmissão. O modo leve já desliga
+      (e o "Consumo agora" agora diz o custo); o buffer só existe para transmissões assistidas. **Cifra quadro a quadro**:
+      câmera 720p + microfone indo e voltando (quem envia cifra, quem recebe decifra; 140 quadros/s, ~720 kbps):
+      **35,4% → 39,2% (+3,7%)**, dos quais o worker da cifra é **2,2%** (~0,15 ms por quadro) e o resto é levar os quadros
+      até ele; nenhum quadro perdido, mesmo fps e taxa. Barato o bastante para ficar sempre ligado nas conversas protegidas.
 
 ## Rede e servidor
 - [x] ★ **Presença só para quem está olhando o servidor** (2026-11-11). O app manda `VIEW` (servidor na tela; nenhum
@@ -115,8 +132,24 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `VIEW` → 5 sincronizações de presença; 50 "digitando…" → 4; 6.000 mensagens → conexão fechada, as outras de pé.
 
 ## App desktop
-- [ ] Jogo em tela cheia por cima da janela contar como "escondida" (o `lc-audio` sabe a janela da frente).
-- [ ] Desaceleração da janela também em chamada quando escondida.
+- [x] ★ **Jogo em tela cheia por cima da janela conta como "escondida"** (2026-11-12, `native/lc-audio --front`,
+      `desktop/frontwatch.js`, teste `scripts/frontwatch-test.mjs`). O `lc-audio` ganhou um modo que fica aberto e olha a
+      janela da frente 1x/s (`GetForegroundWindow`, custo desprezível): se é de outro programa, não está minimizada, não é a
+      área de trabalho/barra de tarefas, está no **mesmo monitor** da Resenha e cobre o monitor inteiro (tela cheia ou sem
+      bordas; coordenadas sem virtualização de DPI), avisa `covered`. O `main.js` soma isso ao "escondida" que a página já
+      recebe (`win-state`), então tudo que pausa com a janela minimizada pausa também com o jogo na frente (vídeo das
+      transmissões e câmeras no servidor, "falando", presença do servidor na tela). Voltar o foco para a Resenha descobre na
+      hora (não espera a leitura). Jogo em outro monitor: continua à vista. Programa velho sem `--front`: desiste depois de 3
+      tentativas e fica como antes; programa que cai é reaberto. **Precisa de um app desktop novo** (o `lc-audio.exe` foi
+      recompilado com `cargo build --release --target x86_64-pc-windows-gnu`); não testado num Windows de verdade ainda.
+- [x] ★ **Desaceleração da janela também em chamada** (2026-11-12, `lite.js throttleWanted`, testes `scripts/lite-test.mjs`
+      e `scripts/call-throttle-test.mjs`). Com o modo leve, a economia em segundo plano agora vale em chamada; fica de fora só
+      quem está transmitindo (os medidores da transmissão rodam a cada 1–3 s). Medido no Chromium com a aba de quem está na
+      call escondida, 20 s, com e sem a desaceleração: a voz chega e sai igual, mensagens chegam pelo gateway, ao voltar a
+      tela e o "falando" se atualizam em < 1,5 s. **Achado**: com o microfone capturando, o Chromium não desacelera os timers
+      de jeito nenhum (seguiram a 10x/s mesmo com todos mudos), e a página escondida em chamada já gasta só **~2–3 ms/s**
+      (0,2–0,3% de um núcleo) porque pausa vídeo, "falando" e desenho sozinha — então o ganho é pequeno (2,3 → 2,0 ms/s).
+      O que mais pesa com o jogo aberto está no item acima (ser tratada como escondida).
 
 ## Testes de brechas
 - [x] ★ **PC fraco + resposta a cliques (INP)** (2026-11-11, `scripts/perf-inp.mjs`, CPU 6x mais lenta, 300 membros):

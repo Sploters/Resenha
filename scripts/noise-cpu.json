@@ -1,0 +1,32 @@
+{
+  "secs": 15,
+  "rounds": 2,
+  "cores": 4,
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "modes": {
+    "off": {
+      "total": 3.7,
+      "worklet": 0.93,
+      "audioSvc": 2.6,
+      "extra": 0
+    },
+    "standard": {
+      "total": 3.92,
+      "worklet": 0.87,
+      "audioSvc": 2.9,
+      "extra": 0.22
+    },
+    "rnnoise": {
+      "total": 6.7,
+      "worklet": 4.06,
+      "audioSvc": 2.56,
+      "extra": 3
+    },
+    "gtcrn": {
+      "total": 11.26,
+      "worklet": 7.99,
+      "audioSvc": 2.46,
+      "extra": 7.56
+    }
+  }
+}

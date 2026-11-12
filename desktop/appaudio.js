@@ -197,4 +197,4 @@ async function sourceState(sourceId) {
   return { kind: 'window', exists: !!w, minimized: !!w?.minimized, title: w?.title || '' };
 }
 
-module.exports = { capable, listWindows, detectGame, start, stop, shutdown: stop, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };
+module.exports = { helperPath, capable, listWindows, detectGame, start, stop, shutdown: stop, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };

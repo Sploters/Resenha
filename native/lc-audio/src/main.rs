@@ -6,13 +6,18 @@
 //! Modos:
 //!   --probe     {"ok":bool,"build":n}  (o loopback por processo existe neste Windows?)
 //!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen"}...] (uma linha JSON)
+//!   --front <hwnd> [ms]  vigia a janela da frente a cada `ms` (padrão 1000): uma linha JSON quando muda,
+//!               {"covered":bool,"pid"?,"exe"?}. covered = outra janela (de outro programa) está em primeiro plano cobrindo
+//!               o monitor inteiro onde está a janela `hwnd` (jogo em tela cheia ou sem bordas por cima da Resenha).
+//!               Encerra quando a entrada padrão fecha ou recebe "stop".
 //!   --icon <exe> {"png": base64, "w", "h"} — ícone grande do programa (256 px quando existe, senão 48), sem a margem vazia
 //!   --capture   lê a configuração (JSON, 1 linha) da entrada padrão: {"pid":n,"mode":"include"|"exclude"}
 //!               include = só esse processo e os filhos dele (o jogo); exclude = tudo menos ele e os filhos (a Resenha).
 //!               Saída padrão: PCM float32 little-endian, 48 kHz, estéreo, intercalado (binário, sem cabeçalho).
 //!               Erro padrão: eventos JSON por linha: {"t":"started"} | {"t":"error","error":"..."}.
 //!               Encerra quando a entrada padrão fecha ou recebe "stop".
-//! Fora do Windows (testes): --capture gera um tom de 440 Hz e --windows devolve uma lista fixa.
+//! Fora do Windows (testes): --capture gera um tom de 440 Hz, --windows devolve uma lista fixa e --front lê o estado
+//! do arquivo em LC_FRONT_TEST ("1" = coberta).
 
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,6 +42,25 @@ fn main() {
     let has = |f: &str| args.iter().any(|a| a == f);
     if has("--probe") { println!("{}", sys::probe()); return; }
     if has("--windows") { println!("{}", sys::windows()); return; }
+    if let Some(i) = args.iter().position(|a| a == "--front") {
+        let hwnd: isize = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let ms: u64 = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(1000).clamp(200, 10_000);
+        let stop = Arc::new(AtomicBool::new(false));
+        watch_stdin(stop.clone());
+        sys::dpi_aware();
+        let mut last = String::new();
+        while !stop.load(Ordering::SeqCst) {
+            let v = sys::front(hwnd).to_string();
+            if v != last {
+                let mut o = std::io::stdout().lock();
+                if writeln!(o, "{v}").and_then(|_| o.flush()).is_err() { break; }
+                last = v;
+            }
+            // dorme em passos curtos para sair logo quando a entrada fecha
+            let mut left = ms; while left > 0 && !stop.load(Ordering::SeqCst) { let d = left.min(100); std::thread::sleep(std::time::Duration::from_millis(d)); left -= d; }
+        }
+        return;
+    }
     if let Some(i) = args.iter().position(|a| a == "--icon") {
         let out = match args.get(i + 1).map(|p| sys::icon_rgba(p)) {
             Some(Ok((w, h, px))) => serde_json::json!({ "png": png_b64(w, h, &px), "w": w, "h": h }),
@@ -57,7 +81,7 @@ fn main() {
         if let Err(e) = sys::capture(pid, include, stop) { emit_err(serde_json::json!({ "t": "error", "error": e })); std::process::exit(1); }
         return;
     }
-    eprintln!("uso: lc-audio --probe | --windows | --capture  (ver o cabeçalho de src/main.rs)");
+    eprintln!("uso: lc-audio --probe | --windows | --front <hwnd> | --capture  (ver o cabeçalho de src/main.rs)");
     std::process::exit(2);
 }
 
@@ -100,6 +124,11 @@ mod sys {
     pub fn windows() -> serde_json::Value {
         serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true }])
     }
+    pub fn dpi_aware() {}
+    pub fn front(_hwnd: isize) -> serde_json::Value {
+        let on = std::env::var_os("LC_FRONT_TEST").and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim() == "1").unwrap_or(false);
+        if on { serde_json::json!({ "covered": true, "pid": 42, "exe": "C:\\Games\\Teste\\teste.exe" }) } else { serde_json::json!({ "covered": false }) }
+    }
     /// tom de teste (440 Hz, -12 dB) no mesmo formato da captura real, em tempo real
     pub fn capture(_pid: u32, _include: bool, stop: Arc<AtomicBool>) -> Result<(), String> {
         emit_err(serde_json::json!({ "t": "started", "rate": RATE, "channels": CH }));
@@ -135,6 +164,7 @@ mod sys {
     use windows::Win32::System::Threading::{CreateEventW, OpenProcess, QueryFullProcessImageNameW, SetEvent, WaitForSingleObject, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
     use windows::Win32::System::Variant::VT_BLOB;
     use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 
     // ---------- versão do Windows (RtlGetVersion não mente como GetVersionEx) ----------
     #[repr(C)]
@@ -184,6 +214,38 @@ mod sys {
         let mut out: Vec<serde_json::Value> = Vec::new();
         unsafe { let _ = EnumWindows(Some(each), LPARAM(&mut out as *mut _ as isize)); }
         serde_json::Value::Array(out)
+    }
+
+    // ---------- a janela da frente cobre a da Resenha? ----------
+    // coordenadas reais (sem a virtualização de DPI): retângulo da janela e do monitor na mesma escala
+    pub fn dpi_aware() { unsafe { let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); } }
+    pub fn front(ours: isize) -> serde_json::Value {
+        let no = serde_json::json!({ "covered": false });
+        if ours == 0 { return no; }
+        unsafe {
+            let me = HWND(ours as *mut core::ffi::c_void);
+            if !IsWindow(Some(me)).as_bool() { return no; }
+            let fg = GetForegroundWindow();
+            if fg.is_invalid() || fg == me || GetAncestor(fg, GA_ROOTOWNER) == me { return no; }
+            let (mut pf, mut pm) = (0u32, 0u32);
+            GetWindowThreadProcessId(fg, Some(&mut pf)); GetWindowThreadProcessId(me, Some(&mut pm));
+            if pf == 0 || pf == pm || pf == std::process::id() { return no; } // janela da própria Resenha (outra janela, aviso do clipe)
+            if IsIconic(fg).as_bool() || !IsWindowVisible(fg).as_bool() { return no; }
+            // área de trabalho e barra de tarefas também têm o tamanho do monitor
+            let mut c = [0u16; 64]; let n = GetClassNameW(fg, &mut c); let cls = String::from_utf16_lossy(&c[..n.max(0) as usize]);
+            if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") { return no; }
+            let mut cloaked = 0u32;
+            if DwmGetWindowAttribute(fg, DWMWA_CLOAKED, &mut cloaked as *mut _ as *mut _, 4).is_ok() && cloaked != 0 { return no; }
+            // mesmo monitor (o da maior parte da janela) e cobrindo ele inteiro
+            let mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            if mon != MonitorFromWindow(me, MONITOR_DEFAULTTONEAREST) { return no; }
+            let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let mut r = RECT::default();
+            if !GetMonitorInfoW(mon, &mut mi).as_bool() || GetWindowRect(fg, &mut r).is_err() { return no; }
+            let m = mi.rcMonitor;
+            if r.left > m.left || r.top > m.top || r.right < m.right || r.bottom < m.bottom { return no; }
+            serde_json::json!({ "covered": true, "pid": pf, "exe": exe_of(pf) })
+        }
     }
 
     // ---------- ícone grande do programa ----------

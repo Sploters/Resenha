@@ -28,6 +28,7 @@
       "build/icon.ico",
       "native.js",
       "clipflash.js",
+      "frontwatch.js",
       "appaudio.js",
       "updsplash.js"
     ],

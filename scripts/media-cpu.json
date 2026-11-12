@@ -1,0 +1,28 @@
+{
+  "secs": 15,
+  "rounds": 3,
+  "cores": 4,
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "clip": {
+    "source": "1920x1080 20 fps",
+    "mime": "video/webm;codecs=h264,opus",
+    "bps": 6220800,
+    "off": 10.9,
+    "on": 29.14,
+    "extra": 18.24,
+    "mbFull": 48
+  },
+  "e2ee": {
+    "width": 1280,
+    "scriptTransform": true,
+    "off": 35.43,
+    "on": 39.15,
+    "worker": 2.15,
+    "extra": 3.72,
+    "frames": 140,
+    "kbps": 720,
+    "fpsOff": 20,
+    "fpsOn": 20,
+    "bad": 0
+  }
+}
