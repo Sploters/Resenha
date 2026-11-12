@@ -285,8 +285,8 @@ try {
   await A.screenshot({ path: `${SHOTS}/x9-menu-usuario.png` });
   // fixar
   await clickText(A, '.menu .it', 'Fixar'); await sleep(600);
-  await A.evaluate(() => window.__lc.go('@me', 'messages')); await sleep(500); // seção Mensagens
-  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > :not(.dm-tools)')].map(e => e.textContent.trim()).slice(0, 3));
+  await A.evaluate(() => window.__lc.go('@me')); await sleep(500); // Mensagens e Amigos
+  const side = await A.evaluate(() => [...document.querySelectorAll('#side-list > :not(.dm-tools):not(.friendsrow)')].map(e => e.textContent.trim()).slice(0, 3));
   ok(side[0] === 'Fixadas' && side[1].startsWith('bob'), 'Fixar põe a conversa no topo das Mensagens: ' + side.join(' | '));
   ok(await A.evaluate(() => [...document.querySelectorAll('#rail .raildm')].some(w => w.dataset.tip?.startsWith('bob'))), 'conversa fixada aparece na barra da esquerda');
   await A.screenshot({ path: `${SHOTS}/x10-dm-fixada.png` });

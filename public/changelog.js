@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-12-1', title: 'Mensagens e Amigos juntos',
+    items: [
+      { i: 'users', t: 'Uma lista de amigos só', d: 'Online e Todos viraram uma lista única, separada em Pedidos, Online e Offline. Clique no nome do grupo para recolher ou expandir, como na lista de membros dos servidores; a escolha fica salva.' },
+      { i: 'dm', t: 'Mensagens e Amigos na mesma tela', d: 'Não há mais as abas Mensagens | Amigos: a lista da esquerda mostra "Amigos" no topo e as suas conversas embaixo, e o meio mostra os amigos e o "Ativo agora".', try: 'messages' },
+      { i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores e Descobrir ganharam uma seção própria: o ícone de controle na barra dos servidores, logo abaixo de "Adicionar um servidor".', try: 'lfg' },
+    ],
+  },
+  {
     id: '2026-11-11-5', title: 'Mais leve na chamada e em segundo plano',
     items: [
       { i: 'bolt', t: 'Tela da chamada bem mais leve', d: 'O anel verde de quem fala não fica mais piscando a cada sílaba nem repintando a tela: em PCs mais simples, só deixar a chamada aberta gastava até metade do processador.' },

@@ -37,7 +37,7 @@ const clickBtn = (p, scope, rx) => p.evaluate((scope, rx) => { const el = [...do
 const waitFor = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(150); } return false; };
 const goTab = async (p, label) => { await p.evaluate(() => window.__lc.go('@me')); await sleep(300); await p.evaluate((label) => [...document.querySelectorAll('#topbar .tab')].find(t => t.textContent.trim() === label)?.click(), label); await sleep(500); };
 // a aba Atividade virou o painel "Ativo agora" (sempre à direita dos Amigos)
-const goPanel = (p) => goTab(p, 'Online');
+const goPanel = (p) => goTab(p, 'Todos');
 const cards = (p) => txt(p, '#actfeed .an-card.an-play');
 const befriend = async (a, b) => { await call(a.tok, 'POST', '/relationships', { username: b.uname }); await call(b.tok, 'PUT', '/relationships/' + (await call(b.tok, 'GET', '/me/settings') && b.id), {}); };
 
@@ -69,7 +69,7 @@ try {
   ok(await pb.evaluate(() => !!document.querySelector('#actfeed .an-play .an-dm[title="Mensagem"]')), 'cartão tem botão de Mensagem (e clicar no cartão abre o perfil)');
   // carol (não vê a aba cheia de coisa, mas vê a alice porque são amigas) — e uma terceira pessoa sem amizade não veria: checado no teste de API
   // painel lateral "Ativo agora" mostra o jogo
-  await pb.evaluate(() => window.__lc.go('@me')); await goTab(pb, 'Online'); await sleep(500);
+  await pb.evaluate(() => window.__lc.go('@me')); await goTab(pb, 'Todos'); await sleep(500);
   ok((await txt(pb, '#active-now .an-now .an-cap')).some(t => /^Jogando — 1$/.test(t)), 'painel "Ativo agora": a alice aparece em destaque em "Jogando"');
 
   // ---- ações reais: sala de voz ----

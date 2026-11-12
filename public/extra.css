@@ -159,10 +159,10 @@ input[type=range] { height: 18px; }
    redesenhado em todo quadro (trace: 3.164 repinturas em 6 s por um autor no chat, e o mouse respondia em ~85 ms).
    Nas listas (chat, conversas, membros, amigos, call) o nome fica parado e só anima com o mouse em cima da linha;
    no perfil, no cartão e no editor do estilo (um nome só) anima sempre. Sem "Animações", nunca. */
-html.anim :is(.msg, .ch, .mh-card, .mem, .frow, .tile, .an-card, .ns):hover :is(.ne-shimmer, .ne-rainbow),
+html.anim :is(.msg, .ch, .mem, .frow, .tile, .an-card, .ns):hover :is(.ne-shimmer, .ne-rainbow),
 html.anim .ns:is(.ne-shimmer, .ne-rainbow):hover,
 html.anim :is(.popout, .modal, .pcard, .upbody, .mebody, .nstyle) :is(.ne-shimmer, .ne-rainbow) { animation: ns-shimmer 3s linear infinite; }
-html.anim :is(.msg, .ch, .mh-card, .mem, .frow, .tile, .an-card, .ns):hover .ne-rainbow,
+html.anim :is(.msg, .ch, .mem, .frow, .tile, .an-card, .ns):hover .ne-rainbow,
 html.anim .ns.ne-rainbow:hover,
 html.anim :is(.popout, .modal, .pcard, .upbody, .mebody, .nstyle) .ne-rainbow { animation-duration: 4s; }
 @keyframes ns-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
