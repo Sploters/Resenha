@@ -1,7 +1,7 @@
 // Tela que saiu não pode ficar presa na memória. Heap de uma sessão real (2026-11-11) mostrou: o cache de linhas da lista
 // de membros segurava o #members antigo — e, por ele, o chat antigo inteiro —; o Descobrir segurava a própria tela depois
 // de sair. Aqui: abre o chat com a lista de membros e o Descobrir, troca de tela, força a coleta de lixo e confere (WeakRef)
-// que as telas antigas foram soltas. Uso: node scripts/screen-release-test.mjs
+// que as telas antigas foram soltas. Também a galeria de clipes, os Arquivos, Amigos e o palco da chamada. Uso: node scripts/screen-release-test.mjs
 import puppeteer from 'puppeteer-core';
 import { ownServer } from './test-server.mjs';
 const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
@@ -39,5 +39,28 @@ try {
   ok(await p.evaluate(() => document.querySelectorAll('#discoverview .dhsec').length >= 5), 'voltar ao Descobrir mostra as seções de novo');
   await p.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, ch.id); await p.waitForFunction(() => !!document.querySelector('#members .mem'), { timeout: 15000 });
   ok(await p.evaluate(() => document.querySelectorAll('#members .mem').length) >= 2, 'lista de membros volta com as pessoas');
+  // 4) telas que outra sessão real mostrou presas (heap + timeline, 2026-11-12): galeria de clipes, Arquivos, Amigos e o
+  //    palco da chamada (este segurava junto o chat e o compositor ao lado). Abre cada uma, vai para o chat e confere.
+  const screens = [
+    ['galeria de clipes', '#clipsview', (gid) => window.__lc.go(gid, 'clips')],
+    ['Arquivos', '#filesview', (gid) => window.__lc.go(gid, 'files')],
+    ['Amigos', '#home', () => window.__lc.go('@me', null)],
+    ['palco da chamada', '#stage', (gid, vc) => window.__lc.go(gid, vc)],
+  ];
+  const vc = await p.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(c => c.type === 2)?.id, g.id);
+  for (const [label, sel, fn] of screens) {
+    await p.evaluate(`(${fn})(${JSON.stringify(g.id)}, ${JSON.stringify(vc)})`);
+    await p.waitForFunction((sel) => !!document.querySelector(sel), { timeout: 15000 }, sel); await sleep(1200);
+    await p.evaluate((sel) => { window.__old.scr = new WeakRef(document.querySelector(sel)); }, sel);
+    await p.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, ch.id); await p.waitForFunction(() => !!document.querySelector('#msgs .msg'), { timeout: 15000 }); await sleep(800);
+    await gc();
+    const alive = await p.evaluate(() => !!window.__old.scr.deref());
+    if (alive && process.env.SNAP) { const fs = await import('node:fs'); const out = []; const h = (e) => out.push(e.chunk); cdp.on('HeapProfiler.addHeapSnapshotChunk', h); await cdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false }); cdp.off('HeapProfiler.addHeapSnapshotChunk', h); fs.writeFileSync(process.env.SNAP + '-' + sel.slice(1) + '.heapsnapshot', out.join('')); }
+    ok(!alive, `saiu da tela ${label}: a tela antiga é solta`);
+  }
+  // voltar à galeria e aos Arquivos continua funcionando
+  await p.evaluate((gid) => window.__lc.go(gid, 'clips'), g.id); await p.waitForSelector('#clipsview', { timeout: 15000 });
+  await p.evaluate((gid) => window.__lc.go(gid, 'files'), g.id); await p.waitForSelector('#filesview', { timeout: 15000 }); await sleep(800);
+  ok(await p.evaluate(() => document.querySelector('#filesview').children.length > 0), 'voltar aos Arquivos mostra a tela de novo');
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

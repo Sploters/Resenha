@@ -12,6 +12,8 @@ const PERIODS = [['', 'Qualquer data'], ['7', 'Últimos 7 dias'], ['30', 'Últim
 const st = { key: null, gid: null, dm: null, kind: 'all', author: '', channel: '', period: '', from: '', to: '', q: '', items: [], next: null, counts: null, loading: false, seq: 0, root: null, max: 0 };
 // abrir já filtrado (ex.: botão "Arquivos" no topo de um canal abre só aquele canal)
 export function filesPreset(p = {}) { st.preset = p; }
+// saiu da tela: não segura os elementos antigos (os filtros e a lista ficam para a volta)
+export function releaseFiles() { if (st.root && !st.root.isConnected) st.root = null; }
 
 const ext = (n) => (String(n).split('?')[0].match(/\.([a-z0-9]{1,5})$/i)?.[1] || '').toUpperCase();
 const monthOf = (t) => new Date(t).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
