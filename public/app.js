@@ -450,7 +450,7 @@ function onMessage(m) {
   ghostFor(m);
   if (S.view.cid === m.channel_id && list && !gap) appendMessage(m);
   const dmc = S.dms.get(m.channel_id);
-  if (dmc) { dmc.last_message = { id: m.id, author_id: m.author_id, content: (m.content || '').slice(0, 140), created_at: m.created_at, attachment: !!m.attachments?.length }; if (inMessages()) renderSide(); if (S.view.kind === 'messages') renderMain(); }
+  if (dmc) { dmc.last_message = { id: m.id, author_id: m.author_id, content: (m.content || '').slice(0, 140), created_at: m.created_at, attachment: !!m.attachments?.length }; if (inMessages()) renderSide(); }
   if (mine) return;
   const ch = channelById(m.channel_id), isDM = ch?.type === 1, pol = notifPolicy(ch);
   const text = m.content || '', direct = text.includes(`<@${S.me.id}>`);
@@ -562,10 +562,10 @@ function applyRoute(first) {
   if (gid === '@me') {
     S.view = { kind: 'home', gid: '@me', cid: cid && S.dms.has(cid) ? cid : null, tab: S.view.tab || 'online' };
     if (S.view.cid) { S.view.kind = 'dm'; localStorage.setItem('lc_lastdm', S.view.cid); }
-    localStorage.setItem('lc_metab', cid && (S.dms.has(cid) || cid === 'messages') ? 'messages' : 'friends');
-    if (cid === 'messages') S.view = { kind: 'messages', gid: '@me', cid: 'messages', tab: S.view.tab }; // seção Mensagens sem conversa aberta
-    if (cid === 'lfg') S.view = { kind: 'lfg', gid: '@me', cid: 'lfg', tab: S.view.tab }; // aba Procurar jogadores (não é uma DM)
-    if (cid === 'discover') S.view = { kind: 'discover', gid: '@me', cid: 'discover', tab: S.view.tab }; // aba Descobrir: notícias, promoções, lançamentos
+    // '#/@me/messages' (links e abas antigas) é a mesma tela dos Amigos: a lista de conversas fica do lado
+    if (cid === 'lfg') S.view = { kind: 'lfg', gid: '@me', cid: 'lfg', tab: S.view.tab }; // seção Jogos: Procurar jogadores (não é uma DM)
+    if (cid === 'discover') S.view = { kind: 'discover', gid: '@me', cid: 'discover', tab: S.view.tab }; // seção Jogos: Descobrir (notícias, promoções, lançamentos)
+    if (cid === 'lfg' || cid === 'discover') localStorage.setItem('lc_games', cid);
     { const fm = /^(\d+)\/files$/.exec(cid || ''); if (fm && S.dms.has(fm[1])) S.view = { kind: 'files', gid: '@me', cid: 'files', dm: fm[1], tab: S.view.tab }; } // Arquivos de uma DM
   } else {
     const g = guild(gid);
@@ -614,9 +614,9 @@ function renderRail() {
   const pending = [...S.rels.values()].filter(r => r.type === 3).length;
   const wrap = (cls, tip, el, extra) => h('div.rail-wrap' + cls, { 'data-tip': tip }, el, extra);
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
-  const meView = S.view.gid === '@me';
+  const meView = S.view.gid === '@me' && !inGames() && !S.favMode;
   rail.replaceChildren(
-    wrap('.rail-fly' + (meView ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { 'data-fly': 'me', onclick: () => openMeSection(), oncontextmenu: (e) => { e.preventDefault(); clearTimeout(RF.meWait); RF.meWait = 0; meFlyShow(e.currentTarget); }, style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly' + (meView ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
     // canais favoritos (de qualquer servidor, juntos): aparece quando há pelo menos um
     favList().length > 0 && wrap('.rail-fly' + (S.favMode ? '.active' : '') + (!S.favMode && favList().some(f => S.unread[f.c]) ? '.unread' : ''), 'Canais favoritos',
@@ -635,10 +635,14 @@ function renderRail() {
       return w;
     }),
     wrap('', 'Adicionar um servidor', h('div.rail-item.add', { onclick: addServerModal, style: { fontSize: '0' } }, icon('plus', 24))),
+    // Jogos: Procurar jogadores e Descobrir, uma seção própria (como um servidor), logo abaixo de adicionar servidor
+    wrap('.rail-games' + (inGames() ? '.active' : ''), 'Jogos: procurar jogadores e descobrir', h('div.rail-item.rail-tool.games-btn', { onclick: () => openGames(), style: { fontSize: '0' } }, icon('gamepad', 24))),
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
 }
-function openMessages() { go('@me', 'messages'); } // sempre a tela inicial de Mensagens (conversas recentes); a conversa se escolhe nela ou na lista
+function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
+const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover');
+function openGames() { S.favMode = false; go('@me', localStorage.getItem('lc_games') === 'discover' ? 'discover' : 'lfg'); } // volta para a última das duas
 // ---------- busca em tudo (lupa no topo da barra) ----------
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
@@ -671,24 +675,9 @@ function renderGS() {
 function toggleGlobalSearch(focus = true) { S.searchOpen = !S.searchOpen; $('#app')?.classList.toggle('gs-open', S.searchOpen); renderRail(); renderGS(); if (S.searchOpen && focus) setTimeout(() => $('#gs-q')?.focus()); }
 function closeGlobalSearch() { if (!S.searchOpen) return; S.searchOpen = false; $('#app')?.classList.remove('gs-open'); renderRail(); renderGS(); }
 // ---------- Mensagens/Amigos e Buscar em tudo com a lista de canais oculta ----------
-// Mensagens e amigos: clique direito (sempre) ou o mouse parado em cima por 1,2 s (lista oculta) abre uma fileira com as
-// duas abas; fecha 0,5 s depois que o mouse sai. Buscar em tudo: só abre com clique (passar o mouse não faz nada); com a lista
+// Buscar em tudo: só abre com clique (passar o mouse não faz nada); com a lista
 // oculta, o painel de busca aparece flutuando por cima da conversa e fecha ao clicar fora ou no ícone de novo
 const sideHidden = () => !!$('#app.hide-side') && matchMedia('(min-width: 641px)').matches;
-const RF = { me: null, meT: 0, meAt: 0, meWait: 0 };
-const meFlyOpen = () => !!RF.me && RF.me.isConnected && !RF.me.classList.contains('leaving');
-function meFlyHide() { clearTimeout(RF.meT); if (meFlyOpen()) RF.me.remove(); RF.me = null; }
-function meFlyShow(anchor) {
-  clearTimeout(RF.meT); if (meFlyOpen()) return;
-  const tab = S.view.gid !== '@me' ? null : S.view.kind === 'home' ? 'friends' : S.view.kind === 'messages' || S.view.kind === 'dm' ? 'messages' : null;
-  const opt = (k, ic, label, fn) => h('button.rf-opt' + (tab === k ? '.on' : ''), { type: 'button', role: 'menuitem', 'aria-current': tab === k ? 'page' : null, onclick: () => { meFlyHide(); fn(); } }, icon(ic, 20), h('span', label));
-  const el = RF.me = popout(anchor, h('div.rf-pop', { role: 'menu' }, opt('messages', 'dm', 'Mensagens', openMessages), opt('friends', 'users', 'Amigos', () => go('@me'))));
-  el.classList.add('rf-popout'); RF.meAt = Date.now();
-  el.addEventListener('mouseenter', () => clearTimeout(RF.meT)); el.addEventListener('mouseleave', meFlyLater);
-  const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();
-  el.style.top = Math.max(8, Math.min(r.top + r.height / 2 - b.height / 2, innerHeight - b.height - 8)) + 'px';
-}
-function meFlyLater() { clearTimeout(RF.meT); RF.meT = setTimeout(meFlyHide, 500); }
 // Servidores com a lista de canais oculta: o mouse parado 0,45 s em cima do servidor abre um atalho com Clipes, Arquivos,
 // o canal de texto principal e a sala de voz principal (o primeiro de cada tipo, na ordem da lista). Clicar na sala já
 // entra nela. Fecha 0,4 s depois que o mouse sai; passar para outro servidor com o atalho aberto troca na hora
@@ -724,12 +713,6 @@ function gFlyShow(anchor, g) {
   const flyOf = (e) => sideHidden() && e.target.closest?.('#rail [data-fly]')?.dataset.fly;
   document.addEventListener('mouseover', (e) => {
     const k = flyOf(e);
-    if (k === 'me') {
-      clearTimeout(RF.meT); // voltou para o ícone antes de a fileira fechar
-      if (meFlyOpen() || RF.meWait) return; // o mouse andando por dentro do ícone não reinicia a espera
-      const anchor = e.target.closest('[data-fly]');
-      RF.meWait = setTimeout(() => { RF.meWait = 0; if (anchor.isConnected && anchor.matches(':hover') && !document.querySelector('#layer :is(.popout, .menu, .emoji-picker):not(.leaving):not(.rf-popout)')) meFlyShow(anchor); }, 1200);
-    }
     if (k === 'g') {
       const anchor = e.target.closest('[data-fly]'), g = guild(anchor.dataset.gid); if (!g) return;
       clearTimeout(RG.t);
@@ -740,7 +723,6 @@ function gFlyShow(anchor, g) {
   });
   document.addEventListener('mouseout', (e) => {
     const k = flyOf(e), to = e.relatedTarget;
-    if (k === 'me' && !to?.closest?.('[data-fly="me"]')) { clearTimeout(RF.meWait); RF.meWait = 0; if (meFlyOpen()) meFlyLater(); }
     if (k === 'g' && to?.closest?.('[data-fly]') !== e.target.closest('[data-fly]')) { gFlyCancel(); if (gFlyOpen() && !to?.closest?.('.gf-popout')) gFlyLater(); }
   });
   // busca flutuando: clicar fora fecha; abrir um resultado também (para ver a mensagem que estava embaixo do painel)
@@ -815,8 +797,8 @@ function gsMsg(m, inGuild) {
     avatar(user(m.author_id), 24, { status: false }),
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
 }
-// ícone de mensagens da barra: volta para a aba usada por último (Mensagens ou Amigos)
-function openMeSection() { meFlyHide(); S.favMode = false; if (localStorage.getItem('lc_metab') === 'friends') go('@me'); else openMessages(); }
+// ícone de mensagens da barra: Amigos no meio e as conversas na lista
+function openMeSection() { S.favMode = false; go('@me'); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
 const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
@@ -947,30 +929,31 @@ function renderSide() {
   const side = $('#side'); if (!side) return;
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
-  else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inMessages()) {
-    // seção Mensagens: lista simples com buscar, nova mensagem e ordenar; fixadas no topo
+  else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inGames()) {
+    // seção Jogos: própria, como um servidor (antes ficava dentro de Amigos)
+    head = h('div#side-head.sh-plain', h('span.sh-title', 'Jogos'));
+    list = h('div#side-list',
+      h('div.ch.lfgrow-side' + (S.view.kind === 'lfg' ? '.active' : ''), { onclick: () => go('@me', 'lfg'), title: 'Anúncios para fechar o squad' }, icon('gamepad'), h('span.name', 'Procurar jogadores')),
+      h('div.ch.lfgrow-side' + (S.view.kind === 'discover' ? '.active' : ''), { onclick: () => go('@me', 'discover'), title: 'Notícias, promoções, lançamentos e torneios de jogos' }, icon('compass'), h('span.name', 'Descobrir')));
+  } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
+    // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
+    // com buscar, nova mensagem e ordenar; fixadas no topo
     const btn = (ic, title, fn, on) => h('button.sh-btn' + (on ? '.on' : ''), { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 20));
-    head = meTabs();
+    head = h('div#side-head.sh-plain', h('span.sh-title', 'Mensagens'), btn('plus', 'Nova mensagem', () => newMessageModal()));
+    const pending = [...S.rels.values()].filter(r => r.type === 3).length;
     const SORT_L = { recent: 'Mais recentes', unread: 'Não lidas', name: 'Nome (A–Z)' };
     const tools = h('div.dm-tools', h('button.dm-sort', { type: 'button', title: 'Ordenar conversas', onclick: (e) => dmSortMenu(e) }, icon('sort', 18), h('span', SORT_L[S.prefs.dmSort || 'recent'])),
-      btn('search', 'Buscar conversa', () => { dmFind.open = !dmFind.open; if (!dmFind.open) dmFind.q = ''; renderSide(); if (dmFind.open) setTimeout(() => $('#dm-q')?.focus()); }, dmFind.open),
-      btn('plus', 'Nova mensagem', () => newMessageModal()));
+      btn('search', 'Buscar conversa', () => { dmFind.open = !dmFind.open; if (!dmFind.open) dmFind.q = ''; renderSide(); if (dmFind.open) setTimeout(() => $('#dm-q')?.focus()); }, dmFind.open));
     const q = dmFind.q.trim().toLowerCase();
     const all = sortedDMs().filter(d => !q || (user(dmPeer(d).id).display_name + ' ' + user(dmPeer(d).id).username).toLowerCase().includes(q));
     const pins = pinnedDMs(), pinned = pins.map(id => all.find(d => dmPeer(d)?.id === id)).filter(Boolean), rest = all.filter(d => !pinned.includes(d));
-    list = h('div#side-list.dmlist', tools,
+    list = h('div#side-list.dmlist',
+      h('div.ch.friendsrow' + (S.view.kind === 'home' ? '.active' : ''), { onclick: () => go('@me'), title: 'Seus amigos, pedidos de amizade e o que estão fazendo agora' }, icon('users'), h('span.name', 'Amigos'), pending > 0 && h('span.pill', pending)),
+      tools,
       dmFind.open && h('label.dm-q', icon('search', 14), h('input#dm-q', { type: 'search', placeholder: 'Buscar por nome', value: dmFind.q, oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120), onkeydown: (e) => { if (e.key === 'Escape') { dmFind.open = false; dmFind.q = ''; renderSide(); } } })),
       pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Fixadas'), ...pinned.map(d => dmRow(d, true)),
       rest.length > 0 && pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Conversas'), ...dmRest(rest),
       !all.length && h('div.dm-empty', q ? 'Nenhuma conversa com esse nome' : [h('p', 'Nenhuma conversa ainda'), h('button.btn', { onclick: () => newMessageModal() }, 'Nova mensagem')]));
-  } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
-    // seção Amigos: lista de amigos, procurar jogadores e descobrir (quem está online fica na página e no "Ativo agora")
-    head = meTabs();
-    const pending = [...S.rels.values()].filter(r => r.type === 3).length;
-    list = h('div#side-list',
-      h('div.ch' + (S.view.kind === 'home' ? '.active' : ''), { onclick: () => go('@me') }, icon('users'), h('span.name', 'Todos os amigos'), pending > 0 && h('span.pill', pending)),
-      h('div.ch.lfgrow-side' + (S.view.kind === 'lfg' ? '.active' : ''), { onclick: () => go('@me', 'lfg'), title: 'Anúncios para fechar o squad' }, icon('gamepad'), h('span.name', 'Procurar jogadores')),
-      h('div.ch.lfgrow-side' + (S.view.kind === 'discover' ? '.active' : ''), { onclick: () => go('@me', 'discover'), title: 'Notícias, promoções, lançamentos e torneios de jogos' }, icon('compass'), h('span.name', 'Descobrir')));
   } else {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
@@ -1025,7 +1008,7 @@ function renderSide() {
   uaObs.disconnect(); uaObs.observe(area);
   syncView();
 }
-const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : inMessages() ? '@msgs' : '@me');
+const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : inGames() ? '@games' : '@msgs');
 // servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
 // outras viram um espaço do mesmo tamanho e são montadas quando chegam perto da tela (e ficam montadas). Antes cada
 // renderSide montava as 1.000 linhas (~45 ms; scripts/perf-big.mjs)
@@ -1043,13 +1026,7 @@ const uaObs = new ResizeObserver(() => {
 });
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
-// abas Mensagens | Amigos no topo da lista
-function meTabs() {
-  const msgs = inMessages(), n = [...S.dms.keys()].reduce((t, id) => t + (S.mentions[id] || 0), 0), pend = [...S.rels.values()].filter(r => r.type === 3).length;
-  const tab = (on, label, cnt, fn) => h('button.metab' + (on ? '.on' : ''), { type: 'button', role: 'tab', 'aria-selected': String(on), onclick: fn }, label, cnt > 0 && h('span.metab-n', cnt > 99 ? '99+' : cnt));
-  return h('div#side-head.sh-tabs', { role: 'tablist' }, tab(msgs, 'Mensagens', n, () => openMessages()), tab(!msgs, 'Amigos', pend, () => go('@me')));
-}
-const inMessages = () => S.view.kind === 'dm' || S.view.kind === 'messages';
+const inMessages = () => S.view.kind === 'dm' || S.view.kind === 'home'; // tela com a lista de conversas ao lado
 const dmFind = { open: false, q: '' };
 function sortedDMs() {
   const all = [...S.dms.values()].filter(d => dmPeer(d));
@@ -1086,28 +1063,6 @@ function dmRow(dm, pin) {
 }
 // tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
 // cartões (foto, nome, prévia da última mensagem, hora e não lidas) para escolher com um clique
-function messagesHome() {
-  const dms = [...S.dms.values()].filter(d => dmPeer(d)).sort((a, b) => (lastTime(b) - lastTime(a)) || (lastActivity(b) > lastActivity(a) ? 1 : -1));
-  const newBtn = h('button.btn', { type: 'button', onclick: () => newMessageModal() }, icon('plus', 16), 'Nova mensagem');
-  if (!dms.length) return h('div.empty.msgs-empty', { style: { margin: 'auto' } }, icon('dm', 56), h('h2', 'Suas mensagens'), h('p', 'Converse em particular com seus amigos.'), newBtn);
-  const preview = (dm) => {
-    const lm = dm.last_message; if (!lm) return 'Nenhuma mensagem ainda';
-    const who = lm.author_id === S.me.id ? 'Você: ' : '', txt = plainTs(lm.content || '').replace(/\s+/g, ' ').trim();
-    return who + (txt || (lm.attachment ? 'Anexo' : '…'));
-  };
-  const card = (dm) => {
-    const u = user(dmPeer(dm).id), un = S.mentions[dm.id], unread = !!S.unread[dm.id];
-    return h('button.mh-card' + (unread ? '.unread' : ''), { type: 'button', onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id), title: `Abrir conversa com ${u.display_name}` },
-      avatar(u, 44, { ring: 'var(--bg-float)' }),
-      h('span.mh-txt', h('span.mh-top', styleName(h('b', u.display_name), u.name_style), h('small', shortWhen(lastTime(dm)))), h('span.mh-prev', preview(dm))),
-      un > 0 && h('span.pill', un));
-  };
-  return h('div.msgs-home',
-    h('div.mh-head', h('div', h('h2', 'Suas mensagens'), h('p', 'Escolha uma conversa para continuar ou comece uma nova.')), newBtn),
-    h('h4.mh-sec', 'Conversas recentes'),
-    h('div.mh-grid', dms.slice(0, 12).map(card)),
-    dms.length > 12 && h('p.mh-more', `Mais ${dms.length - 12} ${dms.length - 12 === 1 ? 'conversa' : 'conversas'} na lista ao lado.`));
-}
 // nova mensagem: escolher um amigo (ou qualquer pessoa dos seus servidores)
 function newMessageModal() {
   const q = h('input', { type: 'search', placeholder: 'Digite o nome de um amigo' }), box = h('div.nm-list');
@@ -1589,7 +1544,6 @@ function renderMain() {
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
-  if (v.kind === 'messages') return main.replaceChildren(h('div#topbar.msgs-top', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('dm', 24)), h('span', 'Mensagens')), messagesHome());
   const ch = channelById(v.cid);
   if (!ch) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('h2', 'Sem canais'), h('p', 'Este servidor ainda não tem canais.')));
   const dm = ch.type === 1, vc = ch.type === 2, peer = dm && dmPeer(ch);
@@ -2726,10 +2680,12 @@ function renderActiveNow() {
   if (box.querySelector('#actfeed')) return refreshFeedView(); // já montado: só redesenha (presença/voz mudaram)
   activityPanel(box);
 }
+// lista de amigos única, separada como a lista de membros: Pedidos, Online e Offline, cada grupo recolhível (fica salvo)
+const friendCol = (() => { try { return JSON.parse(localStorage.getItem('lc_fcol') || '{}'); } catch { return {}; } })();
 function renderHome(main) {
-  if (S.view.tab === 'blocked' || S.view.tab === 'pending' || S.view.tab === 'activity') S.view.tab = 'online'; // bloqueados: Privacidade e segurança; pendentes: "Todos"; a atividade virou o painel "Ativo agora"
+  if (S.view.tab !== 'add') S.view.tab = 'list'; // Online e Todos viraram uma lista só; bloqueados: Privacidade e segurança; a atividade virou o painel "Ativo agora"
   const tab = S.view.tab, rels = [...S.rels.values()], reqs = rels.filter(r => r.type === 3).length;
-  const tabs = [['online', 'Online'], ['all', 'Todos']];
+  const tabs = [['list', 'Todos']];
   const q = h('input.fsearch', { placeholder: 'Buscar', oninput: debounce(() => draw(), 120) });
   const ORD = { online: 0, idle: 1, dnd: 2, invisible: 3, offline: 4 };
   const pane = h('div.pane');
@@ -2740,27 +2696,41 @@ function renderHome(main) {
       const send = async () => { try { await api('POST', '/relationships', { username: inp.value }); msg.style.color = 'var(--green)'; msg.textContent = `Pedido de amizade enviado para ${inp.value}.`; inp.value = ''; } catch (e) { msg.style.color = 'var(--red)'; msg.textContent = e.message; } };
       return pane.append(h('h2', { style: { margin: '0 0 4px', color: 'var(--header)', fontSize: '16px' } }, 'Adicionar amigo'), h('p', { style: { color: 'var(--text-muted)', margin: '0 0 16px' } }, 'Você pode adicionar amigos pelo nome de usuário.'), h('div.addf', inp, h('button.btn', { onclick: send }, 'Enviar pedido')), msg);
     }
-    let list = rels.filter(r => tab === 'online' ? (r.type === 1 && (S.users.get(r.user.id).status !== 'offline' || inviteFrom(r.user.id))) || r.type === 3 : tab === 'all' ? r.type === 1 || r.type === 3 || r.type === 4 : tab === 'pending' ? r.type === 3 || r.type === 4 : r.type === 2);
-    list = list.filter(r => r.user.username.toLowerCase().includes(q.value.toLowerCase()) || r.user.display_name.toLowerCase().includes(q.value.toLowerCase()));
+    const t = q.value.trim().toLowerCase();
+    const st = (r) => S.users.get(r.user.id)?.status || 'offline';
+    const list = rels.filter(r => (r.type === 1 || r.type === 3 || r.type === 4) && (!t || r.user.username.toLowerCase().includes(t) || (r.user.display_name || '').toLowerCase().includes(t)));
     const nm = (r) => (r.user.display_name || r.user.username).toLowerCase();
-    const PEND = (r) => r.type === 3 ? 0 : r.type === 4 ? 1 : 2; // pedidos recebidos/enviados no topo de "Todos"
-    list.sort((a, b) => (PEND(a) - PEND(b)) || (ORD[S.users.get(a.user.id)?.status || 'offline'] - ORD[S.users.get(b.user.id)?.status || 'offline']) || nm(a).localeCompare(nm(b)));
-    pane.append(h('div.fctl', q), h('div.fh', `${{ online: 'Online', all: 'Todos os amigos', pending: 'Pendentes', blocked: 'Bloqueados' }[tab]} — ${list.length}`));
-    if (!list.length) return pane.append(h('div.empty', { style: { marginTop: '60px' } }, h('div.empty-ic', icon('moon', 48)), h('p', tab === 'pending' ? 'Nenhum pedido pendente.' : tab === 'blocked' ? 'Você não bloqueou ninguém.' : 'Ninguém por aqui ainda. Que tal adicionar um amigo?')));
-    for (const r of list) {
-      const u = S.users.get(r.user.id) || r.user;
-      const btn = (ic, title, fn, cls = '') => h('button.circle' + cls, { title, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ic, 20));
-      const inv = r.type === 1 && inviteFrom(u.id); // chamou você para a sala dele (convite ainda valendo)
-      pane.append(h('div.frow' + (r.type === 3 ? '.req' : inv ? '.inv' : ''), { onclick: () => openDM(u.id), oncontextmenu: (e) => userMenu(e, u.id) }, avatar(u, 36, { ring: 'var(--bg-pri)' }),
-        h('div.fn', h('div.fn-top', styleName(h('b', u.display_name), u.name_style), r.type === 3 && h('span.ftag.req', icon('users', 12), 'Pedido de amizade'),
-          inv && h('span.ftag.inv', { title: `${inv.channel.name} · ${inv.guild.name}` }, icon('voice', 12), 'Chamou você')),
-          h('small', inv ? `Chamou você para ${inv.channel.name} · ${inv.guild.name}` : r.type === 3 ? 'Quer ser seu amigo' : r.type === 4 ? 'Pedido de amizade enviado' : r.type === 2 ? 'Bloqueado' : (u.custom_status || STATUS_TXT[u.status]))),
-        inv && h('button.btn.green.sm.f-join', { title: 'Entrar na chamada', onclick: (e) => { e.stopPropagation(); return acceptInvite(inv.id); } }, icon('voice', 14), 'Entrar'),
-        inv && btn('x', 'Recusar convite', () => declineInvite(inv.id), '.no'),
-        r.type === 1 && btn('dm', 'Mensagem', () => openDM(u.id)),
-        r.type === 3 && btn('check', 'Aceitar', () => tryApi('PUT', `/relationships/${u.id}`, {}), '.ok'),
-        (r.type === 3 || r.type === 4 || r.type === 2 || (r.type === 1 && !inv)) && btn('x', r.type === 1 ? 'Remover' : r.type === 2 ? 'Desbloquear' : 'Ignorar', () => tryApi('DELETE', `/relationships/${u.id}`), '.no')));
+    // pedidos (recebidos antes dos enviados), online (quem chamou você para a sala dele primeiro, depois pelo status) e offline
+    const groups = [
+      ['req', 'Pedidos', list.filter(r => r.type !== 1).sort((a, b) => (a.type - b.type) || nm(a).localeCompare(nm(b)))],
+      ['online', 'Online', list.filter(r => r.type === 1 && (st(r) !== 'offline' || inviteFrom(r.user.id))).sort((a, b) => (!!inviteFrom(b.user.id) - !!inviteFrom(a.user.id)) || (ORD[st(a)] - ORD[st(b)]) || nm(a).localeCompare(nm(b)))],
+      ['offline', 'Offline', list.filter(r => r.type === 1 && st(r) === 'offline' && !inviteFrom(r.user.id)).sort((a, b) => nm(a).localeCompare(nm(b)))],
+    ].filter(([, , l]) => l.length);
+    const isCol = (k) => !t && !!friendCol[k]; // buscando: tudo aberto
+    const toggle = (k) => { friendCol[k] = !isCol(k); try { localStorage.setItem('lc_fcol', JSON.stringify(friendCol)); } catch { } draw(); };
+    pane.append(h('div.fctl', q));
+    if (!list.length) return pane.append(h('div.empty', { style: { marginTop: '60px' } }, h('div.empty-ic', icon('moon', 48)), h('p', t ? 'Ninguém com esse nome.' : 'Ninguém por aqui ainda. Que tal adicionar um amigo?')));
+    for (const [k, name, l] of groups) {
+      const c = isCol(k);
+      pane.append(h('button.mgroup.fgroup' + (c ? '.col' : ''), { type: 'button', 'aria-expanded': String(!c), title: c ? 'Mostrar' : 'Recolher', onclick: () => toggle(k) },
+        icon('caret', 12), h('span.mg-name', name), h('span.mg-n', l.length),
+        c && h('span.mg-faces', l.slice(0, 4).map(r => avatar(S.users.get(r.user.id) || r.user, 18, { ring: 'var(--bg-pri)', status: false })))));
+      if (!c) for (const r of l) friendRow(r);
     }
+  };
+  const friendRow = (r) => {
+    const u = S.users.get(r.user.id) || r.user;
+    const btn = (ic, title, fn, cls = '') => h('button.circle' + cls, { title, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ic, 20));
+    const inv = r.type === 1 && inviteFrom(u.id); // chamou você para a sala dele (convite ainda valendo)
+    pane.append(h('div.frow' + (r.type === 3 ? '.req' : inv ? '.inv' : ''), { onclick: () => openDM(u.id), oncontextmenu: (e) => userMenu(e, u.id) }, avatar(u, 36, { ring: 'var(--bg-pri)' }),
+      h('div.fn', h('div.fn-top', styleName(h('b', u.display_name), u.name_style), r.type === 3 && h('span.ftag.req', icon('users', 12), 'Pedido de amizade'),
+        inv && h('span.ftag.inv', { title: `${inv.channel.name} · ${inv.guild.name}` }, icon('voice', 12), 'Chamou você')),
+        h('small', inv ? `Chamou você para ${inv.channel.name} · ${inv.guild.name}` : r.type === 3 ? 'Quer ser seu amigo' : r.type === 4 ? 'Pedido de amizade enviado' : r.type === 2 ? 'Bloqueado' : (u.custom_status || STATUS_TXT[u.status]))),
+      inv && h('button.btn.green.sm.f-join', { title: 'Entrar na chamada', onclick: (e) => { e.stopPropagation(); return acceptInvite(inv.id); } }, icon('voice', 14), 'Entrar'),
+      inv && btn('x', 'Recusar convite', () => declineInvite(inv.id), '.no'),
+      r.type === 1 && btn('dm', 'Mensagem', () => openDM(u.id)),
+      r.type === 3 && btn('check', 'Aceitar', () => tryApi('PUT', `/relationships/${u.id}`, {}), '.ok'),
+      (r.type === 3 || r.type === 4 || r.type === 2 || (r.type === 1 && !inv)) && btn('x', r.type === 1 ? 'Remover' : r.type === 2 ? 'Desbloquear' : 'Ignorar', () => tryApi('DELETE', `/relationships/${u.id}`), '.no')));
   };
   main.replaceChildren(h('div#home',
     h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), icon('users', 24), h('span', 'Amigos'), h('div', { style: { width: '1px', height: '24px', background: 'var(--divider)', margin: '0 8px' } }),
