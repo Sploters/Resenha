@@ -18,6 +18,7 @@ import { connectionsPage } from './activity.js';
 import { litePage, liteOn } from './lite.js';
 import { openNativeTest } from './nativetest.js';
 import { newsPage } from './changelog.js';
+import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
@@ -112,10 +113,11 @@ const NAV_ICONS = { storage: 'file', account: 'user', profile: 'sparkle', privac
 const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
 
 export function openSettings(kind, ctx) {
-  const prev = document.getElementById('settings'); if (prev) (prev._close ? prev._close() : prev.remove()); // abrir de novo: fecha direito a anterior (solta os ouvintes)
+  const prev = document.getElementById('settings'); if (prev) (prev._close ? prev._close('swap') : prev.remove()); // abrir de novo: fecha direito a anterior (solta os ouvintes; a entrada do voltar fica para esta)
   const root = h('div#settings'), pane = h('div.pane'), nav = h('div.nav'), content = h('div.content', pane);
   const cleanups = []; const reg = (f) => cleanups.push(f);
-  const close = () => { cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
+  // how: 'back' = fechou pelo voltar do navegador; 'swap' = outra tela de configurações abre no lugar
+  const close = (how) => { if (how !== 'back') unBack(how === 'swap'); cleanups.forEach(f => f()); cleanups.length = 0; root.remove(); document.removeEventListener('keydown', esc); document.removeEventListener('lite-changed', onLite); document.dispatchEvent(new Event('settings-closed')); };
   // (antes o ouvinte de "modo leve mudou" só saía quando o modo leve mudava: segurava a tela inteira na memória a cada abertura)
   const onLite = () => drawNav();
   const esc = (e) => { if (e.key === 'Escape' && !document.getElementById('tedit') && !document.querySelector('.backdrop:not(.leaving)') && !pane.querySelector('.capturing') && !document.querySelector('.popout,.menu,.emoji-picker')) close(); };
@@ -145,6 +147,7 @@ export function openSettings(kind, ctx) {
   const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage'].includes(kind) ? kind : 'account');
   current = first; drawNav(); show(first);
   root._close = close;
+  const unBack = backCloses(() => close('back')); whenGone(root, () => unBack()); // voltar do navegador/celular fecha as configurações
   document.addEventListener('lite-changed', onLite);
 }
 

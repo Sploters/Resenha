@@ -109,7 +109,7 @@ html.anim .btn:active, html.anim .roundbtn:active { transform: scale(.95); }
 .ch.active:hover { background: var(--hov-sel); }
 
 /* ---------- visualizador de imagens ---------- */
-body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima do visualizador */
+body:has(> #lightbox) #layer { z-index: 130; } /* menus de clique direito por cima do visualizador */
 #lightbox.viewer { display: block; cursor: default; overflow: auto; background: rgba(0,0,0,.9); }
 #lightbox.viewer .vwrap { position: absolute; inset: 0; margin: auto; display: flex; align-items: center; justify-content: center; }
 #lightbox.viewer.real .vwrap { position: relative; margin: 70px auto 40px; }
@@ -211,7 +211,7 @@ body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima
 .utile .label { z-index: 2; }
 .utile .label .ns { font-size: 14px; }
 /* sala de voz com chat ao lado: em área estreita o chat vai para baixo do palco (antes espremia o palco a zero) */
-#main:has(#chat.side) { container-type: inline-size; container-name: vcontent; }
+#main:has(> #content > #chat.side) { container-type: inline-size; container-name: vcontent; }
 #chat.side { width: min(380px, 42%); }
 @container vcontent (max-width: 760px) {
   #content:has(> #chat.side) { flex-direction: column; }
@@ -292,21 +292,22 @@ body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima
 
 /* Amigos: texto das abas centralizado; a barra lateral acompanha a altura do topo da tela inicial */
 #home .tabs .tab { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
-#app:has(#home) #side-head { height: 58px; }
+#app:has(> #main > #home) #side-head { height: 58px; }
 
-/* abas de canais por cima da lista lateral: a lateral desce a altura das abas e as abas se estendem para a esquerda sobre ela */
+/* abas de canais por cima da lista lateral: a lateral desce a altura das abas e as abas se estendem para a esquerda sobre ela
+   (#app.ct-on: as abas estão na tela, posto por plugins.js; era #app:has(#chtabs), que custava ~1,5 ms a cada recálculo) */
 #app { --side-w: 300px; }
 @media (max-width: 900px) { #app { --side-w: 200px; } }
 #app.hide-side { --side-w: 0px; }
 @media (min-width: 641px) {
-  #app:has(#chtabs) #side { margin-top: var(--ct-h); }
+  #app.ct-on #side { margin-top: var(--ct-h); }
   /* o primeiro ícone do menu lateral (Mensagens diretas) começa na altura do cabeçalho da lista (#side-head), logo abaixo das abas */
-  #app:has(#chtabs) #rail { padding-top: var(--ct-h); }
+  #app.ct-on #rail { padding-top: var(--ct-h); }
   /* como no Discord: o painel lateral tem o canto de cima arredondado e uma borda fina, encaixado no fundo escuro do menu.
      A linha de baixo das abas só passa por cima do chat; em cima da lista quem desenha a linha é a borda do painel. */
-  #app:has(#chtabs) #side { margin-top: calc(var(--ct-h) - 1px); border-top: 1px solid var(--divider); border-left: 1px solid var(--divider); border-top-left-radius: 18px; }
-  #app.hide-side:has(#chtabs) #side { border: 0; }
-  #app:has(#chtabs) #side-head { border-top-left-radius: 17px; } /* fundo do hover e banner do servidor acompanham o canto */
+  #app.ct-on #side { margin-top: calc(var(--ct-h) - 1px); border-top: 1px solid var(--divider); border-left: 1px solid var(--divider); border-top-left-radius: 18px; }
+  #app.hide-side.ct-on #side { border: 0; }
+  #app.ct-on #side-head { border-top-left-radius: 17px; } /* fundo do hover e banner do servidor acompanham o canto */
   /* a primeira aba começa na mesma linha do #side-head (logo depois da borda de 1 px do painel) */
   #main > #chtabs { padding-left: 1px; }
   #main > #chtabs { border-bottom-color: transparent; } /* sem linha embaixo das abas */
@@ -314,7 +315,7 @@ body:has(#lightbox) #layer { z-index: 130; } /* menus de clique direito por cima
   #main > #chtabs { margin-left: calc(-1 * var(--side-w)); position: relative; z-index: 21; }
   /* com o painel de busca aberto, as abas se estendem também por cima dele, e ele desce a altura delas */
   #app.gs-open #main > #chtabs { margin-left: calc(-1 * (var(--side-w) + var(--gs-w, 340px))); }
-  #app:has(#chtabs) #gsearch { margin-top: var(--ct-h); }
+  #app.ct-on #gsearch { margin-top: var(--ct-h); }
 }
 
 /* invisível aparece para todos como offline (bolinha cinza) */

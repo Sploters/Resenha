@@ -59,8 +59,10 @@ try {
   const shape = () => p.evaluate(() => [...document.querySelectorAll('#msgs > *')].map(e => e.dataset.mid ? e.dataset.mid + (e.classList.contains('first') ? 'F' : '') : e.className.split(' ')[0] + (e.classList.contains('daysep') ? ':' + e.textContent : '')).join('|'));
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   const pieces = await shape();
-  await p.evaluate((gid, a, b) => { window.__lc.go(gid, b); return new Promise(r => setTimeout(() => { window.__lc.go(gid, a); r(); }, 800)); }, meta.guild, meta.channels[4], meta.channels[3]); await sleep(2500);
-  R.rolar.sameAsFresh = pieces === await shape();
+  // montado do zero com as mesmas mensagens (sair e voltar ao canal não serve: lendo o histórico antigo, voltar leva ao presente)
+  const fresh = await p.evaluate(() => { window.__lc.renderMessages(false); return [...document.querySelectorAll('#msgs > *')].map(e => e.dataset.mid ? e.dataset.mid + (e.classList.contains('first') ? 'F' : '') : e.className.split(' ')[0] + (e.classList.contains('daysep') ? ':' + e.textContent : '')).join('|'); }); // na mesma tarefa: depois disso o fim do chat busca as mais novas R.rolar.sameAsFresh = pieces === fresh;
+  R.rolar.sameAsFresh = pieces === fresh;
+  if (!R.rolar.sameAsFresh && process.env.DEBUG) { const a = pieces.split('|'), b = fresh.split('|'); const i = a.findIndex((x, k) => x !== b[k]); console.log('  diferença em', i, 'de', a.length, b.length, a.slice(Math.max(0, i - 2), i + 3), b.slice(Math.max(0, i - 2), i + 3)); }
   R.inpMs = Math.max(...Object.values(R).filter(v => v?.worstMs != null).map(v => v.worstMs));
 } catch (e) { R.error = String(e.stack || e); }
 finally {

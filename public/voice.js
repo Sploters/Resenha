@@ -845,9 +845,16 @@ export class Voice {
       an.fftSize = 512; src.connect(an); this.analysers.set(uid, { src, an, buf: new Uint8Array(an.fftSize), level: 0 });
     } catch { }
   }
+  // lista de quem fala, do servidor; some 300 ms depois da última vez na lista (a mesma folga do medidor daqui)
+  onSfuSpeaking(d) { const now = performance.now(); this.srvAt ||= new Map(); this.srvNow = new Set(d?.ids || []); for (const id of this.srvNow) this.srvAt.set(id, now); }
   poll() {
     let changed = false;
+    let srv = null; // vozes pausadas: quem fala vem do servidor
+    if (this.sfu?.voiceOff && this.sfu.srvLevels) { const now = performance.now(); srv = new Set(); for (const [id, t] of this.srvAt || []) if (this.srvNow?.has(id) || now - t < 300) srv.add(id); }
+    if (srv) for (const uid of [...this.speaking]) if (uid !== this.myId && !srv.has(uid)) { this.speaking.delete(uid); changed = true; }
+    if (srv) for (const uid of srv) if (uid !== this.myId && !this.speaking.has(uid) && this.analysers.has(uid)) { this.speaking.add(uid); changed = true; }
     for (const [uid, a] of this.analysers) {
+      if (srv && uid !== this.myId) continue;
       a.an.getByteTimeDomainData(a.buf);
       let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
       a.level = peak / 128;
@@ -876,9 +883,17 @@ export class Voice {
   // Ensurdecido e com a janela escondida/minimizada, ninguém ouve nem vê quem fala: o servidor para de mandar a voz dos outros
   // (~40 kbps e uma decodificação Opus por pessoa falando). Volta na hora ao reabrir a janela ou ao desensurdecer.
   // Transmitindo, não pausa (o clipe com F8 leva a voz da sala).
+  // Ensurdecido: as vozes dos outros pausam no servidor (não chegam: menos banda e processador) e quem está falando vem
+  // do próprio servidor (SFU_SPEAKING, medido pelo mediasoup). Servidor sem isso ('levels' falha): como antes, só pausa com a
+  // janela escondida, porque o medidor daqui precisa do áudio para acender o "falando".
   syncVoiceFlow() {
     const s = this.sfu; if (!s?.ready) return;
-    const off = this.deafened && document.hidden && !this.screen;
+    const want = this.deafened && !this.screen;
+    if (want !== !!s.levelsOn && s.srvLevels !== false) {
+      s.levelsOn = want;
+      this.sfuReq('levels', { on: want }).then((r) => { s.srvLevels = true; if (s.levelsOn) this.onSfuSpeaking(r); this.syncVoiceFlow(); }, () => { s.srvLevels = false; this.syncVoiceFlow(); });
+    }
+    const off = want && (document.hidden || s.srvLevels === true);
     if (!!s.voiceOff === off) return; s.voiceOff = off;
     for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
   }

@@ -1,6 +1,7 @@
 // Visualizador de imagens: galeria com as imagens carregadas do canal, lente de zoom, girar, tamanho real, copiar e salvar.
-import { h, icon, bytes } from './util.js';
+import { h, icon, bytes, whenGone } from './util.js';
 import { S, savePrefs, toast, menu, closeFloating } from './state.js';
+import { backCloses } from './backclose.js';
 
 const GALLERY = '#msgs .mtile img, #msgs .attach img';
 const abs = (src) => { try { return new URL(src, location.href).href; } catch { return src; } };
@@ -59,7 +60,7 @@ async function fileSize(it) {
 
 // ---------- visualizador ----------
 export function openViewer(src, { list, name, onClose } = {}) {
-  document.getElementById('lightbox')?.remove(); closeFloating();
+  { const old = document.getElementById('lightbox'); old?._close ? old._close('swap') : old?.remove(); } closeFloating();
   list ||= [...document.querySelectorAll(GALLERY)].map(item);
   let i = list.findIndex(x => x.src === src);
   if (i < 0) { list = [{ src, name: name || fileName(src), size: 0 }]; i = 0; }
@@ -158,9 +159,10 @@ export function openViewer(src, { list, name, onClose } = {}) {
     else return;
     e.preventDefault(); e.stopPropagation();
   };
-  function close() { lb.remove(); document.removeEventListener('keydown', keys, true); onClose?.(); }
+  function close(how) { if (how !== 'back') unBack(how === 'swap'); lb.remove(); document.removeEventListener('keydown', keys, true); onClose?.(); }
   document.addEventListener('keydown', keys, true);
-  document.body.append(lb);
+  document.body.append(lb); lb._close = close;
+  const unBack = backCloses(() => close('back')); whenGone(lb, () => unBack()); // voltar do navegador/celular fecha a imagem
   show();
   return lb;
 }

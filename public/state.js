@@ -1,5 +1,6 @@
-import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons } from './util.js';
+import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons, whenGone } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
+import { backCloses } from './backclose.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
 import { e2eeOutgoing, decryptDeep } from './e2ee.js';
@@ -295,14 +296,16 @@ export function toast(msg, err) {
   setTimeout(() => leave(t, 160), 3500);
 }
 export function modal(title, sub, body, buttons = [], opts = {}) {
-  const close = () => leave(bd, 160); // a janela encolhe e some (mais rápido que a entrada)
+  // a janela encolhe e some (mais rápido que a entrada); voltar do navegador/celular também fecha
+  const close = (how) => { if (how !== 'back') unBack(); if (bd.isConnected && !bd.classList.contains('leaving')) leave(bd, 160); };
   const bd = h('div.backdrop', { onmousedown: (e) => { if (e.target === bd && !opts.sticky) close(); } },
     h('div.modal', opts.width ? { style: { width: opts.width } } : null,
       h('div.mh', h('h2', title), sub && h('p', sub)),
       h('div.mb', body),
       h('div.mf', buttons.map(b => h('button.btn' + (b.cls ? '.' + b.cls : ''), { onclick: async () => { if (b.fn) { const r = await b.fn(); if (r === false) return; } if (!b.keep) close(); } }, b.label)))));
   layer().append(bd); bd.querySelector('input,textarea')?.focus();
-  return { close, el: bd };
+  const unBack = backCloses(() => close('back')); whenGone(bd, () => unBack()); // tirada da tela por outro caminho: sai do histórico também
+  return { close: () => close(), el: bd };
 }
 export function confirmBox(title, text, label = 'Confirmar') {
   return new Promise(res => modal(title, text, h('div'), [{ label: 'Cancelar', cls: 'link', fn: () => res(false) }, { label, cls: 'red', fn: () => res(true) }]));

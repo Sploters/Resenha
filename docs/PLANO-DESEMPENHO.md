@@ -16,14 +16,31 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       respostas remontavam a página inteira, uma por vez). Junto: um comentário engolia metade do código do "Para você",
       que só juntava promoções e torneios (Steam, lançamentos e notícias nunca entravam). `discover-test` confere que só
       a seção muda e a rolagem do carrossel fica.
-- [ ] Listas longas que desenham só o que está na tela. **Feito em parte** (2026-11-11, junto com os dados grandes): lista de
+- [x] ★ Listas longas que desenham só o que está na tela. **Feito em partes** (2026-11-11, junto com os dados grandes): lista de
       membros aos pedaços (200 por grupo, +300 ao rolar até o fim ou no "Mostrar mais") e categorias da lateral montadas
       quando chegam perto da tela. **Conversas diretas** (2026-11-11): as 60 primeiras saem montadas, o resto vira um
       espaço do mesmo tamanho e monta 200 por vez chegando perto (a conversa aberta aparece sempre). Abrir as 500
       (`perf-big`): linhas montadas **500 → 60**, maior tarefa **68 → 0 ms**. Achado junto: a rolagem da lista de canais de
       um servidor era aplicada à lista de conversas (e ao fim dela, montando todas); agora cada lista guarda a sua.
-      Faltam: busca e histórico.
-- [ ] CSS: medir regras sem uso e seletores caros (`:has`, desfoque, sombras grandes, `backdrop-filter`); ~370 KB hoje.
+      **Histórico** (2026-11-12, `app.js HIST_MAX`, `scripts/history-window-test.mjs`, CPU 4x, canal com 1.000 mensagens):
+      cada página de 50 lida para cima se somava para sempre. Agora o chat guarda até 300: passando disso as mais novas saem
+      de baixo e aparece "Você está vendo mensagens antigas / Ir para o presente" (o mesmo modo do pulo para o início);
+      descendo, voltam as novas e saem as de cima, com a mensagem do topo da tela parada no lugar. 800 mensagens para trás:
+      no chat **850 → 250**, elementos **17.014 → 5.006**, cada página no topo **110 → 230 ms crescendo → ~100–190 ms
+      estável**; descendo chega ao presente sem buraco nem repetição. A **busca** já vem em páginas de 50 (servidor), então
+      não precisa de janela.
+- [x] ★ **CSS: seletores caros e regras sem uso** (2026-11-12, `scripts/css-audit.mjs`, 300 membros, CPU 4x, chat recebendo
+      5 mensagens/s com gente entrando e saindo). As estatísticas de seletor do trace mostraram que os `:has()` com
+      descendente num contêiner grande eram quase tudo: `body:has(#auth:not(.hidden)) #layer` e `#app:has(#chtabs) #rail`
+      custavam ~1,5–1,9 ms **cada vez** que o estilo era recalculado (408 dos 676 ms casando seletores). Trocados por irmão
+      (`#auth:not(.hidden) ~ #layer`), classe (`#app.ct-on`, posta por `plugins.js`) e `:has(> …)` só com filhos diretos
+      (`#home`, `#chat.side`, `#lightbox`, menus do `#layer`). Casando seletores **676 → 280 ms**; recálculo de estilo
+      **~2,69 → ~2,42 s** nos 12 s (−10%). Fica caro: o recálculo em si (~780 por 60 mensagens, ~3 ms cada a 4x) e
+      `.msg.first:has(+ .msg.cont)` (~26 ms; trocar por classe exige marcar a mensagem anterior a cada envio).
+      Cobertura numa volta pelo app (chat, perfil, emojis, configurações, Descobrir, conversas): 3.108 de 3.575 regras não
+      casaram (~300 dos 360 KB) — candidatas, não prova: estados raros existem e há classes montadas no código
+      (`'ff-' + fonte`, `'n' + quantidade`); 139 citam um nome que não aparece em nenhum JS, mas parte disso é montada.
+      Não apaguei nada no automático. Desfoque e `backdrop-filter` não apareceram no custo (poucos, em elementos pequenos).
 - [x] ★ **Imagens no tamanho certo** (2026-11-11). As fotos enviadas já passavam pelo `imgUrl` (WebP do tamanho do quadro,
       `server/thumbs.js`); faltavam os 12 avatares padrão (554–1024 px, a foto de toda conta nova) e alguns lugares que
       usavam a foto original: ícone do servidor no convite, servidores em comum, caixa de entrada, avatar da menção,
@@ -37,8 +54,13 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       (2026-11-11): implementado e comparado com 5 pessoas na call, com áudio parecido com fala. A thread de áudio ficou
       igual (9,1–9,7% com o analisador, 9,1–9,3% com o RTP): o analisador WebAudio já é barato. O "falando" pelo RTP
       batia com o do analisador, mas não compensou a complexidade; voltou ao analisador.
-- [ ] "Falando" pelo servidor (`AudioLevelObserver` do mediasoup): ensurdecido continuaria vendo quem fala sem receber o
-      áudio, e aí dá para pausar a voz dos outros mesmo com a janela aberta.
+- [x] ★ **"Falando" pelo servidor** (2026-11-12, `server/sfu.js levelsFor`, `voice.js syncVoiceFlow`). O SFU mede o volume de
+      cada microfone (`AudioLevelObserver`, -50 dBov, 250 ms) e manda `SFU_SPEAKING` só para quem pediu ('levels') e só quando
+      a lista muda. Ensurdecido agora pausa a voz dos outros **mesmo com a janela aberta** (antes só com ela escondida, porque
+      o medidor daqui precisava do áudio) e vê quem fala pelo servidor; tirou o ensurdecer, a voz volta e o medidor local
+      reassume. Servidor sem isso: como antes. Medido (`scripts/speaking-server-test.mjs`, microfone falso tocando um
+      arquivo com fala e silêncio do volume alto ao baixo): voz chegando ao ensurdecido **~45 → 0 kbps**; o "falando" do
+      servidor bate com o medidor local em 83–86% das amostras de 50 ms, acendendo ~100–150 ms depois; mutado some.
 - [x] ★ **Câmera no tamanho do quadro e pausada fora de vista** (2026-11-11, `voice.js camFlow`, `app.js applyCamFlow`).
       Antes toda câmera chegava na camada cheia (1280 px, ~800 kbps cada), mesmo num quadro de 170 px ou com a sala fora da
       tela. Agora o tamanho do quadro (ResizeObserver, sem forçar layout) escolhe a camada (até 400 px na tela: 1/4; até
@@ -129,7 +151,21 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       inteiro (mensagens, mensagens de voz com as barras e ouvintes), e o Descobrir segurava a própria tela depois de sair.
       Agora soltam ao trocar de tela (`releaseOldScreens`). O resto era o DevTools (o painel Elements guarda o que mostrou).
       Teste: `scripts/screen-release-test.mjs` (WeakRef + coleta de lixo; a versão anterior falha nos dois).
-- [ ] Rede instável na voz (perda, oscilação, atraso), servidor reiniciando no meio da call, 500 reconectando juntos.
+- [x] ★ **Rede instável, servidor reiniciando e 500 reconectando** (2026-11-12).
+      (1) **500 reconectando** (`scripts/reconnect-storm-test.mjs`, servidor reinicia com 500 conectadas): o app tentava de
+      novo em 1, 2, 4, 8 s iguais para todos — voltavam no mesmo milissegundo e o servidor montava 500 READY de uma vez
+      (a compressão do WebSocket, 4 por vez, virava fila). Agora a espera tem sorteio de ±50% e vai até 10 s
+      (`public/backoff.js`): READY depois do reinício p50 **1.030 → 19 ms**, p95 **2.345 → 154 ms**; todos de volta em ~6 s
+      nos dois (a espera crescente enquanto o servidor estava fora); o servidor seguiu respondendo (pedido pequeno p95 10–12 ms).
+      (2) **Servidor reiniciando no meio da call** (`scripts/call-restart-test.mjs`): as duas pessoas voltam sozinhas para a
+      sala em 0,7–3,5 s, mudo mantido, ninguém duplicado e a voz volta — já funcionava, agora tem teste.
+      (3) **Rede instável** (`scripts/voice-network-test.mjs`: um relé UDP entre os navegadores e o SFU perde/atrasa pacotes
+      nos dois sentidos; `RTC_LISTEN_IP` novo no `sfu.js` para escutar num IP e anunciar outro). Com 5% de perda em cada
+      sentido ~6–8% do áudio é inventado para tapar buraco (a correção FEC do Opus entra sozinha); 80 ± 40 ms de oscilação
+      viram ~150 ms de buffer e quase nada inventado; a voz volta limpa quando a rede melhora. ~~NACK de áudio~~ (o SFU
+      reenviando a voz perdida; o Chromium não anuncia, mas honra quando negociado com `enableRtx` no consumer) — **medido e
+      descartado**: na descida com 5% de perda melhorou (3 → 0,1–2%), com 15% piorou nas duas rodadas (4,5 → 7,8–12,9%), e
+      não cobre a subida. Voltou ao que era.
 - [x] ★ **Dados grandes** (2026-11-11, `scripts/load/seed-big.mjs` + `scripts/perf-big.mjs`): 5.000 membros, 1.000 canais
       em 50 categorias, 8 cargos, 100 mil mensagens, 500 conversas diretas, 600 pessoas conectadas. Achados e corrigidos:
       READY enorme (acima); abrir os 5.000 offline da lista de membros montava 5.000 linhas numa tarefa de 310 ms → aos
@@ -165,7 +201,17 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       até 50; @everyone de qualquer membro notificava todo mundo a cada mensagem (5.000 linhas na caixa de entrada por
       envio) → quem não modera notifica 1 vez a cada 5 min por servidor (a mensagem vai normalmente; só não notifica de
       novo); a caixa de entrada é gravada numa transação.
-- [ ] Celular/navegador: aba congelada ou descartada voltando; voltar/avançar do navegador.
+- [x] ★ **Aba congelada/descartada, queda de conexão e voltar/avançar** (2026-11-12, `scripts/tab-lifecycle-test.mjs`; um
+      proxy TCP corta a conexão da página, porque o modo offline do Chrome não derruba um WebSocket aberto). Achados e
+      corrigidos: (1) **conexão que caía e voltava perdia as mensagens do meio-tempo** — o canal aberto e os já visitados
+      ficavam sem elas até recarregar (a aba congelada caía no mesmo caso); agora o READY de uma reconexão esquece os canais
+      guardados e o aberto busca as mais novas (`catchUp`: substitui se estava no fim, só acrescenta se estava lendo acima,
+      recarrega se passaram de 50); (2) **voltar com as configurações abertas** trocava a tela de baixo e deixava o painel
+      por cima — agora voltar (ou o gesto do celular) fecha a camada de cima: configurações, imagem ampliada e janelas
+      (`public/backclose.js`); fechar pelo Esc/X tira a entrada do histórico, então o voltar seguinte troca de tela;
+      (3) **rascunho sumia** ao trocar de canal, recarregar ou o navegador descartar a aba — agora fica por canal no aparelho
+      (`lc_drafts`, até 50, gravado também no `pagehide`/`freeze`). Voltar/avançar entre canais, servidores, Descobrir e
+      conversa já funcionava; agora tem teste.
 - [x] ★ **Orçamento de desempenho** (2026-11-11, `scripts/perf-budget.mjs` + `scripts/perf-budget.json`). Lê o JSON do
       `perf-audit`, `perf-stress` ou `perf-big` (reconhece pelo nome), compara com os limites de cada item (máximo, mínimo,
       igual, ou quanto um par [antes, depois] pode crescer) e, com `--base <anterior.json>`, aponta o que piorou mais que

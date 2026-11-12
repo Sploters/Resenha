@@ -561,7 +561,7 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 }
 @keyframes gs-fly { from { opacity: 0; transform: translateX(-8px); } }
 /* Mensagens e amigos (clique direito ou mouse parado 1,2 s): as duas abas numa fileira que sai do ícone */
-body:has(#layer .rf-popout:not(.leaving)) .rail-wrap.rail-fly:has([data-fly="me"])[data-tip]:hover::after { display: none; }
+body:has(> #layer > .rf-popout:not(.leaving)) .rail-wrap.rail-fly:has([data-fly="me"])[data-tip]:hover::after { display: none; }
 .popout.rf-popout { width: auto; padding: 6px; border-radius: 14px; }
 .rf-pop { display: flex; gap: 4px; }
 .rf-opt { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--interactive); font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background .12s, color .12s; }
@@ -569,7 +569,7 @@ body:has(#layer .rf-popout:not(.leaving)) .rail-wrap.rail-fly:has([data-fly="me"
 .rf-opt:hover, .rf-opt:focus-visible { background: var(--bg-mod-hover); color: var(--header); outline: none; }
 .rf-opt.on { background: var(--brand); color: #fff; }
 /* atalho do servidor (lista de canais oculta): Clipes, Arquivos, canal de texto e sala de voz principais, um embaixo do outro */
-body:has(#layer .gf-popout:not(.leaving)) .rail-wrap:has([data-fly="g"])[data-tip]:hover::after { display: none; }
+body:has(> #layer > .gf-popout:not(.leaving)) .rail-wrap:has([data-fly="g"])[data-tip]:hover::after { display: none; }
 .popout.gf-popout { width: 248px; }
 .gf-pop { flex-direction: column; gap: 2px; }
 .gf-head { padding: 6px 10px 6px; font-size: 15px; font-weight: 700; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

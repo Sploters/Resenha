@@ -80,7 +80,10 @@ function draw() {
   const bar = build();
   const old = document.getElementById('chtabs');
   if (old) old.replaceWith(bar); else main.prepend(bar);
+  markTabs();
 }
+// #app.ct-on = as abas estão na tela (o CSS desce a lateral e o menu; antes era #app:has(#chtabs), caro a cada recálculo)
+const markTabs = () => document.getElementById('app')?.classList.toggle('ct-on', !!document.getElementById('chtabs'));
 
 // a aba ativa acompanha a navegação; se a rota já existe em outra aba, não duplica
 function follow() {
@@ -137,7 +140,7 @@ export function initPlugins(deps) {
   let busy = false;
   const sync = () => {
     if (busy) return; busy = true;
-    try { follow(); if (document.getElementById('chtabs') !== main.firstElementChild) { document.getElementById('chtabs')?.remove(); main.prepend(build()); } else draw(); hideButton(); }
+    try { follow(); if (document.getElementById('chtabs') !== main.firstElementChild) { document.getElementById('chtabs')?.remove(); main.prepend(build()); markTabs(); } else draw(); hideButton(); }
     finally { busy = false; }
   };
   // Procurar jogadores e Descobrir redesenham a própria barra de cima (#topbar) depois de carregar: por isso olha
