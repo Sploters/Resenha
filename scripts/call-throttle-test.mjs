@@ -16,6 +16,18 @@ const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { '
 const [ra, rb] = await Promise.all(['alice', 'bruno'].map(n => api('', 'POST', '/register', { username: n, password: 'Teste.senha-123' })));
 const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' }), inv = (await api(ra.token, 'POST', `/guilds/${g.id}/invites`)).code;
 await api(rb.token, 'POST', '/invites/' + inv);
+// Microfone falso: som contínuo parecido com voz (sem pausas), sem redução de ruído e sem cancelamento de eco. Os dois
+// lados tocam o MESMO áudio falso: com o cancelamento de eco ligado, o do bruno via o próprio microfone igual à voz da
+// alice que ele ouvia e apagava (nível 0,3 → 0,02); a redução de ruído também apagava boa parte do bipe padrão e, com o
+// DTX do Opus, a voz saindo variava de 3 a 64 kbps e o teste falhava por acaso.
+const WAV = './.testdata-throttle.wav';
+{
+  const rate = 48000, n = rate * 4, pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) { const t = i / rate; pcm[i] = Math.round(0.3 * 32767 * Math.sin(2 * Math.PI * (220 + 30 * Math.sin(2 * Math.PI * 5 * t)) * t) * (0.6 + 0.4 * Math.sin(2 * Math.PI * 3 * t))); }
+  const hd = Buffer.alloc(44); hd.write('RIFF', 0); hd.writeUInt32LE(36 + n * 2, 4); hd.write('WAVEfmt ', 8); hd.writeUInt32LE(16, 16); hd.writeUInt16LE(1, 20); hd.writeUInt16LE(1, 22);
+  hd.writeUInt32LE(rate, 24); hd.writeUInt32LE(rate * 2, 28); hd.writeUInt16LE(2, 32); hd.writeUInt16LE(16, 34); hd.write('data', 36); hd.writeUInt32LE(n * 2, 40);
+  (await import('node:fs')).writeFileSync(WAV, Buffer.concat([hd, Buffer.from(pcm.buffer)]));
+}
 const NO_THROTTLE = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
 // kbps de voz recebida (inbound) e enviada (outbound) numa página
 const rtp = (p, ms = 3000) => p.evaluate(async (ms) => {
@@ -31,7 +43,7 @@ async function run(throttle) {
   console.log(`\n== ${throttle ? 'COM desaceleração (modo leve, nova regra)' : 'SEM desaceleração (como era em chamada)'} ==`);
   const browser = await puppeteer.launch({ executablePath: EXE, headless: false, protocolTimeout: 90000, ignoreDefaultArgs: NO_THROTTLE, // o puppeteer desliga a desaceleração por padrão
     defaultViewport: { width: 1200, height: 760 },
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox', '--window-size=1200,800', ...(throttle ? [] : NO_THROTTLE)] });
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + WAV, '--autoplay-policy=no-user-gesture-required', '--no-sandbox', '--window-size=1200,800', ...(throttle ? [] : NO_THROTTLE)] });
   const R = {};
   try {
     const person = async (ctx, tok) => {
@@ -44,7 +56,7 @@ async function run(throttle) {
     const A = await person(await browser.createBrowserContext(), ra.token), bctx = browser.defaultBrowserContext(), B = await person(bctx, rb.token);
     const { vc, tc } = await A.evaluate((gid) => { const ch = window.__lc.S.guilds.get(gid).channels; return { vc: ch.find(x => x.type === 2).id, tc: ch.find(x => x.type === 0).id }; }, g.id);
     await B.evaluate((gid, tc) => window.__lc.go(gid, tc), g.id, tc);
-    for (const p of [A, B]) await p.evaluate(async (vc) => { await window.__lc.voice.join(vc); for (let i = 0; i < 100 && !window.__lc.voice.sfu?.ready; i++) await new Promise(r => setTimeout(r, 100)); }, vc);
+    for (const p of [A, B]) await p.evaluate(async (vc) => { Object.assign(window.__lc.S.prefs, { noiseMode: 'off', echo: false }); await window.__lc.voice.join(vc); for (let i = 0; i < 100 && !window.__lc.voice.sfu?.ready; i++) await new Promise(r => setTimeout(r, 100)); }, vc);
     await sleep(3000);
     if (throttle) { // a regra do app: modo leve desacelera também em chamada, menos transmitindo
       const w = await B.evaluate(async () => { const L = await window.__lc.import('lite.js'), S = window.__lc.S, was = S.prefs.lightMode; S.prefs.lightMode = true;
