@@ -16,6 +16,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_HiDpi",
   "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
 ] }
 
 [profile.release]

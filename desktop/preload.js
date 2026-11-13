@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   setBadge: (n) => ipcRenderer.send('set-badge', n),
   clipFlash: (o) => ipcRenderer.send('clip-flash', o), // aviso de clipe por cima do jogo (desde a 1.0.24)
   onHotkey: (cb) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
+  // push-to-talk global (apps com esta função; a página testa se pttSet existe): code = e.code da tecla ou Mouse3/4/5; null desliga. Devolve { ok, reason?, global }
+  pttSet: (code) => ipcRenderer.invoke('ptt-set', code),
+  onPtt: (cb) => ipcRenderer.on('ptt', (_e, down) => cb(!!down)),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (p) => ipcRenderer.invoke('set-settings', p),
   clearCache: () => ipcRenderer.invoke('clear-cache'),

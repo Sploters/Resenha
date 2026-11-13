@@ -26,6 +26,7 @@ import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pru
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
 import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWatch } from './lite.js';
+import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
@@ -1251,6 +1252,7 @@ const newsActions = {
   lite: () => openSettings('lite', ctxSettings()),
   extras: () => openSettings('extras', ctxSettings()),
   stream: () => openSettings('stream', ctxSettings()),
+  voice: () => openSettings('voice', ctxSettings()),
   poll: () => { const ch = channelById(S.view.cid); if (ch && $('#composer')) pollModal(ch); else toast('Abra um chat e use o + do campo de mensagem → "Criar enquete".'); },
   settings: () => openSettings('news', ctxSettings()),
   ping: () => { const b = $('#vp-ping'); if (b) b.click(); else toast('Entre numa sala de voz e clique no ícone de sinal do painel de voz.'); },
@@ -2977,6 +2979,7 @@ function autoClosed() {
 // Antes cada um redesenhava a lista lateral e o palco inteiros na hora (~400 elementos por vez).
 let vuiQ = 0; // 1 = só as falas, 2 = completo
 function voiceUpdate(speakOnly) {
+  if (!speakOnly) syncGlobalPtt(voice); // entrou/saiu da chamada: liga/desliga o push-to-talk global (só avisa o app se mudou)
   const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
   const first = !vuiQ; vuiQ = want;
   if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) applyCamFlow(); }); // câmera nova com a sala fora da tela também pausa
@@ -3478,7 +3481,6 @@ function setupDesktop() {
   if (setupDesktop.done) return; setupDesktop.done = true;
   const typing = (t) => /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName) || t?.isContentEditable;
   addEventListener('keydown', (e) => {
-    if (S.prefs.inputMode === 'ptt' && e.code === S.prefs.pttKey && !e.repeat && (!typing(e.target) || !/^(Key|Digit|Space|Numpad)/.test(e.code))) voice?.setPtt(true);
     if (!(typing(e.target) && !e.ctrlKey && !e.altKey) && sbKey(e, voice)) return;
     const c = comboFromEvent(e);
     if (c && c === (S.prefs.keyMute || 'Ctrl+Shift+KeyM')) { e.preventDefault(); voiceToggle('mute'); }
@@ -3487,8 +3489,7 @@ function setupDesktop() {
     if (c && c === (S.prefs.keyFx || 'Ctrl+Shift+KeyE')) { e.preventDefault(); fxHotkey(); }
     if (c && c === shareKey() && !e.repeat) { e.preventDefault(); shareHotkey(); }
   });
-  addEventListener('keyup', (e) => { if (e.code === S.prefs.pttKey) voice?.setPtt(false); });
-  addEventListener('blur', () => voice?.setPtt(false));
+  setupPtt(() => voice);
   desktop?.setSettings?.({ hotkeyMute: comboToAccel(S.prefs.keyMute || 'Ctrl+Shift+KeyM'), hotkeyDeafen: comboToAccel(S.prefs.keyDeafen || 'Ctrl+Shift+KeyD'), hotkeyClip: comboToAccel(S.prefs.keyClip || 'F8'), hotkeyShare: comboToAccel(shareKey()) });
   desktop?.onHotkey?.((k) => { if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); if (k === 'share') shareHotkey(); });
 }

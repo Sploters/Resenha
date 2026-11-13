@@ -26,6 +26,9 @@ pub fn scan_for(code: &str) -> Option<(u16, bool)> {
         "Numpad4" => s(0x4B), "Numpad5" => s(0x4C), "Numpad6" => s(0x4D), "NumpadAdd" => s(0x4E),
         "Numpad1" => s(0x4F), "Numpad2" => s(0x50), "Numpad3" => s(0x51), "Numpad0" => s(0x52), "NumpadDecimal" => s(0x53),
         "IntlBackslash" => s(0x56), "F11" => s(0x57), "F12" => s(0x58),
+        // F13–F24: teclas extras de teclados/mouses gamer (comuns para push-to-talk)
+        "F13" => s(0x64), "F14" => s(0x65), "F15" => s(0x66), "F16" => s(0x67), "F17" => s(0x68), "F18" => s(0x69),
+        "F19" => s(0x6A), "F20" => s(0x6B), "F21" => s(0x6C), "F22" => s(0x6D), "F23" => s(0x6E), "F24" => s(0x76),
         "IntlRo" => s(0x73),        // ABNT2: tecla /? ao lado do Shift direito
         "NumpadComma" => s(0x7E),   // ABNT2: ponto do teclado numérico
         "NumpadEnter" => e(0x1C), "ControlRight" => e(0x1D), "NumpadDivide" => e(0x35), "PrintScreen" => e(0x37),
@@ -67,7 +70,7 @@ mod tests {
     }
     #[test]
     fn sem_duplicatas() {
-        let all = ["Escape","Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","Digit7","Digit8","Digit9","Digit0","Minus","Equal","Backspace","Tab","KeyQ","KeyW","KeyE","KeyR","KeyT","KeyY","KeyU","KeyI","KeyO","KeyP","BracketLeft","BracketRight","Enter","ControlLeft","KeyA","KeyS","KeyD","KeyF","KeyG","KeyH","KeyJ","KeyK","KeyL","Semicolon","Quote","Backquote","ShiftLeft","Backslash","KeyZ","KeyX","KeyC","KeyV","KeyB","KeyN","KeyM","Comma","Period","Slash","ShiftRight","NumpadMultiply","AltLeft","Space","CapsLock","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","NumLock","ScrollLock","Numpad7","Numpad8","Numpad9","NumpadSubtract","Numpad4","Numpad5","Numpad6","NumpadAdd","Numpad1","Numpad2","Numpad3","Numpad0","NumpadDecimal","IntlBackslash","F11","F12","IntlRo","NumpadComma","NumpadEnter","ControlRight","NumpadDivide","PrintScreen","AltRight","Home","ArrowUp","PageUp","ArrowLeft","ArrowRight","End","ArrowDown","PageDown","Insert","Delete","MetaLeft","MetaRight","ContextMenu"];
+        let all = ["Escape","Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","Digit7","Digit8","Digit9","Digit0","Minus","Equal","Backspace","Tab","KeyQ","KeyW","KeyE","KeyR","KeyT","KeyY","KeyU","KeyI","KeyO","KeyP","BracketLeft","BracketRight","Enter","ControlLeft","KeyA","KeyS","KeyD","KeyF","KeyG","KeyH","KeyJ","KeyK","KeyL","Semicolon","Quote","Backquote","ShiftLeft","Backslash","KeyZ","KeyX","KeyC","KeyV","KeyB","KeyN","KeyM","Comma","Period","Slash","ShiftRight","NumpadMultiply","AltLeft","Space","CapsLock","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","NumLock","ScrollLock","Numpad7","Numpad8","Numpad9","NumpadSubtract","Numpad4","Numpad5","Numpad6","NumpadAdd","Numpad1","Numpad2","Numpad3","Numpad0","NumpadDecimal","IntlBackslash","F11","F12","F13","F14","F15","F16","F17","F18","F19","F20","F21","F22","F23","F24","IntlRo","NumpadComma","NumpadEnter","ControlRight","NumpadDivide","PrintScreen","AltRight","Home","ArrowUp","PageUp","ArrowLeft","ArrowRight","End","ArrowDown","PageDown","Insert","Delete","MetaLeft","MetaRight","ContextMenu"];
         let mut seen = std::collections::HashSet::new();
         for k in all { assert!(seen.insert(scan_for(k).unwrap()), "scancode repetido em {k}"); }
     }

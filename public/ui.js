@@ -100,7 +100,8 @@ export function comboFromEvent(e) {
   if (/^(Control|Shift|Alt|Meta)(Left|Right)$/.test(e.code)) return null; // só modificador
   return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.code].filter(Boolean).join('+');
 }
-export const comboLabel = (c) => !c ? '—' : c.split('+').map(p => p.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, 'Seta ').replace('Backquote', '`').replace('Space', 'Espaço')).join(' + ');
+const MOUSE_LABEL = { Mouse3: 'Botão do meio do mouse', Mouse4: 'Mouse 4 (lateral)', Mouse5: 'Mouse 5 (lateral)' };
+export const comboLabel = (c) => !c ? '—' : MOUSE_LABEL[c] || c.split('+').map(p => p.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, 'Seta ').replace('Backquote', '`').replace('Space', 'Espaço')).join(' + ');
 // nome da tecla (e.code) -> nome que o Electron aceita nos atalhos globais (pontuação vira o próprio caractere;
 // "Backslash" e companhia davam "atalho inválido" e o atalho nunca funcionava)
 const ACCEL_KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',
@@ -109,18 +110,24 @@ export function comboToAccel(c) {
   if (!c) return '';
   return c.split('+').map(p => p === 'Ctrl' ? 'CommandOrControl' : ACCEL_KEYS[p] || p.replace(/^Numpad(\d)$/, 'num$1').replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '')).join('+');
 }
-export function captureKey(button, current, onSet, { combo = true, label = '' } = {}) {
+// mouse: aceita também o botão do meio e os laterais (Mouse3/4/5); esquerdo e direito não, para não travar a interface
+export function captureKey(button, current, onSet, { combo = true, label = '', mouse = false } = {}) {
   const paint = (c) => (button.textContent = `${label}${comboLabel(c)}`);
   paint(current);
   button.onclick = () => {
-    button.textContent = 'Pressione as teclas… (Esc cancela)'; button.classList.add('capturing');
+    button.textContent = mouse ? 'Pressione uma tecla ou botão do mouse… (Esc cancela)' : 'Pressione as teclas… (Esc cancela)'; button.classList.add('capturing');
+    const MB = { 1: 'Mouse3', 3: 'Mouse4', 4: 'Mouse5' };
+    const done = () => { button.classList.remove('capturing'); removeEventListener('keydown', on, true); removeEventListener('mousedown', onMouse, true); removeEventListener('auxclick', eat, true); setTimeout(() => removeEventListener('mouseup', eat, true), 0); };
+    const set = (c) => { current = c; onSet(c); done(); paint(c); };
     const on = (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (e.code === 'Escape') { button.classList.remove('capturing'); paint(current); return removeEventListener('keydown', on, true); }
-      const c = combo ? comboFromEvent(e) : e.code; if (!c) return;
-      current = c; onSet(c); button.classList.remove('capturing'); paint(c); removeEventListener('keydown', on, true);
+      if (e.code === 'Escape') { done(); return paint(current); }
+      const c = combo ? comboFromEvent(e) : e.code; if (c) set(c);
     };
+    const onMouse = (e) => { if (!MB[e.button]) return; e.preventDefault(); e.stopPropagation(); set(MB[e.button]); };
+    const eat = (e) => { if (MB[e.button]) { e.preventDefault(); e.stopPropagation(); } }; // sem "voltar" no botão lateral
     addEventListener('keydown', on, true);
+    if (mouse) { addEventListener('mousedown', onMouse, true); addEventListener('mouseup', eat, true); addEventListener('auxclick', eat, true); }
   };
   return button;
 }

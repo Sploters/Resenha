@@ -400,6 +400,11 @@ ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));
 ipcMain.on('remote-input', (_e, ev) => remote.input(ev));
 ipcMain.on('remote-stop', () => remote.stop());
 remote.onRemoteEvent((k) => { if (win && !win.isDestroyed()) win.webContents.send('remote-event', k); });
+// push-to-talk global: a página diz a tecla enquanto está numa chamada em modo PTT; segue "Atalhos globais"
+let pttWanted = null;
+const applyPtt = () => remote.setPtt(cfg.globalHotkeys ? pttWanted : null);
+ipcMain.handle('ptt-set', (_e, code) => { pttWanted = code || null; const r = applyPtt(); return { ...r, global: !!cfg.globalHotkeys }; });
+remote.onPtt((down) => { if (win && !win.isDestroyed()) win.webContents.send('ptt', down); });
 app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
 // transmissão a 120 FPS (desktop/native.js): o renderer pede a sessão ao servidor e passa as chaves para cá
 ipcMain.handle('native-capable', () => native.capable());
@@ -419,7 +424,7 @@ ipcMain.handle('set-settings', (_e, patch) => {
   if ('cacheLimitMB' in patch) cfg.cacheLimitMB = Math.max(0, Math.min(65536, Math.round(+patch.cacheLimitMB || 0)));
   if ('hotkeyMute' in patch || 'hotkeyDeafen' in patch || 'hotkeyClip' in patch || 'hotkeyShare' in patch) registerHotkeys();
   if ('autoStart' in patch) app.setLoginItemSettings({ openAtLogin: cfg.autoStart, args: ['--hidden'] });
-  if ('globalHotkeys' in patch) registerHotkeys();
+  if ('globalHotkeys' in patch) { registerHotkeys(); applyPtt(); }
   saveCfg(); return true;
 });
 // limpa o que é só cache (mídias, scripts compilados, shaders, cache do app instalável); login e configurações ficam

@@ -2,6 +2,8 @@
 //!   {"t":"arm","rect":[x,y,w,h]}   liga a injeção para o monitor transmitido (pixels físicos)
 //!   {"t":"disarm"}                 desliga e solta tudo
 //!   {"t":"ev","ev":[...]}          eventos já validados pelo servidor; validados de novo aqui
+//!   {"t":"ptt","code":"KeyV"}      push-to-talk global: avisa só quando ESTA tecla (ou botão do mouse) desce/sobe
+//!   {"t":"ptt","code":null}        desliga o push-to-talk global
 //! Nada aqui toca o Windows: só transforma texto em ações (testável em qualquer sistema).
 use crate::keymap::scan_for;
 use serde::Deserialize;
@@ -18,10 +20,22 @@ pub enum Action {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Cmd { Arm(Rect), Disarm, Events(Vec<Raw>), Bad }
+pub enum Cmd { Arm(Rect), Disarm, Events(Vec<Raw>), Ptt(Option<PttKey>), Bad }
+
+/// Tecla do push-to-talk: scancode do teclado (como em `scan_for`) ou botão do mouse
+/// (3 = meio, 4 = lateral de trás / XBUTTON1, 5 = lateral da frente / XBUTTON2). Esquerdo e direito não valem.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PttKey { Key { scan: u16, ext: bool }, Mouse(u8) }
+
+pub fn ptt_key(code: &str) -> Option<PttKey> {
+    match code {
+        "Mouse3" => Some(PttKey::Mouse(3)), "Mouse4" => Some(PttKey::Mouse(4)), "Mouse5" => Some(PttKey::Mouse(5)),
+        _ => scan_for(code).map(|(scan, ext)| PttKey::Key { scan, ext }),
+    }
+}
 
 #[derive(Deserialize)]
-struct Line { t: String, rect: Option<[i64; 4]>, ev: Option<Vec<serde_json::Value>> }
+struct Line { t: String, rect: Option<[i64; 4]>, ev: Option<Vec<serde_json::Value>>, code: Option<String> }
 
 const MAX_EVENTS: usize = 64;
 
@@ -35,6 +49,10 @@ pub fn parse(line: &str) -> Cmd {
             _ => Cmd::Bad,
         },
         "disarm" => Cmd::Disarm,
+        "ptt" => match l.code.as_deref() {
+            None => Cmd::Ptt(None),
+            Some(c) => ptt_key(c).map_or(Cmd::Bad, |k| Cmd::Ptt(Some(k))),
+        },
         "ev" => Cmd::Events(l.ev.unwrap_or_default().iter().take(MAX_EVENTS).filter_map(raw_event).collect()),
         _ => Cmd::Bad,
     }
@@ -93,6 +111,16 @@ mod tests {
         assert_eq!(v[0], Raw::Move(0.25, 0.75));
         assert_eq!(v[1], Raw::Act(Action::Key { scan: 0x1E, ext: false, down: true }));
         assert_eq!(v[2], Raw::Act(Action::Button { b: 2, down: false }));
+    }
+    #[test]
+    fn push_to_talk() {
+        assert_eq!(parse(r#"{"t":"ptt","code":"KeyV"}"#), Cmd::Ptt(Some(PttKey::Key { scan: 0x2F, ext: false })));
+        assert_eq!(parse(r#"{"t":"ptt","code":"ControlRight"}"#), Cmd::Ptt(Some(PttKey::Key { scan: 0x1D, ext: true })));
+        assert_eq!(parse(r#"{"t":"ptt","code":"Mouse4"}"#), Cmd::Ptt(Some(PttKey::Mouse(4))));
+        assert_eq!(parse(r#"{"t":"ptt","code":null}"#), Cmd::Ptt(None));
+        assert_eq!(parse(r#"{"t":"ptt"}"#), Cmd::Ptt(None));
+        assert_eq!(parse(r#"{"t":"ptt","code":"Mouse1"}"#), Cmd::Bad); // botão esquerdo nunca
+        assert_eq!(parse(r#"{"t":"ptt","code":"Inexistente"}"#), Cmd::Bad);
     }
     #[test]
     fn limite_de_eventos_por_linha() {

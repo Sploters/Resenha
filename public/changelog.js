@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-13-4', title: 'Push-to-talk no jogo',
+    items: [
+      { i: 'mic', t: 'Push-to-talk com o jogo em foco', d: 'No app para Windows, a tecla de push-to-talk funciona com o jogo na frente, não só com a Resenha em foco. Só vale enquanto você está numa chamada em modo push-to-talk, e o app só vê a tecla escolhida. Se o jogo roda como administrador, abra a Resenha como administrador também.', try: 'voice' },
+      { i: 'keyboard', t: 'Botão do mouse e F13–F24', d: 'O push-to-talk aceita o botão do meio e os laterais do mouse (Mouse 4/5), além das teclas F13 a F24 de teclados e mouses gamer.', try: 'voice' },
+    ],
+  },
+  {
     id: '2026-11-13-3', title: 'App mais leve com o jogo aberto',
     items: [
       { i: 'bolt', t: 'Menos programas abrindo e fechando', d: 'No app do computador, o ajudante que lista as janelas (para o "Jogando…" e para a transmissão) agora fica aberto o tempo todo, em vez de abrir e fechar centenas de vezes por hora. Menos trabalho para o PC e para o antivírus. Precisa do app atualizado.' },

@@ -7,6 +7,8 @@ const path = require('path');
 const fs = require('fs');
 
 let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null;
+// push-to-talk global: o mesmo programa (lc-input) vigia só a tecla/botão escolhido; ver setPtt
+let pttCode = null, onPttEvent = () => { }, pttRetry = 0, pttTimer = null, quitting = false, startedAt = 0;
 const log = (...a) => console.log('[remote]', ...a);
 
 const helperPath = () => {
@@ -58,7 +60,7 @@ async function capable() {
 function ensureHelper() {
   if (helper) return true;
   const exe = helperPath(); if (!exe) return false;
-  helper = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+  helper = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }); startedAt = Date.now();
   let buf = '';
   helper.stdout.on('data', (d) => {
     buf += d.toString(); let i;
@@ -66,12 +68,19 @@ function ensureHelper() {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       let m; try { m = JSON.parse(line); } catch { continue; }
       if (m.t === 'ready') ready = true;
+      if (m.t === 'ptt') onPttEvent(!!m.down);
       if (m.t === 'panic') { armed = false; closeIndicator(); onEvent('panic'); }
       if (m.t === 'err' && m.msg === 'blocked') onEvent('blocked');
       if (m.t === 'err' && m.msg !== 'blocked') log('helper:', m.msg);
     }
   });
-  helper.on('exit', (code) => { log('helper saiu', code); const was = armed; helper = null; ready = false; armed = false; closeIndicator(); if (was) onEvent('panic'); });
+  helper.on('exit', (code) => {
+    log('helper saiu', code); const was = armed; helper = null; ready = false; armed = false; closeIndicator(); if (was) onEvent('panic');
+    onPttEvent(false); // nunca deixa o microfone aberto se o programa cair com a tecla apertada
+    if (Date.now() - startedAt > 30000) pttRetry = 0; // ficou de pé um tempo: a próxima queda recomeça a contagem
+    // o PTT global precisa do programa rodando: tenta religar (até 5 vezes seguidas, com espera crescente)
+    if (pttCode && !quitting && pttRetry < 5 && !pttTimer) pttTimer = setTimeout(() => { pttTimer = null; pttRetry++; if (pttCode && ensureHelper()) write({ t: 'ptt', code: pttCode }); }, 1000 * 2 ** pttRetry);
+  });
   helper.stdin.on('error', () => { });
   return true;
 }
@@ -113,6 +122,18 @@ async function start({ who, perms }) {
 }
 function input(ev) { if (armed && Array.isArray(ev) && ev.length <= 64) write({ t: 'ev', ev }); }
 function stop() { if (armed) write({ t: 'disarm' }); armed = false; closeIndicator(); }
-function shutdown() { stop(); try { helper?.stdin.end(); } catch { } }
+function shutdown() { quitting = true; stop(); try { helper?.stdin.end(); } catch { } }
 
-module.exports = { setShared, capable, start, input, stop, shutdown, onRemoteEvent: (cb) => { onEvent = cb; } };
+// code = KeyboardEvent.code (ex.: KeyV, F13) ou Mouse3/Mouse4/Mouse5; null desliga. Só Windows.
+function setPtt(code) {
+  code = typeof code === 'string' && /^(Mouse[345]|[A-Za-z0-9]{1,24})$/.test(code) ? code : null;
+  if (code === pttCode) return { ok: !!helper || !code };
+  pttCode = code; pttRetry = 0;
+  if (!code) { write({ t: 'ptt', code: null }); onPttEvent(false); return { ok: true }; }
+  if (process.platform !== 'win32') return { ok: false, reason: 'Só no app para Windows.' };
+  if (!ensureHelper()) return { ok: false, reason: 'Componente de teclado não encontrado. Atualize o app.' };
+  write({ t: 'ptt', code });
+  return { ok: true };
+}
+
+module.exports = { setShared, capable, start, input, stop, shutdown, setPtt, onRemoteEvent: (cb) => { onEvent = cb; }, onPtt: (cb) => { onPttEvent = cb; } };

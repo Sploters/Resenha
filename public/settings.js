@@ -25,6 +25,7 @@ import { storagePage, serverStoragePage } from './storagepage.js';
 import { openMyMessages } from './mymessages.js';
 import { track, clearUx, uxOn, settingsPage } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
+import { syncGlobalPtt, globalPttSupported } from './ptt.js';
 
 const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
@@ -580,7 +581,7 @@ function voicePage(ctx, reg) {
   const gateBox = h('label.f', { style: { marginTop: '4px' } }, 'Limite da porta: ', h('span', S.prefs.gateDb + ' dB')); gateBox.style.display = S.prefs.gate ? '' : 'none';
   const gate = h('input', { type: 'range', min: -70, max: -10, value: S.prefs.gateDb, oninput: () => { S.prefs.gateDb = +gate.value; gateLbl.textContent = gate.value + ' dB'; gateBox.firstElementChild.textContent = gate.value + ' dB'; placeMark(); }, onchange: () => { save(); restartTest(); } });
   gateBox.append(gate);
-  const pttBtn = captureKey(h('button.btn.grey'), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); }, { combo: false, label: 'Tecla de push-to-talk: ' });
+  const pttBtn = captureKey(h('button.btn.grey'), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); syncGlobalPtt(); }, { combo: false, mouse: true, label: 'Tecla de push-to-talk: ' });
   const dev = (kind) => async () => { try { const s = await navigator.mediaDevices.getUserMedia(kind === 'cam' ? { video: true } : { audio: true }); s.getTracks().forEach(t => t.stop()); toast('Permissão concedida. Reabra a página para listar os nomes.'); } catch (e) { toast(e.message, true); } };
   const camPrev = h('video', { autoplay: true, muted: true, playsInline: true, style: { width: '100%', borderRadius: '8px', background: '#000', display: 'none', marginTop: '12px' } });
   let camStream; reg(() => camStream?.getTracks().forEach(t => t.stop()));
@@ -597,7 +598,7 @@ function voicePage(ctx, reg) {
         { on: S.prefs.agc !== false, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
       gateBox),
     section('Teste de microfone'), card(h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(false, (v) => { loopback = v; test?.setLoopback(v); })), meterWrap),
-    section('Modo de entrada'), card(choiceCards([['vad', 'Atividade de voz', h('span.im-prev', icon('waves', 28), h('small', 'Fala e já sai'))], ['ptt', 'Push-to-talk', h('span.im-prev', icon('keyboard', 28), h('small', 'Segura a tecla para falar'))]], S.prefs.inputMode || 'vad', v => { S.prefs.inputMode = v; save(); voice.applyMute(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint('O push-to-talk funciona com a janela do app em foco.')),
+    section('Modo de entrada'), card(choiceCards([['vad', 'Atividade de voz', h('span.im-prev', icon('waves', 28), h('small', 'Fala e já sai'))], ['ptt', 'Push-to-talk', h('span.im-prev', icon('keyboard', 28), h('small', 'Segura a tecla para falar'))]], S.prefs.inputMode || 'vad', v => { S.prefs.inputMode = v; save(); voice.applyMute(); syncGlobalPtt(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint(pttHint())),
     section('Qualidade da voz'), card(h('label.f', 'Taxa de bits do áudio', seg(VOICE_BITRATES, S.prefs.voiceBitrate ?? 'auto', v => { S.prefs.voiceBitrate = v; save(); voice?.retuneAudio(); })), hint('Automático: voz mono a 64 kbps, que já soa perfeita; desce para 48 ou 32 kbps se a sua conexão tiver perda ou ping alto. 128 kbps ou mais só faz diferença para música e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala. O nível atual aparece no painel de voz.')),
     section('Efeitos de voz'), card(toggleCards([{ on: S.prefs.hearFx !== false, label: 'Ouvir efeitos de voz dos outros', sub: 'Desligado: todo mundo com a voz normal', desc: 'Dá também para desligar só de uma pessoa: clique direito nela → "Ouvir sem efeito de voz".', prev: h('span.vp-fx', icon('mask', 30), h('i.fx-w'), h('i.fx-w.w2')), fn: v => { S.prefs.hearFx = v; save(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); } }])),
     section('Câmera'), card(sel('videoinput', 'videoId', 'Câmera'), h('label.f', 'Resolução', seg({ 360: '360p', 720: '720p', 1080: '1080p' }, S.prefs.camRes, v => { S.prefs.camRes = v; save(); })), h('label.f', 'Quadros por segundo', seg({ 15: '15', 30: '30', 60: '60' }, S.prefs.camFps, v => { S.prefs.camFps = v; save(); })), camBtn, camPrev),
@@ -752,7 +753,7 @@ function keysPage() {
       row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
       row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', cap('keyFx', '')),
       row('Duração do clipe do atalho', null, seg({ 15: '15s', 30: '30s', 60: '60s' }, S.prefs.clipSecs || 30, (v) => { S.prefs.clipSecs = +v; save(); })),
-      row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo).', captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); }, { combo: false }))),
+      row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo). Aceita tecla ou botão do meio/lateral do mouse. ' + pttHint(), captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); syncGlobalPtt(); }, { combo: false, mouse: true }))),
     section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
     hint('Atalhos para tocar sons do soundboard: clique direito no som → "Definir atalho".'));
 }
@@ -801,13 +802,19 @@ function versionRow(version) {
   } }, 'Procurar atualização');
   return vrow('Versão', status, btn);
 }
+// onde o push-to-talk funciona, conforme o lugar em que a Resenha está aberta
+function pttHint() {
+  if (globalPttSupported()) return 'Funciona também com o jogo em foco (com "Atalhos globais" ligado em Aplicativo). Se o jogo roda como administrador, abra a Resenha como administrador também, senão o Windows não deixa o app ver a tecla.';
+  if (desktop) return 'Funciona com a janela do app em foco. Atualize o app para funcionar também com o jogo em foco.';
+  return 'Funciona com a aba em foco. No app para Windows funciona também com o jogo em foco.';
+}
 function appPage() {
   const box = h('div.card2', 'Carregando…');
   desktop.getSettings().then((s) => box.replaceChildren(
     row('Iniciar com o Windows', 'Abre a Resenha ao ligar o computador.', toggle(s.autoStart, v => desktop.setSettings({ autoStart: v }))),
     row('Iniciar minimizado', null, toggle(s.startMinimized, v => desktop.setSettings({ startMinimized: v }))),
     row('Fechar para a bandeja', 'Ao fechar a janela o app continua rodando (para ficar em chamada).', toggle(s.closeToTray, v => desktop.setSettings({ closeToTray: v }))),
-    row('Atalhos globais', 'Mutar/ensurdecer funcionam com o app em segundo plano (veja Atalhos).', toggle(s.globalHotkeys, v => desktop.setSettings({ globalHotkeys: v }))),
+    row('Atalhos globais', globalPttSupported() ? 'Mutar/ensurdecer, clipe e push-to-talk funcionam com o app em segundo plano ou com o jogo em foco (veja Atalhos).' : 'Mutar/ensurdecer funcionam com o app em segundo plano (veja Atalhos).', toggle(s.globalHotkeys, v => desktop.setSettings({ globalHotkeys: v }))),
     row('Compatibilidade de vídeo', 'Por padrão o app desenha igual ao navegador. Ligue se as letras ficam borradas ou os vídeos piscam/aparecem escuros só no app (no navegador normais): o vídeo é decodificado pela CPU, em sRGB e sem a sobreposição de vídeo da placa (um pouco mais pesado). Em placas antigas também desenha o texto pela CPU. "Automático" liga sozinho em placas de vídeo antigas.' + (s.gpuName ? ` Placa: ${s.gpuName}.` : '') + ` Agora: ${s.gpuCompatActive ? 'ligada' : 'desligada'}.`,
       h('select.gpucompat', { onchange: async (e) => { await desktop.setSettings({ gpuCompat: e.target.value }); if (await confirmBox('Reiniciar a Resenha?', 'A compatibilidade de vídeo só muda depois de reiniciar o app. Se estiver numa chamada, você sai dela.', 'Reiniciar agora')) desktop.relaunch(); else toast('Vale na próxima vez que abrir o app'); } },
         [['auto', 'Automático'], ['on', 'Ligada'], ['off', 'Desligada']].map(([v, l]) => h('option', { value: v, selected: (s.gpuCompat || 'auto') === v }, l)))),
