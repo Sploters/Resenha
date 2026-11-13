@@ -21,6 +21,9 @@ export const SCREEN_PRESETS = {
   res: { 720: '720p', 1080: '1080p', 1440: '1440p', source: 'Fonte (original)' },
   fps: { 15: '15 fps', 30: '30 fps', 60: '60 fps', 120: '120 fps' },
 };
+// transmissão pelo programa nativo do app desktop (placa de vídeo) a partir deste fps; e quanto esperar o servidor confirmar
+// que os pacotes dele estão chegando antes de voltar ao Chromium
+export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
 export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '64 kbps'], [128, '128 kbps'], [256, '256 kbps'], [384, '384 kbps']];
 // voz é mono: 48-64 kbps já soam perfeitos. Acima disso só faz sentido para música (e pesa no upload do servidor:
 // cada voz é repassada para todos os outros da sala)
@@ -115,7 +118,7 @@ export class Voice {
     this.autoKbps = AUTO_MAX; // nível escolhido pelo modo automático (32-64 kbps, voz mono)
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
-    this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null;
+    this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null; this._natLive = new Set();
     document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
     // a internet voltou (Wi-Fi trocou, cabo, 4G): não espera o navegador perceber que a mídia caiu
     window.addEventListener('online', () => { const s = this.sfu; if (s?.ready) for (const t of [s.send, s.recv]) if (t && t.connectionState !== 'connected') this.iceRestart(t, s); });
@@ -1064,20 +1067,37 @@ export class Voice {
     a.node.disconnect(); a.track.stop();
   }
 
-  // ---------- 120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------
+  // ---------- 60/120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------
   // O Chromium continua capturando a mesma fonte, mas só para o áudio do sistema e a prévia local (leve: 10 fps, 360p).
+  // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
+  // e comprime na placa de vídeo. Chamada protegida (VP8 cifrado) e PC sem codificador de hardware seguem pelo Chromium.
   async nativeCapable() {
     const d = window.lcDesktop; if (!d?.nativeCapable) return { ok: false, reason: 'Só no app desktop para Windows.' };
     if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap;
   }
-  async wantNative(o) { return !this.e2ee && +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
+  // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por 10 min
+  async wantNative(o) { return !this.e2ee && +o.fps >= NATIVE_MIN_FPS && !!this.sfu?.ready && Date.now() - (this._natNoUdp || 0) > 10 * 60e3 && !!(await this.nativeCapable()).ok; }
+  // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
+  // esta trilha): aí fica em 30 fps até 1080p, para o clipe não sair pior do que pelo caminho do Chromium
+  previewSpec() {
+    if (this.prefs?.clipsOn !== true) return { fps: 10, h: 360 };
+    const o = this.screenOpts || {};
+    return { fps: 30, h: Math.min(o.res === 'source' ? 1080 : +o.res || 1080, 1080) };
+  }
   previewOnly(vt, on) {
     if (!vt) return;
-    const o = this.screenOpts || {};
-    const c = on ? { frameRate: { ideal: 10, max: 10 }, height: { ideal: 360, max: 360 }, width: { ideal: 640 } }
+    const o = this.screenOpts || {}, p = this.previewSpec();
+    this._prevSpec = on ? p.fps + 'x' + p.h : null;
+    const c = on ? { frameRate: { ideal: p.fps, max: p.fps }, height: { ideal: p.h, max: p.h }, width: { ideal: Math.round(p.h * 16 / 9) } }
       : { frameRate: { ideal: +o.fps, max: +o.fps }, ...(o.res !== 'source' ? { height: { ideal: +o.res, max: +o.res }, width: { ideal: Math.round(+o.res * 16 / 9) } } : {}) };
     vt.applyConstraints(c).catch(() => { });
+  }
+  // clipes ligados/desligados durante a transmissão nativa: ajusta a prévia (chamado a cada redesenho; só mexe se mudou)
+  syncPreview() {
+    if (!this.native) return;
+    const vt = this.screen?.getVideoTracks()[0], p = this.previewSpec();
+    if (vt && this._prevSpec !== p.fps + 'x' + p.h) this.previewOnly(vt, true);
   }
   async startNative() {
     const d = window.lcDesktop, o = this.screenOpts || {}, sfu = this.sfu;
@@ -1087,16 +1107,31 @@ export class Voice {
     try {
       // duas camadas: a cheia e uma leve (540p ou 360p a 60 fps) que o servidor manda a quem não tem banda para a cheia
       const topH = o.res === 'source' ? 2160 : +o.res || 1080, lowH = topH >= 1080 ? 540 : 360;
-      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate) / 1000) }, low = { height: lowH, fps: 60, kbps: lowH >= 540 ? 2500 : 1200 };
+      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate) / 1000) }, low = { height: lowH, fps: Math.min(60, +o.fps), kbps: lowH >= 540 ? 2500 : 1200 };
       const r = await this.sfuReq('native_start', { layers: 2 });
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];
-      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers });
+      // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
+      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
-      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '' });
+      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id) });
+      // o programa manda por UDP (portas RTC_NATIVE_PORTS) e enviar nunca falha do lado de cá: se o servidor não recebe nada
+      // (porta fechada no firewall/roteador/Docker), quem assiste veria tela preta até o servidor desistir (60 s). O servidor
+      // avisa quando os primeiros pacotes chegam (NATIVE_SCREEN_LIVE); sem esse aviso em 8 s, volta ao Chromium e não insiste.
+      if (!my.live) my.liveTimer = setTimeout(() => {
+        if (this.native !== my || my.live) return;
+        this._natNoUdp = Date.now();
+        this.nativeFallback('o servidor não recebeu o vídeo do app; as portas UDP da transmissão nativa podem estar fechadas');
+      }, NATIVE_LIVE_MS);
       this.onUpdate();
     } catch (e) { if (this.native === my) this.nativeFallback(e.message); }
+  }
+  // o servidor recebeu os primeiros pacotes do programa nativo (pode chegar antes de nativeStart responder)
+  onNativeLive(d) {
+    const id = String(d?.producer_id || ''); if (!id) return;
+    this._natLive.add(id); if (this._natLive.size > 20) this._natLive.delete(this._natLive.values().next().value);
+    const n = this.native; if (n && n.producerId === id) { n.live = true; clearTimeout(n.liveTimer); }
   }
   onNativeEvent(ev) {
     const n = this.native; if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
@@ -1117,12 +1152,12 @@ export class Voice {
     if (!vt) return;
     this.previewOnly(vt, false);
     if (this.sfu) this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
-    this.error = 'Transmissão a 120 FPS indisponível (' + why + '). Continuando pelo modo normal.';
+    this.error = 'Transmissão pela placa de vídeo indisponível (' + why + '). Continuando pelo modo normal (até ~48 FPS).';
     this.onNativeFail?.(this.error); this.onUpdate();
   }
   stopNative() {
     const n = this.native; if (!n) return;
-    this.native = null;
+    this.native = null; clearTimeout(n.liveTimer);
     window.lcDesktop?.nativeStop?.();
     // ainda preparando: a sessão é fechada quando a resposta chegar (startNative); senão fecha esta
     if (!n.pending) this.sfuReq('native_stop', { producer_id: n.producerId }).catch(() => { });

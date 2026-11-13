@@ -415,6 +415,7 @@ function onEvent(t, d) {
     case 'SFU_CONSUMER_CLOSED': voice.onSfuConsumerClosed(d); break;
     case 'SFU_SPEAKING': if (voice.channelId === d.channel_id) voice.onSfuSpeaking(d); break;
     case 'NATIVE_SCREEN_END': nativeEnded(d); voice?.onNativeEnded(d); break;
+    case 'NATIVE_SCREEN_LIVE': voice?.onNativeLive(d); break;
     case 'TYPING': {
       let m = S.typing.get(d.channel_id); if (!m) S.typing.set(d.channel_id, m = new Map());
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
@@ -3014,6 +3015,7 @@ function renderVoiceUI(speakOnly) {
       const vid = mine && !S.selfPreview ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
       // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
       // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
+      if (mine) voice.syncPreview(); // transmissão nativa: prévia leve, ou 30 fps se ela também alimenta o clipe próprio
       if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx());
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }

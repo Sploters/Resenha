@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-13-2', title: 'Transmissão a 60 FPS de verdade',
+    items: [
+      { i: 'screen', t: '60 FPS pela placa de vídeo', d: 'No app do computador (Windows 11), transmitir a 60 FPS agora também usa a captura e a compressão pela placa de vídeo, como já acontecia a 120 FPS. Antes, pedindo 60, o navegador entregava uns 48. Em conversa protegida e em PCs sem codificador de vídeo na placa, continua pelo modo normal. Precisa do app atualizado.' },
+      { i: 'bolt', t: 'Transmissão firme com o jogo pesado', d: 'Os programas de transmissão e de áudio do jogo agora pedem prioridade ao Windows (sem o modo de economia de energia e com a captura de áudio no agendador de multimídia), para perder menos quadros e picotar menos quando o jogo puxa o PC.' },
+      { i: 'screen', t: 'Sem tela preta se a porta estiver fechada', d: 'Se o servidor não receber o vídeo da placa (porta UDP fechada no roteador ou no firewall), a transmissão volta sozinha ao modo normal em poucos segundos, em vez de deixar quem assiste vendo tela preta. A opção "mostrar o cursor" também passa a valer nesse modo.' },
+    ],
+  },
+  {
     id: '2026-11-13-1', title: 'Mais seguro e a voz se recupera sozinha',
     items: [
       { i: 'mic', t: 'A voz volta sozinha', d: 'Se a internet oscilar (troca de Wi-Fi, 4G) ou o servidor de voz tiver um problema, a chamada se reconecta sozinha em segundos, sem precisar sair da sala nem fechar o app. Enquanto isso, o painel de voz mostra "Reconectando a voz…".' },

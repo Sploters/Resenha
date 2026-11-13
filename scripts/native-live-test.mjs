@@ -1,6 +1,7 @@
 // Transmissão a 120 FPS pelo botão normal (app desktop simulado): o vídeo vai pelo programa nativo (native/lc-stream,
 // compilado para Linux, com ffmpeg no lugar da captura + placa), o áudio e a prévia pelo Chromium. Quem assiste usa o palco de sempre.
-// Também: troca 120 -> 60 -> 120 ao vivo, queda do programa (volta ao modo normal sem derrubar a transmissão), parar.
+// Também: troca 120 -> 30 (Chromium) -> 120 e 120 -> 60 (nativo) ao vivo, queda do programa (volta ao modo normal sem
+// derrubar a transmissão), parar, e porta UDP fechada (o servidor não recebe nada: volta ao Chromium em ~8 s e não insiste).
 // Uso: node scripts/native-live-test.mjs   (SHOTS=1 salva capturas em .testshots/native)
 import puppeteer from 'puppeteer-core';
 import { spawn, execFileSync } from 'node:child_process';
@@ -31,7 +32,8 @@ async function page(tok, desk) {
         if (!done && (ev.t === 'started' || ev.t === 'error')) { done = true; resolve(ev.t === 'started' ? { ok: true, ...ev } : { ok: false, error: ev.error }); }
         p.evaluate((ev) => window.__natCb?.(ev), ev).catch(() => { }); } });
       h.proc.on('exit', (code) => { if (!done) { done = true; resolve({ ok: false, error: 'saiu ' + code }); } if (!h.stopped) p.evaluate((code) => window.__natCb?.({ t: 'exit', code }), code).catch(() => { }); });
-      h.proc.stdin.write(JSON.stringify({ ...o, sourceId: undefined, window: 1234 }) + '\n');
+      // __natBadPort: simula a porta UDP da transmissão nativa fechada (o programa manda para uma porta onde ninguém escuta)
+      p.evaluate(() => !!window.__natBadPort).then((bad) => h.proc.stdin.write(JSON.stringify({ ...o, sourceId: undefined, window: 1234, ...(bad ? { port: 9 } : {}) }) + '\n'));
     }));
     await p.exposeFunction('__natStop', () => { for (const h of helpers) if (!h.stopped) { h.stopped = true; try { h.proc.stdin.write('stop\n'); h.proc.stdin.end(); } catch { } } });
   }
@@ -91,9 +93,16 @@ try {
   ok(st.native && st.picked === 'window:1234:0', 'modo nativo ligado com a janela escolhida', st);
   ok(!st.prod.includes('screen') && st.prod.includes('screenaudio'), 'vídeo NÃO vai pelo Chromium; o áudio do sistema vai', st.prod);
   const cfg = helpers[0]?.cfg || {};
+  ok(cfg.cursor === true, 'o programa recebe a opção do cursor', cfg.cursor);
   ok(cfg.fps === 120 && cfg.height === 720 && cfg.key?.length === 40 && cfg.serverKey?.length === 40 && cfg.host === 'localhost' && cfg.port >= 41011, 'o programa recebeu fps, altura, chaves SRTP e o endereço do servidor', { fps: cfg.fps, height: cfg.height, port: cfg.port, host: cfg.host, kbps: cfg.kbps });
   const prev = await A.evaluate(() => window.__lc.voice.screen.getVideoTracks()[0].getConstraints());
   ok(prev.frameRate?.max === 10, 'captura do Chromium fica só como prévia leve (10 fps)', prev.frameRate);
+  // clipes da própria transmissão ligados: a prévia também é a fonte do clipe, então sobe para 30 fps (até 1080p); desligados, volta
+  const pv = await A.evaluate(async () => { const v = window.__lc.voice, t = () => v.screen.getVideoTracks()[0].getConstraints(), S = window.__lc.S;
+    S.prefs.clipsOn = true; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on = t();
+    S.prefs.clipsOn = false; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const off = t();
+    return { on: [on.frameRate?.max, on.height?.max], off: [off.frameRate?.max, off.height?.max] }; });
+  ok(pv.on[0] === 30 && pv.on[1] === 720 && pv.off[0] === 10 && pv.off[1] === 360, 'com clipes próprios ligados a prévia vai a 30 fps na resolução escolhida', pv);
   // espectador: palco normal
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`) || !!document.querySelector(`.tile.screen[data-sid="${uid}"]`), { timeout: 15000 }, a.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);
@@ -127,13 +136,14 @@ try {
   ok(ss?.[0]?.fps > 100 && /nativo/.test(ss[0].enc), 'painel de quem transmite mostra os fps do programa nativo', ss?.[0]);
   ok(await A.evaluate(() => window.__lc.voice.captureFps) > 100, 'medidor de FPS de captura usa o programa nativo');
   if (process.env.SHOTS) { await A.evaluate(() => window.__lc.voice.screen && [...document.querySelectorAll('.roundbtn')].find(x => /ransmi/.test(x.title))?.click()); await sleep(2500); await A.screenshot({ path: `${OUT}/11-ao-vivo-120.png` }); await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Fechar')?.click()); await sleep(300); await B.screenshot({ path: `${OUT}/12-espectador-120.png` }); }
-  // ao vivo: 120 -> 60 (volta ao Chromium) -> 120 (nativo de novo)
-  await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 60 })); await sleep(2500);
-  const s60 = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers) }));
-  ok(!s60.native && s60.prod.includes('screen') && helpers[0].stopped, 'mudar para 60 fps: programa parado e vídeo volta ao Chromium', s60);
+  ok(await A.evaluate(() => window.__lc.voice.native?.live === true), 'o servidor avisou que os pacotes do programa estão chegando (NATIVE_SCREEN_LIVE)');
+  // ao vivo: 120 -> 30 (volta ao Chromium) -> 120 (nativo de novo)
+  await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 30 })); await sleep(2500);
+  const s30 = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers) }));
+  ok(!s30.native && s30.prod.includes('screen') && helpers[0].stopped, 'mudar para 30 fps: programa parado e vídeo volta ao Chromium', s30);
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id).catch(() => { });
-  const f60 = await viewerFps(B, a.id);
-  ok(f60 > 15, 'espectador continua recebendo (agora pelo Chromium)', f60);
+  const f30 = await viewerFps(B, a.id);
+  ok(f30 > 15, 'espectador continua recebendo (agora pelo Chromium)', f30);
   await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 120 }));
   await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending, { timeout: 15000 }).catch(() => { });
   await sleep(1500);
@@ -143,10 +153,20 @@ try {
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoHeight >= 720, { timeout: 20000 }, a.id).catch(() => { });
   const f3 = await viewerFps(B, a.id);
   ok(f3 > 100, 'espectador volta a receber ~120 fps (camada cheia)', f3);
+  // 120 -> 60: continua no programa nativo (o Chromium entregaria ~48), com as duas camadas a 60
+  await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 60 }));
+  await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending && window.__lc.voice.native.live, { timeout: 15000 }).catch(() => { });
+  const s60 = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers) }));
+  const cfg60 = helpers[2]?.cfg || {};
+  ok(s60.native && !s60.prod.includes('screen') && helpers.length === 3 && helpers[1].stopped, 'mudar para 60 fps: segue pelo programa nativo (reiniciado com o fps novo)', { ...s60, n: helpers.length });
+  ok(cfg60.fps === 60 && cfg60.layers?.[0]?.fps === 60 && cfg60.layers?.[1]?.fps === 60, 'programa recebe 60 fps nas duas camadas', cfg60.layers);
+  await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoHeight >= 720, { timeout: 20000 }, a.id).catch(() => { });
+  const f60 = await viewerFps(B, a.id);
+  ok(f60 >= 52 && f60 <= 66, 'espectador recebe ~60 fps (não os ~48 do Chromium)', f60);
   // o programa cai (ex.: placa de vídeo ocupada): segue transmitindo pelo modo normal
-  helpers[1].proc.kill('SIGKILL'); await sleep(2500);
+  helpers[2].proc.kill('SIGKILL'); await sleep(2500);
   const sf = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers), screen: !!window.__lc.voice.screen, toast: document.getElementById('toast')?.textContent || '' }));
-  ok(!sf.native && sf.screen && sf.prod.includes('screen') && /120 FPS indisponível/.test(sf.toast), 'programa caiu: transmissão continua pelo modo normal, com aviso', sf);
+  ok(!sf.native && sf.screen && sf.prod.includes('screen') && /placa de vídeo indisponível/.test(sf.toast), 'programa caiu: transmissão continua pelo modo normal, com aviso', sf);
   // parar tudo
   await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 120 }));
   await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending, { timeout: 15000 }).catch(() => { });
@@ -154,6 +174,15 @@ try {
   ok(helpers.every(h => h.stopped || h.proc.exitCode !== null), 'parar a transmissão para o programa nativo');
   const gone = await B.waitForFunction((uid) => !window.__lc.voice.peers.get(uid)?.streams?.screen, { timeout: 8000 }, a.id).then(() => true, () => false);
   ok(gone, 'espectador deixa de ver a transmissão', gone || await B.evaluate((uid) => [...window.__lc.voice.sfu.consumers.values()].filter(x => x.uid === uid).map(x => x.source + ':' + x.c.producerId), a.id));
+  // porta UDP fechada: o programa "manda" mas o servidor não recebe; sem o aviso de chegada, volta ao Chromium sozinho
+  const nh = helpers.length;
+  await A.evaluate(() => { window.__natBadPort = true; return window.__lc.voice.toggleScreen({ res: 720, fps: 60, audio: true, hint: 'motion' }); });
+  await A.waitForFunction(() => window.__lc.voice.screen && !window.__lc.voice.native && window.__lc.voice.sfu.producers.screen, { timeout: 20000 }).catch(() => { });
+  const su = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers), toast: document.getElementById('toast')?.textContent || '' }));
+  ok(helpers.length === nh + 1 && !su.native && su.prod.includes('screen') && /portas UDP/.test(su.toast), 'sem pacotes no servidor em 8 s: volta ao Chromium com aviso das portas UDP', { ...su, tried: helpers.length - nh });
+  await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 120 })); await sleep(1500);
+  ok(helpers.length === nh + 1 && await A.evaluate(() => !window.__lc.voice.native), 'e não tenta o programa de novo logo em seguida', helpers.length - nh);
+  await A.evaluate(() => window.__lc.voice.toggleScreen()); await sleep(500);
   void serverNative;
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { for (const h of helpers) try { h.proc.kill(); } catch { } await browser.close(); srv.kill(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

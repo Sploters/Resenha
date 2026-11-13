@@ -1509,7 +1509,11 @@ async function startNative(uid, cid, live, layers = 1) {
   n.timer = setInterval(async () => {
     if (n.producer.closed) return endNative(uid, 'closed');
     const st = await n.producer.getStats().catch(() => []), b = st.reduce((x, e) => x + (e.byteCount || 0), 0), now = Date.now();
-    if (b > n.bytes) { n.bytes = b; n.last = now; if (!n.started) n.started = now; }
+    if (b > n.bytes) {
+      n.bytes = b; n.last = now;
+      // primeiros pacotes: o app de quem transmite fica sabendo que a porta UDP está aberta (sem isso ele volta ao Chromium)
+      if (!n.started) { n.started = now; if (live) dispatch([uid], 'NATIVE_SCREEN_LIVE', { producer_id: n.producer.id }); }
+    }
     if (!n.started && now - n.t0 > (live ? 60_000 : 10 * 60_000)) endNative(uid, 'timeout');
     else if (n.started && now - n.last > 6000) endNative(uid, 'stopped');
     else if (!live && now - n.t0 > 30 * 60_000) endNative(uid, 'limit');

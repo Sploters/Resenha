@@ -29,6 +29,26 @@ use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemIntero
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
 type R<T> = Result<T, String>;
+
+/// Prioridades para a transmissão não perder quadros quando o jogo puxa CPU/GPU (o programa roda sem janela, em segundo
+/// plano, e o Windows 11 tende a tratá-lo como tarefa de fundo):
+/// - sem EcoQoS (o Windows 11 pode pôr processo de fundo em núcleos de economia e com o relógio mais lento) e sem
+///   ignorar a resolução de timer;
+/// - thread da captura/codificação acima do normal (não tempo real: o laço acorda a cada quadro e não pode tomar o
+///   processador do jogo);
+/// - prioridade de GPU um degrau acima do normal (o ajuste existe de -7 a 7; alguns drivers ignoram).
+/// Cada passo é independente; o resultado vai no evento "started" para o diagnóstico.
+const GPU_PRIORITY: i32 = 1;
+fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
+    use windows::Win32::System::Threading::*;
+    let eco = unsafe {
+        let st = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, StateMask: 0 };
+        SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &st as *const _ as *const core::ffi::c_void, std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32).is_ok()
+    };
+    let thread = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL).is_ok() };
+    let gpu = unsafe { dxgi.SetGPUThreadPriority(GPU_PRIORITY).is_ok() };
+    serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpu": gpu })
+}
 fn e<T>(r: windows::core::Result<T>, what: &str) -> R<T> { r.map_err(|x| format!("{what}: {} (0x{:08X})", x.message(), x.code().0 as u32)) }
 
 const NV12_RING: usize = 8;
@@ -271,6 +291,8 @@ pub fn run(o: &Opts) -> R<()> {
     let (luid, gpu) = unsafe { dxgi.GetAdapter().and_then(|a| a.GetDesc()).map(|d| ((((d.AdapterLuid.HighPart as u32) as u64) << 32) | d.AdapterLuid.LowPart as u64, String::from_utf16_lossy(&d.Description).trim_end_matches('\0').to_string())).unwrap_or((0, "?".into())) };
     say(format!("  placa de video: {gpu}"));
     let d3d: IDirect3DDevice = e(unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi) }.and_then(|x| x.cast()), "IDirect3DDevice")?;
+    let prio = tune(&dxgi);
+    say(format!("  prioridades: {prio}"));
 
     // o que capturar: monitor (ponto dentro dele, em pixels físicos), janela (HWND) ou o principal
     let interop = e(factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>(), "interop")?;
@@ -285,7 +307,7 @@ pub fn run(o: &Opts) -> R<()> {
     let (cw, ch) = (size.Width.max(2) as u32, size.Height.max(2) as u32);
     let pool = e(Direct3D11CaptureFramePool::CreateFreeThreaded(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size), "FramePool")?;
     let session = e(pool.CreateCaptureSession(&item), "CaptureSession")?;
-    let _ = session.SetIsCursorCaptureEnabled(true);
+    let _ = session.SetIsCursorCaptureEnabled(o.cursor);
     let _ = session.SetIsBorderRequired(false);
     let iv_note = match session.SetMinUpdateInterval(TimeSpan { Duration: 0 }) { Ok(_) => "0 ms".to_string(), Err(x) => format!("falhou ({})", x.message()) };
     say(format!("  intervalo minimo da captura: {iv_note}"));
@@ -316,7 +338,7 @@ pub fn run(o: &Opts) -> R<()> {
     let ivd = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC { FourCC: 0, ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D, Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: 0 } } };
     e(session.StartCapture(), "StartCapture")?;
     if o.app { emit(serde_json::json!({ "t": "started", "w": ow, "h": oh, "encoder": layers.last().unwrap().1.enc.name, "gpu": gpu, "minUpdateInterval": iv_note,
-        "layers": layers.iter().map(|(_, l)| format!("{}p{}", l.oh, l.fps)).collect::<Vec<_>>(), "layerError": layer_err })); }
+        "layers": layers.iter().map(|(_, l)| format!("{}p{}", l.oh, l.fps)).collect::<Vec<_>>(), "layerError": layer_err, "prio": prio })); }
     say("  transmitindo... (nao feche esta janela)".into());
 
     while !m.done() {
