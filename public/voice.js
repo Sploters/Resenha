@@ -117,6 +117,8 @@ export class Voice {
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
     this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null;
     document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
+    // a internet voltou (Wi-Fi trocou, cabo, 4G): não espera o navegador perceber que a mídia caiu
+    window.addEventListener('online', () => { const s = this.sfu; if (s?.ready) for (const t of [s.send, s.recv]) if (t && t.connectionState !== 'connected') this.iceRestart(t, s); });
   }
   get active() { return !!this.channelId; }
   getCtx() { this.ctx ||= newAudioContext(); this.ctx.resume?.(); return this.ctx; }
@@ -210,6 +212,7 @@ export class Voice {
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
     this.send('VOICE_LEAVE', {});
+    this.stopRecovery();
     this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
     this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
@@ -224,9 +227,11 @@ export class Voice {
   // fora da call o contexto de áudio da voz fica suspenso: rodando, ele mantém a thread de áudio e a saída de som
   // processando silêncio o tempo todo (~2-4% de CPU num PC comum). getCtx() acorda de novo quando precisar.
   sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
-  onJoined({ channel_id, peers, sfu }) {
+  onJoined({ channel_id, peers, sfu, rejoin }) {
     if (channel_id !== this.channelId) return;
-    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
+    clearTimeout(this._mrWait); this._mrWait = null;
+    if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
+    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); if (this.recovering) return this.mediaReconnect('start_failed'); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
     else for (const uid of peers) this.connect(uid, true);
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }
@@ -254,7 +259,12 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
-      t.on('connectionstatechange', (s) => { if (s === 'disconnected' || s === 'failed') this._cq?.drop(); if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
+      t.on('connectionstatechange', (st) => {
+        if (st === 'disconnected' || st === 'failed') this._cq?.drop();
+        if (st === 'failed') track('voice_fail', 'ice_failed');
+        if (st === 'connected') stopTimer('voice_connect', this.channelId);
+        this.watchMedia(t, sfu, st); this.onUpdate(true);
+      });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
       // Chromium não entrega mais os quadros ao worker)
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
@@ -274,6 +284,75 @@ export class Voice {
     if (this.screen) await this.sfuPublishScreen();
     if (this.screen && this.native && !this.native.pending) { window.lcDesktop?.nativeStop?.(); this.startNative().catch(() => { }); } // sessão anterior morreu com a conexão
     this.onUpdate();
+    setTimeout(() => this.checkRecovered(sfu), 1500); // refez a mídia e não há nada para conectar agora: já conta como de volta
+  }
+  // ---------- recuperação da mídia (sem reiniciar o app nem sair da sala) ----------
+  // 1) conexão oscilou ('disconnected' por 3 s) ou caiu ('failed'): reinício do ICE com credenciais novas do servidor;
+  //    o áudio volta em ~1-2 s quando a rede volta. 2) Duas tentativas sem voltar (ou o servidor avisou que o worker do
+  //    SFU morreu: SFU_RESET): refaz só a conexão de mídia (SFU_REJOIN), com espera crescente entre tentativas. A pessoa
+  //    continua na sala o tempo todo (os outros não veem sair/entrar) e microfone, câmera e tela voltam sozinhos.
+  watchMedia(t, sfu, st) {
+    if (this.sfu !== sfu) return;
+    sfu.timers ||= new Map();
+    clearTimeout(sfu.timers.get(t.id)); sfu.timers.delete(t.id);
+    if (st === 'connected') { sfu.iceTries = 0; return this.checkRecovered(sfu); }
+    if (st === 'disconnected') { this.markRecovering('ice'); sfu.timers.set(t.id, setTimeout(() => this.iceRestart(t, sfu), 3000)); }
+    else if (st === 'failed') { this.markRecovering('ice'); this.iceRestart(t, sfu); }
+  }
+  // voltou: todos os transportes conectados (um que nunca precisou conectar, como o de envio de quem está sem microfone, conta)
+  checkRecovered(sfu = this.sfu) {
+    if (!this.recovering || !sfu?.ready || this.sfu !== sfu) return;
+    if (![sfu.send, sfu.recv].every(x => !x || x.connectionState === 'connected' || x.connectionState === 'new')) return;
+    this.recovering = false; this._mrTries = 0; track('voice_recovered', this._mrReason || 'ice'); this._mrReason = null;
+    this.onRecovered?.(); this.onUpdate();
+  }
+  markRecovering(reason) { if (!this.recovering) { this.recovering = true; this._mrReason = reason; this.onUpdate(); } }
+  async iceRestart(t, sfu) {
+    if (this.sfu !== sfu || t.closed) return;
+    if (t.connectionState === 'connected') return this.checkRecovered(sfu); // voltou sozinha enquanto esperava
+    if ((sfu.iceTries = (sfu.iceTries || 0) + 1) > 2) return this.mediaReconnect('ice');
+    this.markRecovering('ice');
+    try {
+      const { iceParameters } = await this.sfuReq('restart_ice', { transport_id: t.id });
+      if (this.sfu !== sfu || t.closed) return;
+      await t.restartIce({ iceParameters });
+    } catch (e) { console.warn('restart ice', e); if (this.sfu === sfu) return this.mediaReconnect('ice_error'); }
+    // não voltou em 8 s: tenta de novo (na 3ª vez refaz a conexão inteira)
+    clearTimeout(sfu.timers?.get(t.id));
+    sfu.timers?.set(t.id, setTimeout(() => { if (this.sfu === sfu) this.iceRestart(t, sfu); }, 8000));
+  }
+  mediaReconnect(reason) {
+    if (!this.channelId || this._mrTimer) return;
+    this.markRecovering(reason);
+    const n = this._mrTries = (this._mrTries || 0) + 1;
+    // 1ª na hora (com um sorteio de até 1,5 s: quando o worker morre, a sala inteira volta ao mesmo tempo), depois 2 s, 5 s, 10 s… até 30 s
+    const wait = [0, 2000, 5000, 10000, 20000][n - 1] ?? 30000, jitter = Math.random() * 1500;
+    track('voice_reconnect', reason);
+    this._mrTimer = setTimeout(() => {
+      this._mrTimer = null;
+      if (!this.channelId) return;
+      this.sfuTeardown();
+      this.send('SFU_REJOIN', { channel_id: this.channelId });
+      clearTimeout(this._mrWait); this._mrWait = setTimeout(() => { this._mrWait = null; this.mediaReconnect('timeout'); }, 15000); // sem resposta: tenta de novo
+    }, wait + jitter);
+  }
+  // o servidor pediu para refazer a mídia (worker do SFU morreu, ou a entrada no SFU falhou)
+  onSfuReset({ channel_id, reason, gone }) {
+    if (!this.channelId || (channel_id && channel_id !== this.channelId)) return;
+    if (gone) { this.stopRecovery(); return this.rejoin(); } // o servidor não tem mais a pessoa na sala: entra de novo
+    clearTimeout(this._mrWait); this._mrWait = null;
+    this.mediaReconnect(reason === 'worker' ? 'server' : reason || 'server');
+  }
+  stopRecovery() {
+    clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null;
+    this._mrTries = 0; this.recovering = false; this._mrReason = null;
+  }
+  // desmonta a conexão de mídia atual (o que os outros mandam some da tela; o que é meu é republicado no sfuStart)
+  sfuTeardown() {
+    const s = this.sfu; if (!s) return;
+    for (const id of [...s.consumers.keys()]) this.onSfuConsumerClosed({ consumer_id: id });
+    for (const t of s.timers?.values() || []) clearTimeout(t);
+    this.sfuClose();
   }
   sfuClose() {
     const s = this.sfu; if (!s) return;

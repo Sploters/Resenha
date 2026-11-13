@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-13-1', title: 'Mais seguro e a voz se recupera sozinha',
+    items: [
+      { i: 'mic', t: 'A voz volta sozinha', d: 'Se a internet oscilar (troca de Wi-Fi, 4G) ou o servidor de voz tiver um problema, a chamada se reconecta sozinha em segundos, sem precisar sair da sala nem fechar o app. Enquanto isso, o painel de voz mostra "Reconectando a voz…".' },
+      { i: 'shield', t: 'Senhas e sessões mais protegidas', d: 'Senhas novas precisam ter pelo menos 8 caracteres e não podem ser das mais usadas. Ao trocar a senha, os outros aparelhos saem da conta. Aparelho sem uso há 30 dias precisa entrar de novo, e muitas tentativas erradas de senha fazem o login esperar um pouco.' },
+      { i: 'dl', t: 'Atualizações do app conferidas', d: 'O app do computador só instala atualizações assinadas pela Resenha e baixadas por conexão segura. Ele também passa a reconhecer o certificado do seu servidor e avisa se ele mudar.' },
+    ],
+  },
+  {
     id: '2026-11-12-1', title: 'Mensagens e Amigos juntos',
     items: [
       { i: 'users', t: 'Uma lista de amigos só', d: 'Online e Todos viraram uma lista única, separada em Pedidos, Online e Offline. Clique no nome do grupo para recolher ou expandir, como na lista de membros dos servidores; a escolha fica salva.' },

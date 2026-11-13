@@ -11,7 +11,8 @@ import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
 import { imageSize } from './imgsize.js';
-import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad } from './sfu.js';
+import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
+import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
 import { createCallInvites } from './callinvites.js';
@@ -1527,6 +1528,15 @@ app.post('/api/native-screen', auth, (req, res) => (async () => {
 })().catch(e => { console.error('native-screen', e); if (!res.headersSent) bad(res, 'Não consegui preparar a transmissão: ' + e.message, 500); }));
 app.post('/api/native-screen/stop', auth, (req, res) => { endNative(req.uid, 'stopped'); res.json({ ok: true }); });
 
+// saúde do servidor (server/health.js): CPU, memória, disco, rede, workers do SFU, pessoas e chamadas, erros e alertas
+mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id === uid, dataDir: DATA_DIR,
+  sfu: { workers: sfuWorkers, load: sfuLoad, events: sfuEvents, onEvent: onSfuEvent },
+  appStats: () => {
+    let connections = 0, calls = 0, inCalls = 0, screens = 0, cams = 0;
+    for (const set of conns.values()) connections += set.size;
+    for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; if (st.video) cams++; } if (n) { calls++; inCalls += n; } }
+    return { online: conns.size, connections, calls, inCalls, screens, cams };
+  } });
 app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga do worker do mediasoup
   if (!get('SELECT 1 AS x FROM guilds WHERE owner_id=?', req.uid)) return bad(res, 'Sem permissão', 403);
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
@@ -1870,7 +1880,18 @@ wss.on('connection', (ws) => {
           sfuJoin(ch.id, uid, (t, x) => send(ws, t, { ...x, channel_id: ch.id })).then(sfu => {
             if (voice.get(ch.id)?.get(uid) !== st) return sfuLeave(ch.id, uid); // saiu enquanto entrava
             send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers, sfu });
-          }).catch(e => console.error('sfu join', e));
+          }).catch(e => { console.error('sfu join', e.message); if (voice.get(ch.id)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: ch.id, reason: 'join' }); }); // o app tenta de novo (ex.: worker sendo recriado)
+          break;
+        }
+        case 'SFU_REJOIN': { // a conexão de mídia caiu e não voltou (ou o worker morreu): refaz só o SFU, sem sair da sala
+          const c = currentVoice(uid), st = c && voice.get(c).get(uid);
+          if (!st || st.ws !== ws || String(d.channel_id) !== c) return send(ws, 'SFU_RESET', { channel_id: String(d.channel_id || ''), reason: 'not_in_room', gone: true });
+          if (natives.has(uid)) endNative(uid, 'replaced'); // o app recomeça a transmissão nativa sozinho no sfuStart
+          sfuLeave(c, uid);
+          sfuJoin(c, uid, (t, x) => send(ws, t, { ...x, channel_id: c })).then(sfu => {
+            if (voice.get(c)?.get(uid) !== st) return sfuLeave(c, uid);
+            send(ws, 'VOICE_JOINED', { channel_id: c, peers: [...voice.get(c).keys()].filter(x => x !== uid), sfu, rejoin: true });
+          }).catch(e => { console.error('sfu rejoin', e.message); if (voice.get(c)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: c, reason: 'rejoin_failed' }); });
           break;
         }
         case 'SFU': { // sinalização do SFU: requisição/resposta

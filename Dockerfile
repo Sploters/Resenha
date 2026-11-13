@@ -18,4 +18,6 @@ ENV DATA_DIR=/data PORT=3000 HTTPS_PORT=3443
 VOLUME /data
 # 40000 = mídia do SFU de voz (UDP e TCP; com SFU_WORKERS=N, também 40011..40010+N-1); 40001-40010 = transmissão nativa (UDP); defina RTC_ANNOUNCED_IP=<ip da VPN do host>
 EXPOSE 3000 3443 40000/udp 40000/tcp 40001-40010/udp
+# "unhealthy" no docker ps / painel da VPS quando o servidor para de responder ou a voz (SFU) está fora (server/health.js)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 CMD ["node", "server/index.js"]

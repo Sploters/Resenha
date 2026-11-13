@@ -257,6 +257,7 @@ function onEvent(t, d) {
         return r.key ? { key: r.key } : null;
       };
       voice.onAutoAdjust = (msg) => toast(msg);
+      voice.onRecovered = () => { toast('Voz reconectada'); renderVoiceUI(); };
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
@@ -407,6 +408,7 @@ function onEvent(t, d) {
     case 'VOICE_PEER_LEFT': voice.onPeerLeft(d); break;
     case 'VOICE_SIGNAL': voice.onSignal(d); break;
     case 'SFU_RES': voice.onSfuRes(d); break;
+    case 'SFU_RESET': voice?.onSfuReset(d); renderVoiceUI(); break;
     case 'PONG': wsPings.get(d.n)?.(); break;
     case 'SFU_NEW_PRODUCER': voice.onSfuProducer(d); break;
     case 'SFU_CODEC_FALLBACK': voice.onCodecFallback(d); break;
@@ -1210,7 +1212,7 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada'),
+    h('div.t' + (voice.recovering ? '.recovering' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : [pingEl(), 'Voz conectada']),
       h('span.vp-btns', voiceBtn(),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,

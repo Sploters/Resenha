@@ -87,6 +87,13 @@ Depois de uma atualização, quem já usava o app vê uma vez a janela "Novidade
 ### Banda e latência
 Voz no automático em 64 kbps mono (até 80% menos banda que antes), diagnóstico de conexão no ícone de sinal do painel de voz, e `sh deploy/conexoes.sh` para ver quem liga direto ou por relay na Tailscale. Detalhes e como baixar o ping de quem está longe: `docs/BANDA-E-LATENCIA.md`.
 
+### Saúde do servidor (monitoramento)
+**Configurações → Administração → Saúde do servidor** (só o administrador da instalação; `server/health.js`): situação de processador, memória, disco, servidor de voz e upload; pessoas conectadas e em chamada, transmissões e câmeras; gráficos das últimas 1/6/24 h (CPU, memória, upload, pessoas em chamada e CPU de cada worker do SFU); tabela dos workers (vivo, recriações, pico); tráfego do mês; alertas enviados; erros do servidor (todos também em `<dados>/errors.log`). Atualiza sozinho a cada 30 s.
+Alertas no app do administrador e, com `ALERT_WEBHOOK`, no celular (no máximo um por assunto a cada 30 min): CPU acima de `HEALTH_CPU_PCT` (85%) por 1,5 min, memória livre abaixo de `HEALTH_MEM_PCT` (10%), disco com menos de `HEALTH_DISK_PCT` (10%) ou 2 GB, upload acima de 85% de `HEALTH_UPLINK_MBPS` (velocidade do link da VPS; sem ela não alerta), tráfego do mês em 80% de `HEALTH_MONTHLY_TB` (franquia da VPS, ex.: Hostinger), worker do SFU morto ou perto de 100% de um núcleo, e 20 erros em 5 min. `GET /healthz` (público, sem números) responde 503 quando a voz ou o disco caem: aponte um monitor de fora (UptimeRobot, Uptime Kuma) para ser avisado se a VPS inteira cair; a imagem Docker usa o mesmo endereço no `HEALTHCHECK`. Teste: `node scripts/health-test.mjs`.
+
+### Recuperação automática da voz
+Se a conexão de mídia oscila (troca de Wi-Fi, 4G), o app reinicia o ICE com credenciais novas do servidor; se não voltar em duas tentativas, refaz só a conexão de mídia, sem sair da sala (os outros não veem sair/entrar) e com microfone, câmera e transmissão voltando sozinhos; o painel de voz mostra "Reconectando a voz…". Worker do mediasoup que morre é recriado na mesma porta (espera de 1 s até 60 s entre tentativas) e quem estava nele reconecta em segundos. Teste: `node scripts/voice-recovery-test.mjs`.
+
 ### Desempenho
 A interface é entregue comprimida e com cache longo (versão do servidor no endereço dos arquivos; ver `docs/AUDITORIA-DESEMPENHO.md`). `STATIC_OFF=1` desliga isso em caso de problema. Medição: `node scripts/perf-audit.mjs <rótulo>`.
 
