@@ -957,18 +957,19 @@ function renderSide() {
       h('div.ch.lfgrow-side.active', { onclick: () => openGames(), title: 'Procurar jogadores, novidades, promoções e torneios' }, icon('gamepad'), h('span.name', 'Jogos')));
   } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
-    // com buscar, nova mensagem e ordenar; fixadas no topo
-    const btn = (ic, title, fn, on) => h('button.sh-btn' + (on ? '.on' : ''), { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 20));
-    head = h('div#side-head.sh-plain', h('span.sh-title', 'Mensagens'), btn('plus', 'Nova mensagem', () => newMessageModal()));
+    // com buscar e ordenar; fixadas no topo
     const SORT_L = { recent: 'Mais recentes', unread: 'Não lidas', name: 'Nome (A–Z)' };
-    const tools = h('div.dm-tools', h('button.dm-sort', { type: 'button', title: 'Ordenar conversas', onclick: (e) => dmSortMenu(e) }, icon('sort', 18), h('span', SORT_L[S.prefs.dmSort || 'recent'])),
-      btn('search', 'Buscar conversa', () => { dmFind.open = !dmFind.open; if (!dmFind.open) dmFind.q = ''; renderSide(); if (dmFind.open) setTimeout(() => $('#dm-q')?.focus()); }, dmFind.open));
+    // cabeçalho: busca por nome no lugar do título e o botão de ordenar à direita
+    const findInput = h('input#dm-q', { type: 'search', placeholder: 'Buscar conversa', 'aria-label': 'Buscar conversa por nome', value: dmFind.q,
+      oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120),
+      onkeydown: (e) => { if (e.key === 'Escape' && dmFind.q) { dmFind.q = ''; renderSide(); setTimeout(() => $('#dm-q')?.focus()); } } });
+    const sortL = SORT_L[S.prefs.dmSort || 'recent'];
+    head = h('div#side-head.sh-plain.dm-head', h('label.dm-q', icon('search', 14), findInput),
+      h('button.dm-sort', { type: 'button', title: 'Ordenar conversas: ' + sortL, 'aria-label': 'Ordenar conversas: ' + sortL, onclick: (e) => dmSortMenu(e) }, icon('sort', 18)));
     const q = dmFind.q.trim().toLowerCase();
     const all = sortedDMs().filter(d => !q || (user(dmPeer(d).id).display_name + ' ' + user(dmPeer(d).id).username).toLowerCase().includes(q));
     const pins = pinnedDMs(), pinned = pins.map(id => all.find(d => dmPeer(d)?.id === id)).filter(Boolean), rest = all.filter(d => !pinned.includes(d));
     list = h('div#side-list.dmlist',
-      tools,
-      dmFind.open && h('label.dm-q', icon('search', 14), h('input#dm-q', { type: 'search', placeholder: 'Buscar por nome', value: dmFind.q, oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120), onkeydown: (e) => { if (e.key === 'Escape') { dmFind.open = false; dmFind.q = ''; renderSide(); } } })),
       pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Fixadas'), ...pinned.map(d => dmRow(d, true)),
       rest.length > 0 && pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Conversas'), ...dmRest(rest),
       !all.length && h('div.dm-empty', q ? 'Nenhuma conversa com esse nome' : [h('p', 'Nenhuma conversa ainda'), h('button.btn', { onclick: () => newMessageModal() }, 'Nova mensagem')]));
@@ -1045,7 +1046,7 @@ const uaObs = new ResizeObserver(() => {
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
 const inMessages = () => S.view.kind === 'dm' || S.view.kind === 'home'; // tela com a lista de conversas ao lado
-const dmFind = { open: false, q: '' };
+const dmFind = { q: '' };
 function sortedDMs() {
   const all = [...S.dms.values()].filter(d => dmPeer(d));
   const by = S.prefs.dmSort || 'recent', recent = (a, b) => (lastTime(b) - lastTime(a)) || (lastActivity(b) > lastActivity(a) ? 1 : -1);
@@ -1339,7 +1340,7 @@ let escBusy = false;
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const t = e.target, typingElsewhere = (/^(INPUT|SELECT)$/.test(t?.tagName) || (t?.tagName === 'TEXTAREA' && !t.closest('#composer')) || t?.isContentEditable);
-  escBusy = !!(typingElsewhere || S.replyTo || S.editing || S.searchOpen || dmFind.open || document.fullscreenElement
+  escBusy = !!(typingElsewhere || S.replyTo || S.editing || S.searchOpen || document.fullscreenElement
     || document.querySelector('.backdrop:not(.leaving), #lightbox, #settings, #tedit, .ac, .capturing, .menu:not(.leaving), .popout:not(.static):not(.leaving), .emoji-picker:not(.leaving)'));
 }, true);
 document.addEventListener('keydown', (e) => {
