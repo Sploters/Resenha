@@ -24,7 +24,7 @@ Nada disto altera o mecanismo de captura.
 ## 5. Carga do worker único do mediasoup
 - `server/sfu.js`: amostra a cada 15 s `worker.getResourceUsage()` (CPU em % de um núcleo entre amostras, RSS) + contagem de salas/peers/transports/producers/consumers; guarda 240 amostras e o pico.
 - `GET /api/sfu/load` (autenticado; só donos de servidor). Teste local: worker 1, RSS ~16 MB ocioso, CPU 0 % ocioso.
-- **Pendente de medição com carga real** (várias transmissões + vários espectadores): ainda não foi feita; o pico de CPU em `peakCpuPercent` é o sinal para criar mais workers (um por núcleo, uma sala por worker).
+- Medição com várias salas, até 80 pessoas e transmissões: `scripts/load/sfu-load.mjs` (2026-11-13; resultados em `docs/PLANO-DESEMPENHO.md`, "Teste de carga do SFU com várias salas"). ~1,2% de um núcleo a cada mil pacotes/s de voz repassados; o pico de CPU em `peakCpuPercent` continua sendo o sinal para criar mais workers.
 
 ## 6. Simulcast de 3 camadas com VP8
 Reexecutado com **verificação de conteúdo** (animação visível, id de quadro lido nos pixels):

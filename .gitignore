@@ -18,5 +18,6 @@ deploy/servidor.conf
 *.pem
 cookies.txt
 .loaddata/
+.loaddata-sfu/
 .load-result.json
 scripts/perf-big-*.json

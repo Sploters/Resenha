@@ -111,8 +111,9 @@ DATA_DIR=./.loaddata node scripts/load/seed.mjs 1000                 # 1000 pess
 DATA_DIR=./.loaddata PORT=3000 node server/index.js
 k6 run -e BASE=http://IP-DO-SERVIDOR:3000 scripts/load/k6-resenha.js   # 100 pessoas, depois 1000 (de outro computador)
 BASE=http://localhost:3000 MAX=1000 node scripts/load/node-load.mjs     # o mesmo cenário sem k6
+node scripts/load/sfu-load.mjs                                         # voz: várias salas no SFU (sobe o próprio servidor)
 ```
-Resultado de referência (4 núcleos; servidor e simulador na mesma máquina), com 1000 pessoas: abrir o app ~11 ms de trabalho do servidor por pessoa, rotas da API ~5 ms, mensagens entregues a todos em ~50 ms (p50), 0 erros.
+Resultado de referência (4 núcleos; servidor e simulador na mesma máquina), com 1000 pessoas: abrir o app ~11 ms de trabalho do servidor por pessoa, rotas da API ~5 ms, mensagens entregues a todos em ~50 ms (p50), 0 erros. Voz (`sfu-load.mjs`, cenários `CENARIOS="8x10@1 8x10@2 1x60:3@1"` = salas x pessoas[:falando]@workers): 8 salas de 10 pessoas todas falando = 45% de um núcleo num worker (22% + 22% em dois), sala de 60 com 3 falando = 28%, 0% de perda; ~1,2% de núcleo por mil pacotes/s repassados (detalhes em `docs/PLANO-DESEMPENHO.md`).
 
 ### GIFs
 Botão **GIF** no campo de mensagem: busca, "Em alta", Favoritos (por pessoa) e "Do grupo" (GIFs já mandados nos chats que a pessoa vê). A busca usa a **KLIPY** (gratuita; a API da Tenor foi desligada pelo Google em 2026) ou a **GIPHY**. Crie uma chave de API de desenvolvedor no site do serviço e coloque-a num arquivo na pasta de dados do servidor: `~/resenha-data/klipy.key` (ou `giphy.key`), depois reinicie o container (`sh deploy/umbrel.sh`). Também vale a variável `KLIPY_API_KEY` / `GIPHY_API_KEY`. Com as **duas** chaves, cada pessoa escolhe a fonte no rodapé do seletor (fica na conta) e, se a escolhida cair ou recusar, a outra responde no lugar com um aviso. Sem chave, o botão mostra só Favoritos e "Do grupo". O servidor só busca a lista (com cache de 10 min e um id anônimo por pessoa); os GIFs carregam direto do serviço. No modo leve, os GIFs do chat ficam parados e animam ao passar o mouse.

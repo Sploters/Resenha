@@ -119,6 +119,33 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       morre: salas novas vão para os outros. `/api/sfu/load` mostra a CPU do mais carregado e `per_worker`. Teste:
       `scripts/sfu-workers-test.mjs` (2 salas em 2 workers, voz chegando nas duas). Uma sala sozinha continua num núcleo
       só (dividir uma sala entre workers, com `pipeToRouter`, fica para quando uma sala passar de 1 núcleo).
+- [x] ★ **Teste de carga do SFU com várias salas** (2026-11-13, `scripts/load/sfu-load.mjs`). Pessoas de voz simuladas num
+      Chromium (gateway próprio, mediasoup-client, Opus mono com DTX e FEC a 64 kb/s como o app, recebendo todos da sala),
+      cenários em sequência com servidor próprio. Máquina de 4 núcleos, servidor e simulador juntos, 30 s por cenário:
+
+      | cenário | consumers | CPU worker(s) | voz repassada | perda | jitter p95 |
+      |---|---|---|---|---|---|
+      | 1 sala x 10, todos falando | 90 | 7,4% | 4,5 mil p/s | 0% | 3 ms |
+      | 1 sala x 25, todos falando | 600 | 26,6% | 30 mil p/s | 0% | 3 ms |
+      | 4 salas x 10, todos falando | 360 | 21,9% | 18 mil p/s | 0% | 3,7 ms |
+      | 8 salas x 10, todos falando, 1 worker | 720 | 45,3% | 36 mil p/s | 0,4% | 7,7 ms |
+      | 8 salas x 10, todos falando, 2 workers | 720 | 21,4% + 21,7% | 36 mil p/s | 0% | 5,8 ms |
+      | 8 salas x 10, 2 falando por sala | 720 | 17% | 10 mil p/s | 0% | 4,5 ms |
+      | 1 sala x 40, 3 falando | 1.560 | 15,3% | 12,7 mil p/s | 0% | 4 ms |
+      | 1 sala x 60, 3 falando | 3.540 | 27,6% | 24,8 mil p/s | 0% | 6,3 ms |
+      | 2 salas x 8 + 1 transmissão 720p (VP8 3 camadas) por sala | 126 | 12% | 5,6 mil p/s + 30 Mb/s de vídeo | 0% | 6,2 ms |
+      | 4 salas x 5 + 1 transmissão por sala, 2 workers | 96 | 6,3% + 6,2% | 4 mil p/s + 17 Mb/s de vídeo | 0% | 7,5 ms |
+
+      O custo do worker é quase só o repasse: **~1,2% de um núcleo a cada mil pacotes/s** de voz que saem (o processo
+      principal do servidor fica em ~1%). Um núcleo aguenta ~80 mil p/s: uma sala de ~40 pessoas **todas falando ao
+      mesmo tempo**, ou bem mais de 60 numa conversa normal (poucos falando; quem cala manda quase nada com o DTX). Bem
+      antes disso o limite é o upload da VPS: 80 mil p/s de voz a 64 kb/s são ~130 Mb/s. Dois workers dividem a carga por igual
+      (salas em workers diferentes). Conclusão: **dividir uma sala entre workers (`pipeToRouter`) não é necessário**;
+      `SFU_WORKERS=auto` vale a pena só com muitas salas cheias ao mesmo tempo. Limites do teste: o gargalo foi o
+      simulador (navegador em 270–380% dos 4 núcleos; nos cenários com vídeo ele não conseguiu decodificar tudo, então o
+      vídeo está abaixo do real), todos na mesma máquina (sem rede de verdade), fonte de áudio é um tom, não voz. Entrar
+      numa sala de 60 levou 47 s no simulador porque uma aba só renegocia os 3.540 consumers; no app cada pessoa negocia
+      só os dela.
 - [x] ★ **SQLite** (2026-11-11). WAL e `synchronous=NORMAL` já estavam. Novo: consulta preparada guardada pelo texto
       (`server/db.js`; preparar a cada chamada era ~4/5 do custo de uma consulta pequena: 6,8 → 1,6 µs), `busy_timeout`,
       `temp_store=MEMORY`, cache de 32 MB. Plano (`EXPLAIN QUERY PLAN`) das 268 consultas do servidor: sobraram 3
