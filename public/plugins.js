@@ -1,6 +1,7 @@
 // Recursos inspirados em plugins do Discord: abas de canais e favoritos, esconder lista de canais, menção rápida.
 import { h, icon } from './util.js';
 import { chName } from './chnames.js';
+import { sortable, reordering } from './reorder.js';
 
 const KEY = 'lc_tabs', HIDE_KEY = 'lc_hide_side';
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
@@ -60,7 +61,7 @@ function build() {
   const cur = here();
   const badge = (t) => { const n = t.cid && D.S.mentions[t.cid]; return n > 0 ? h('span.ct-pill', n) : (t.cid && D.S.unread[t.cid] ? h('i.ct-dot') : null); };
   const tabEls = st.tabs.map(t => h('div.ct-tab' + (t.id === st.active ? '.active' : ''), {
-    title: title(t), onclick: () => { st.active = t.id; save(); open(t); draw(); },
+    title: title(t), 'data-id': t.id, onclick: () => { st.active = t.id; save(); open(t); draw(); },
     onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }, oncontextmenu: (e) => tabMenu(e, t),
   }, h('span.ct-name', labelEl(t)), badge(t), st.tabs.length > 1 && h('button.ct-x', { title: 'Fechar aba', onclick: (e) => { e.stopPropagation(); closeTab(t.id); } }, icon('x', 12))));
   const favEls = st.favs.filter(alive).map(f => h('div.ct-fav', {
@@ -69,14 +70,19 @@ function build() {
     oncontextmenu: (e) => { e.preventDefault(); D.menu(e, [{ label: 'Abrir em nova aba', fn: () => { addTab({ gid: f.gid, cid: f.cid }); open(f); } }, { label: 'Remover dos favoritos', fn: () => toggleFav(f) }]); },
   }, labelEl(f)));
   const isFav = st.favs.some(f => same(f, cur));
-  return h('div#chtabs',
+  const bar = h('div#chtabs',
     h('div.ct-list', tabEls, h('button.ct-add', { title: 'Nova aba (duplica a atual)', onclick: () => { addTab({ ...cur }); draw(); } }, icon('plus', 14))),
     h('button.ct-star' + (isFav ? '.on' : ''), { title: isFav ? 'Remover dos favoritos' : 'Favoritar este canal', onclick: () => toggleFav(cur) }, icon('star', 15)),
     favEls.length > 0 && h('div.ct-favs', h('span.ct-sep'), favEls));
+  // segurar e arrastar uma aba troca ela de lugar
+  sortable(bar, { items: '.ct-tab', ignore: '.ct-x', axis: 'x', onDrop: (ids) => {
+    const by = new Map(st.tabs.map(t => [String(t.id), t])); st.tabs = ids.map(id => by.get(id)).filter(Boolean); save(); draw();
+  } });
+  return bar;
 }
 
 function draw() {
-  const main = document.getElementById('main'); if (!main) return;
+  const main = document.getElementById('main'); if (!main || reordering()) return; // arrastando uma aba: redesenha ao soltar
   const bar = build();
   const old = document.getElementById('chtabs');
   if (old) old.replaceWith(bar); else main.prepend(bar);

@@ -19,6 +19,7 @@ import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoun
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
+import { sortable, reordering } from './reorder.js';
 import { streamHover, updatePip, popOut } from './livepip.js';
 import { zoomControls, pruneZoom } from './zoom.js';
 import { refreshFreeze } from './freeze.js';
@@ -607,6 +608,7 @@ function applyRoute(first) {
 }
 
 // =============== Shell ===============
+let railEl;
 function buildShell() {
   document.addEventListener('click', (e) => { // link de clipe: abre o clipe no app (não numa janela nova)
     const a = e.target.closest?.('a[href*="/#/clip/"]'); const id = a && /\/#\/clip\/(\d+)/.exec(a.getAttribute('href'))?.[1]; if (!id) return;
@@ -616,9 +618,10 @@ function buildShell() {
     const a = e.target.closest?.('.msg .body a[href]'); if (!a || !S.prefs.confirmLinks) return;
     e.preventDefault(); confirmBox('Abrir link externo?', a.href, 'Abrir').then(ok => ok && window.open(a.href, '_blank', 'noopener'));
   });
-  $('#app').replaceChildren(h('div#rail'), h('div#side'), h('div#gsearch.hidden', { role: 'search', 'aria-label': 'Buscar em tudo' }), h('div#main'));
+  $('#app').replaceChildren(railEl = h('div#rail'), h('div#side'), h('div#gsearch.hidden', { role: 'search', 'aria-label': 'Buscar em tudo' }), h('div#main'));
   $('#app').addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files') && $('#composer')) { e.preventDefault(); if (!$('#dropzone')) $('#chat').append(h('div#dropzone', 'Solte para anexar')); } });
   $('#app').addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#dropzone')?.remove(); });
+  railSortable(railEl);
   initPlugins({ S, go, channelById, guild, user, dmPeer, menu, showInbox: (e) => showInbox(e), inboxBadge: () => inboxBadge() });
   $('#app').addEventListener('drop', (e) => { $('#dropzone')?.remove(); if (e.dataTransfer?.files?.length && $('#composer')) { e.preventDefault(); [...e.dataTransfer.files].forEach(addFile); } });
 }
@@ -629,10 +632,11 @@ function guildMentions(g) { return g.channels.reduce((n, c) => n + (S.mentions[c
 function renderRail() {
   if (deferRender(renderRail)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const rail = $('#rail'); if (!rail) return;
+  if (reordering()) return; // arrastando um item: redesenha ao soltar
   document.getElementById('vcard')?.remove();
   const dmMentions = [...S.dms.keys()].reduce((n, id) => n + (S.mentions[id] || 0), 0);
   const pending = [...S.rels.values()].filter(r => r.type === 3).length;
-  const wrap = (cls, tip, el, extra) => h('div.rail-wrap' + cls, { 'data-tip': tip }, el, extra);
+  const wrap = (cls, tip, el, extra, id) => h('div.rail-wrap' + cls, { 'data-tip': tip, 'data-id': id || null }, el, extra);
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
   const meView = S.view.gid === '@me' && !inGames() && !S.favMode;
   rail.replaceChildren(
@@ -643,14 +647,13 @@ function renderRail() {
       h('div.rail-item.rail-tool.fav-btn', { onclick: () => openFavs(), style: { fontSize: '0' } }, icon('star', 24)), badge(favList().reduce((n, f) => n + (S.mentions[f.c] || 0), 0))),
     // conversas fixadas: acesso rápido na barra
     ...pinnedDMs().map(uid => dmWith(uid)).filter(Boolean).map(dm => { const u = user(dmPeer(dm).id);
-      return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name,
-        h('div.rail-item', { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)]); }),
+      return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name, h('div.rail-item', { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '', draggable: 'false' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)], u.id); }),
     h('div.sep'),
-    ...[...S.guilds.values()].map(g => {
+    ...railGuilds().map(g => {
       const rooms = voiceRooms(g);
-      const w = wrap((S.view.gid === g.id && !S.favMode ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
-        h('div.rail-item', { 'data-fly': 'g', 'data-gid': g.id, onclick: () => { gFlyHide(); S.favMode = false; go(g.id); }, oncontextmenu: (e) => { gFlyCancel(); guildMenu(e, g); } }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
-        badge(guildMentions(g)) || (rooms.length ? h('div.vbadge', { title: '' }, icon('voice', 12)) : null));
+      const w = wrap('.railg' + (S.view.gid === g.id && !S.favMode ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
+        h('div.rail-item', { 'data-fly': 'g', 'data-gid': g.id, onclick: () => { gFlyHide(); S.favMode = false; go(g.id); }, oncontextmenu: (e) => { gFlyCancel(); guildMenu(e, g); } }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '', draggable: 'false' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
+        badge(guildMentions(g)) || (rooms.length ? h('div.vbadge', { title: '' }, icon('voice', 12)) : null), g.id);
       if (rooms.length) { w.onmouseenter = () => { if (!sideHidden()) voiceCard(w, g); }; w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
       return w;
     }),
@@ -659,6 +662,19 @@ function renderRail() {
     wrap('.rail-games' + (inGames() ? '.active' : ''), 'Jogos: procurar jogadores e descobrir', h('div.rail-item.rail-tool.games-btn', { onclick: () => openGames(), style: { fontSize: '0' } }, icon('gamepad', 24))),
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
+}
+// ordem dos servidores na barra: a que você arrastou (fica na conta); servidores novos vão para o fim
+function railGuilds() {
+  const order = S.prefs.guildOrder || [], at = (id) => { const i = order.indexOf(id); return i < 0 ? Infinity : i; };
+  return [...S.guilds.values()].map((g, i) => [g, i]).sort((a, b) => (at(a[0].id) - at(b[0].id)) || (a[1] - b[1])).map(x => x[0]);
+}
+// segurar e arrastar: servidores trocam de lugar entre si, conversas fixadas entre si
+function railSortable(rail) {
+  sortable(rail, { items: '.rail-wrap.railg, .rail-wrap.raildm', axis: 'y', group: (el) => el.classList.contains('railg') ? 'g' : 'dm',
+    onDrop: (ids, el) => {
+      if (el.classList.contains('railg')) S.prefs.guildOrder = ids; else S.prefs.pinnedDMs = ids;
+      savePrefs(); renderRail(); if (!el.classList.contains('railg')) renderSide();
+    } });
 }
 function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
 const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover');

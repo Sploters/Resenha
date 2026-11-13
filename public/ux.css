@@ -263,8 +263,10 @@ button.mgroup .mg-n::before { content: '— '; }
 #dmpanel .dmp-card { position: static; width: 100%; max-width: none; margin: 0; border-radius: 0; box-shadow: none; animation: none; background: none; }
 #dmpanel .dmp-card > .pcard { border-radius: 0; background: none; }
 #dmpanel .dmp-card > .pcard .banner { border-radius: 0; }
-#dmpanel .dmp-foot { flex: none; display: flex; justify-content: center; padding: 12px; border-top: 1px solid var(--divider); }
-#dmpanel .dmp-full { width: 100%; min-height: 38px; border-radius: 10px; font-weight: 600; }
+#dmpanel .dmp-foot { flex: none; display: flex; justify-content: center; padding: 12px; }
+/* segue o tema: no AMOLED/escuros fica num tom acima do fundo do cartão (antes era o cinza fixo #4e5058, claro demais) */
+#dmpanel .dmp-full { width: 100%; min-height: 38px; border-radius: 10px; font-weight: 600; background: var(--bg-mod-hover); color: var(--header); border: 1px solid var(--divider); }
+#dmpanel .dmp-full:hover { background: var(--bg-mod-sel); }
 .dmp-mutual { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 10px; }
 .dmp-mut { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 12.5px; cursor: pointer; }
 .dmp-mut:hover { color: var(--header); text-decoration: underline; }
@@ -809,3 +811,11 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 .hl-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; max-height: 280px; overflow: auto; }
 .hl-log li { display: flex; gap: 8px; } .hl-log time { color: var(--text-muted); flex: none; font-variant-numeric: tabular-nums; }
 .hl-log.err code { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+
+/* ---------- segurar e arrastar para trocar a ordem (abas, servidores e conversas fixadas) ---------- */
+#rail img, #chtabs img { -webkit-user-drag: none; user-select: none; }
+.reordering { position: relative; z-index: 20; transition: none !important; pointer-events: none; }
+.rail-wrap.reordering .rail-item { box-shadow: 0 6px 18px rgba(0,0,0,.45); border-radius: 16px; }
+.ct-tab.reordering { background: var(--bg-mod-sel); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+body.reorder-on, body.reorder-on * { cursor: grabbing !important; user-select: none !important; }
+body.reorder-on .rail-wrap[data-tip]:hover::after, body.reorder-on .rail-wrap::after { display: none !important; }
