@@ -58,11 +58,18 @@ jobs:
       - name: Montar o instalador
         run: npx electron-builder --win nsis portable --publish never -c.extraMetadata.version=${{ steps.ver.outputs.v }}
 
+      # assinatura Ed25519 do instalador (scripts/update-sign.mjs): os apps só instalam o que confere com a chave pública
+      # embutida (desktop/updatekey.js). Sem o segredo DESKTOP_UPDATE_KEY a release não sai (sairia sem os apps aceitarem).
+      - name: Assinar o instalador
+        env:
+          DESKTOP_UPDATE_KEY: ${{ secrets.DESKTOP_UPDATE_KEY }}
+        run: node ../scripts/update-sign.mjs sign "dist/Resenha-Setup-${{ steps.ver.outputs.v }}.exe" "${{ steps.ver.outputs.v }}"
+
       - name: Publicar a release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=${{ steps.ver.outputs.v }}
           NOTES=$(git log -12 --format='- %s' -- . | head -12)
-          gh release create "v$V" "dist/Resenha-Setup-$V.exe" "dist/Resenha-Portable-$V.exe" \
+          gh release create "v$V" "dist/Resenha-Setup-$V.exe" "dist/Resenha-Setup-$V.exe.sig" "dist/Resenha-Portable-$V.exe" \
             --repo "$GITHUB_REPOSITORY" --title "Resenha $V" --notes "${NOTES:-Atualização do app desktop}"

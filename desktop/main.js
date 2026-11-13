@@ -10,6 +10,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const https = require('node:https');
 const http = require('node:http');
+const crypto = require('node:crypto');
+const { verifyUpdate } = require('./updatekey');
 
 // O app se chamava LocalCord: na primeira abertura depois da troca de nome, a pasta de dados antiga (servidor salvo,
 // login, configurações) passa a se chamar Resenha. Se não der para renomear agora (arquivo em uso), usa a antiga e tenta
@@ -86,17 +88,50 @@ const log = (...a) => { try { fs.appendFileSync(path.join(app.getPath('userData'
 let win, tray, quitting = false, pickedSource = null, pickedName = '', badge = 0;
 const serverHost = () => { try { return new URL(cfg.server).hostname; } catch { return ''; } };
 const trustedHosts = new Set();
+// ---------- certificado do servidor (TLS) ----------
+// O servidor Resenha costuma usar certificado autoassinado. Antes o app aceitava QUALQUER certificado para o endereço do
+// servidor (alguém no meio da rede podia se passar por ele). Agora: certificado válido de verdade (Let's Encrypt etc.)
+// passa normalmente; autoassinado só passa se for O MESMO visto quando a pessoa confirmou o servidor na tela de conexão
+// (impressão digital SHA-256 guardada em cfg.certPins). Instalações antigas, sem nada guardado, guardam o da 1ª conexão.
+// Certificado diferente: a página não carrega e a tela de conexão explica; confirmar o servidor de novo aceita o novo.
+const fpOfDer = (der) => crypto.createHash('sha256').update(der).digest('base64');
+const fpOfPem = (pem) => fpOfDer(Buffer.from(String(pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64'));
+let certMismatch = '';
+function pinOk(host, fp) {
+  if (!host || !fp) return false;
+  const pins = cfg.certPins ||= {};
+  if (!pins[host]) { pins[host] = fp; saveCfg(); log('certificado do servidor guardado', host, fp); return true; }
+  if (pins[host] === fp) return true;
+  if (certMismatch !== host) log('CERTIFICADO DO SERVIDOR MUDOU', host, 'esperado', pins[host], 'recebido', fp);
+  certMismatch = host; return false;
+}
+// para os pedidos feitos pelo Node (atualizador): mesma regra, conferida assim que a conexão segura abre (antes de enviar o pedido)
+function guardTls(req, host) {
+  req.on('socket', (s) => s.once('secureConnect', () => {
+    if (s.authorized) return; // cadeia válida e nome certo
+    let fp = ''; try { fp = fpOfDer(s.getPeerCertificate().raw); } catch { }
+    if (!trustedHosts.has(host) || !pinOk(host, fp)) s.destroy(new Error('certificado do servidor não confere'));
+  }));
+  return req;
+}
 // no Windows a barra de tarefas usa o .ico com vários tamanhos (16–256); só o PNG deixava o ícone em branco em alguns PCs
 const icon = () => nativeImage.createFromPath(path.join(__dirname, 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'));
 const OVERLAY = { color: '#1e1f22', symbolColor: '#b5bac1', height: 28 };
 
 // ---------- teste/normalização do endereço do servidor ----------
+const probed = new Map(); // origem -> { host, fp } do último teste (o certificado que a pessoa está confirmando)
 function probe(url) {
   return new Promise((resolve) => {
     let u; try { u = new URL(url); } catch { return resolve(null); }
     const lib = u.protocol === 'https:' ? https : http;
+    // aqui aceita o certificado que vier: é a pessoa confirmando o servidor; ele fica guardado ao salvar (save-server)
     const req = lib.get({ hostname: u.hostname, port: u.port || undefined, path: '/api/server-info', rejectUnauthorized: false, timeout: 4000 }, (res) => {
-      let b = ''; res.on('data', d => (b += d)); res.on('end', () => { try { const j = JSON.parse(b); resolve(j.name ? { url: u.origin, name: j.name } : null); } catch { resolve(null); } });
+      let fp = null, valid = true;
+      if (u.protocol === 'https:') { try { valid = !!res.socket.authorized; fp = valid ? null : fpOfDer(res.socket.getPeerCertificate().raw); } catch { } }
+      let b = ''; res.on('data', d => (b += d)); res.on('end', () => { try { const j = JSON.parse(b); if (!j.name) return resolve(null);
+        probed.set(u.origin, { host: u.hostname, fp });
+        const pin = cfg.certPins?.[u.hostname];
+        resolve({ url: u.origin, name: j.name, ...(fp && pin && pin !== fp ? { certChanged: true } : {}) }); } catch { resolve(null); } });
     });
     req.on('error', (e) => { log('probe err', url, e.code, e.message); resolve(null); }); req.on('timeout', () => { req.destroy(); resolve(null); });
   });
@@ -195,6 +230,7 @@ function createWindow(forceShow) {
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMain) => {
     if (!isMain || code === -3 || url.startsWith('file:')) return;
     if (pinnedIp) { log('endereço guardado falhou', pinnedIp, desc, '- reabrindo sem ele'); delete cfg.serverIp; saveCfg(); app.relaunch(); app.exit(0); return; }
+    if (certMismatch && certMismatch === serverHost()) { certMismatch = ''; return showConnect(`O certificado de segurança de ${cfg.server} mudou. Se o servidor foi reinstalado ou o certificado foi trocado, confirme o endereço de novo; se não, alguém pode estar se passando pelo servidor.`); }
     showConnect(`Não foi possível carregar ${cfg.server} (${desc}).`);
   });
   // tempos da abertura (main.log): rede (DNS, conexão, 1º byte) e quando a página ficou pronta
@@ -250,10 +286,24 @@ function setBadge(n) {
 }
 
 // ---------- sessão (certificado, permissões, captura de tela) ----------
+const certRefused = new Set(); // servidores cujo certificado foi recusado nesta abertura
+function setVerifyProc() {
+  const ses = session.defaultSession;
+  ses.setCertificateVerifyProc((req, cb) => {
+    if (req.errorCode === 0 || !trustedHosts.has(req.hostname)) return cb(-3);
+    let fp = ''; try { fp = fpOfPem(req.certificate.data); } catch { }
+    const good = pinOk(req.hostname, fp); if (!good) certRefused.add(req.hostname);
+    cb(good ? 0 : -2);
+  });
+}
 function setupSession() {
   const ses = session.defaultSession;
-  ses.setCertificateVerifyProc((req, cb) => cb(trustedHosts.has(req.hostname) ? 0 : -3));
-  app.on('certificate-error', (e, _wc, url, _err, _cert, cb) => { try { if (trustedHosts.has(new URL(url).hostname)) { e.preventDefault(); return cb(true); } } catch { } cb(false); });
+  // -3 = vale a verificação normal do Chromium; 0 = aceita; -2 = recusa (ver pinOk acima)
+  setVerifyProc();
+  app.on('certificate-error', (e, _wc, url, _err, cert, cb) => {
+    try { const h = new URL(url).hostname; if (trustedHosts.has(h) && pinOk(h, fpOfPem(cert.data))) { e.preventDefault(); return cb(true); } } catch { }
+    cb(false);
+  });
   const allowed = new Set(['media', 'display-capture', 'notifications', 'fullscreen', 'clipboard-sanitized-write', 'audioCapture', 'videoCapture']);
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(allowed.has(perm)));
   ses.setPermissionCheckHandler((wc, perm) => allowed.has(perm));
@@ -379,20 +429,44 @@ ipcMain.handle('relaunch', () => {
 });
 ipcMain.handle('change-server', () => { showConnect(); return true; });
 ipcMain.handle('test-server', async (_e, input) => { const r = await resolveServer(input); return r; });
-ipcMain.handle('save-server', async (_e, url) => { cfg.server = url; saveCfg(); trustedHosts.add(serverHost()); loadServer(); return true; });
+ipcMain.handle('save-server', async (_e, url) => {
+  cfg.server = url;
+  // guarda o certificado que a pessoa acabou de confirmar (autoassinado); válido de verdade não precisa
+  const p = probed.get((() => { try { return new URL(url).origin; } catch { return ''; } })());
+  if (p) {
+    cfg.certPins ||= {};
+    const changed = (cfg.certPins[p.host] || null) !== p.fp;
+    if (p.fp) cfg.certPins[p.host] = p.fp; else delete cfg.certPins[p.host];
+    certMismatch = '';
+    // o Chromium guarda o "recusado" do certificado anterior até fechar: reabre o app (troca de certificado é rara)
+    if (changed && certRefused.has(p.host)) { cfg.server = url; saveCfg(); log('certificado novo aceito; reabrindo'); app.relaunch(); app.exit(0); return true; }
+  }
+  saveCfg(); trustedHosts.add(serverHost()); loadServer(); return true;
+});
 
 // ---------- atualização (GitHub Releases) ----------
 const REPO = 'Sploters/Resenha';
 let update = null, updating = false;
-// pedidos do atualizador: ao servidor Resenha (certificado próprio aceito só para ele) ou ao GitHub
+// pedidos do atualizador: ao servidor Resenha ou ao GitHub, SÓ por HTTPS. Certificado: válido de verdade, ou (só para o
+// servidor Resenha) o mesmo guardado ao confirmar o servidor (guardTls). Mesmo assim o instalador só roda se a
+// assinatura conferir com a chave pública do app (desktop/updatekey.js): quem controla o servidor ou a rede não consegue
+// fazer o app instalar outra coisa.
 function newerVer(a, b) { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; }
 const fromServer = (url) => { try { return new URL(url).hostname === serverHost(); } catch { return false; } };
+const isHttps = (url) => { try { return new URL(url).protocol === 'https:'; } catch { return false; } };
 const reqOpts = (url, accept) => ({ headers: { 'User-Agent': 'Resenha', Accept: accept }, timeout: 8000, ...(fromServer(url) ? { rejectUnauthorized: false } : {}) });
-const libOf = (url) => (url.startsWith('http:') ? http : https);
+// pedido HTTPS (http:// é recusado); com o servidor Resenha, o certificado é conferido por guardTls antes de mandar o pedido
+function httpsGet(url, opts, onRes) {
+  if (!isHttps(url)) throw new Error('recusado: atualização só por HTTPS (' + String(url).slice(0, 80) + ')');
+  const req = https.get(url, opts, onRes);
+  return fromServer(url) ? guardTls(req, serverHost()) : req;
+}
 const getJson = (url) => new Promise((resolve) => {
-  libOf(url).get(url, reqOpts(url, 'application/json'), (res) => {
-    let b = ''; res.on('data', d => (b += d)); res.on('end', () => { try { resolve(res.statusCode === 200 ? JSON.parse(b) : null); } catch { resolve(null); } });
-  }).on('error', () => resolve(null)).on('timeout', function () { this.destroy(); });
+  try {
+    httpsGet(url, reqOpts(url, 'application/json'), (res) => {
+      let b = ''; res.on('data', d => { b += d; if (b.length > 1e6) res.destroy(); }); res.on('end', () => { try { resolve(res.statusCode === 200 ? JSON.parse(b) : null); } catch { resolve(null); } });
+    }).on('error', (e) => { log('atualização: pedido falhou', String(url).slice(0, 120), e.message); resolve(null); }).on('timeout', function () { this.destroy(); });
+  } catch (e) { log('atualização:', e.message); resolve(null); }
 });
 const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
 // 1º o servidor Resenha (funciona com o repositório privado: o servidor consulta o GitHub com a chave dele);
@@ -402,15 +476,19 @@ let checking = null;
 function checkUpdate() { return (checking ||= doCheckUpdate().finally(() => { checking = null; })); }
 async function doCheckUpdate() {
   let found = null;
-  if (cfg.server) {
+  // servidor só por HTTPS: num servidor http:// o app procura direto no GitHub
+  if (cfg.server && isHttps(cfg.server)) {
     const r = await getJson(new URL('/api/desktop/update', cfg.server).href);
-    if (r?.version && r.url) found = { version: r.version, url: new URL(r.url, cfg.server).href, name: r.name || `Resenha-Setup-${r.version}.exe` };
-  }
+    if (r?.version && r.url) found = { version: String(r.version), url: new URL(r.url, cfg.server).href, name: r.name || `Resenha-Setup-${r.version}.exe`, signature: r.signature || null };
+  } else if (cfg.server) log('atualização: o servidor não é HTTPS; procurando direto no GitHub');
   if (!found) {
     const rel = await getJson(`https://api.github.com/repos/${REPO}/releases/latest`);
-    const asset = rel?.assets?.find(a => /^Resenha-Setup-.*\.exe$/i.test(a.name));
-    if (rel?.tag_name && asset) found = { version: String(rel.tag_name).replace(/^v/i, ''), url: asset.browser_download_url, name: asset.name };
+    const asset = rel?.assets?.find(a => /^Resenha-Setup-.*\.exe$/i.test(a.name)), sig = asset && rel.assets.find(a => a.name === asset.name + '.sig');
+    if (rel?.tag_name && asset) found = { version: String(rel.tag_name).replace(/^v/i, ''), url: asset.browser_download_url, name: asset.name, sigUrl: sig?.browser_download_url || null };
   }
+  if (found && !/^\d+\.\d+\.\d+$/.test(found.version)) return;
+  // o nome do arquivo vem de fora: só o formato esperado (vai para a pasta temporária e é executado)
+  if (found && !/^Resenha-Setup-[\d.]+\.exe$/i.test(found.name)) { log('atualização: nome de arquivo inesperado', found.name); return; }
   if (!found || !newer(found.version, app.getVersion())) return;
   if (update?.version === found.version) return; // já encontrada (e baixada ou baixando)
   update = found;
@@ -426,8 +504,14 @@ function prepareUpdate() {
     const file = path.join(app.getPath('temp'), u.name), part = file + '.part';
     // progresso para a tela "Atualizando" da página (desde a 1.0.29)
     let last = -1;
+    const signature = u.signature || (u.sigUrl ? await getJson(u.sigUrl) : null);
+    if (!signature) throw new Error('atualização sem assinatura: recusada');
     await download(u.url, part, 5, (got, size) => { const pct = size ? Math.floor(got * 100 / size) : -1; if (pct !== last) { last = pct; win?.webContents.send('update-progress', { version: u.version, pct, got, size }); } });
-    fs.renameSync(part, file); u.file = file; log('atualização baixada', u.version, file);
+    // só vira "instalador pronto" se a assinatura conferir (nome, versão, tamanho e SHA-256 do que foi baixado)
+    const sha256 = await new Promise((ok, no) => { const h = crypto.createHash('sha256'); fs.createReadStream(part).on('data', c => h.update(c)).on('end', () => ok(h.digest('hex'))).on('error', no); });
+    const bad = verifyUpdate(signature, { name: u.name, version: u.version, size: fs.statSync(part).size, sha256 });
+    if (bad) { fs.rmSync(part, { force: true }); log('ATUALIZAÇÃO RECUSADA', u.version, bad); throw new Error(bad); }
+    fs.renameSync(part, file); u.file = file; log('atualização baixada e assinatura conferida', u.version, sha256);
     return file;
   })().catch((e) => { u.downloading = null; throw e; }));
 }
@@ -468,7 +552,7 @@ if (cfg.pendingUpdate) {
 }
 function download(url, dest, redirects = 5, onProgress) {
   return new Promise((resolve, reject) => {
-    libOf(url).get(url, { ...reqOpts(url, 'application/octet-stream'), timeout: 60000 }, (res) => {
+    httpsGet(url, { ...reqOpts(url, 'application/octet-stream'), timeout: 60000 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) { res.resume(); return resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1, onProgress)); }
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
       // download interrompido não pode virar "instalador pronto": confere o tamanho anunciado

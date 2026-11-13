@@ -2,7 +2,10 @@
 // O servidor consulta a release mais nova com uma chave de acesso (somente leitura) e entrega o instalador aos apps.
 // - Chave: variável GITHUB_TOKEN ou o arquivo <pasta de dados>/github-token.txt (no Umbrel: ~/resenha-data/github-token.txt).
 //   Sem chave, funciona só se o repositório for público.
-// - GET /api/desktop/update            -> { version, name, size, url } da release mais nova (ou {} se não houver)
+// - GET /api/desktop/update            -> { version, name, size, url, signature } da release mais nova (ou {} se não houver)
+//   signature: o conteúdo de Resenha-Setup-X.exe.sig (assinatura Ed25519 feita no GitHub Actions; scripts/update-sign.mjs).
+//   O servidor só repassa: quem confere é o app, com a chave pública embutida nele. Servidor invadido não consegue
+//   fazer o app instalar outra coisa.
 // - GET /desktop/download/<instalador> -> o instalador (baixado do GitHub uma vez e guardado em <dados>/desktop)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,8 +36,15 @@ export function mountDesktopUpdate(app, dataDir) {
     if (Date.now() - cache.at < 2 * 60e3) return cache.rel; // 2 min: versão recém-publicada aparece logo
     try {
       const j = await json(`https://api.github.com/repos/${REPO}/releases/latest`);
-      const a = (j.assets || []).find(x => SETUP.test(x.name));
-      cache = { at: Date.now(), rel: a ? { version: String(j.tag_name || '').replace(/^v/i, ''), id: a.id, name: a.name, size: a.size } : null, err: '' };
+      const a = (j.assets || []).find(x => SETUP.test(x.name)), sa = a && (j.assets || []).find(x => x.name === a.name + '.sig');
+      let signature = null;
+      if (sa) { // pequeno (~300 bytes): vai junto na resposta
+        const r = await get(`https://api.github.com/repos/${REPO}/releases/assets/${sa.id}`, 'application/octet-stream');
+        let b = ''; for await (const c of r) { b += c; if (b.length > 8192) break; }
+        if (r.statusCode === 200) try { signature = JSON.parse(b); } catch { }
+      }
+      if (a && !signature) console.log(`  Atualização do app desktop: a release ${j.tag_name} não tem assinatura (${a.name}.sig); os apps novos vão recusá-la`);
+      cache = { at: Date.now(), rel: a ? { version: String(j.tag_name || '').replace(/^v/i, ''), id: a.id, name: a.name, size: a.size, signature } : null, err: '' };
     } catch (e) {
       if (e.message !== cache.err) console.log(`  Atualização do app desktop: não consegui consultar o GitHub (${e.message})${token() ? '' : ' — sem chave: com o repositório privado, coloque github-token.txt na pasta de dados'}`);
       cache = { at: Date.now() - 60e3, rel: cache.rel, err: e.message }; // tenta de novo em 1 min
@@ -45,7 +55,7 @@ export function mountDesktopUpdate(app, dataDir) {
   app.get('/api/desktop/update', async (req, res) => {
     const r = await latest().catch(() => null);
     res.set('Cache-Control', 'no-store');
-    res.json(r ? { version: r.version, name: r.name, size: r.size, url: `/desktop/download/${encodeURIComponent(r.name)}` } : {});
+    res.json(r ? { version: r.version, name: r.name, size: r.size, url: `/desktop/download/${encodeURIComponent(r.name)}`, signature: r.signature || null } : {});
   });
 
   const pending = new Map(); // nome -> Promise (vários apps pedindo ao mesmo tempo baixam do GitHub uma vez só)

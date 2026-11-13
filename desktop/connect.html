@@ -29,10 +29,13 @@
   const q = new URLSearchParams(location.search), addr = document.getElementById('addr'), msg = document.getElementById('msg'), btn = document.getElementById('go');
   addr.value = q.get('current') || '';
   if (q.get('error')) { msg.textContent = q.get('error'); msg.className = 'msg err'; }
+  let trustNew = '';
   async function connect() {
     btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Procurando servidor…';
     const r = await lcDesktop.testServer(addr.value);
     if (!r) { msg.className = 'msg err'; msg.textContent = 'Servidor não encontrado. Verifique o endereço e se a VPN está conectada.'; btn.disabled = false; return; }
+    // certificado diferente do guardado para esse servidor: só aceita o novo com um segundo clique
+    if (r.certChanged && trustNew !== r.url) { trustNew = r.url; msg.className = 'msg err'; msg.textContent = 'O certificado de segurança deste servidor é diferente do que estava guardado. Se você reinstalou o servidor ou trocou o certificado, clique em Conectar de novo para confiar no novo.'; btn.disabled = false; return; }
     msg.className = 'msg ok'; msg.textContent = `Conectando a ${r.url}…`;
     await lcDesktop.saveServer(r.url);
   }
