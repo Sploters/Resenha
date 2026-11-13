@@ -37,14 +37,14 @@ try {
     groups: [...document.querySelectorAll('#home .pane .fgroup')].map(g => g.textContent.replace(/\s+/g, ' ').trim()),
     rows: [...document.querySelectorAll('#home .pane .frow b')].map(b => b.textContent),
     sideHead: document.querySelector('#side-head')?.textContent.trim(), metabs: document.querySelectorAll('.metab').length,
-    friendsRow: !!document.querySelector('#side-list .friendsrow'), dmTools: !!document.querySelector('#side-list .dm-tools'),
+    friendsRow: !!document.querySelector('#side-list .friendsrow'), dmHead: !!document.querySelector('#side-head #dm-q') && !!document.querySelector('#side-head .dm-sort') && !document.querySelector('#side-head .sh-btn'),
     lfgInSide: !!document.querySelector('#side-list .lfgrow-side'), games: !!document.querySelector('#rail .rail-games'),
   }));
   let s = await st();
   ok(!s.tabs.includes('Online') && s.tabs.includes('Todos'), 'Online e Todos viraram uma aba só', s.tabs);
   ok(s.groups.length === 3 && /^Pedidos/.test(s.groups[0]) && /^Online/.test(s.groups[1]) && /^Offline/.test(s.groups[2]), 'grupos Pedidos / Online / Offline', s.groups);
   ok(s.rows.join() === 'caio,duda,ana,bia', 'ordem: pedidos, online, offline', s.rows);
-  ok(s.metabs === 0 && /Mensagens/.test(s.sideHead) && !s.friendsRow && s.dmTools, 'sem abas Mensagens|Amigos e sem a linha "Amigos": só as conversas ao lado', s);
+  ok(s.metabs === 0 && s.dmHead && !s.friendsRow, 'sem abas Mensagens|Amigos e sem a linha "Amigos": só as conversas ao lado; no topo, busca e ordenar', s);
   ok(!s.lfgInSide && s.games, 'Procurar jogadores/Descobrir saíram da lista; ícone Jogos na barra', s);
   await P.screenshot({ path: `${SHOTS}/fm-01-amigos.png` });
   // recolher Offline
