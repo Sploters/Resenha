@@ -3436,7 +3436,8 @@ function incomingCall(dm, uid) {
 
 // ---------- jogo aberto no PC -> atividade "Jogando X" (app desktop) ----------
 // usa a mesma detecção da transmissão (pasta de loja/jogos, executável conhecido, janela em tela cheia). Repete a cada 20 s
-// enquanto há jogo (o servidor esquece em 90 s sem notícia: app fechado/travado não deixa "Jogando" preso).
+// enquanto há jogo (o servidor esquece em 90 s sem notícia: app fechado/travado não deixa "Jogando" preso). O app avisa
+// na hora quando um jogo abre ou fecha (onGameChanged: eventos do Windows), sem esperar os 20 s.
 let gameTimer = null, sentGame, gameTick = null; // undefined = nada enviado nesta conexão
 function startGameDetect() {
   sentGame = undefined; // (re)conectou: manda o estado de novo
@@ -3454,6 +3455,7 @@ function startGameDetect() {
     sentGame = id;
   };
   setTimeout(tick, 3000); gameTimer = setInterval(tick, 20000);
+  desktop.onGameChanged?.(() => gameTick?.());
 }
 
 // ---------- atalhos / desktop ----------

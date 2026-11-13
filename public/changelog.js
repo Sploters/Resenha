@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-13-3', title: 'App mais leve com o jogo aberto',
+    items: [
+      { i: 'bolt', t: 'Menos programas abrindo e fechando', d: 'No app do computador, o ajudante que lista as janelas (para o "Jogando…" e para a transmissão) agora fica aberto o tempo todo, em vez de abrir e fechar centenas de vezes por hora. Menos trabalho para o PC e para o antivírus. Precisa do app atualizado.' },
+      { i: 'gamepad', t: '"Jogando…" aparece na hora', d: 'O app percebe quando um jogo abre ou fecha pelo próprio Windows: o "Jogando X" aparece em um ou dois segundos (antes podia levar até 20). Se a janela que você está transmitindo for minimizada ou fechada, quem assiste fica sabendo na hora.' },
+      { i: 'clip', t: 'Aviso do clipe mais leve', d: 'O aviso de "Clipe salvo" por cima do jogo agora é desenhado direto pelo app, sem abrir uma página nova a cada F8. Continua fora da transmissão e do clipe, sem tirar o foco do jogo.' },
+    ],
+  },
+  {
     id: '2026-11-13-2', title: 'Transmissão a 60 FPS de verdade',
     items: [
       { i: 'screen', t: '60 FPS pela placa de vídeo', d: 'No app do computador (Windows 11), transmitir a 60 FPS agora também usa a captura e a compressão pela placa de vídeo, como já acontecia a 120 FPS. Antes, pedindo 60, o navegador entregava uns 48. Em conversa protegida e em PCs sem codificador de vídeo na placa, continua pelo modo normal. Precisa do app atualizado.' },

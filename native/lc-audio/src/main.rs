@@ -16,12 +16,18 @@
 //!               Saída padrão: PCM float32 little-endian, 48 kHz, estéreo, intercalado (binário, sem cabeçalho).
 //!               Erro padrão: eventos JSON por linha: {"t":"started"} | {"t":"error","error":"..."}.
 //!               Encerra quando a entrada padrão fecha ou recebe "stop".
-//! Fora do Windows (testes): --capture gera um tom de 440 Hz, --windows devolve uma lista fixa e --front lê o estado
-//! do arquivo em LC_FRONT_TEST ("1" = coberta).
+//!   --serve     fica aberto respondendo pedidos e avisando mudanças (lista de janelas, janela da frente, aviso do clipe):
+//!               ver src/serve.rs. É o que o app usa; os modos acima ficam para o caso de o --serve falhar.
+//! Fora do Windows (testes): --capture gera um tom de 440 Hz, --windows devolve uma lista fixa (ou o JSON do arquivo em
+//! LC_WINDOWS_TEST) e --front lê o estado do arquivo em LC_FRONT_TEST ("1" = coberta).
 
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+mod events;
+mod serve;
+mod toast;
 
 pub const RATE: u32 = 48000;
 pub const CH: u16 = 2;
@@ -40,6 +46,13 @@ fn watch_stdin(stop: Arc<AtomicBool>) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let has = |f: &str| args.iter().any(|a| a == f);
+    if has("--serve") { serve::run(); return; }
+    #[cfg(not(windows))]
+    if let Some(i) = args.iter().position(|a| a == "--toast-preview") {
+        let s = args.get(i + 2).and_then(|v| v.parse().ok()).unwrap_or(2.0);
+        if let Err(e) = toast::preview(args.get(i + 1).map(|s| s.as_str()).unwrap_or("toast.png"), s) { eprintln!("{e}"); std::process::exit(1); }
+        return;
+    }
     if has("--probe") { println!("{}", sys::probe()); return; }
     if has("--windows") { println!("{}", sys::windows()); return; }
     if let Some(i) = args.iter().position(|a| a == "--front") {
@@ -81,7 +94,7 @@ fn main() {
         if let Err(e) = sys::capture(pid, include, stop) { emit_err(serde_json::json!({ "t": "error", "error": e })); std::process::exit(1); }
         return;
     }
-    eprintln!("uso: lc-audio --probe | --windows | --front <hwnd> | --capture  (ver o cabeçalho de src/main.rs)");
+    eprintln!("uso: lc-audio --serve | --probe | --windows | --front <hwnd> | --capture  (ver o cabeçalho de src/main.rs)");
     std::process::exit(2);
 }
 
@@ -122,6 +135,9 @@ mod sys {
         Ok(crop_square(n, n, &px))
     }
     pub fn windows() -> serde_json::Value {
+        if let Some(t) = std::env::var_os("LC_WINDOWS_TEST").and_then(|p| std::fs::read_to_string(p).ok()) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) { return v; }
+        }
         serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true }])
     }
     pub fn dpi_aware() {}

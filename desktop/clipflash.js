@@ -4,7 +4,12 @@
 // - fica FORA da captura de tela (setContentProtection -> WDA_EXCLUDEFROMCAPTURE no Windows 10 2004+): não aparece
 //   na transmissão nem no próprio clipe
 // - janela pequena no canto (não cobre a tela); a página é só HTML/CSS (sem JavaScript); some sozinha
+// Primeiro tenta o aviso nativo (programa lc-audio que já fica aberto, ver native/lc-audio/src/toast.rs): mesma pílula, sem
+// criar um processo de página do Chromium no meio do jogo a cada F8. Se ele não estiver disponível ou falhar, usa a
+// BrowserWindow abaixo. O tempo até aparecer vai para o main.log nos dois casos (para comparar).
 const { BrowserWindow, screen } = require('electron');
+const log = (...a) => console.log('[clipflash]', ...a);
+let nativeFails = 0;
 
 let win = null, timer = null;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -31,9 +36,21 @@ b{font-weight:600;white-space:nowrap}small{color:#b5bac1;font-size:12px;white-sp
 
 function hide() { clearTimeout(timer); timer = null; const w = win; win = null; if (w && !w.isDestroyed()) w.destroy(); }
 
-// o: { ok: boolean, title: string, sub?: string }
-function show(o = {}) {
+// o: { ok: boolean, title: string, sub?: string, kind?: 'share' }; helper: programa nativo (desktop/helper.js) ou null
+function show(o = {}, helper = null) {
+  if (helper?.up && helper.info?.toast && nativeFails < 3) {
+    const t0 = Date.now();
+    hide();
+    helper.call('toast', { ok: o.ok !== false, kind: o.kind || '', title: o.title || '', sub: o.sub || '' }, 1500)
+      .then((r) => { nativeFails = 0; log('nativo: na tela em ' + Math.round(r?.ms ?? 0) + ' ms (' + (Date.now() - t0) + ' ms com o pedido)'); })
+      .catch((e) => { nativeFails++; log('nativo falhou (' + e.message + '): usando a janela do Chromium'); showWindow(o); });
+    return;
+  }
+  showWindow(o);
+}
+function showWindow(o) {
   hide();
+  const t0 = Date.now();
   // tela onde está o mouse = normalmente a do jogo
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), b = d.workArea;
   win = new BrowserWindow({
@@ -48,7 +65,7 @@ function show(o = {}) {
   w.setContentProtection(true); // fora da captura: não entra na transmissão nem no clipe
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  w.once('ready-to-show', () => { if (win === w && !w.isDestroyed()) w.showInactive(); });
+  w.once('ready-to-show', () => { if (win === w && !w.isDestroyed()) { w.showInactive(); log('janela do Chromium: na tela em ' + (Date.now() - t0) + ' ms'); } });
   w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html(o))).catch(() => { });
   timer = setTimeout(hide, 2200);
 }

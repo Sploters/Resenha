@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   onAppAudioEvent: (() => { let cb = null; ipcRenderer.on('app-audio-event', (_e, ev) => cb?.(ev)); return (f) => { cb = f; }; })(), // { t: 'waiting' | 'reattached', name }
   sourceState: () => ipcRenderer.invoke('source-state'), // janela transmitida: { kind, exists, minimized, title }
   detectGame: () => ipcRenderer.invoke('detect-game'), // { id, title } | null (desde a 1.0.24)
+  // avisos do programa nativo, na hora em que a lista de janelas muda (sem esperar a próxima consulta)
+  onGameChanged: (() => { let cb = null; ipcRenderer.on('game-changed', (_e, g) => cb?.(g)); return (f) => { cb = f; }; })(), // { id, title } | null
+  onSourceState: (() => { let cb = null; ipcRenderer.on('source-state', (_e, s) => cb?.(s)); return (f) => { cb = f; }; })(), // como sourceState()
   onAppAudio: (() => { let cb = null; ipcRenderer.on('app-audio-data', (_e, b) => cb?.(b)); return (f) => { cb = f; }; })(),
   setBadge: (n) => ipcRenderer.send('set-badge', n),
   clipFlash: (o) => ipcRenderer.send('clip-flash', o), // aviso de clipe por cima do jogo (desde a 1.0.24)

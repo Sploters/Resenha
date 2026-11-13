@@ -203,7 +203,7 @@ function createWindow(forceShow) {
   let front = null;
   if (helper) {
     let hwnd = ''; try { const b = win.getNativeWindowHandle(); hwnd = String(b.length >= 8 ? b.readBigUInt64LE(0) : b.readUInt32LE(0)); } catch { }
-    front = createFrontWatch({ exe: helper, hwnd, onChange: (c, i) => { log(c ? 'coberta por ' + (i?.exe || 'outro programa') + ' em tela cheia' : 'à vista de novo'); winState(); } });
+    front = createFrontWatch({ exe: helper, helper: appAudio.getHelper(), hwnd, onChange: (c, i) => { log(c ? 'coberta por ' + (i?.exe || 'outro programa') + ' em tela cheia' : 'à vista de novo'); winState(); } });
     front.start(); frontWatch = front;
     win.on('closed', () => front.stop());
   }
@@ -380,9 +380,20 @@ appAudio.setEventSink((ev) => { if (win && !win.isDestroyed()) win.webContents.s
 ipcMain.handle('source-state', () => appAudio.sourceState(pickedSource).catch(() => ({ kind: 'unknown' })));
 // jogo aberto agora (mesma detecção da transmissão): vira a atividade "Jogando X" para os amigos
 ipcMain.handle('detect-game', () => appAudio.detectGame().catch(() => null));
+// avisos do programa nativo quando a lista de janelas muda (eventos do Windows): o "Jogando X" aparece em 1 a 2 s em vez
+// de esperar a próxima consulta de 20 s, e a janela transmitida minimizada/fechada avisa na hora (antes, até 3 s)
+let lastGameId, lastSrcState = '';
+if (process.platform === 'win32') appAudio.watchWindows(async (list) => {
+  if (!win || win.isDestroyed()) return;
+  const g = await appAudio.detectGame({ cached: true }).catch(() => null);
+  if ((g?.id || null) !== lastGameId) { lastGameId = g?.id || null; win.webContents.send('game-changed', g ? { id: g.id, title: g.title } : null); }
+  if (!/^window:/.test(pickedSource)) return;
+  const st = await appAudio.sourceState(pickedSource, list).catch(() => null), k = JSON.stringify(st);
+  if (st && k !== lastSrcState) { lastSrcState = k; win.webContents.send('source-state', st); }
+});
 ipcMain.on('set-badge', (_e, n) => setBadge(n));
 // aviso de clipe capturado por cima do jogo (desktop/clipflash.js)
-ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120), kind: o.kind === 'share' ? 'share' : undefined }); });
+ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120), kind: o.kind === 'share' ? 'share' : undefined }, appAudio.getHelper()); });
 // controle remoto (desktop/remote.js): o renderer só chama start depois que o dono aceitou
 ipcMain.handle('remote-capable', () => remote.capable());
 ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));

@@ -476,19 +476,23 @@ export class Voice {
   }
   // janela transmitida minimizada ou fechada (app desktop): o Windows para de entregar quadros e quem assiste via a imagem
   // congelada sem saber por quê. A cada 3 s pergunta ao app; muda o estado da transmissão (quem assiste vê o aviso) e
-  // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema.
+  // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema. O app também avisa na hora em que a janela
+  // muda (onSourceState: eventos do Windows); a consulta de 3 s fica de garantia (com o programa nativo aberto ela não
+  // abre processo nenhum).
   watchSource() {
     clearInterval(this._src); this.screenNote = null;
     const d = window.lcDesktop; if (!d?.sourceState) return;
+    const apply = (st) => {
+      if (!this.screen) return;
+      const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
+      if (note !== this.screenNote) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
+    };
+    d.onSourceState?.(apply);
     let busy = false;
     this._src = setInterval(async () => {
       if (!this.screen) return clearInterval(this._src);
       if (busy) return; busy = true;
-      try {
-        const st = await d.sourceState();
-        const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
-        if (note !== this.screenNote && this.screen) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
-      } catch { } finally { busy = false; }
+      try { apply(await d.sourceState()); } catch { } finally { busy = false; }
     }, 3000);
   }
   // selo de saúde da transmissão para quem transmite: { level: 'ok' | 'warn' | 'bad', fps, items: [[nível, texto]] }
