@@ -472,7 +472,8 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 
 /* ===== Bot de música (public/music.js) ===== */
 .mu-pop { width: 400px; max-width: calc(100vw - 16px); padding: 0; overflow: hidden; border-radius: 14px; }
-.mupanel { --mu: #a855f7; display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: min(82vh, 680px); overflow-y: auto; scrollbar-width: thin; }
+.mupanel { --mu: #a855f7; display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: min(82vh, 680px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.mupanel:hover, .mulist:hover { scrollbar-color: var(--scroll) transparent; }
 /* busca */
 .musearch { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 10px; background: var(--bg-tert, #1e1f22); color: var(--text-muted); cursor: text; }
 .musearch:focus-within { box-shadow: 0 0 0 2px var(--mu); }
@@ -521,7 +522,7 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .mutab:hover { color: var(--text); } .mutab.on { color: var(--header, #fff); border-bottom-color: var(--mu); }
 .mutab i { font-style: normal; font-size: 11px; padding: 0 6px; border-radius: 8px; background: rgba(127,127,127,.2); }
 .mutabsp { flex: 1; } .mutotal { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.mulist { display: flex; flex-direction: column; gap: 1px; max-height: 250px; overflow-y: auto; scrollbar-width: thin; }
+.mulist { display: flex; flex-direction: column; gap: 1px; max-height: 250px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .musec { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
 .muitem { padding: 6px; border-radius: 8px; } .muitem:hover { background: rgba(127,127,127,.1); }
 .muitem[draggable="true"] { cursor: grab; } .muitem.dragging { opacity: .4; } .muitem.over { box-shadow: inset 0 2px 0 var(--mu); }

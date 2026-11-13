@@ -10,8 +10,13 @@ html, body { margin: 0; height: 100%; background: var(--bg-tert); color: var(--t
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
-::-webkit-scrollbar { width: 14px; height: 14px; } ::-webkit-scrollbar-thumb { background: var(--scroll); border: 3px solid transparent; background-clip: padding-box; border-radius: 8px; min-height: 40px; }
+::-webkit-scrollbar { width: 14px; height: 14px; } ::-webkit-scrollbar-thumb { background: var(--sb); border: 3px solid transparent; background-clip: padding-box; border-radius: 8px; min-height: 40px; }
 ::-webkit-scrollbar-track { background: transparent; }
+/* barras de rolagem invisíveis: só aparecem com o mouse em cima da área que rola (o espaço continua reservado: nada pula) */
+/* o Chrome só redesenha a barra quando muda um estilo do próprio elemento: por isso a cor vem de --sb e não de um
+   :hover::-webkit-scrollbar-thumb. Zerada em todo elemento: uma área de dentro não acende junto com a de fora */
+* { --sb: transparent; } *:hover { --sb: var(--scroll); }
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-color: transparent transparent; } *:hover { scrollbar-color: var(--scroll) transparent; } } /* Firefox */
 .hidden { display: none !important; }
 .icon { width: 20px; height: 20px; fill: currentColor; flex: none; }
 
@@ -35,7 +40,7 @@ label.f input:focus, label.f textarea:focus { outline: 1px solid var(--brand); }
 /* ---------- App layout ---------- */
 #app { display: flex; height: 100vh; }
 #rail { width: 72px; background: var(--bg-tert); display: flex; flex-direction: column; align-items: center; padding: 12px 0 calc(var(--ua-h, 52px) + 16px); gap: 8px; overflow-y: auto; flex: none; }
-#rail::-webkit-scrollbar { display: none; }
+#rail::-webkit-scrollbar { width: 6px; } #rail::-webkit-scrollbar-thumb { border-width: 0 1px; min-height: 30px; } /* fina na barra dos servidores (72px) */
 .sep { width: 32px; height: 2px; background: var(--divider); border-radius: 1px; margin: 0 0 0; flex: none; }
 .rail-item { position: relative; width: 48px; height: 48px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg-pri); color: var(--text); font-weight: 500; font-size: 16px; overflow: hidden; transition: border-radius .15s, background .15s, color .15s; cursor: pointer; user-select: none; }
 .rail-item img { width: 100%; height: 100%; object-fit: cover; }

@@ -171,9 +171,6 @@ button.mgroup .mg-n::before { content: '— '; }
 .dm-sort { flex: none; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--divider); border-radius: 50%; background: none; color: var(--interactive, var(--text-muted)); cursor: pointer; }
 .dm-sort:hover { background: var(--bg-mod-hover); color: var(--interactive-hover, var(--text)); }
 .dm-sort:focus-visible { outline: 2px solid var(--brand); }
-/* barras de rolagem da lista lateral e do "Ativo agora": escondidas, aparecem com o mouse em cima (o espaço fica reservado: nada pula) */
-#side-list::-webkit-scrollbar-thumb, #active-now::-webkit-scrollbar-thumb { background-color: transparent; }
-#side-list:hover::-webkit-scrollbar-thumb, #active-now:hover::-webkit-scrollbar-thumb { background-color: var(--scroll); }
 /* embaixo da barra de perfil (só sob o #userbar, não sob o avatar): mesma cor da lista lateral */
 #side::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--ua-h, 60px) + 16px); background: var(--bg-sec); pointer-events: none; z-index: 19; }
 @media (max-width: 900px) { #members { display: none; } }
