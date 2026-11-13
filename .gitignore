@@ -21,3 +21,4 @@ cookies.txt
 .loaddata-sfu/
 .load-result.json
 scripts/perf-big-*.json
+.testmedia*
