@@ -2473,7 +2473,10 @@ function composer(ch, label) {
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
   wrap.append(topBtn);
   setTimeout(() => {
-    renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); ta.setSelectionRange(ta.value.length, ta.value.length); } ta.focus();
+    renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    // sala de voz: o chat não pega o foco sozinho, senão a tecla de push-to-talk (uma letra, por padrão V) vira texto
+    // em vez de abrir o microfone; para escrever, é só clicar no campo
+    if (ch.type !== 2) ta.focus();
     const box = $('#msgs'); if (!box) return;
     const upd = () => topBtn.classList.toggle('hidden', box.scrollHeight - box.clientHeight < 200 || box.scrollTop < 120 || !!$('#detached-bar'));
     box.addEventListener('scroll', upd, { passive: true }); upd();

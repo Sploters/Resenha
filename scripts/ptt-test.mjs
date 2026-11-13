@@ -30,7 +30,7 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
   const ins = await page.$$('#auth input');
-  await ins[0].type('ana'); await ins[2].type('senha123'); await ins[3].type('senha123');
+  await ins[0].type('ana'); await ins[2].type('Teste.senha-123'); await ins[3].type('Teste.senha-123');
   await page.click('#auth .btn'); await page.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
   const tok = await page.evaluate(() => localStorage.lc_token);
   const g = await fetch(BASE + '/api/guilds', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ name: 'PTT' }) }).then(r => r.json());
@@ -63,7 +63,7 @@ try {
   await page.evaluate(() => window.__firePtt(true)); await sleep(50);
   ok(!(await mic()), 'em foco, o "apertou" do programa nativo é ignorado');
   await page.evaluate(() => window.__firePtt(false));
-  await page.evaluate(() => document.activeElement?.blur()); // a sala de voz abre com o chat dela em foco
+  ok(await page.evaluate(() => !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)), 'a sala de voz não abre com o chat em foco');
   await page.keyboard.down('v'); await sleep(50);
   ok(await mic(), 'tecla V na página abre o microfone');
   await page.keyboard.up('v'); await sleep(50);
