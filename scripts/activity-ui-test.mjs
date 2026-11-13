@@ -21,7 +21,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = async (tok, method, path, body) => { const r = await fetch(BASE + '/api' + path, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json().catch(() => ({})) }; };
 const sfx = Math.random().toString(36).slice(2, 6);
-const mk = async (n) => { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'senha12345' }); return { tok: r.data.token, uname: n + sfx }; };
+const mk = async (n) => { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-12345' }); return { tok: r.data.token, uname: n + sfx }; };
 const A = await mk('alice'), B = await mk('bob'), C = await mk('carol');
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 const fakeScreen = () => { navigator.mediaDevices.getDisplayMedia = async () => { const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d'); let n = 0; setInterval(() => { n++; x.fillStyle = `hsl(${n * 5 % 360} 60% 40%)`; x.fillRect(0, 0, 640, 360); }, 33); return c.captureStream(30); }; };

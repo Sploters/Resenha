@@ -4,7 +4,8 @@
     "call-throttle-test",
     "desktop-test",
     "desktop-share-test",
-    "appaudio-watch-test"
+    "appaudio-watch-test",
+    "update-security-test"
   ],
   "prepare": {
     "big-data-test": {

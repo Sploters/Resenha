@@ -31,7 +31,7 @@ for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); bre
 const call = async (tok, method, path, body) => { const r = await fetch(BASE + '/api' + path, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined, redirect: 'manual' }); const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { status: r.status, data: d }; };
 const sfx = Math.random().toString(36).slice(2, 6), NAMES = ['alice', 'bob', 'carol', 'dave', 'erin'];
 const U = {}; // nome -> { tok, id, uname, ws, ready, ev:[] }
-for (const n of NAMES) { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'senha12345' }); U[n] = { tok: r.data.token, uname: n + sfx, ev: [] }; }
+for (const n of NAMES) { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-12345' }); U[n] = { tok: r.data.token, uname: n + sfx, ev: [] }; }
 
 function connect(n) {
   const u = U[n]; const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + u.tok);
@@ -163,7 +163,7 @@ try {
   const during = calls.slice(c3); const gaps = during.slice(1).map((c, i) => c.t - during[i].t);
   ok(during.length >= 2 && during.length <= 8, 'Steam fora do ar (500): continua tentando, mas com recuo (poucas chamadas)', { chamadas: during.length, intervalosMs: gaps });
   ok(gaps.length < 2 || gaps[gaps.length - 1] >= gaps[0], 'o intervalo entre tentativas não diminui (backoff)', gaps);
-  const reg = await call('', 'POST', '/register', { username: 'novo' + sfx, password: 'senha12345' });
+  const reg = await call('', 'POST', '/register', { username: 'novo' + sfx, password: 'Teste.senha-12345' });
   ok(reg.status === 200, 'durante a falha da Steam, cadastro e login funcionam');
   const nw = await new Promise(res => { const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + reg.data.token); ws.on('message', raw => { const m = JSON.parse(raw); if (m.t === 'READY') { res(m.d); ws.close(); } }); });
   ok(Array.isArray(nw.activities) && nw.relationships && nw.guilds, 'READY é entregue normalmente durante a falha');

@@ -45,7 +45,7 @@ const fakeDesktop = () => {
 };
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--no-sandbox'] });
 try {
-  const tok = (await call('', 'POST', '/register', { username: 'gamer', password: 'senha123' })).token;
+  const tok = (await call('', 'POST', '/register', { username: 'gamer', password: 'Teste.senha-123' })).token;
   const g = await call(tok, 'POST', '/guilds', { name: 'Jogatina' });
   const p = await browser.newPage(); await p.setViewport({ width: 1440, height: 900 });
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });

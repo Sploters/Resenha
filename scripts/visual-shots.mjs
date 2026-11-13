@@ -16,7 +16,7 @@ for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); bre
 const call = async (t, m, p, b) => { const r = await fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(t ? { authorization: 'Bearer ' + t } : {}) }, body: b ? JSON.stringify(b) : undefined }); return { s: r.status, d: await r.json().catch(() => ({})) }; };
 const sfx = Math.random().toString(36).slice(2, 5);
 const names = ['voce', 'ana', 'bruno', 'carla', 'diego'], U = [];
-for (const n of names) { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'senha12345' }); U.push({ n, tok: r.d.token, uname: n + sfx }); }
+for (const n of names) { const r = await call('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-12345' }); U.push({ n, tok: r.d.token, uname: n + sfx }); }
 const me = U[0];
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 const fakeScreen = () => { navigator.mediaDevices.getDisplayMedia = async () => { const c = document.createElement('canvas'); c.width = 1280; c.height = 720; const x = c.getContext('2d'); let n = 0; setInterval(() => { n++; const g = x.createLinearGradient(0, 0, 1280, 720); g.addColorStop(0, `hsl(${n % 360} 60% 30%)`); g.addColorStop(1, `hsl(${(n + 80) % 360} 60% 45%)`); x.fillStyle = g; x.fillRect(0, 0, 1280, 720); x.fillStyle = '#fff'; x.font = '64px sans-serif'; x.fillText('Transmissão de teste', 340, 380); }, 33); return c.captureStream(30); }; };

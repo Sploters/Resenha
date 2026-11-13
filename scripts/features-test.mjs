@@ -9,7 +9,7 @@ const call = async (tok, method, path, body, raw) => {
   return { status: r.status, data: await r.json().catch(() => ({})) };
 };
 const sfx = Math.random().toString(36).slice(2, 7);
-const user = async (n) => (await call('', 'POST', '/register', { username: n + sfx, password: 'senha123' })).data.token;
+const user = async (n) => (await call('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-123' })).data.token;
 function gateway(tok) {
   const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + tok), q = [], waiters = [];
   ws.on('message', (raw) => { const m = JSON.parse(raw); const i = waiters.findIndex(w => w.t === m.t && (!w.f || w.f(m.d))); if (i >= 0) waiters.splice(i, 1)[0].res(m.d); else q.push(m); });

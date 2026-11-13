@@ -180,7 +180,8 @@ function accountPage(close) {
 function passwordForm() {
   const o = h('input', { type: 'password', autocomplete: 'current-password' }), n = h('input', { type: 'password', autocomplete: 'new-password' }), n2 = h('input', { type: 'password', autocomplete: 'new-password' });
   return h('div', h('label.f', 'Senha atual', o), h('label.f', 'Nova senha', n), h('label.f', 'Confirmar nova senha', n2),
-    h('button.btn', { onclick: async () => { if (n.value !== n2.value) return toast('As senhas não coincidem', true); if (await tryApi('POST', '/me/password', { old: o.value, new: n.value })) { toast('Senha alterada!'); o.value = n.value = n2.value = ''; } } }, 'Alterar senha'));
+    note('Pelo menos 8 caracteres, fora das senhas mais comuns. Ao trocar, os outros aparelhos saem da conta (este continua).'),
+    h('button.btn', { onclick: async () => { if (n.value !== n2.value) return toast('As senhas não coincidem', true); const r = await tryApi('POST', '/me/password', { old: o.value, new: n.value }); if (r) { toast(r.ended ? `Senha alterada! ${r.ended} outro${r.ended > 1 ? 's aparelhos saíram' : ' aparelho saiu'} da conta.` : 'Senha alterada!'); o.value = n.value = n2.value = ''; } } }, 'Alterar senha'));
 }
 function usernameDialog() {
   const u = h('input', { value: S.me.username, maxLength: 32 }), p = h('input', { type: 'password' });
@@ -393,7 +394,7 @@ function privacyPage(reg) {
   const sessions = h('div');
   const draw = async () => {
     const list = await tryApi('GET', '/sessions') || [];
-    sessions.replaceChildren(...list.map(s => h('div.frow.pv-sess', { style: { cursor: 'default' } }, h('span.pv-dev' + (s.current ? '.cur' : ''), icon(/Android|iPhone|iPad|Mobile/.test(s.agent) ? 'phone' : /Electron/.test(s.agent) ? 'layout' : 'screen', 22)), h('div.fn', h('b', agentName(s.agent)), h('small', `${s.current ? 'Este dispositivo • ' : ''}entrou em ${new Date(+s.created_at).toLocaleString('pt-BR')}`)),
+    sessions.replaceChildren(...list.map(s => h('div.frow.pv-sess', { style: { cursor: 'default' } }, h('span.pv-dev' + (s.current ? '.cur' : ''), icon(/Android|iPhone|iPad|Mobile/.test(s.agent) ? 'phone' : /Electron/.test(s.agent) ? 'layout' : 'screen', 22)), h('div.fn', h('b', agentName(s.agent)), h('small', `${s.current ? 'Este dispositivo • ' : ''}entrou em ${new Date(+s.created_at).toLocaleString('pt-BR')}${!s.current && s.last_seen ? ` • usado por último em ${new Date(+s.last_seen).toLocaleDateString('pt-BR')}` : ''}`)),
       !s.current && h('button.btn.red', { onclick: async () => { await tryApi('DELETE', `/sessions/${s.id}`); draw(); } }, 'Encerrar'))));
   };
   draw();

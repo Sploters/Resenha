@@ -25,7 +25,7 @@ const imgs = [[1600, 1200], [800, 600], [1080, 1920], [400, 400], [1920, 1080], 
   const f = `rich${i}.png`, b = png(w, h, i); fs.writeFileSync(`${up}/${f}`, b); return { url: `/files/${f}`, name: `foto${i}.png`, size: b.length, type: 'image/png', width: w, height: h };
 });
 
-const salt = 'rich', hash = crypto.scryptSync('senha123', salt, 64).toString('hex'), now = Date.now();
+const salt = 'rich', hash = crypto.scryptSync('Teste.senha-123', salt, 64).toString('hex'), now = Date.now();
 let id = BigInt(now - N * 2 * 60e3) * 1000n; const nid = () => String(id++);
 db.exec('BEGIN');
 const users = [];

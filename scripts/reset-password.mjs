@@ -4,10 +4,11 @@
 // Mesma pasta de dados do servidor (variável DATA_DIR). Encerra as sessões abertas da pessoa: ela entra de novo com a senha nova.
 import crypto from 'node:crypto';
 import { db } from '../server/db.js';
+import { passwordProblem } from '../server/accounts.js';
 
 const [username, pw] = process.argv.slice(2);
 if (!username || !pw) { console.log('Uso: node scripts/reset-password.mjs <nome de usuário> <senha nova>'); process.exit(1); }
-if (pw.length < 4 || pw.length > 256) { console.log('A senha precisa ter de 4 a 256 caracteres.'); process.exit(1); }
+{ const why = passwordProblem(pw, username); if (why) { console.log(why + '.'); process.exit(1); } }
 const u = db.prepare('SELECT id, username FROM users WHERE username=?').get(username);
 if (!u) { console.log(`Usuário "${username}" não encontrado.`); process.exit(1); }
 const salt = crypto.randomBytes(16).toString('hex'), hash = crypto.scryptSync(pw, salt, 64).toString('hex');

@@ -49,7 +49,7 @@ const decoded = (page, uid) => page.evaluate(async (uid) => { const p = window._
 
 try {
   // ---------- 0. contas, servidor e permissões do /api/sfu/load ----------
-  const ra = await api('', 'POST', '/register', { username: 'qa_a' + sfx, password: 'senha12345' }), rb = await api('', 'POST', '/register', { username: 'qa_b' + sfx, password: 'senha12345' });
+  const ra = await api('', 'POST', '/register', { username: 'qa_a' + sfx, password: 'Teste.senha-12345' }), rb = await api('', 'POST', '/register', { username: 'qa_b' + sfx, password: 'Teste.senha-12345' });
   const ta = ra.data.token, tb = rb.data.token; ok(ta && tb, 'contas de teste criadas');
   const g = (await api(ta, 'POST', '/guilds', { name: 'QA Fase 2 ' + sfx })).data; const inv = (await api(ta, 'POST', `/guilds/${g.id}/invites`)).data;
   await api(tb, 'POST', `/invites/${inv.code}`);

@@ -30,7 +30,7 @@ async function session(tok, desk) {
   return p;
 }
 try {
-  const ra = await api('', 'POST', '/register', { username: 'ana', password: 'senha123' }), rb = await api('', 'POST', '/register', { username: 'beto', password: 'senha123' });
+  const ra = await api('', 'POST', '/register', { username: 'ana', password: 'Teste.senha-123' }), rb = await api('', 'POST', '/register', { username: 'beto', password: 'Teste.senha-123' });
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Live' }); const inv = await api(ra.token, 'POST', `/guilds/${g.id}/invites`); await api(rb.token, 'POST', `/invites/${inv.code}`);
   const A = await session(ra.token, true), B = await session(rb.token, false);
   const aid = await A.evaluate(() => window.__lc.S.me.id);

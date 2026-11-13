@@ -22,7 +22,7 @@ async function page(tok) {
 const newsOpen = (p) => p.waitForFunction(() => /Novidades/.test(document.querySelector('.modal .mh h2')?.textContent || ''), { timeout: 5000 }).then(() => true, () => false);
 try {
   // quem já usava (tem preferências na conta, sem ter visto as novidades)
-  const a = await call('', 'POST', '/register', { username: 'alice', password: 'senha123' });
+  const a = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   await call(a.token, 'PUT', '/me/settings', { settings: { theme: 'dark', noiseMode: 'standard' } });
   const A = await page(a.token);
   ok(await newsOpen(A), 'quem já usava vê a janela de Novidades ao abrir');
@@ -47,7 +47,7 @@ try {
   const A2 = await page(a.token); // outro aparelho
   ok(!(await newsOpen(A2)), 'não aparece de novo (nem em outro aparelho)');
   // conta nova: sem a janela
-  const b = await call('', 'POST', '/register', { username: 'bruno', password: 'senha123' });
+  const b = await call('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const B = await page(b.token);
   ok(!(await newsOpen(B)), 'conta nova não recebe a lista do que mudou');
   // Configurações -> Novidades e menu do perfil

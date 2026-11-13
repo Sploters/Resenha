@@ -16,7 +16,7 @@ const call = (tok, m, p, b, raw) => fetch(BASE + '/api' + p, { method: m, header
 let browser; const R = {};
 try {
   await start();
-  const a = await call('', 'POST', '/register', { username: 'alice', password: 'senha123' });
+  const a = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   const g = await call(a.token, 'POST', '/guilds', { name: 'Turma' });
   browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
   let P = await browser.newPage(); await P.setViewport({ width: 1440, height: 900 }); await P.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, a.token);

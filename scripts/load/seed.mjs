@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 const N = +(process.argv[2] || 1000), DIR = process.env.DATA_DIR || './.loaddata';
 fs.rmSync(DIR, { recursive: true, force: true });
 const { db } = await import('../../server/db.js');
-const salt = 'load', hash = crypto.scryptSync('senha123', salt, 64).toString('hex'), now = Date.now();
+const salt = 'load', hash = crypto.scryptSync('Teste.senha-123', salt, 64).toString('hex'), now = Date.now();
 let id = 1700000000000000; const nid = () => String(id++);
 db.exec('BEGIN');
 const users = [];

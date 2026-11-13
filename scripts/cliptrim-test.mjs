@@ -13,7 +13,7 @@ for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); br
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 try {
-  const r = await call('', 'POST', '/register', { username: 'alice', password: 'senha123' }); const tok = r.token;
+  const r = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' }); const tok = r.token;
   const g = await call(tok, 'POST', '/guilds', { name: 'Jogatina' });
   const ctx = await browser.createBrowserContext(), P = await ctx.newPage(); await P.setViewport({ width: 1440, height: 900 });
   P.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });

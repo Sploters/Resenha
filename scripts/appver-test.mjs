@@ -14,8 +14,8 @@ for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); br
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 try {
-  const a = await call('', 'POST', '/register', { username: 'alice', password: 'senha123' }); await sleep(20);
-  const b = await call('', 'POST', '/register', { username: 'bruno', password: 'senha123' });
+  const a = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' }); await sleep(20);
+  const b = await call('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const g = await call(a.token, 'POST', '/guilds', { name: 'T' }); const inv = await call(a.token, 'POST', `/guilds/${g.id}/invites`); await call(b.token, 'POST', '/invites/' + inv.code);
   const page = async (tok, desk) => { const c = await browser.createBrowserContext(), P = await c.newPage(); await P.setViewport({ width: 1300, height: 800 }); P.on('pageerror', e => console.log('  PAGEERROR', e.message));
     await P.evaluateOnNewDocument((t, desk) => { localStorage.lc_token = t; window.__toasts = []; new MutationObserver(() => { const e = document.getElementById('toast'); if (e && window.__toasts.at(-1) !== e.textContent) window.__toasts.push(e.textContent); }).observe(document, { childList: true, subtree: true }); if (desk) { const fns = { getSettings: async () => ({ version: desk }), getUpdate: async () => null, installUpdate: async () => false, getDiagnostics: async () => ({ app: desk, gpus: [{ nome: 'GPU de teste', ativa: true }], log: 'linha de log' }) }; window.lcDesktop = new Proxy(fns, { get: (o, k) => (k in o ? o[k] : k === 'isDesktop' ? true : () => Promise.resolve({})) }); } }, tok, desk);

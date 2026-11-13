@@ -37,7 +37,7 @@ const audioIn = (p, ms = 2000) => p.evaluate(async (ms) => {
 // linha do tempo do "falando" de uid durante ms (amostra a cada 50 ms, no relógio da página)
 const timeline = (p, uid, ms) => p.evaluate(async (uid, ms) => { const out = []; const t0 = Date.now(); while (Date.now() - t0 < ms) { out.push([Date.now(), window.__lc.voice.speaking.has(uid) ? 1 : 0]); await new Promise(r => setTimeout(r, 50)); } return out; }, uid, ms);
 try {
-  const [ra, rb, rc] = await Promise.all(['alice', 'bruno', 'carla'].map(n => api('', 'POST', '/register', { username: n, password: 'senha123' })));
+  const [ra, rb, rc] = await Promise.all(['alice', 'bruno', 'carla'].map(n => api('', 'POST', '/register', { username: n, password: 'Teste.senha-123' })));
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' }), inv = (await api(ra.token, 'POST', `/guilds/${g.id}/invites`)).code;
   for (const r of [rb, rc]) await api(r.token, 'POST', '/invites/' + inv);
   const [A, B, C] = [await person(ra.token), await person(rb.token), await person(rc.token)];

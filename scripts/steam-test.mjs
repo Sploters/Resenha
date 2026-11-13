@@ -34,7 +34,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = async (tok, method, path, body) => { const r = await fetch(BASE + '/api' + path, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined, redirect: 'manual' }); const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { status: r.status, data: d }; };
 const sfx = Math.random().toString(36).slice(2, 6);
-const reg = async (n) => (await call('', 'POST', '/register', { username: n + sfx, password: 'senha12345' })).data.token;
+const reg = async (n) => (await call('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-12345' })).data.token;
 
 // resposta que a Steam devolveria ao navegador (return_to = o que o servidor pediu)
 const steamReturn = (returnTo, over = {}) => {

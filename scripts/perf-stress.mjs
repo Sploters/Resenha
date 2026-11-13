@@ -16,7 +16,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 let srvErr = ''; srv.stderr.on('data', d => { srvErr += d; });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
-const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'senha123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
+const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
 
 // CPU (s) de uma árvore de processos (navegador + filhos), por /proc
 const tree = (root) => { const out = execFileSync('ps', ['-o', 'pid=,ppid=', '-A']).toString().trim().split('\n').map(l => l.trim().split(/\s+/).map(Number)); const k = new Set([root]); for (let i = 0; i < 4; i++) for (const [p, pp] of out) if (k.has(pp)) k.add(p); return k; };

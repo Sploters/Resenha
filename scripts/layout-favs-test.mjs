@@ -17,7 +17,7 @@ for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); br
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 let browser;
 try {
-  const r = await call('', 'POST', '/register', { username: 'mestre', password: 'senha123' }), tok = r.token;
+  const r = await call('', 'POST', '/register', { username: 'mestre', password: 'Teste.senha-123' }), tok = r.token;
   const g1 = await call(tok, 'POST', '/guilds', { name: 'Campanha' }), g2 = await call(tok, 'POST', '/guilds', { name: 'Artes' });
   const c1 = await call(tok, 'POST', `/guilds/${g1.id}/channels`, { name: 'resumos', type: 0 });
   const c2 = await call(tok, 'POST', `/guilds/${g2.id}/channels`, { name: 'personagens', type: 0 });

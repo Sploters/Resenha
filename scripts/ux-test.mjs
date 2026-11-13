@@ -12,7 +12,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await new Promise(r => setTimeout(r, 200)); } }
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (c || x === undefined ? '' : ' ' + JSON.stringify(x))); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const reg = async (name) => (await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'senha123' }) }).then(r => r.json())).token;
+const reg = async (name) => (await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'Teste.senha-123' }) }).then(r => r.json())).token;
 const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, data: await r.json().catch(() => ({})) }));
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
 const stats = async (tok) => (await api(tok, 'GET', '/ux')).data.eventos || {};
@@ -260,7 +260,7 @@ try {
   { const P3 = 3243, B3 = `http://localhost:${P3}`, D3 = './.testdata-ux-off'; fs.rmSync(D3, { recursive: true, force: true });
     const s3 = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: P3, HTTPS: '0', DATA_DIR: D3, UX_TELEMETRY: '0' }, stdio: 'ignore' });
     for (let i = 0; i < 50; i++) { try { await fetch(B3 + '/api/server-info'); break; } catch { await sleep(200); } }
-    const t3 = (await fetch(B3 + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'zeca', password: 'senha123' }) }).then(r => r.json())).token;
+    const t3 = (await fetch(B3 + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'zeca', password: 'Teste.senha-123' }) }).then(r => r.json())).token;
     const post = await fetch(B3 + '/api/ux', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + t3 }, body: JSON.stringify({ events: [{ e: 'games_open', d: '', n: 1 }] }) }).then(r => r.json());
     const acc = await fetch(B3 + '/api/ux/access', { headers: { authorization: 'Bearer ' + t3 } }).then(r => r.json());
     const g = await fetch(B3 + '/api/ux', { headers: { authorization: 'Bearer ' + t3 } }).then(r => r.json());

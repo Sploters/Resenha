@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', protocolTimeout: 60000, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 try {
-  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'senha123' });
+  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' });
   const p = await browser.newPage(); await p.setViewport({ width: 1280, height: 800 });
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });

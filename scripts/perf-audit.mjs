@@ -11,7 +11,7 @@ fs.rmSync('.testdata19', { recursive: true, force: true }); fs.mkdirSync('.tests
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata19', RTC_PORT: '41050', RTC_IPS: '127.0.0.1', STATIC_OFF: process.env.STATIC_OFF || '' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
-const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'senha123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
+const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
 // CPU e memória do servidor (node + worker do mediasoup)
 const procStat = () => { try { const out = execFileSync('ps', ['-o', 'pid=,ppid=,rss=,time=', '-A']).toString(); let rss = 0, cpu = 0; const kids = new Set([srv.pid]);
   for (let k = 0; k < 2; k++) for (const l of out.trim().split('\n')) { const [pid, ppid] = l.trim().split(/\s+/).map(Number); if (kids.has(ppid)) kids.add(pid); }

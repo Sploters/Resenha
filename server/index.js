@@ -32,6 +32,7 @@ import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
 import { mountUx, uxSeen, uxSignup, uxFirst } from './ux.js';
 import { mountLfg } from './lfg.js';
+import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
 import { translate, translateEnabled, engineName } from './translate.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
@@ -52,8 +53,9 @@ const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, K
 const COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c'];
 
 // ---------- helpers ----------
-const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 64).toString('hex');
 const conns = new Map(); // userId -> Set<ws>
+// sessões (server/accounts.js): token guardado com hash, expiração, encerrar ao trocar a senha
+const sessions = initSessions({ db, all, get, run, onRevoke: (uid, match) => { for (const ws of conns.get(uid) || []) if (match(ws.tokenHash)) ws.close(4001, 'sessão encerrada'); } });
 // atividades compartilhadas da sala: lousa, editor de código e desenhos sobre as transmissões
 const acts = new Map(); // channelId -> { wb: bool, code: {text, lang}|null, boards: { [board]: [{id, uid, color, w, pts}] } }
 const actOf = (c) => { let a = acts.get(c); if (!a) acts.set(c, a = { wb: false, code: null, boards: {}, spot: null, spotBy: null }); return a; };
@@ -335,10 +337,9 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 
 const auth = (req, res, next) => {
-  const token = (req.headers.authorization || '').replace(/^Bearer /, '');
-  const s = token && get('SELECT user_id FROM sessions WHERE token=?', token);
+  const s = sessions.lookup((req.headers.authorization || '').replace(/^Bearer /, ''));
   if (!s) return res.status(401).json({ error: 'Não autenticado' });
-  req.uid = s.user_id; req.token = token; next();
+  req.uid = s.user_id; req.tokenHash = s.hash; next();
 };
 const wrap = (fn) => (req, res) => { try { fn(req, res); } catch (e) { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); } };
 const wrapA = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).catch((e) => { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); });
@@ -374,30 +375,30 @@ app.post('/api/register', wrap((req, res) => {
   if (ipLimited(req, 'reg', 20, 3600e3)) return bad(res, 'Muitas contas criadas daqui. Tente mais tarde.', 429);
   const username = clean(req.body.username, 32), pw = String(req.body.password || '');
   if (!/^[\p{L}\p{N}_.-]{2,32}$/u.test(username)) return bad(res, 'Nome de usuário inválido (2-32 caracteres: letras, números, _ . -)');
-  if (pw.length < 4) return bad(res, 'Senha muito curta (mínimo 4)');
-  if (pw.length > 256) return bad(res, 'Senha muito longa (máximo 256)');
+  { const why = passwordProblem(pw, username); if (why) return bad(res, why); }
   if (get('SELECT 1 x FROM users WHERE username=?', username) || /^bot_music_/i.test(username)) return bad(res, 'Esse nome de usuário já existe', 409);
   const id = newId(), salt = crypto.randomBytes(16).toString('hex');
   run('INSERT INTO users(id,username,display_name,pass_hash,salt,color,avatar,created_at) VALUES(?,?,?,?,?,?,?,?)',
     id, username, clean(req.body.display_name, 32) || username, hashPw(pw, salt), salt, COLORS[Math.floor(Math.random() * COLORS.length)],
     DEFAULT_AVATARS.length ? DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)] : null, Date.now());
-  const token = crypto.randomBytes(32).toString('hex');
-  run('INSERT INTO sessions(token,user_id,created_at,agent) VALUES(?,?,?,?)', token, id, Date.now(), clean(req.headers['user-agent'], 200));
+  const token = sessions.create(id, clean(req.headers['user-agent'], 200));
   uxSignup(id); // telemetria: começa a "turma" do dia (funil do usuário novo e retenção), sem guardar quem
   res.json({ token });
 }));
 app.post('/api/login', wrap((req, res) => {
   if (ipLimited(req, 'login', 10, 60e3, ':' + clean(req.body.username, 32).toLowerCase())) return bad(res, 'Muitas tentativas. Espere um minuto.', 429);
-  if (String(req.body.password || '').length > 256) return bad(res, 'Usuário ou senha inválidos', 401);
-  const u = get('SELECT * FROM users WHERE username=?', clean(req.body.username, 32));
-  const ok = u && crypto.timingSafeEqual(Buffer.from(hashPw(String(req.body.password || ''), u.salt)), Buffer.from(u.pass_hash));
-  if (!ok) return bad(res, 'Usuário ou senha inválidos', 401);
-  const token = crypto.randomBytes(32).toString('hex');
-  run('INSERT INTO sessions(token,user_id,created_at,agent) VALUES(?,?,?,?)', token, u.id, Date.now(), clean(req.headers['user-agent'], 200));
-  res.json({ token });
+  const name = clean(req.body.username, 32), ip = req.socket.remoteAddress || '?';
+  // muitas erradas (nesta conta ou deste IP): espera, sem nem conferir a senha
+  { const wait = loginBlocked(ip, name); if (wait) return bad(res, wait, 429); }
+  const u = get('SELECT * FROM users WHERE username=?', name);
+  // conta que não existe também gasta o scrypt: o tempo da resposta não diz se o nome existe
+  const ok = u ? pwMatches(u, String(req.body.password ?? '')) : (hashPw('x', 'resenha-nao-existe'), false);
+  if (!ok) { loginFailed(ip, name); return bad(res, 'Usuário ou senha inválidos', 401); }
+  loginOk(name);
+  res.json({ token: sessions.create(u.id, clean(req.headers['user-agent'], 200)) });
 }));
-app.post('/api/logout', auth, wrap((req, res) => { run('DELETE FROM sessions WHERE token=?', req.token); res.json({}); }));
-mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean }); // entrar lendo um QR Code com o celular já logado (server/qrlogin.js)
+app.post('/api/logout', auth, wrap((req, res) => { run('DELETE FROM sessions WHERE token=?', req.tokenHash); res.json({}); }));
+mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSession: sessions.create }); // entrar lendo um QR Code com o celular já logado (server/qrlogin.js)
 
 app.patch('/api/me', auth, wrap((req, res) => {
   const b = req.body, u = getUser(req.uid);
@@ -429,18 +430,20 @@ app.patch('/api/me', auth, wrap((req, res) => {
 }));
 app.post('/api/me/password', auth, wrap((req, res) => {
   const u = getUser(req.uid);
-  if (hashPw(String(req.body.old || ''), u.salt) !== u.pass_hash) return bad(res, 'Senha atual incorreta', 403);
-  if (String(req.body.new || '').length < 4) return bad(res, 'Senha nova muito curta');
+  if (!pwMatches(u, String(req.body.old ?? ''))) return bad(res, 'Senha atual incorreta', 403);
+  const pw = String(req.body.new ?? ''), why = passwordProblem(pw, u.username); if (why) return bad(res, why);
   const salt = crypto.randomBytes(16).toString('hex');
-  run('UPDATE users SET pass_hash=?,salt=? WHERE id=?', hashPw(req.body.new, salt), salt, req.uid);
-  res.json({});
+  run('UPDATE users SET pass_hash=?,salt=? WHERE id=?', hashPw(pw, salt), salt, req.uid);
+  // senha trocada: os outros aparelhos saem (se a senha vazou, quem entrou com ela perde o acesso); este continua
+  const ended = sessions.revoke(req.uid, req.tokenHash);
+  res.json({ ended });
 }));
 
 // Conta: nome de usuário, configurações sincronizadas, sessões, exclusão
-const sid = (token) => crypto.createHash('sha256').update(token).digest('hex').slice(0, 12);
+const sid = (hash) => hash.slice(0, 12); // a coluna token guarda o hash (o mesmo id curto de antes)
 app.post('/api/me/username', auth, wrap((req, res) => {
   const u = getUser(req.uid), name = clean(req.body.username, 32);
-  if (hashPw(String(req.body.password || ''), u.salt) !== u.pass_hash) return bad(res, 'Senha incorreta', 403);
+  if (!pwMatches(u, String(req.body.password ?? ''))) return bad(res, 'Senha incorreta', 403);
   if (!/^[\p{L}\p{N}_.-]{2,32}$/u.test(name)) return bad(res, 'Nome de usuário inválido (2-32 caracteres: letras, números, _ . -)');
   const other = get('SELECT id FROM users WHERE username=?', name);
   if (other && other.id !== u.id) return bad(res, 'Esse nome de usuário já existe', 409);
@@ -478,23 +481,22 @@ app.put('/api/me/settings', auth, wrap((req, res) => {
   res.json(merged ? { settings: merged } : {});
 }));
 app.get('/api/sessions', auth, wrap((req, res) => {
-  res.json(all('SELECT token,created_at,agent FROM sessions WHERE user_id=? ORDER BY created_at DESC', req.uid).map(s => ({ id: sid(s.token), created_at: s.created_at, agent: s.agent || '', current: s.token === req.token })));
+  res.json(all('SELECT token,created_at,agent,last_seen FROM sessions WHERE user_id=? ORDER BY created_at DESC', req.uid).filter(s => !sessions.expired(s)).map(s => ({ id: sid(s.token), created_at: s.created_at, last_seen: s.last_seen, agent: s.agent || '', current: s.token === req.tokenHash })));
 }));
 app.delete('/api/sessions/:id', auth, wrap((req, res) => {
   const s = all('SELECT token FROM sessions WHERE user_id=?', req.uid).find(x => sid(x.token) === req.params.id);
   if (!s) return bad(res, 'Sessão não encontrada', 404);
   run('DELETE FROM sessions WHERE token=?', s.token);
-  for (const ws of conns.get(req.uid) || []) if (ws.token === s.token) ws.close(4001, 'sessão encerrada');
+  for (const ws of conns.get(req.uid) || []) if (ws.tokenHash === s.token) ws.close(4001, 'sessão encerrada');
   res.json({});
 }));
 app.delete('/api/sessions', auth, wrap((req, res) => { // encerra todas as outras
-  run('DELETE FROM sessions WHERE user_id=? AND token<>?', req.uid, req.token);
-  for (const ws of conns.get(req.uid) || []) if (ws.token !== req.token) ws.close(4001, 'sessão encerrada');
+  sessions.revoke(req.uid, req.tokenHash);
   res.json({});
 }));
 app.post('/api/me/delete', auth, wrap((req, res) => {
   const u = getUser(req.uid);
-  if (hashPw(String(req.body.password || ''), u.salt) !== u.pass_hash) return bad(res, 'Senha incorreta', 403);
+  if (!pwMatches(u, String(req.body.password ?? ''))) return bad(res, 'Senha incorreta', 403);
   for (const g of all('SELECT id FROM guilds WHERE owner_id=?', u.id)) {
     const ids = guildMemberIds(g.id); run('DELETE FROM guilds WHERE id=?', g.id); dispatch(ids, 'GUILD_DELETE', { id: g.id }); dropViewers(g.id);
   }
@@ -695,7 +697,7 @@ app.get('/api/invites/:code', wrap((req, res) => {
   const online = ms.filter(u => conns.has(u.id) && u.status !== 'invisible').length;
   // com login: quais amigos seus já estão lá (antes de entrar). Só amigos aceitos dos dois lados; quem esconde a presença de
   // você continua aparecendo como membro (amizade não é presença), mas offline
-  const token = (req.headers.authorization || '').replace(/^Bearer /, ''), me = token && get('SELECT user_id FROM sessions WHERE token=?', token)?.user_id;
+  const me = sessions.lookup((req.headers.authorization || '').replace(/^Bearer /, ''))?.user_id;
   const friends = me ? all(`SELECT u.* FROM members m JOIN users u ON u.id=m.user_id JOIN relationships r1 ON r1.user_id=? AND r1.other_id=m.user_id AND r1.type=1
     JOIN relationships r2 ON r2.user_id=m.user_id AND r2.other_id=? AND r2.type=1 WHERE m.guild_id=? LIMIT 50`, me, me, i.guild_id).map(u => ({ ...pubUser(u), status: statusFor(me, u), platforms: platformsFor(me, u) })) : [];
   res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online, friends });
@@ -1639,9 +1641,9 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20,
 const onUpgrade = (req, socket, head) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname !== '/gateway') return socket.destroy();
-  const s = get('SELECT user_id FROM sessions WHERE token=?', url.searchParams.get('token') || '');
+  const s = sessions.lookup(url.searchParams.get('token') || '');
   if (!s) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
-  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.token = url.searchParams.get('token'); ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; wss.emit('connection', ws); });
+  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.tokenHash = s.hash; ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; wss.emit('connection', ws); });
 };
 server.on('upgrade', onUpgrade);
 

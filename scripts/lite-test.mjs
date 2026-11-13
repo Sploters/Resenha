@@ -16,7 +16,7 @@ try {
   await page.goto(BASE); await page.waitForSelector('#auth .auth-card');
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
-  const ins = await page.$$('#auth input'); await ins[0].type('leve'); await ins[2].type('senha123'); await ins[3].type('senha123');
+  const ins = await page.$$('#auth input'); await ins[0].type('leve'); await ins[2].type('Teste.senha-123'); await ins[3].type('Teste.senha-123');
   await page.click('#auth .btn'); await page.waitForSelector('#rail .rail-wrap', { timeout: 8000 }); await sleep(800);
   const P = () => page.evaluate(() => { const p = window.__lc.S.prefs; return { animations: p.animations, animMode: p.animMode, noiseMode: p.noiseMode, clipsOn: p.clipsOn, screen: p.screen, lightMode: p.lightMode }; });
   const before = await P();

@@ -89,6 +89,7 @@ export function renderAuth(root, mode, o) {
     e?.preventDefault(); err.textContent = '';
     if (!u.value.trim()) { err.textContent = 'Digite seu nome de usuário'; return u.focus(); }
     if (!p.value) { err.textContent = 'Digite a senha'; return p.focus(); }
+    if (!login && p.value.length < 8) { err.textContent = 'Senha muito curta (mínimo 8 caracteres)'; return p.focus(); }
     if (!login && p.value !== p2.value) { err.textContent = 'As senhas não coincidem'; return p2.focus(); }
     go.disabled = true;
     try { const r = await api('POST', login ? '/login' : '/register', { username: u.value, password: p.value, display_name: dn.value }); o.onToken(r.token); }
@@ -102,7 +103,7 @@ export function renderAuth(root, mode, o) {
     o.qrPending && h('p.sub.invited.qr', icon('phone', 18), 'Entre aqui para aprovar o login no outro aparelho.'),
     req('Nome de usuário', u),
     !login && h('label.f.auth-f', h('span.auth-l', 'Nome de exibição'), dn, h('small.auth-hint', 'Como os outros veem você. Dá para mudar depois.')),
-    req('Senha', p, login && h('a.auth-link.auth-forgot-l', { href: '#', onclick: (e) => { e.preventDefault(); forgotHelp(); } }, 'Esqueceu sua senha?')),
+    req('Senha', p, login ? h('a.auth-link.auth-forgot-l', { href: '#', onclick: (e) => { e.preventDefault(); forgotHelp(); } }, 'Esqueceu sua senha?') : h('small.auth-hint', 'Pelo menos 8 caracteres. Evite senhas comuns (como 12345678) e o seu nome de usuário.')),
     !login && req('Confirmar senha', p2),
     err, go,
     h('p.auth-switch', login ? 'Precisa de uma conta? ' : 'Já tem uma conta? ', h('a.auth-link', { href: '#', onclick: swap }, login ? 'Registre-se' : 'Entrar')));

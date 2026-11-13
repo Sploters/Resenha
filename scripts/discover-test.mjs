@@ -65,7 +65,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
 try {
-  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'senha123' }) }).then(r => r.json());
+  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'Teste.senha-123' }) }).then(r => r.json());
   const P = await browser.newPage(); P.setDefaultTimeout(15000); await P.setViewport({ width: 1366, height: 860, deviceScaleFactor: 1 });
   // "Hoje" / "Amanhã" dependem do relógio: o navegador roda num fuso onde agora é perto do meio-dia (perto da meia-noite
   // o torneio de daqui a 3 h caía no dia seguinte e o teste falhava)

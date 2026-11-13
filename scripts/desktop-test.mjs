@@ -31,7 +31,7 @@ try {
   ok(st.closeToTray === true && st.server === 'http://localhost:3222', 'configurações persistidas');
   // registra um usuário e confere a página "Aplicativo" nas configurações
   await app2.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
-  await sleep(200); const ins = await app2.$$('#auth input'); await app2.bringToFront(); await app2.evaluate(() => { const i = document.querySelectorAll('#auth input'); i[0].value = 'desk'; i[2].value = 'senha123'; i[3].value = 'senha123'; }); await app2.click('#auth .btn');
+  await sleep(200); const ins = await app2.$$('#auth input'); await app2.bringToFront(); await app2.evaluate(() => { const i = document.querySelectorAll('#auth input'); i[0].value = 'desk'; i[2].value = 'Teste.senha-123'; i[3].value = 'Teste.senha-123'; }); await app2.click('#auth .btn');
   await app2.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
   await app2.evaluate(() => window.__lc.openSettings('app')); await sleep(800);
   await app2.screenshot({ path: '.testshots/11-desktop-app-settings.png' });
