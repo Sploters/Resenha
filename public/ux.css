@@ -174,8 +174,8 @@ button.mgroup .mg-n::before { content: '— '; }
 /* barras de rolagem da lista lateral e do "Ativo agora": escondidas, aparecem com o mouse em cima (o espaço fica reservado: nada pula) */
 #side-list::-webkit-scrollbar-thumb, #active-now::-webkit-scrollbar-thumb { background-color: transparent; }
 #side-list:hover::-webkit-scrollbar-thumb, #active-now:hover::-webkit-scrollbar-thumb { background-color: var(--scroll); }
-/* embaixo da barra de perfil: mesma cor da lista lateral (cobre o pé da barra dos servidores atrás do avatar) */
-#side::after { content: ''; position: absolute; left: -72px; right: 0; bottom: 0; height: calc(var(--ua-h, 60px) + 16px); background: var(--bg-sec); pointer-events: none; z-index: 19; }
+/* embaixo da barra de perfil (só sob o #userbar, não sob o avatar): mesma cor da lista lateral */
+#side::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--ua-h, 60px) + 16px); background: var(--bg-sec); pointer-events: none; z-index: 19; }
 @media (max-width: 900px) { #members { display: none; } }
 @media (max-width: 1200px) { #members { width: 260px; } }
 
