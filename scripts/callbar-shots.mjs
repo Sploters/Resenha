@@ -13,7 +13,7 @@ for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); br
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--no-sandbox'] });
 try {
-  const r = await call('', 'POST', '/register', { username: 'alice', password: 'senha123' });
+  const r = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   const g = await call(r.token, 'POST', '/guilds', { name: 'Turma' });
   const ctx = await browser.createBrowserContext(), p = await ctx.newPage(); await p.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
   await p.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, r.token);

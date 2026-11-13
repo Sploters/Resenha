@@ -4,7 +4,8 @@
     "call-throttle-test",
     "desktop-test",
     "desktop-share-test",
-    "appaudio-watch-test"
+    "appaudio-watch-test",
+    "update-security-test"
   ],
   "prepare": {
     "big-data-test": {
@@ -60,6 +61,16 @@
         "DATA_DIR": "./.testdata-churn"
       }
     },
+    "helper-test": {
+      "needs": "native/lc-audio/target/release/lc-audio",
+      "run": [
+        "cargo",
+        "build",
+        "--release",
+        "--quiet"
+      ],
+      "cwd": "native/lc-audio"
+    },
     "frontwatch-test": {
       "needs": "native/lc-audio/target/release/lc-audio",
       "run": [
@@ -108,6 +119,7 @@
     "friends-merge-test": 17,
     "frontwatch-test": 4,
     "gameshare-test": 26,
+    "helper-test": 8,
     "gateway-limits-test": 19,
     "gifs-test": 11,
     "history-window-test": 14,

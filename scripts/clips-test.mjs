@@ -11,7 +11,7 @@ fs.rmSync('.testdata10', { recursive: true, force: true }); fs.mkdirSync(OUT, { 
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata10' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b, raw) => fetch(BASE + '/api' + p, { method: m, headers: { ...(raw ? { 'content-type': 'video/webm' } : { 'content-type': 'application/json' }), ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: raw || (b ? JSON.stringify(b) : undefined) }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
-const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'senha123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
+const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 async function page(tok) {
   const ctx = await browser.createBrowserContext(), p = await ctx.newPage();

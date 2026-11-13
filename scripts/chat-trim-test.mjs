@@ -5,7 +5,7 @@ import puppeteer from 'puppeteer-core'; import { spawn } from 'node:child_proces
 const PORT=3297,BASE=`http://localhost:${PORT}`,D='./.testdata-churn',sleep=(ms)=>new Promise(r=>setTimeout(r,ms)); let fails=0; const ok=(c,m,x)=>{console.log((c?'  ok   ':'  FAIL ')+m+(x!==undefined?'  '+JSON.stringify(x):''));if(!c)fails++;};
 const srv=spawn('node',['server/index.js'],{env:{...process.env,PORT,HTTPS:'0',DATA_DIR:D,RTC:'0'},stdio:'ignore'}); for(let i=0;i<150;i++){try{await fetch(BASE+'/api/server-info');break}catch{await sleep(200)}}
 const call=(tok,m,p,b)=>fetch(BASE+'/api'+p,{method:m,headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
-const reg=async(n)=>{const r=await call('','POST','/register',{username:n,password:'senha123'});await call(r.token,'PATCH','/me',{});return r.token};
+const reg=async(n)=>{const r=await call('','POST','/register',{username:n,password:'Teste.senha-123'});await call(r.token,'PATCH','/me',{});return r.token};
 const meta=JSON.parse(fs.readFileSync(D+'/load.json','utf8')); const a='load-0', g={id:meta.guild}; const bs=Array.from({length:30},(_,i)=>'load-'+(i+1));
 const br=await puppeteer.launch({executablePath: process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome',headless:'new',args:['--no-sandbox']}); const p=await br.newPage(); await p.setViewport({width:1440,height:900});
 await p.evaluateOnNewDocument(t=>{localStorage.lc_token=t},a); await p.goto(BASE); await p.waitForSelector('#rail .rail-wrap');

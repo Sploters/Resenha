@@ -16,12 +16,18 @@
 //!               Saída padrão: PCM float32 little-endian, 48 kHz, estéreo, intercalado (binário, sem cabeçalho).
 //!               Erro padrão: eventos JSON por linha: {"t":"started"} | {"t":"error","error":"..."}.
 //!               Encerra quando a entrada padrão fecha ou recebe "stop".
-//! Fora do Windows (testes): --capture gera um tom de 440 Hz, --windows devolve uma lista fixa e --front lê o estado
-//! do arquivo em LC_FRONT_TEST ("1" = coberta).
+//!   --serve     fica aberto respondendo pedidos e avisando mudanças (lista de janelas, janela da frente, aviso do clipe):
+//!               ver src/serve.rs. É o que o app usa; os modos acima ficam para o caso de o --serve falhar.
+//! Fora do Windows (testes): --capture gera um tom de 440 Hz, --windows devolve uma lista fixa (ou o JSON do arquivo em
+//! LC_WINDOWS_TEST) e --front lê o estado do arquivo em LC_FRONT_TEST ("1" = coberta).
 
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+mod events;
+mod serve;
+mod toast;
 
 pub const RATE: u32 = 48000;
 pub const CH: u16 = 2;
@@ -40,6 +46,13 @@ fn watch_stdin(stop: Arc<AtomicBool>) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let has = |f: &str| args.iter().any(|a| a == f);
+    if has("--serve") { serve::run(); return; }
+    #[cfg(not(windows))]
+    if let Some(i) = args.iter().position(|a| a == "--toast-preview") {
+        let s = args.get(i + 2).and_then(|v| v.parse().ok()).unwrap_or(2.0);
+        if let Err(e) = toast::preview(args.get(i + 1).map(|s| s.as_str()).unwrap_or("toast.png"), s) { eprintln!("{e}"); std::process::exit(1); }
+        return;
+    }
     if has("--probe") { println!("{}", sys::probe()); return; }
     if has("--windows") { println!("{}", sys::windows()); return; }
     if let Some(i) = args.iter().position(|a| a == "--front") {
@@ -81,7 +94,7 @@ fn main() {
         if let Err(e) = sys::capture(pid, include, stop) { emit_err(serde_json::json!({ "t": "error", "error": e })); std::process::exit(1); }
         return;
     }
-    eprintln!("uso: lc-audio --probe | --windows | --front <hwnd> | --capture  (ver o cabeçalho de src/main.rs)");
+    eprintln!("uso: lc-audio --serve | --probe | --windows | --front <hwnd> | --capture  (ver o cabeçalho de src/main.rs)");
     std::process::exit(2);
 }
 
@@ -122,6 +135,9 @@ mod sys {
         Ok(crop_square(n, n, &px))
     }
     pub fn windows() -> serde_json::Value {
+        if let Some(t) = std::env::var_os("LC_WINDOWS_TEST").and_then(|p| std::fs::read_to_string(p).ok()) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) { return v; }
+        }
         serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true }])
     }
     pub fn dpi_aware() {}
@@ -342,6 +358,22 @@ mod sys {
         }
     }
 
+    /// Prioridade da captura: a thread entra no MMCSS como "Audio" (o agendador de multimídia do Windows, o mesmo que os
+    /// programas de áudio usam; ela passa a maior parte do tempo esperando o evento do WASAPI) e o processo sai do EcoQoS do
+    /// Windows 11 (sem janela, ele é tratado como tarefa de fundo e pode ir para núcleos de economia). Sem MMCSS (serviço
+    /// desligado), a thread fica acima do normal. Devolve o identificador do MMCSS para desfazer no fim e o resumo.
+    fn tune() -> (Option<HANDLE>, serde_json::Value) {
+        use windows::Win32::System::Threading::*;
+        let eco = unsafe {
+            let st = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, StateMask: 0 };
+            SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &st as *const _ as *const core::ffi::c_void, std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32).is_ok()
+        };
+        let mut idx = 0u32;
+        let mm = unsafe { AvSetMmThreadCharacteristicsW(windows::core::w!("Audio"), &mut idx) }.ok();
+        let thread = mm.is_some() || unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL).is_ok() };
+        (mm, serde_json::json!({ "noEcoQos": eco, "mmcss": mm.is_some(), "thread": thread }))
+    }
+
     pub fn capture(pid: u32, include: bool, stop: Arc<AtomicBool>) -> Result<(), String> {
         if build() < 19041 { return Err("Windows 10 versão 2004 ou mais novo é necessário para o áudio só do jogo".into()); }
         unsafe {
@@ -356,7 +388,8 @@ mod sys {
             client.SetEventHandle(ev).map_err(|e| format!("SetEventHandle: {e}"))?;
             let cap: IAudioCaptureClient = client.GetService().map_err(|e| format!("GetService: {e}"))?;
             client.Start().map_err(|e| format!("Start: {e}"))?;
-            emit_err(serde_json::json!({ "t": "started", "rate": RATE, "channels": CH }));
+            let (mm, prio) = tune();
+            emit_err(serde_json::json!({ "t": "started", "rate": RATE, "channels": CH, "prio": prio }));
             let mut out = std::io::stdout().lock();
             let mut zeros: Vec<u8> = Vec::new();
             'run: while !stop.load(Ordering::SeqCst) {
@@ -378,6 +411,7 @@ mod sys {
             }
             let _ = client.Stop();
             let _ = CloseHandle(ev);
+            if let Some(h) = mm { let _ = windows::Win32::System::Threading::AvRevertMmThreadCharacteristics(h); }
         }
         Ok(())
     }

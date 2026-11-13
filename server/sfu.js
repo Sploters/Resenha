@@ -17,7 +17,15 @@ const MEDIA_CODECS = [
 // em que a sala abre). SFU_WORKERS=N (ou "auto": núcleos, até 4); padrão 1. Cada worker extra escuta numa porta própria
 // (RTC_EXTRA_PORT, padrão 40011, 40012…; 40001-40010 são da transmissão nativa) que precisa estar aberta como a 40000.
 const EXTRA_PORT = Number(process.env.RTC_EXTRA_PORT || 40011);
-const workers = []; // { worker, webRtcServer, port, dead, lastRu, peakCpu }
+const workers = []; // { worker, webRtcServer, port, dead, lastRu, peakCpu, restarts, diedAt }
+// Recuperação: worker que morre é recriado sozinho na mesma porta (espera 1 s, 2 s, 5 s… até 60 s entre tentativas) e
+// quem estava nas salas dele recebe SFU_RESET: o app refaz só a conexão de mídia (sem sair da sala nem avisar os outros)
+// e cai num worker vivo. Antes a sala ficava muda até todo mundo sair, e o servidor precisava ser reiniciado.
+let msMod = null;
+const events = []; // últimos acontecimentos do SFU (painel de saúde do servidor)
+let onEvent = () => { };
+export const onSfuEvent = (fn) => { onEvent = fn; };
+const note = (kind, text) => { events.push({ at: Date.now(), kind, text }); if (events.length > 50) events.shift(); console.log('  SFU:', text); try { onEvent(kind, text); } catch { } };
 // Piso da banda estimada de cada espectador. Sem ele o consumidor começa na camada MENOR (480x270) e leva 10-25 s (às vezes nunca) para subir,
 // porque a estimativa de banda no servidor fica em ~0,3-0,5 Mbps enquanto só a camada pequena é enviada. 0 desliga (internet muito lenta).
 const MIN_OUT_KBPS = process.env.SFU_MIN_OUT_KBPS != null ? Math.max(0, +process.env.SFU_MIN_OUT_KBPS || 0) : 6000;
@@ -44,18 +52,14 @@ export async function startSfu() {
   if (process.env.RTC === '0') return false;
   const want = process.env.SFU_WORKERS === 'auto' ? Math.min(os.availableParallelism?.() || os.cpus().length, 4) : Math.max(1, Math.min(16, Number(process.env.SFU_WORKERS) || 1));
   let ms;
-  try { ms = await import('mediasoup'); } catch (e) { console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`); return false; }
+  try { ms = msMod = await import('mediasoup'); } catch (e) { console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`); return false; }
   for (let i = 0; i < want; i++) {
     const port = i === 0 ? PORT : EXTRA_PORT + i - 1;
-    let worker = null;
     try {
-      worker = await ms.createWorker({ logLevel: 'warn' });
-      const infos = listenInfos(port), w = { worker, webRtcServer: await worker.createWebRtcServer({ listenInfos: infos }), port, dead: false, lastRu: null, peakCpu: 0 };
-      worker.on('died', () => { w.dead = true; console.error(`  SFU: worker do mediasoup da porta ${port} morreu${live().length ? ' (salas novas vão para os outros)' : '; reinicie o servidor'}`); });
+      const w = await openWorker(port);
       workers.push(w);
-      if (i === 0) console.log(`  SFU de voz ativo (mediasoup ${ms.version}) na porta ${PORT} UDP/TCP: ${[...new Set(infos.map(x => x.announcedAddress || x.ip))].join(', ')}`);
+      if (i === 0) console.log(`  SFU de voz ativo (mediasoup ${ms.version}) na porta ${PORT} UDP/TCP: ${[...new Set(w.infos.map(x => x.announcedAddress || x.ip))].join(', ')}`);
     } catch (e) {
-      worker?.close();
       if (i === 0) { console.log(`  (SFU indisponível, voz em malha P2P: ${e.message})`); return false; }
       console.log(`  (SFU: worker extra na porta ${port} não abriu: ${e.message}; seguindo com ${workers.length})`); break;
     }
@@ -63,8 +67,47 @@ export async function startSfu() {
   if (workers.length > 1) console.log(`  SFU: ${workers.length} workers (portas ${workers.map(w => w.port).join(', ')})`);
   return true;
 }
+async function openWorker(port, prev = null) {
+  let worker = null;
+  try {
+    worker = await msMod.createWorker({ logLevel: 'warn' });
+    const infos = listenInfos(port), w = { worker, infos, webRtcServer: await worker.createWebRtcServer({ listenInfos: infos }), port, dead: false, lastRu: null, peakCpu: 0, restarts: prev?.restarts || 0, diedAt: prev?.diedAt || 0, startedAt: Date.now() };
+    worker.on('died', (err) => onWorkerDied(w, err));
+    return w;
+  } catch (e) { worker?.close(); throw e; }
+}
+const RESPAWN_WAIT = [1000, 2000, 5000, 10000, 30000, 60000];
+function onWorkerDied(w, err) {
+  if (w.dead) return;
+  w.dead = true; w.diedAt = Date.now();
+  // quem estava nas salas deste worker refaz a conexão de mídia (cai num worker vivo ou no recriado)
+  let peers = 0;
+  for (const [cid, r] of [...rooms]) {
+    if (r.w !== w) continue;
+    rooms.delete(cid);
+    for (const p of r.peers.values()) { peers++; try { p.close(); } catch { } try { p.notify('SFU_RESET', { reason: 'worker' }); } catch { } }
+  }
+  note('worker_died', `worker do mediasoup da porta ${w.port} morreu (${err?.message || 'sem motivo'}); ${peers} pessoa(s) reconectando a mídia`);
+  respawn(w, 0);
+}
+function respawn(old, attempt) {
+  const wait = RESPAWN_WAIT[Math.min(attempt, RESPAWN_WAIT.length - 1)];
+  setTimeout(async () => {
+    try {
+      const w = await openWorker(old.port, old);
+      w.restarts = old.restarts + 1;
+      const i = workers.indexOf(old); if (i >= 0) workers[i] = w; else workers.push(w);
+      note('worker_restarted', `worker da porta ${old.port} recriado (${w.restarts}ª vez)`);
+    } catch (e) {
+      note('worker_restart_failed', `não consegui recriar o worker da porta ${old.port}: ${e.message}; tentando de novo`);
+      respawn(old, attempt + 1);
+    }
+  }, wait).unref?.();
+}
 const live = () => workers.filter(w => !w.dead);
-export const sfuEnabled = () => live().length > 0;
+// ligado = o SFU subiu (mesmo com um worker sendo recriado agora: quem entra nesse instante tenta de novo, não cai na malha P2P)
+export const sfuEnabled = () => workers.length > 0;
+export const sfuReady = () => live().length > 0;
 // worker para uma sala nova: o com menos gente agora (empate: menos salas)
 function pickWorker() {
   const load = new Map(live().map(w => [w, [0, 0]]));
@@ -198,6 +241,8 @@ export async function sfuRequest(cid, uid, op, d) {
       return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters };
     }
     case 'connect': await transport().connect({ dtlsParameters: d.dtlsParameters }); return {};
+    // conexão de mídia caiu (troca de Wi-Fi, 4G, oscilação): credenciais ICE novas para o app reconectar sem refazer tudo
+    case 'restart_ice': { const t = transport(); return { iceParameters: await t.restartIce() }; }
     case 'produce': {
       const t = transport(), source = String(d.source);
       if (t.appData.dir !== 'send' || !SOURCES.includes(source)) throw new Error('produção inválida');
@@ -256,6 +301,10 @@ export async function sfuRequest(cid, uid, op, d) {
 
 // Para o painel de admin / diagnóstico
 export const sfuStats = () => ({ enabled: sfuEnabled(), rooms: rooms.size, peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0) });
+// estado de cada worker (painel de saúde): vivo/morto, quantas vezes foi recriado, pico de CPU, salas e pessoas
+export const sfuWorkers = () => workers.map(w => ({ port: w.port, pid: w.worker?.pid, alive: !w.dead, restarts: w.restarts || 0, diedAt: w.diedAt || null, startedAt: w.startedAt, peakCpu: w.peakCpu,
+  rooms: [...rooms.values()].filter(r => r.w === w).length, peers: [...rooms.values()].filter(r => r.w === w).reduce((n, r) => n + r.peers.size, 0) }));
+export const sfuEvents = () => events.slice();
 
 // Carga dos workers do mediasoup: CPU (% de um núcleo, entre duas amostras), memória e contagem de objetos.
 // Amostrado a cada 15 s; guarda o pico e as últimas amostras. Se o pico se aproximar de 100% de um núcleo, é hora de usar mais workers.

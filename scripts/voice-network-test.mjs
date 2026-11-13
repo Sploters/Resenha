@@ -55,7 +55,7 @@ const listen = (p, ms) => p.evaluate(async (ms) => {
 }, ms);
 const out = {};
 try {
-  const [ra, rb] = await Promise.all(['alice', 'bruno'].map(n => api('', 'POST', '/register', { username: n, password: 'senha123' })));
+  const [ra, rb] = await Promise.all(['alice', 'bruno'].map(n => api('', 'POST', '/register', { username: n, password: 'Teste.senha-123' })));
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' }), inv = (await api(ra.token, 'POST', `/guilds/${g.id}/invites`)).code;
   await api(rb.token, 'POST', '/invites/' + inv);
   // alice fala; bruno ouve, mutado

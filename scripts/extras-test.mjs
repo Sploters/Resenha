@@ -20,7 +20,7 @@ async function newUser(name) {
   await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click());
   await sleep(200);
   const ins = await page.$$('#auth input');
-  await ins[0].type(name); await ins[2].type('senha123'); await ins[3].type('senha123');
+  await ins[0].type(name); await ins[2].type('Teste.senha-123'); await ins[3].type('Teste.senha-123');
   await page.click('#auth .btn'); await page.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
   return page;
 }

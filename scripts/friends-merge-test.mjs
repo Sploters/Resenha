@@ -10,7 +10,7 @@ for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); bre
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (c || x === undefined ? '' : ' ' + JSON.stringify(x))); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
-const reg = async (name) => { const { token } = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'senha123' }) }).then(r => r.json()); return { token }; };
+const reg = async (name) => { const { token } = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password: 'Teste.senha-123' }) }).then(r => r.json()); return { token }; };
 const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: b ? JSON.stringify(b) : undefined }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch { return t; } });
 async function open(tok) {
   const ctx = await browser.createBrowserContext(); const page = await ctx.newPage();

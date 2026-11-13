@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
 try {
-  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'senha123' });
+  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   const p = await browser.newPage(); await p.setViewport({ width: 1280, height: 800 });
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await p.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, ra.token);

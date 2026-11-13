@@ -311,3 +311,8 @@ html.boot #boot { display: flex; }
 .clipcard, .dcard, .lfgcard { contain-intrinsic-size: auto 260px; }
 /* mensagem enviada aparecendo antes da confirmação do servidor */
 .msg.sending { opacity: .55; } .msg.sending .body { color: var(--text-muted); }
+/* voz reconectando sozinha (conexão de mídia caiu; public/voice.js → mediaReconnect) */
+#voice-panel .t.recovering { color: var(--yellow, #f0b232); }
+#voice-panel .vp-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: vp-spin .8s linear infinite; flex: none; }
+@keyframes vp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #voice-panel .vp-spin { animation-duration: 2.4s; } }

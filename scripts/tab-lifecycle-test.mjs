@@ -20,7 +20,7 @@ let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ')
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'], protocolTimeout: 30000 });
 try {
-  const a = await call('', 'POST', '/register', { username: 'ana', password: 'senha123' }), b = await call('', 'POST', '/register', { username: 'beto', password: 'senha123' });
+  const a = await call('', 'POST', '/register', { username: 'ana', password: 'Teste.senha-123' }), b = await call('', 'POST', '/register', { username: 'beto', password: 'Teste.senha-123' });
   const g = await call(a.token, 'POST', '/guilds', { name: 'Turma' }), inv = (await call(a.token, 'POST', `/guilds/${g.id}/invites`)).code; await call(b.token, 'POST', '/invites/' + inv);
   const g2 = await call(a.token, 'POST', '/guilds', { name: 'Outro' });
   const p = await browser.newPage(); await p.setViewport({ width: 1280, height: 800 });

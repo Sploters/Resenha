@@ -15,7 +15,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
 try {
-  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'gamer', password: 'senha123' }) }).then(x => x.json());
+  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'gamer', password: 'Teste.senha-123' }) }).then(x => x.json());
   const p = await browser.newPage(); await p.setViewport({ width: 1280, height: 900 });
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await p.evaluateOnNewDocument((t) => {

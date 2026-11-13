@@ -17,7 +17,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
 const putChunk = (tok, id, off, buf) => fetch(`${BASE}/api/uploads/${id}?offset=${off}`, { method: 'PUT', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/octet-stream' }, body: buf }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
-const reg = (u) => fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'senha123' }) }).then(x => x.json());
+const reg = (u) => fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'Teste.senha-123' }) }).then(x => x.json());
 const sha = (b) => crypto.createHash('sha1').update(b).digest('hex');
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
 try {

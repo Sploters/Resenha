@@ -31,7 +31,8 @@ pub enum Source { Primary, Monitor(i32, i32), Window(isize) }
 pub struct Layer { pub ssrc: u32, pub height: u32, pub fps: u32, pub kbps: u32 }
 
 #[derive(Clone)]
-pub struct Opts { pub host: String, pub port: u16, pub pt: u8, pub key: Option<(String, String)>, pub secs: u64, pub layers: Vec<Layer>, pub source: Source, pub app: bool, pub stop: Arc<AtomicBool> }
+/// cursor: desenhar o ponteiro do mouse na captura (opção "mostrar o cursor" da transmissão)
+pub struct Opts { pub host: String, pub port: u16, pub pt: u8, pub key: Option<(String, String)>, pub secs: u64, pub layers: Vec<Layer>, pub source: Source, pub app: bool, pub cursor: bool, pub stop: Arc<AtomicBool> }
 impl Opts { pub fn top(&self) -> &Layer { self.layers.last().unwrap() } }
 
 pub fn emit(v: serde_json::Value) { let mut o = std::io::stdout().lock(); let _ = writeln!(o, "{v}"); let _ = o.flush(); }
@@ -101,14 +102,14 @@ fn main() {
         if layers.is_empty() { layers.push(Layer { ssrc: v["ssrc"].as_u64().unwrap_or(0) as u32, height, fps, kbps }); }
         Opts { host: v["host"].as_str().unwrap_or("").into(), port: v["port"].as_u64().unwrap_or(0) as u16, pt: v["pt"].as_u64().unwrap_or(102) as u8,
             key: match (v["key"].as_str(), v["serverKey"].as_str()) { (Some(a), Some(b)) => Some((a.into(), b.into())), _ => None },
-            secs: v["secs"].as_u64().unwrap_or(0), layers, source: src, app: true, stop }
+            secs: v["secs"].as_u64().unwrap_or(0), layers, source: src, app: true, cursor: v["cursor"].as_bool().unwrap_or(true), stop }
     } else {
         let Some((host, port, ssrc, pt, key)) = parse_code(&arg("--code", "")) else {
             eprintln!("Codigo invalido. Gere o codigo na Resenha (Configuracoes > Transmissao > Teste 120 FPS) e cole aqui.");
             std::process::exit(2);
         };
         let top = Layer { ssrc, height: arg("--height", "1080").parse().unwrap_or(1080), fps: arg("--fps", "120").parse().unwrap_or(120), kbps: arg("--kbps", "16000").parse().unwrap_or(16000) };
-        Opts { host, port, pt, key, secs: arg("--secs", "60").parse().unwrap_or(60), layers: vec![top], source: Source::Primary, app: false, stop }
+        Opts { host, port, pt, key, secs: arg("--secs", "60").parse().unwrap_or(60), layers: vec![top], source: Source::Primary, app: false, cursor: true, stop }
     };
     if !o.app { let t = o.top(); eprintln!("  enviando para {}:{} (ssrc {}), {} fps, {} p, {} kbps, {} s{}", o.host, o.port, t.ssrc, t.fps, t.height, t.kbps, o.secs, if o.key.is_some() { ", criptografado (SRTP)" } else { "" }); }
     if let Err(e) = run(&o) {

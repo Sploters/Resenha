@@ -89,8 +89,8 @@ export function qualityPanel(o, onChange, { live = false } = {}) { // live: dura
       ['motion', 'Movimento (jogos/vídeo)', h('span.opt-motion', h('i.om-ball'), h('i.om-trail'), h('i.om-trail.t2'), h('i.om-trail.t3'))],
       ['detail', 'Nitidez (texto/apresentação)', h('span.opt-detail', h('b', 'Aa'), h('span.od-lines', h('i'), h('i'), h('i')))]], o.hint || 'motion', v => { o.hint = v; draw(); onChange?.(o); }),
     h('label.f', 'Taxa de dados (bitrate)', seg({ 0: 'Automática', 8: '8 Mbps', 16: '16 Mbps', 24: '24 Mbps', 32: '32 Mbps', 50: '50 Mbps' }, +o.bitrate || 0, v => { o.bitrate = +v; draw(); onChange?.(o); })),
-    +o.fps > 60 && (S.nativeOk ? h('div.qinfo.ok', 'Acima de 60 FPS a imagem é capturada e comprimida pelo próprio app (placa de vídeo), sem o limite de ~48 FPS do navegador. O áudio e a prévia continuam como sempre. Quem tem internet mais fraca recebe automaticamente uma versão leve (540p a 60 FPS).')
-      : h('div.qinfo.warn', (S.nativeWhy ? `Modo 120 FPS indisponível: ${S.nativeWhy} ` : 'Pelo navegador, ') + 'o capturador de tela do Chromium não passa de ~48 FPS, mesmo pedindo mais. Durante a transmissão o painel mostra os FPS realmente capturados.')),
+    +o.fps >= 60 && (S.nativeOk ? h('div.qinfo.ok', `A partir de 60 FPS a imagem é capturada e comprimida pelo próprio app (placa de vídeo), sem o limite de ~48 FPS do navegador. O áudio e a prévia continuam como sempre. Quem tem internet mais fraca recebe automaticamente uma versão leve (${+o.res === 720 ? '360p' : '540p'} a 60 FPS). Em conversa protegida (criptografia de ponta a ponta) a transmissão segue pelo navegador.`)
+      : h('div.qinfo.warn', (S.nativeWhy ? `Transmissão pela placa de vídeo indisponível: ${S.nativeWhy} ` : 'Pelo navegador, ') + 'o capturador de tela do Chromium não passa de ~48 FPS, mesmo pedindo mais. Durante a transmissão o painel mostra os FPS realmente capturados.')),
     h('div.qinfo', `Taxa de dados ${+o.bitrate > 0 ? 'fixa' : 'estimada'}: ~${estMbps(o)} Mbps por espectador${+o.bitrate >= 24 ? ' — exige upload e placa de vídeo fortes; quem assiste precisa de banda parecida' : ''}`));
   draw(); return box;
 }

@@ -21,6 +21,9 @@ export const SCREEN_PRESETS = {
   res: { 720: '720p', 1080: '1080p', 1440: '1440p', source: 'Fonte (original)' },
   fps: { 15: '15 fps', 30: '30 fps', 60: '60 fps', 120: '120 fps' },
 };
+// transmissão pelo programa nativo do app desktop (placa de vídeo) a partir deste fps; e quanto esperar o servidor confirmar
+// que os pacotes dele estão chegando antes de voltar ao Chromium
+export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
 export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '64 kbps'], [128, '128 kbps'], [256, '256 kbps'], [384, '384 kbps']];
 // voz é mono: 48-64 kbps já soam perfeitos. Acima disso só faz sentido para música (e pesa no upload do servidor:
 // cada voz é repassada para todos os outros da sala)
@@ -115,8 +118,10 @@ export class Voice {
     this.autoKbps = AUTO_MAX; // nível escolhido pelo modo automático (32-64 kbps, voz mono)
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
-    this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null;
+    this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null; this._natLive = new Set();
     document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
+    // a internet voltou (Wi-Fi trocou, cabo, 4G): não espera o navegador perceber que a mídia caiu
+    window.addEventListener('online', () => { const s = this.sfu; if (s?.ready) for (const t of [s.send, s.recv]) if (t && t.connectionState !== 'connected') this.iceRestart(t, s); });
   }
   get active() { return !!this.channelId; }
   getCtx() { this.ctx ||= newAudioContext(); this.ctx.resume?.(); return this.ctx; }
@@ -210,6 +215,7 @@ export class Voice {
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
     this.send('VOICE_LEAVE', {});
+    this.stopRecovery();
     this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
     this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
@@ -224,9 +230,11 @@ export class Voice {
   // fora da call o contexto de áudio da voz fica suspenso: rodando, ele mantém a thread de áudio e a saída de som
   // processando silêncio o tempo todo (~2-4% de CPU num PC comum). getCtx() acorda de novo quando precisar.
   sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
-  onJoined({ channel_id, peers, sfu }) {
+  onJoined({ channel_id, peers, sfu, rejoin }) {
     if (channel_id !== this.channelId) return;
-    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
+    clearTimeout(this._mrWait); this._mrWait = null;
+    if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
+    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); if (this.recovering) return this.mediaReconnect('start_failed'); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
     else for (const uid of peers) this.connect(uid, true);
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }
@@ -254,7 +262,12 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
-      t.on('connectionstatechange', (s) => { if (s === 'disconnected' || s === 'failed') this._cq?.drop(); if (s === 'failed') { t.restartIce?.(); track('voice_fail', 'ice_failed'); } if (s === 'connected') stopTimer('voice_connect', this.channelId); this.onUpdate(true); });
+      t.on('connectionstatechange', (st) => {
+        if (st === 'disconnected' || st === 'failed') this._cq?.drop();
+        if (st === 'failed') track('voice_fail', 'ice_failed');
+        if (st === 'connected') stopTimer('voice_connect', this.channelId);
+        this.watchMedia(t, sfu, st); this.onUpdate(true);
+      });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
       // Chromium não entrega mais os quadros ao worker)
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
@@ -274,6 +287,75 @@ export class Voice {
     if (this.screen) await this.sfuPublishScreen();
     if (this.screen && this.native && !this.native.pending) { window.lcDesktop?.nativeStop?.(); this.startNative().catch(() => { }); } // sessão anterior morreu com a conexão
     this.onUpdate();
+    setTimeout(() => this.checkRecovered(sfu), 1500); // refez a mídia e não há nada para conectar agora: já conta como de volta
+  }
+  // ---------- recuperação da mídia (sem reiniciar o app nem sair da sala) ----------
+  // 1) conexão oscilou ('disconnected' por 3 s) ou caiu ('failed'): reinício do ICE com credenciais novas do servidor;
+  //    o áudio volta em ~1-2 s quando a rede volta. 2) Duas tentativas sem voltar (ou o servidor avisou que o worker do
+  //    SFU morreu: SFU_RESET): refaz só a conexão de mídia (SFU_REJOIN), com espera crescente entre tentativas. A pessoa
+  //    continua na sala o tempo todo (os outros não veem sair/entrar) e microfone, câmera e tela voltam sozinhos.
+  watchMedia(t, sfu, st) {
+    if (this.sfu !== sfu) return;
+    sfu.timers ||= new Map();
+    clearTimeout(sfu.timers.get(t.id)); sfu.timers.delete(t.id);
+    if (st === 'connected') { sfu.iceTries = 0; return this.checkRecovered(sfu); }
+    if (st === 'disconnected') { this.markRecovering('ice'); sfu.timers.set(t.id, setTimeout(() => this.iceRestart(t, sfu), 3000)); }
+    else if (st === 'failed') { this.markRecovering('ice'); this.iceRestart(t, sfu); }
+  }
+  // voltou: todos os transportes conectados (um que nunca precisou conectar, como o de envio de quem está sem microfone, conta)
+  checkRecovered(sfu = this.sfu) {
+    if (!this.recovering || !sfu?.ready || this.sfu !== sfu) return;
+    if (![sfu.send, sfu.recv].every(x => !x || x.connectionState === 'connected' || x.connectionState === 'new')) return;
+    this.recovering = false; this._mrTries = 0; track('voice_recovered', this._mrReason || 'ice'); this._mrReason = null;
+    this.onRecovered?.(); this.onUpdate();
+  }
+  markRecovering(reason) { if (!this.recovering) { this.recovering = true; this._mrReason = reason; this.onUpdate(); } }
+  async iceRestart(t, sfu) {
+    if (this.sfu !== sfu || t.closed) return;
+    if (t.connectionState === 'connected') return this.checkRecovered(sfu); // voltou sozinha enquanto esperava
+    if ((sfu.iceTries = (sfu.iceTries || 0) + 1) > 2) return this.mediaReconnect('ice');
+    this.markRecovering('ice');
+    try {
+      const { iceParameters } = await this.sfuReq('restart_ice', { transport_id: t.id });
+      if (this.sfu !== sfu || t.closed) return;
+      await t.restartIce({ iceParameters });
+    } catch (e) { console.warn('restart ice', e); if (this.sfu === sfu) return this.mediaReconnect('ice_error'); }
+    // não voltou em 8 s: tenta de novo (na 3ª vez refaz a conexão inteira)
+    clearTimeout(sfu.timers?.get(t.id));
+    sfu.timers?.set(t.id, setTimeout(() => { if (this.sfu === sfu) this.iceRestart(t, sfu); }, 8000));
+  }
+  mediaReconnect(reason) {
+    if (!this.channelId || this._mrTimer) return;
+    this.markRecovering(reason);
+    const n = this._mrTries = (this._mrTries || 0) + 1;
+    // 1ª na hora (com um sorteio de até 1,5 s: quando o worker morre, a sala inteira volta ao mesmo tempo), depois 2 s, 5 s, 10 s… até 30 s
+    const wait = [0, 2000, 5000, 10000, 20000][n - 1] ?? 30000, jitter = Math.random() * 1500;
+    track('voice_reconnect', reason);
+    this._mrTimer = setTimeout(() => {
+      this._mrTimer = null;
+      if (!this.channelId) return;
+      this.sfuTeardown();
+      this.send('SFU_REJOIN', { channel_id: this.channelId });
+      clearTimeout(this._mrWait); this._mrWait = setTimeout(() => { this._mrWait = null; this.mediaReconnect('timeout'); }, 15000); // sem resposta: tenta de novo
+    }, wait + jitter);
+  }
+  // o servidor pediu para refazer a mídia (worker do SFU morreu, ou a entrada no SFU falhou)
+  onSfuReset({ channel_id, reason, gone }) {
+    if (!this.channelId || (channel_id && channel_id !== this.channelId)) return;
+    if (gone) { this.stopRecovery(); return this.rejoin(); } // o servidor não tem mais a pessoa na sala: entra de novo
+    clearTimeout(this._mrWait); this._mrWait = null;
+    this.mediaReconnect(reason === 'worker' ? 'server' : reason || 'server');
+  }
+  stopRecovery() {
+    clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null;
+    this._mrTries = 0; this.recovering = false; this._mrReason = null;
+  }
+  // desmonta a conexão de mídia atual (o que os outros mandam some da tela; o que é meu é republicado no sfuStart)
+  sfuTeardown() {
+    const s = this.sfu; if (!s) return;
+    for (const id of [...s.consumers.keys()]) this.onSfuConsumerClosed({ consumer_id: id });
+    for (const t of s.timers?.values() || []) clearTimeout(t);
+    this.sfuClose();
   }
   sfuClose() {
     const s = this.sfu; if (!s) return;
@@ -394,19 +476,23 @@ export class Voice {
   }
   // janela transmitida minimizada ou fechada (app desktop): o Windows para de entregar quadros e quem assiste via a imagem
   // congelada sem saber por quê. A cada 3 s pergunta ao app; muda o estado da transmissão (quem assiste vê o aviso) e
-  // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema.
+  // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema. O app também avisa na hora em que a janela
+  // muda (onSourceState: eventos do Windows); a consulta de 3 s fica de garantia (com o programa nativo aberto ela não
+  // abre processo nenhum).
   watchSource() {
     clearInterval(this._src); this.screenNote = null;
     const d = window.lcDesktop; if (!d?.sourceState) return;
+    const apply = (st) => {
+      if (!this.screen) return;
+      const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
+      if (note !== this.screenNote) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
+    };
+    d.onSourceState?.(apply);
     let busy = false;
     this._src = setInterval(async () => {
       if (!this.screen) return clearInterval(this._src);
       if (busy) return; busy = true;
-      try {
-        const st = await d.sourceState();
-        const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
-        if (note !== this.screenNote && this.screen) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
-      } catch { } finally { busy = false; }
+      try { apply(await d.sourceState()); } catch { } finally { busy = false; }
     }, 3000);
   }
   // selo de saúde da transmissão para quem transmite: { level: 'ok' | 'warn' | 'bad', fps, items: [[nível, texto]] }
@@ -985,20 +1071,37 @@ export class Voice {
     a.node.disconnect(); a.track.stop();
   }
 
-  // ---------- 120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------
+  // ---------- 60/120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------
   // O Chromium continua capturando a mesma fonte, mas só para o áudio do sistema e a prévia local (leve: 10 fps, 360p).
+  // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
+  // e comprime na placa de vídeo. Chamada protegida (VP8 cifrado) e PC sem codificador de hardware seguem pelo Chromium.
   async nativeCapable() {
     const d = window.lcDesktop; if (!d?.nativeCapable) return { ok: false, reason: 'Só no app desktop para Windows.' };
     if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap;
   }
-  async wantNative(o) { return !this.e2ee && +o.fps > 60 && !!this.sfu?.ready && !!(await this.nativeCapable()).ok; }
+  // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por 10 min
+  async wantNative(o) { return !this.e2ee && +o.fps >= NATIVE_MIN_FPS && !!this.sfu?.ready && Date.now() - (this._natNoUdp || 0) > 10 * 60e3 && !!(await this.nativeCapable()).ok; }
+  // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
+  // esta trilha): aí fica em 30 fps até 1080p, para o clipe não sair pior do que pelo caminho do Chromium
+  previewSpec() {
+    if (this.prefs?.clipsOn !== true) return { fps: 10, h: 360 };
+    const o = this.screenOpts || {};
+    return { fps: 30, h: Math.min(o.res === 'source' ? 1080 : +o.res || 1080, 1080) };
+  }
   previewOnly(vt, on) {
     if (!vt) return;
-    const o = this.screenOpts || {};
-    const c = on ? { frameRate: { ideal: 10, max: 10 }, height: { ideal: 360, max: 360 }, width: { ideal: 640 } }
+    const o = this.screenOpts || {}, p = this.previewSpec();
+    this._prevSpec = on ? p.fps + 'x' + p.h : null;
+    const c = on ? { frameRate: { ideal: p.fps, max: p.fps }, height: { ideal: p.h, max: p.h }, width: { ideal: Math.round(p.h * 16 / 9) } }
       : { frameRate: { ideal: +o.fps, max: +o.fps }, ...(o.res !== 'source' ? { height: { ideal: +o.res, max: +o.res }, width: { ideal: Math.round(+o.res * 16 / 9) } } : {}) };
     vt.applyConstraints(c).catch(() => { });
+  }
+  // clipes ligados/desligados durante a transmissão nativa: ajusta a prévia (chamado a cada redesenho; só mexe se mudou)
+  syncPreview() {
+    if (!this.native) return;
+    const vt = this.screen?.getVideoTracks()[0], p = this.previewSpec();
+    if (vt && this._prevSpec !== p.fps + 'x' + p.h) this.previewOnly(vt, true);
   }
   async startNative() {
     const d = window.lcDesktop, o = this.screenOpts || {}, sfu = this.sfu;
@@ -1008,16 +1111,31 @@ export class Voice {
     try {
       // duas camadas: a cheia e uma leve (540p ou 360p a 60 fps) que o servidor manda a quem não tem banda para a cheia
       const topH = o.res === 'source' ? 2160 : +o.res || 1080, lowH = topH >= 1080 ? 540 : 360;
-      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate) / 1000) }, low = { height: lowH, fps: 60, kbps: lowH >= 540 ? 2500 : 1200 };
+      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate) / 1000) }, low = { height: lowH, fps: Math.min(60, +o.fps), kbps: lowH >= 540 ? 2500 : 1200 };
       const r = await this.sfuReq('native_start', { layers: 2 });
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];
-      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers });
+      // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
+      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
-      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '' });
+      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id) });
+      // o programa manda por UDP (portas RTC_NATIVE_PORTS) e enviar nunca falha do lado de cá: se o servidor não recebe nada
+      // (porta fechada no firewall/roteador/Docker), quem assiste veria tela preta até o servidor desistir (60 s). O servidor
+      // avisa quando os primeiros pacotes chegam (NATIVE_SCREEN_LIVE); sem esse aviso em 8 s, volta ao Chromium e não insiste.
+      if (!my.live) my.liveTimer = setTimeout(() => {
+        if (this.native !== my || my.live) return;
+        this._natNoUdp = Date.now();
+        this.nativeFallback('o servidor não recebeu o vídeo do app; as portas UDP da transmissão nativa podem estar fechadas');
+      }, NATIVE_LIVE_MS);
       this.onUpdate();
     } catch (e) { if (this.native === my) this.nativeFallback(e.message); }
+  }
+  // o servidor recebeu os primeiros pacotes do programa nativo (pode chegar antes de nativeStart responder)
+  onNativeLive(d) {
+    const id = String(d?.producer_id || ''); if (!id) return;
+    this._natLive.add(id); if (this._natLive.size > 20) this._natLive.delete(this._natLive.values().next().value);
+    const n = this.native; if (n && n.producerId === id) { n.live = true; clearTimeout(n.liveTimer); }
   }
   onNativeEvent(ev) {
     const n = this.native; if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
@@ -1038,12 +1156,12 @@ export class Voice {
     if (!vt) return;
     this.previewOnly(vt, false);
     if (this.sfu) this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
-    this.error = 'Transmissão a 120 FPS indisponível (' + why + '). Continuando pelo modo normal.';
+    this.error = 'Transmissão pela placa de vídeo indisponível (' + why + '). Continuando pelo modo normal (até ~48 FPS).';
     this.onNativeFail?.(this.error); this.onUpdate();
   }
   stopNative() {
     const n = this.native; if (!n) return;
-    this.native = null;
+    this.native = null; clearTimeout(n.liveTimer);
     window.lcDesktop?.nativeStop?.();
     // ainda preparando: a sessão é fechada quando a resposta chegar (startNative); senão fecha esta
     if (!n.pending) this.sfuReq('native_stop', { producer_id: n.producerId }).catch(() => { });

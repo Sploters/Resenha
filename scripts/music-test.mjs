@@ -23,7 +23,7 @@ const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HT
 let srvErr = ''; srv.stderr.on('data', d => (srvErr += d));
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
-const reg = async (n) => { const r = await call('', 'POST', '/register', { username: n, password: 'senha123' }); return r.token; };
+const reg = async (n) => { const r = await call('', 'POST', '/register', { username: n, password: 'Teste.senha-123' }); return r.token; };
 let browser;
 try {
   const ta = await reg('ana'), tb = await reg('beto');

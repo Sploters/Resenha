@@ -257,6 +257,7 @@ function onEvent(t, d) {
         return r.key ? { key: r.key } : null;
       };
       voice.onAutoAdjust = (msg) => toast(msg);
+      voice.onRecovered = () => { toast('Voz reconectada'); renderVoiceUI(); };
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
@@ -407,12 +408,14 @@ function onEvent(t, d) {
     case 'VOICE_PEER_LEFT': voice.onPeerLeft(d); break;
     case 'VOICE_SIGNAL': voice.onSignal(d); break;
     case 'SFU_RES': voice.onSfuRes(d); break;
+    case 'SFU_RESET': voice?.onSfuReset(d); renderVoiceUI(); break;
     case 'PONG': wsPings.get(d.n)?.(); break;
     case 'SFU_NEW_PRODUCER': voice.onSfuProducer(d); break;
     case 'SFU_CODEC_FALLBACK': voice.onCodecFallback(d); break;
     case 'SFU_CONSUMER_CLOSED': voice.onSfuConsumerClosed(d); break;
     case 'SFU_SPEAKING': if (voice.channelId === d.channel_id) voice.onSfuSpeaking(d); break;
     case 'NATIVE_SCREEN_END': nativeEnded(d); voice?.onNativeEnded(d); break;
+    case 'NATIVE_SCREEN_LIVE': voice?.onNativeLive(d); break;
     case 'TYPING': {
       let m = S.typing.get(d.channel_id); if (!m) S.typing.set(d.channel_id, m = new Map());
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
@@ -954,18 +957,19 @@ function renderSide() {
       h('div.ch.lfgrow-side.active', { onclick: () => openGames(), title: 'Procurar jogadores, novidades, promoções e torneios' }, icon('gamepad'), h('span.name', 'Jogos')));
   } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
-    // com buscar, nova mensagem e ordenar; fixadas no topo
-    const btn = (ic, title, fn, on) => h('button.sh-btn' + (on ? '.on' : ''), { type: 'button', title, 'aria-label': title, onclick: fn }, icon(ic, 20));
-    head = h('div#side-head.sh-plain', h('span.sh-title', 'Mensagens'), btn('plus', 'Nova mensagem', () => newMessageModal()));
+    // com buscar e ordenar; fixadas no topo
     const SORT_L = { recent: 'Mais recentes', unread: 'Não lidas', name: 'Nome (A–Z)' };
-    const tools = h('div.dm-tools', h('button.dm-sort', { type: 'button', title: 'Ordenar conversas', onclick: (e) => dmSortMenu(e) }, icon('sort', 18), h('span', SORT_L[S.prefs.dmSort || 'recent'])),
-      btn('search', 'Buscar conversa', () => { dmFind.open = !dmFind.open; if (!dmFind.open) dmFind.q = ''; renderSide(); if (dmFind.open) setTimeout(() => $('#dm-q')?.focus()); }, dmFind.open));
+    // cabeçalho: busca por nome no lugar do título e o botão de ordenar à direita
+    const findInput = h('input#dm-q', { type: 'search', placeholder: 'Buscar conversa', 'aria-label': 'Buscar conversa por nome', value: dmFind.q,
+      oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120),
+      onkeydown: (e) => { if (e.key === 'Escape' && dmFind.q) { dmFind.q = ''; renderSide(); setTimeout(() => $('#dm-q')?.focus()); } } });
+    const sortL = SORT_L[S.prefs.dmSort || 'recent'];
+    head = h('div#side-head.sh-plain.dm-head', h('label.dm-q', icon('search', 14), findInput),
+      h('button.dm-sort', { type: 'button', title: 'Ordenar conversas: ' + sortL, 'aria-label': 'Ordenar conversas: ' + sortL, onclick: (e) => dmSortMenu(e) }, icon('sort', 18)));
     const q = dmFind.q.trim().toLowerCase();
     const all = sortedDMs().filter(d => !q || (user(dmPeer(d).id).display_name + ' ' + user(dmPeer(d).id).username).toLowerCase().includes(q));
     const pins = pinnedDMs(), pinned = pins.map(id => all.find(d => dmPeer(d)?.id === id)).filter(Boolean), rest = all.filter(d => !pinned.includes(d));
     list = h('div#side-list.dmlist',
-      tools,
-      dmFind.open && h('label.dm-q', icon('search', 14), h('input#dm-q', { type: 'search', placeholder: 'Buscar por nome', value: dmFind.q, oninput: debounce((e) => { dmFind.q = e.target.value; renderSide(); setTimeout(() => { const i = $('#dm-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 120), onkeydown: (e) => { if (e.key === 'Escape') { dmFind.open = false; dmFind.q = ''; renderSide(); } } })),
       pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Fixadas'), ...pinned.map(d => dmRow(d, true)),
       rest.length > 0 && pinned.length > 0 && h('div.cat', { style: { cursor: 'default' } }, 'Conversas'), ...dmRest(rest),
       !all.length && h('div.dm-empty', q ? 'Nenhuma conversa com esse nome' : [h('p', 'Nenhuma conversa ainda'), h('button.btn', { onclick: () => newMessageModal() }, 'Nova mensagem')]));
@@ -1042,7 +1046,7 @@ const uaObs = new ResizeObserver(() => {
 const lastActivity = (dm) => { const l = S.messages.get(dm.id), a = l?.length ? l[l.length - 1].id : null, b = dm.last_message?.id || null; return a && b ? (a > b ? a : b) : a || b || dm.id; };
 const lastTime = (dm) => { const l = S.messages.get(dm.id); return Math.max(+(l?.length ? l[l.length - 1].created_at : 0) || 0, +(dm.last_message?.created_at || 0) || 0); };
 const inMessages = () => S.view.kind === 'dm' || S.view.kind === 'home'; // tela com a lista de conversas ao lado
-const dmFind = { open: false, q: '' };
+const dmFind = { q: '' };
 function sortedDMs() {
   const all = [...S.dms.values()].filter(d => dmPeer(d));
   const by = S.prefs.dmSort || 'recent', recent = (a, b) => (lastTime(b) - lastTime(a)) || (lastActivity(b) > lastActivity(a) ? 1 : -1);
@@ -1210,7 +1214,7 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pingEl(), 'Voz conectada'),
+    h('div.t' + (voice.recovering ? '.recovering' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : [pingEl(), 'Voz conectada']),
       h('span.vp-btns', voiceBtn(),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
@@ -1336,7 +1340,7 @@ let escBusy = false;
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const t = e.target, typingElsewhere = (/^(INPUT|SELECT)$/.test(t?.tagName) || (t?.tagName === 'TEXTAREA' && !t.closest('#composer')) || t?.isContentEditable);
-  escBusy = !!(typingElsewhere || S.replyTo || S.editing || S.searchOpen || dmFind.open || document.fullscreenElement
+  escBusy = !!(typingElsewhere || S.replyTo || S.editing || S.searchOpen || document.fullscreenElement
     || document.querySelector('.backdrop:not(.leaving), #lightbox, #settings, #tedit, .ac, .capturing, .menu:not(.leaving), .popout:not(.static):not(.leaving), .emoji-picker:not(.leaving)'));
 }, true);
 document.addEventListener('keydown', (e) => {
@@ -3012,6 +3016,7 @@ function renderVoiceUI(speakOnly) {
       const vid = mine && !S.selfPreview ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
       // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
       // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
+      if (mine) voice.syncPreview(); // transmissão nativa: prévia leve, ou 30 fps se ela também alimenta o clipe próprio
       if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx());
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
@@ -3432,7 +3437,8 @@ function incomingCall(dm, uid) {
 
 // ---------- jogo aberto no PC -> atividade "Jogando X" (app desktop) ----------
 // usa a mesma detecção da transmissão (pasta de loja/jogos, executável conhecido, janela em tela cheia). Repete a cada 20 s
-// enquanto há jogo (o servidor esquece em 90 s sem notícia: app fechado/travado não deixa "Jogando" preso).
+// enquanto há jogo (o servidor esquece em 90 s sem notícia: app fechado/travado não deixa "Jogando" preso). O app avisa
+// na hora quando um jogo abre ou fecha (onGameChanged: eventos do Windows), sem esperar os 20 s.
 let gameTimer = null, sentGame, gameTick = null; // undefined = nada enviado nesta conexão
 function startGameDetect() {
   sentGame = undefined; // (re)conectou: manda o estado de novo
@@ -3450,6 +3456,7 @@ function startGameDetect() {
     sentGame = id;
   };
   setTimeout(tick, 3000); gameTimer = setInterval(tick, 20000);
+  desktop.onGameChanged?.(() => gameTick?.());
 }
 
 // ---------- atalhos / desktop ----------

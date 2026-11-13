@@ -21,7 +21,7 @@ const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 
 const up = (tok, file, name, type) => fetch(BASE + '/api/upload?name=' + encodeURIComponent(name), { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': type }, body: fs.readFileSync(file) }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
 try {
-  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'senha123' }) }).then(x => x.json());
+  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'Teste.senha-123' }) }).then(x => x.json());
   const g = await call(r.token, 'POST', '/guilds', { name: 'Turma' });
 
   // --- upload ---

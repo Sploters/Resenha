@@ -24,7 +24,7 @@ async function session(name, token) {
 }
 const sample = async (tok, tag) => { const r = await api(tok, 'GET', '/sfu/load'); const c = r.data.current; if (c) { results.samples.push({ tag, ...c }); console.log(`  ${tag.padEnd(14)} cpu ${String(c.cpu).padStart(5)}%  rss ${c.rssMB}MB  peers ${c.peers} transports ${c.transports} producers ${c.producers} consumers ${c.consumers}`); } return c; };
 try {
-  const mk = async (n) => (await api('', 'POST', '/register', { username: n + sfx, password: 'senha12345' })).data.token;
+  const mk = async (n) => (await api('', 'POST', '/register', { username: n + sfx, password: 'Teste.senha-12345' })).data.token;
   const tOwner = await mk('ld_o'); const g = (await api(tOwner, 'POST', '/guilds', { name: 'QA Carga ' + sfx })).data, inv = (await api(tOwner, 'POST', `/guilds/${g.id}/invites`)).data;
   const users = [];
   for (let i = 0; i < N_S + N_V; i++) { const t = i === 0 ? tOwner : await mk('ld_' + i); if (i) await api(t, 'POST', `/invites/${inv.code}`); users.push(t); }

@@ -13,7 +13,7 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 try {
   const mf = await fetch(BASE + '/manifest.webmanifest'); ok(mf.headers.get('content-type')?.startsWith('application/manifest+json'), 'manifesto com o tipo certo', mf.headers.get('content-type'));
   const sw = await fetch(BASE + '/sw.js'); ok(sw.ok && /no-cache/.test(sw.headers.get('cache-control')), 'sw.js servido sem cache longo', sw.headers.get('cache-control'));
-  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'senha123' }) }).then(r => r.json());
+  const r = await fetch(BASE + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'Teste.senha-123' }) }).then(r => r.json());
   const P = await browser.newPage(); await P.setViewport({ width: 412, height: 860, isMobile: true, hasTouch: true });
   P.on('pageerror', e => console.log('  PAGEERROR', e.message));
   await P.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, r.token);

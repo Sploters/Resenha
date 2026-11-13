@@ -40,7 +40,7 @@ const state = (p, vc) => p.evaluate((vc) => {
   return { canal: voice.channelId === vc, sfu: !!voice.sfu?.ready, mudo: voice.muted, na_sala: [...S.voice.values()].filter(v => v.channel_id === vc).map(v => v.user_id).sort() };
 }, vc);
 try {
-  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'senha123' }), rb = await api('', 'POST', '/register', { username: 'bruno', password: 'senha123' });
+  const ra = await api('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' }), rb = await api('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' }); await api(rb.token, 'POST', '/invites/' + (await api(ra.token, 'POST', `/guilds/${g.id}/invites`)).code);
   const [A, B] = [await person(ra.token), await person(rb.token)];
   const vc = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 2).id, g.id);

@@ -23,7 +23,7 @@ const set = (d, k, v) => (d.p || d).evaluate((k, v) => { window.__lc.S.prefs[k] 
 const pref = (d, k) => (d.p || d).evaluate((k) => window.__lc.S.prefs[k], k);
 const account = async (tok) => (await call(tok, 'GET', '/me/settings')).settings;
 try {
-  const a = await call('', 'POST', '/register', { username: 'ana', password: 'senha123' }), b = await call('', 'POST', '/register', { username: 'beto', password: 'senha123' });
+  const a = await call('', 'POST', '/register', { username: 'ana', password: 'Teste.senha-123' }), b = await call('', 'POST', '/register', { username: 'beto', password: 'Teste.senha-123' });
   const A = await device(a.token), B = await device(a.token);
   await set(A, 'zoom', 100); await sleep(2500); // a conta passa a ter algo; os dois conhecem a mesma versão
   // 1) cada aparelho muda uma coisa, um logo depois do outro (antes do envio do primeiro, que espera 1,2 s)

@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 
 const TTL = 2 * 60 * 1000;
 
-export function mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean }) {
+export function mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSession }) {
   const codes = new Map(); // code -> { created, expires, agent, state: pending|scanned|approved|canceled|done, uid, token }
   const sweep = () => { const t = Date.now(); for (const [k, c] of codes) if (t > c.expires + 60e3) codes.delete(k); };
   const live = (c) => c && Date.now() <= c.expires && c.state !== 'done';
@@ -52,8 +52,7 @@ export function mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, cl
     const c = codes.get(req.params.code);
     if (!live(c) || c.uid !== req.uid || c.state !== 'scanned') return bad(res, 'Este QR Code expirou. Gere outro na tela de login.', 410);
     if (req.params.action === 'cancel') { c.state = 'canceled'; return res.json({}); }
-    const token = crypto.randomBytes(32).toString('hex');
-    run('INSERT INTO sessions(token,user_id,created_at,agent) VALUES(?,?,?,?)', token, req.uid, Date.now(), c.rawAgent);
+    const token = createSession(req.uid, c.rawAgent);
     c.state = 'approved'; c.token = token; c.expires = Math.max(c.expires, Date.now() + 30e3); // tempo para a tela buscar a chave
     res.json({});
   }));

@@ -264,6 +264,15 @@ html:not(.anim) .clipflash { animation: cfFade 2s step-end forwards; }
 #active-now { width: clamp(360px, 25vw, 440px); padding-left: 16px; padding-right: 16px; box-sizing: border-box; display: flex; flex-direction: column; overflow-y: auto; }
 #active-now .an-body { display: flex; flex-direction: column; gap: 6px; }
 #active-now .an-now { display: flex; flex-direction: column; }
+/* "Ativo agora": bloco mais compacto, num fundo mais claro de cantos arredondados que o separa dos destaques */
+#active-now .an-now { padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--bg-pri), #fff 5%); border: 1px solid var(--divider); }
+:root[data-theme="light"] #active-now .an-now { background: var(--bg-sec); }
+#active-now .an-now .an-cap:first-child { margin-top: 0; }
+#active-now .an-now .an-card { padding: 10px; margin-bottom: 6px; } #active-now .an-now .an-card:last-child { margin-bottom: 0; }
+#active-now .an-now .an-card.an-play { padding: 0 0 10px; }
+#active-now .an-now .an-row { padding: 4px 6px; }
+#active-now .an-now .an-empty { padding: 10px 6px; font-size: 13px; } #active-now .an-now .an-empty p { margin: 6px 0 10px; }
+#active-now .an-now .an-me { margin: 8px 0 0; }
 #active-now .an-cap:first-child { margin-top: 2px; }
 #active-now .an-card.an-play { padding: 0 0 12px; overflow: hidden; }
 #active-now .an-card.an-play > :not(.gbanner) { margin-left: 12px; margin-right: 12px; }

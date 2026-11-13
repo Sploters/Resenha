@@ -132,6 +132,30 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `VIEW` → 5 sincronizações de presença; 50 "digitando…" → 4; 6.000 mensagens → conexão fechada, as outras de pé.
 
 ## App desktop
+- [x] ★ **Programa nativo aberto o tempo todo, avisos por evento e aviso do clipe nativo** (2026-11-13, `lc-audio --serve`
+      em `native/lc-audio/src/serve.rs`, `events.rs`, `toast.rs`; `desktop/helper.js`; teste `scripts/helper-test.mjs`).
+      - **Um processo só:** antes, cada pergunta abria um `lc-audio.exe`: a lista de janelas a cada 20 s para o "Jogando…",
+        mais uma a cada 3 s com uma janela transmitida (~180 e ~1.400 processos/hora), o ícone do jogo e o vigia da frente.
+        Agora o `--serve` fica aberto e responde pedidos por linhas JSON (lista, ícone, sondagem, aviso do clipe). Se ele não
+        abre, cai 3 vezes logo ao abrir ou é de uma versão sem `--serve`, cada chamador volta ao jeito antigo (um processo
+        por pergunta); se cai depois de aberto, reabre e repete os pedidos fixos (vigia da frente, avisos de janelas).
+        O `main.log` ganha um resumo por hora (vezes que o programa abriu, pedidos, avisos e processos avulsos).
+      - **Eventos em vez de consultas:** `SetWinEventHook` (fora de contexto, sem o próprio processo) para troca da janela
+        da frente, minimizar/restaurar, fim de arrastar e janela de primeiro nível criada/mostrada/escondida/fechada/
+        escondida pelo DWM. Vários eventos viram uma conferência só (cobertura 30 ms depois, lista 250 ms depois); a lista
+        só é avisada se mudou. Não escuta `LOCATIONCHANGE` (chega a cada movimento do mouse) nem `NAMECHANGE` (enxurrada dos
+        navegadores); o que só eles pegariam a conferência periódica dentro do processo pega (cobertura a cada 2 s, lista a
+        cada 5 s). Resultado esperado: "Jogando X" em 1–2 s depois de o jogo abrir (antes 0–20 s); janela transmitida
+        minimizada/fechada avisa na hora (antes até 3 s); jogo cobrindo a Resenha em ~30 ms (antes até 1 s). As consultas
+        da página (20 s do "Jogando", 3 s da janela transmitida) continuam como garantia, mas respondem da lista em memória.
+      - **Aviso do clipe nativo:** janela em camadas (`UpdateLayeredWindow`) desenhada pelo próprio `lc-audio`, com a mesma
+        pílula, cores e animação; `WS_EX_NOACTIVATE` + `WS_EX_TRANSPARENT` + `WS_EX_TOPMOST`, fora da captura
+        (`WDA_EXCLUDEFROMCAPTURE`; se o Windows recusar, responde erro e o app usa a `BrowserWindow` antiga), no monitor do
+        mouse e na escala dele. Some o processo de página do Chromium criado e destruído a cada F8 no meio do jogo. O tempo
+        até aparecer vai para o `main.log` nos dois caminhos, para comparar.
+      - **Não medido num Windows ainda** (só compilado com `--target x86_64-pc-windows-gnu` e testado fora do Windows com os
+        modos de teste). Conferir num PC: o aviso aparece por cima de jogo sem bordas e fica fora da transmissão/clipe;
+        "Jogando X" aparece logo ao abrir o jogo; `main.log` com `[lc-audio] aberto` uma vez e sem processos avulsos.
 - [x] ★ **Jogo em tela cheia por cima da janela conta como "escondida"** (2026-11-12, `native/lc-audio --front`,
       `desktop/frontwatch.js`, teste `scripts/frontwatch-test.mjs`). O `lc-audio` ganhou um modo que fica aberto e olha a
       janela da frente 1x/s (`GetForegroundWindow`, custo desprezível): se é de outro programa, não está minimizada, não é a

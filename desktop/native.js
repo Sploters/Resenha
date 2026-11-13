@@ -54,12 +54,12 @@ function stop() {
   setTimeout(() => { try { p.kill(); } catch { } }, 3000);
 }
 
-// o: { host, port, ssrc, pt, key, serverKey, fps, height, kbps, sourceId }. Resolve com o evento "started" ou "error".
+// o: { host, port, ssrc, pt, key, serverKey, fps, height, kbps, cursor, sourceId }. Resolve com o evento "started" ou "error".
 async function start(o) {
   stop();
   const exe = helperPath(); if (!exe) return { ok: false, error: 'Componente de transmissão nativa não encontrado' };
   const cfg = { host: String(o.host), port: o.port | 0, ssrc: o.ssrc >>> 0, pt: o.pt | 0, key: String(o.key), serverKey: String(o.serverKey),
-    fps: Math.max(1, Math.min(240, o.fps | 0)), height: Math.max(144, Math.min(2160, o.height | 0)), kbps: Math.max(500, Math.min(100000, o.kbps | 0)), ...(await sourceFor(o.sourceId)) };
+    fps: Math.max(1, Math.min(240, o.fps | 0)), height: Math.max(144, Math.min(2160, o.height | 0)), kbps: Math.max(500, Math.min(100000, o.kbps | 0)), cursor: o.cursor !== false, ...(await sourceFor(o.sourceId)) };
   // camadas do simulcast (da leve para a cheia), cada uma com o próprio ssrc
   if (Array.isArray(o.layers)) cfg.layers = o.layers.slice(0, 3).map(l => ({ ssrc: l.ssrc >>> 0, height: Math.max(144, Math.min(2160, l.height | 0)), fps: Math.max(1, Math.min(240, l.fps | 0)), kbps: Math.max(300, Math.min(100000, l.kbps | 0)) }));
   const p = spawn(exe, ['--stdin'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });

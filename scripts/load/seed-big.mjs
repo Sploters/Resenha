@@ -8,7 +8,7 @@ const N = +(process.env.N || 5000), CH = +(process.env.CH || 1000), MSG = +(proc
 const DIR = process.env.DATA_DIR || './.testdata-big';
 fs.rmSync(DIR, { recursive: true, force: true });
 const { db } = await import('../../server/db.js');
-const salt = 'big', hash = crypto.scryptSync('senha123', salt, 64).toString('hex'), now = Date.now();
+const salt = 'big', hash = crypto.scryptSync('Teste.senha-123', salt, 64).toString('hex'), now = Date.now();
 let id = 1700000000000000; const nid = () => String(id++);
 const COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245'];
 db.exec('BEGIN');

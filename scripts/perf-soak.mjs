@@ -17,7 +17,7 @@ fs.rmSync(D, { recursive: true, force: true });
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: D, RTC_PORT: '41320', RTC_IPS: '127.0.0.1' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
-const reg = async (n) => { const r = await call('', 'POST', '/register', { username: n, password: 'senha123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
+const reg = async (n) => { const r = await call('', 'POST', '/register', { username: n, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
 const tree = (root) => { const out = execFileSync('ps', ['-o', 'pid=,ppid=', '-A']).toString().trim().split('\n').map(l => l.trim().split(/\s+/).map(Number)); const k = new Set([root]); for (let i = 0; i < 4; i++) for (const [p, pp] of out) if (k.has(pp)) k.add(p); return [...k]; };
 const rss = (pids) => Math.round(pids.reduce((s, pid) => { try { return s + +fs.readFileSync(`/proc/${pid}/statm`, 'utf8').split(' ')[1] * 4096; } catch { return s; } }, 0) / 1048576);
 const R = { label: LABEL, minutes: MIN, samples: [] };

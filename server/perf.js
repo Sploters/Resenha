@@ -14,6 +14,7 @@ import zlib from 'node:zlib';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
+import { sendAlert, setAlertTarget } from './alerts.js';
 
 const SLOW_MS = +(process.env.SLOW_MS || 400);
 const MIN_COMPRESS = 1024;
@@ -39,16 +40,12 @@ const ALERT_IGNORE = /\/(upload|music|translate|gifs|discover|steam-art|desktop|
 export function mountPerf(app, { auth, wrap, bad, isAdmin, dataDir, notifyAdmin = () => { } }) {
   const routes = new Stats(), rum = new Stats(500);
   // ---- alertas ----
-  const lastAlert = new Map(), alerts = [];
+  // (server/alerts.js: aviso no app do administrador e no webhook; o mesmo dos alertas de saúde do servidor)
+  setAlertTarget(notifyAdmin);
+  const alerts = [];
   function alert(key, text) {
-    const now = Date.now(); if (now - (lastAlert.get(key) || 0) < 15 * 60e3) return; lastAlert.set(key, now);
-    alerts.push({ at: now, text }); if (alerts.length > 30) alerts.shift();
-    console.log('  ALERTA de desempenho:', text);
-    try { notifyAdmin(text); } catch { }
-    const hook = process.env.ALERT_WEBHOOK; if (!hook) return;
-    const discord = /discord(app)?\.com\/api\/webhooks\//.test(hook);
-    fetch(hook, { method: 'POST', signal: AbortSignal.timeout(8000), headers: { 'Content-Type': discord ? 'application/json' : 'text/plain; charset=utf-8', ...(discord ? {} : { Title: 'Resenha: servidor lento', Tags: 'warning' }) },
-      body: discord ? JSON.stringify({ content: '⚠️ Resenha: ' + text }) : text }).catch(() => { });
+    if (!sendAlert('perf:' + key, text, { title: 'Resenha: servidor lento' })) return;
+    alerts.push({ at: Date.now(), text }); if (alerts.length > 30) alerts.shift();
   }
   // event loop: se ele atrasa, TUDO atrasa (o Node é uma linha só). Mede a cada 10 s.
   const loop = monitorEventLoopDelay({ resolution: 20 }); loop.enable();

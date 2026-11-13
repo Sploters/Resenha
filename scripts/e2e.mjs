@@ -10,7 +10,7 @@ const call = async (tok, method, path, body) => {
 };
 const sfx = Math.random().toString(36).slice(2, 7);
 async function user(name) {
-  const r = await call('', 'POST', '/register', { username: name + sfx, password: 'senha123' });
+  const r = await call('', 'POST', '/register', { username: name + sfx, password: 'Teste.senha-123' });
   return r.data.token;
 }
 function gateway(tok) {
@@ -137,13 +137,13 @@ await call(ta, 'PUT', '/me/settings', { settings: { theme: 'midnight', soundVolu
 ok((await call(ta, 'GET', '/me/settings')).data.settings.theme === 'midnight', 'configurações sincronizadas na conta');
 const ses = (await call(ta, 'GET', '/sessions')).data; ok(ses.length >= 1 && ses.some(s => s.current), 'lista de sessões');
 ok((await call(ta, 'POST', '/me/username', { username: 'alice2' + sfx, password: 'errada' })).status === 403, 'trocar usuário exige a senha');
-ok((await call(ta, 'POST', '/me/username', { username: 'alice2' + sfx, password: 'senha123' })).status === 200, 'trocar nome de usuário');
+ok((await call(ta, 'POST', '/me/username', { username: 'alice2' + sfx, password: 'Teste.senha-123' })).status === 200, 'trocar nome de usuário');
 await call(g3, 'PUT', '/me/settings', { friend_policy: 'none' });
 ok((await call(tb, 'POST', '/relationships', { username: 'carol' + sfx })).status === 403, 'privacidade: ninguém pode enviar pedido');
 ok((await call(tb, 'PATCH', `/guilds/${g.id}`, { owner_id: rb.user.id })).status === 403, 'só o dono transfere o servidor');
 ok((await call(ta, 'PATCH', `/guilds/${g.id}`, { owner_id: rb.user.id })).status === 200, 'dono transfere o servidor');
-ok((await call(g3, 'POST', '/me/delete', { password: 'senha123' })).status === 200, 'excluir a própria conta');
-ok((await call('', 'POST', '/login', { username: 'carol' + sfx, password: 'senha123' })).status === 401, 'conta excluída não entra mais');
+ok((await call(g3, 'POST', '/me/delete', { password: 'Teste.senha-123' })).status === 200, 'excluir a própria conta');
+ok((await call('', 'POST', '/login', { username: 'carol' + sfx, password: 'Teste.senha-123' })).status === 401, 'conta excluída não entra mais');
 
 // upload
 const buf = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);

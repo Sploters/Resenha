@@ -12,7 +12,7 @@ const b = await puppeteer.launch({ executablePath: process.env.BROWSER || 'C:/Pr
 try {
   const p = await b.newPage(); await p.goto(BASE);
   await p.waitForSelector('#auth .auth-card'); await p.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
-  await p.evaluate(() => { const i = document.querySelectorAll('#auth input'); i[0].value = 'tester'; i[2].value = 'senha123'; i[3].value = 'senha123'; });
+  await p.evaluate(() => { const i = document.querySelectorAll('#auth input'); i[0].value = 'tester'; i[2].value = 'Teste.senha-123'; i[3].value = 'Teste.senha-123'; });
   await p.click('#auth .btn'); await p.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
   // streams de teste por canvas (redesenhados continuamente para o vídeo ter quadros)
   await p.evaluate(() => {

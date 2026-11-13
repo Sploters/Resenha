@@ -6,11 +6,32 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const { createHelper } = require('./helper');
+
 const log = (...a) => console.log('[appaudio]', ...a);
 const helperPath = () => {
   const cands = [path.join(process.resourcesPath || '', 'lc-audio.exe'), path.join(__dirname, 'native', 'lc-audio.exe')];
   return cands.find(p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
 };
+
+// ---------- programa nativo aberto o tempo todo (desktop/helper.js) ----------
+// lista de janelas, ícone, vigia da janela da frente e aviso do clipe passam por ele; sem ele, um processo por pergunta
+let helper = null;
+function getHelper() {
+  if (helper) return helper;
+  if (process.platform !== 'win32') return null;
+  const exe = helperPath(); if (!exe) return null;
+  helper = createHelper({ exe, log: (...a) => console.log('[lc-audio]', ...a) });
+  return helper;
+}
+// quantos processos foram abertos (para o main.log: o objetivo é ficar perto de 1 por sessão)
+const oneShot = { windows: 0, icon: 0 };
+let lastStats = { spawns: 0, calls: 0, events: 0 };
+setInterval(() => {
+  const h = helper?.stats() || { spawns: 0, calls: 0, events: 0 }, d = (k) => (h[k] || 0) - (lastStats[k] || 0);
+  if (oneShot.windows || oneShot.icon || d('calls') || d('events')) log('na última hora: programa nativo aberto ' + d('spawns') + 'x, ' + d('calls') + ' pedidos, ' + d('events') + ' avisos; processos avulsos: ' + oneShot.windows + ' listas, ' + oneShot.icon + ' ícones');
+  oneShot.windows = oneShot.icon = 0; lastStats = h;
+}, 60 * 60 * 1000).unref?.();
 
 let probed = null;
 function capable() {
@@ -40,17 +61,45 @@ async function iconOf(exe) {
   if (!icons.has(exe)) icons.set(exe, app.getFileIcon(exe, { size: 'large' }).then(i => (i.isEmpty() ? null : i.toDataURL())).catch(() => null));
   return icons.get(exe);
 }
-// [{ hwnd, pid, title, exe, minimized, fullscreen, game, icon }]; [] se o programa não existir
-function listWindows() {
-  const exe = helperPath(); if (!exe || process.platform !== 'win32') return Promise.resolve([]);
-  return new Promise((res) => execFile(exe, ['--windows'], { windowsHide: true, timeout: 4000, maxBuffer: 8 << 20 }, async (err, out) => {
+async function annotate(list) {
+  if (!Array.isArray(list)) list = [];
+  const me = process.pid;
+  list = list.filter(w => w && w.hwnd && w.title && w.pid !== me).map(w => ({ ...w }));
+  for (const w of list) { w.game = isGame(w); w.icon = await iconOf(w.exe); }
+  return list;
+}
+function listOnce(exe) { // jeito antigo: um processo só para esta lista
+  oneShot.windows++;
+  return new Promise((res) => execFile(exe, ['--windows'], { windowsHide: true, timeout: 4000, maxBuffer: 8 << 20 }, (err, out) => {
     let list = []; try { list = JSON.parse(String(out).trim()); } catch { if (err) log('--windows', err.message); }
-    if (!Array.isArray(list)) list = [];
-    const me = process.pid;
-    list = list.filter(w => w && w.hwnd && w.title && w.pid !== me);
-    for (const w of list) { w.game = isGame(w); w.icon = await iconOf(w.exe); }
     res(list);
   }));
+}
+// lista mantida pelos avisos do programa (watchWindows): com ela, perguntar não custa nada
+let winCache = null; const winListeners = new Set();
+// [{ hwnd, pid, title, exe, minimized, fullscreen, game, icon }]; [] se o programa não existir
+// o.cached: aceita a lista dos avisos (vigias periódicos); sem isso pergunta agora (seletor, atalho da transmissão)
+async function listWindows(o = {}) {
+  const exe = helperPath(); if (!exe || process.platform !== 'win32') return [];
+  if (o.cached && winCache) return winCache;
+  const h = getHelper();
+  let raw = null;
+  if (h) raw = await h.call('windows').catch(() => null);
+  if (!raw) raw = await listOnce(exe);
+  return annotate(raw);
+}
+// liga os avisos de mudança na lista de janelas; fn(list) a cada mudança. Sem o programa (ou versão sem eventos): não avisa
+function watchWindows(fn) {
+  if (fn) winListeners.add(fn);
+  const h = getHelper(); if (!h || h._watching) return;
+  h._watching = true;
+  h.on('windows', async (ev) => {
+    const list = await annotate(ev.list);
+    winCache = list;
+    for (const f of winListeners) { try { f(list); } catch (e) { log('aviso de janelas:', e.message); } }
+  });
+  h.on('down', () => { winCache = null; });
+  h.keep('watch', { on: true });
 }
 
 // ---------- jogo aberto agora (atividade "Jogando X") ----------
@@ -72,8 +121,7 @@ function gameIcon(exe) {
   if (!exe) return Promise.resolve(null);
   if (!bigIcons.has(exe)) bigIcons.set(exe, new Promise((res) => {
     const bin = helperPath(); if (!bin) return res(null);
-    execFile(bin, ['--icon', exe], { windowsHide: true, timeout: 5000, maxBuffer: 4 << 20 }, (err, out) => {
-      let j = null; try { j = JSON.parse(String(out).trim()); } catch { }
+    const done = (j) => {
       if (!j?.png) return res(null);
       try {
         let img = nativeImage.createFromBuffer(Buffer.from(j.png, 'base64'));
@@ -81,7 +129,10 @@ function gameIcon(exe) {
         if (img.getSize().width > 96) img = img.resize({ width: 96, height: 96, quality: 'best' });
         res(img.toPNG().toString('base64'));
       } catch { res(null); }
-    });
+    };
+    const once = () => { oneShot.icon++; execFile(bin, ['--icon', exe], { windowsHide: true, timeout: 5000, maxBuffer: 4 << 20 }, (err, out) => { let j = null; try { j = JSON.parse(String(out).trim()); } catch { } done(j); }); };
+    const h = getHelper();
+    if (h) h.call('icon', { exe }, 6000).then(done, once); else once();
   }));
   return bigIcons.get(exe);
 }
@@ -105,8 +156,8 @@ function steamAppId(exe) {
   }
   return appIds.get(key);
 }
-async function detectGame() {
-  const list = (await listWindows()).filter(w => w.game);
+async function detectGame(o = { cached: true }) {
+  const list = (await listWindows(o)).filter(w => w.game);
   if (!list.length) return null;
   const score = (w) => (KNOWN_GAME.test(w.exe) ? 4 : 0) + (GAME_DIR.test(w.exe) ? 2 : 0) + (w.fullscreen ? 1 : 0) + (w.minimized ? 0 : 0.5);
   const w = list.sort((a, b) => score(b) - score(a))[0];
@@ -161,7 +212,7 @@ async function tick() {
     if (c.mode === 'exclude') { if (!proc) { const r = await spawnCap(process.pid, 'exclude', c.onData); if (cur === c && r.ok) emit({ t: 'reattached' }); } return; }
     if (alive(c.pid)) { if (!proc) await spawnCap(c.pid, 'include', c.onData); return; } // jogo vivo: só reabre o programa de áudio se ele caiu
     if (!c.exe) return; // não sei o executável: não dá para achar o processo novo
-    const w = (await listWindows()).find(x => x.exe && x.exe.toLowerCase() === c.exe.toLowerCase() && alive(x.pid));
+    const w = (await listWindows({ cached: true })).find(x => x.exe && x.exe.toLowerCase() === c.exe.toLowerCase() && alive(x.pid));
     if (cur !== c) return;
     if (!w) { if (!c.waiting) { c.waiting = true; kill(); emit({ t: 'waiting', name: c.name }); } return; }
     kill();
@@ -189,12 +240,15 @@ function stop() { cur = null; clearInterval(watch); watch = null; kill(); }
 // ---------- estado da janela transmitida ----------
 // janela minimizada: o Windows para de entregar quadros e quem assiste vê a imagem parada; janela fechada: nada mais vem.
 // sourceId "window:<hwnd>:0" -> { kind, exists, minimized, title }
-async function sourceState(sourceId) {
+// list: lista já em mãos (aviso de mudança); sem ela usa a dos avisos ou pergunta
+async function sourceState(sourceId, list) {
   const m = /^window:(\d+):/.exec(String(sourceId || ''));
   if (!m) return { kind: /^screen:/.test(String(sourceId || '')) ? 'screen' : 'unknown' };
   if (process.platform !== 'win32' || !helperPath()) return { kind: 'window', exists: true, minimized: false };
-  const w = (await listWindows()).find(x => String(x.hwnd) === m[1]);
+  const w = (list || await listWindows({ cached: true })).find(x => String(x.hwnd) === m[1]);
   return { kind: 'window', exists: !!w, minimized: !!w?.minimized, title: w?.title || '' };
 }
 
-module.exports = { helperPath, capable, listWindows, detectGame, start, stop, shutdown: stop, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };
+function shutdown() { stop(); helper?.stop(); helper = null; winCache = null; }
+
+module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };

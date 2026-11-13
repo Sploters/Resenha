@@ -124,7 +124,7 @@ await sleep(2500);
 const electron = spawn(electronPath, ['desktop', '--remote-debugging-port=9334', '--user-data-dir=' + process.cwd() + '/.testdata-diag-e', ...EXTRA], { stdio: 'ignore', env: { ...process.env, LC_TEST_SERVER: BASE } }); procs.push(electron);
 const register = async (page, name) => {
   await page.waitForSelector('#auth .auth-card'); await page.evaluate(() => [...document.querySelectorAll('#auth a')].find(a => a.textContent.includes('Registre')).click()); await sleep(200);
-  await page.evaluate((n) => { const i = document.querySelectorAll('#auth input'); i[0].value = n; i[2].value = 'senha123'; i[3].value = 'senha123'; }, name);
+  await page.evaluate((n) => { const i = document.querySelectorAll('#auth input'); i[0].value = n; i[2].value = 'Teste.senha-123'; i[3].value = 'Teste.senha-123'; }, name);
   await page.click('#auth .btn'); await page.waitForSelector('#rail .rail-wrap', { timeout: 8000 });
 };
 const median = (a) => { const s = [...a].filter(x => x != null && isFinite(x)).sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null; };
