@@ -538,8 +538,26 @@ html.lc-desk video { filter: opacity(.999); }
 #stage .strip .tile .sctl { top: 6px; right: 6px; } #stage .strip .tile .sctl .sc-ic { display: none; }
 #stage .strip .tile .sctl .sc-main { height: 28px; padding: 0 8px; font-size: 12px; }
 /* barra de baixo: enquanto transmite, o botão de tela vira "Parar transmissão" com texto (não se confunde com sair da chamada) */
-#stage .bar .roundbtn.stopshare { width: auto; padding: 0 18px 0 14px; gap: 8px; border-radius: 28px; background: #da373c !important; color: #fff; font-weight: 600; font-size: 15px; white-space: nowrap; }
-#stage .bar .roundbtn.stopshare:hover { background: #a12828 !important; }
+/* selo "● AO VIVO 12:34 | Parar transmissão": fundo escuro com borda vermelha (o vermelho cheio é só do Sair da chamada) */
+#stage .bar .roundbtn.stopshare { width: auto; padding: 0 18px 0 14px; gap: 8px; border-radius: 28px; background: #1e1f22 !important; box-shadow: inset 0 0 0 2px #da373c; color: #fff; font-weight: 600; font-size: 15px; white-space: nowrap; }
+#stage .bar .roundbtn.stopshare:hover { background: #da373c !important; }
+#stage .bar .roundbtn.stopshare .live-lbl { color: #f57e81; font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+#stage .bar .roundbtn.stopshare:hover .live-lbl { color: #fff; }
+#stage .bar .roundbtn.stopshare .live-t { font-variant-numeric: tabular-nums; font-size: 13px; opacity: .85; min-width: 34px; }
+#stage .bar .roundbtn.stopshare .live-sep { width: 1px; align-self: stretch; margin: 12px 4px; background: rgba(255,255,255,.25); }
+#stage .bar .bar-gap { width: 18px; flex: none; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: #f23f43; flex: none; box-shadow: 0 0 0 0 rgba(242,63,67,.6); animation: livePulse 1.6s ease-out infinite; }
+@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(242,63,67,.6); } 70% { box-shadow: 0 0 0 7px rgba(242,63,67,0); } 100% { box-shadow: 0 0 0 0 rgba(242,63,67,0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+@media (max-width: 760px) { #stage .bar .roundbtn.stopshare .live-lbl, #stage .bar .roundbtn.stopshare .live-t, #stage .bar .roundbtn.stopshare .live-sep { display: none; } }
+/* faixa "AO VIVO" no painel de voz: fica à vista em qualquer tela do app enquanto transmite */
+#voice-panel .vp-live { display: flex; align-items: center; gap: 7px; margin: 6px 0 2px; padding: 5px 5px 5px 9px; border-radius: 8px; background: rgba(218,55,60,.14); box-shadow: inset 0 0 0 1px rgba(218,55,60,.45); font-size: 12px; color: var(--text, #dbdee1); }
+#voice-panel .vp-live b { color: #f57e81; font-size: 11px; letter-spacing: .06em; }
+#voice-panel .vp-live .live-t { font-variant-numeric: tabular-nums; opacity: .85; }
+#voice-panel .vp-live .vp-live-w { display: inline-flex; align-items: center; gap: 3px; opacity: .8; }
+#voice-panel .vp-live .vp-live-stop { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: #da373c; color: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+#voice-panel .vp-live .vp-live-stop:hover { background: #a12828; }
+#voice-panel .vp-live .vp-live-stop:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 /* painel "Voz conectada": o botão de tela vira "Parar transmissão" (vermelho) enquanto transmite */
 #voice-panel .row button.stopshare { background: #da373c !important; color: #fff; }
 #voice-panel .row button.stopshare:hover { background: #a12828 !important; }

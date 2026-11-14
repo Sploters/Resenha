@@ -1222,8 +1222,9 @@ app.delete('/api/clips/:id', auth, wrap((req, res) => {
 function unlinkIfUnused(url) {
   const fname = path.basename(String(url).split('/')[2] || '');
   const like = '%' + fname.replace(/[%_\\]/g, '\\$&') + '%', used = (sql) => get(sql + " LIKE ? ESCAPE '\\'", like);
+  const usedOpt = (sql) => { try { return used(sql); } catch { return true; } }; // tabela de um módulo que pode não existir ainda: na dúvida, não apaga
   if (fname && !used('SELECT 1 x FROM messages WHERE attachments') && !used('SELECT 1 x FROM users WHERE avatar') && !used('SELECT 1 x FROM users WHERE banner') && !used('SELECT 1 x FROM users WHERE settings')
-    && !used('SELECT 1 x FROM emojis WHERE url') && !used('SELECT 1 x FROM sounds WHERE url') && !used('SELECT 1 x FROM guilds WHERE icon') && !used('SELECT 1 x FROM guilds WHERE banner') && !used('SELECT 1 x FROM clips WHERE url')) { fs.unlink(path.join(UPLOAD_DIR, fname), () => { }); thumbs.remove(fname); }
+    && !used('SELECT 1 x FROM emojis WHERE url') && !used('SELECT 1 x FROM sounds WHERE url') && !used('SELECT 1 x FROM guilds WHERE icon') && !used('SELECT 1 x FROM guilds WHERE banner') && !used('SELECT 1 x FROM clips WHERE url') && !usedOpt('SELECT 1 x FROM events WHERE banner')) { fs.unlink(path.join(UPLOAD_DIR, fname), () => { }); thumbs.remove(fname); }
 }
 function setPin(req, res, v) {
   const ch = channelFor(req, res); if (!ch) return;
@@ -1480,7 +1481,7 @@ mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
 reputation.mount(app, { auth, wrap, bad, channelFor });
 // apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
 mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
-eventsSvc = mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut }); // eventos do servidor com Vou/Talvez/Não vou e lembretes
+eventsSvc = mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut, uploadDir: UPLOAD_DIR, artPrivate: process.env.EVENT_ART_PRIVATE === '1' }); // eventos do servidor com Vou/Talvez/Não vou e lembretes
 const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk });
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,

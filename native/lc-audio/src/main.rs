@@ -5,7 +5,8 @@
 //!
 //! Modos:
 //!   --probe     {"ok":bool,"build":n}  (o loopback por processo existe neste Windows?)
-//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen"}...] (uma linha JSON)
+//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","mon":[l,t,r,b]}...] (uma linha JSON; mon = monitor da
+//!               janela em pixels reais, para o áudio "só desta tela")
 //!   --front <hwnd> [ms]  vigia a janela da frente a cada `ms` (padrão 1000): uma linha JSON quando muda,
 //!               {"covered":bool,"pid"?,"exe"?}. covered = outra janela (de outro programa) está em primeiro plano cobrindo
 //!               o monitor inteiro onde está a janela `hwnd` (jogo em tela cheia ou sem bordas por cima da Resenha).
@@ -54,7 +55,7 @@ fn main() {
         return;
     }
     if has("--probe") { println!("{}", sys::probe()); return; }
-    if has("--windows") { println!("{}", sys::windows()); return; }
+    if has("--windows") { sys::dpi_aware(); println!("{}", sys::windows()); return; } // pixels reais, como no --serve
     if let Some(i) = args.iter().position(|a| a == "--front") {
         let hwnd: isize = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(0);
         let ms: u64 = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(1000).clamp(200, 10_000);
@@ -138,7 +139,7 @@ mod sys {
         if let Some(t) = std::env::var_os("LC_WINDOWS_TEST").and_then(|p| std::fs::read_to_string(p).ok()) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) { return v; }
         }
-        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true }])
+        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "mon": [0, 0, 1920, 1080] }])
     }
     pub fn dpi_aware() {}
     pub fn front(_hwnd: isize) -> serde_json::Value {
@@ -223,7 +224,9 @@ mod sys {
         // (compara o tamanho, não a posição: a posição "normal" vem em coordenadas da área de trabalho, deslocada pela barra de tarefas)
         let fullscreen = GetMonitorInfoW(mon, &mut mi).as_bool() && r.right - r.left >= mi.rcMonitor.right - mi.rcMonitor.left && r.bottom - r.top >= mi.rcMonitor.bottom - mi.rcMonitor.top;
         if std::env::var_os("LC_DEBUG").is_some() { eprintln!("{title}: rect {:?} monitor {:?}", (r.left, r.top, r.right, r.bottom), (mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom)); }
-        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen }));
+        // monitor da janela (o da maior parte dela), em pixels reais: o app junta os programas de uma tela para o áudio "só desta tela"
+        let m = mi.rcMonitor;
+        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen, "mon": [m.left, m.top, m.right, m.bottom] }));
         true.into()
     }
     pub fn windows() -> serde_json::Value {

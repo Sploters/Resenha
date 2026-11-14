@@ -178,11 +178,13 @@ const roomLine = (r) => h('div.an-room', icon('voice', 16), h('span', r.g ? `${c
 const goRoom = (r) => (r.g ? ctx.go(r.g.id, r.ch.id) : ctx.go('@me', r.ch.id));
 
 // cartão de quem está jogando: arte da Steam (se houver), quem, jogo, há quanto tempo, a sala em que está e as ações possíveis
+// "Ativo agora": clicar na pessoa abre a conversa (pedido dos usuários); o perfil fica na foto (e no clique direito)
+const profAv = (u, size) => h('span.an-av', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, u.id); } }, avatar(u, size, { ring: 'var(--bg-sec)' }));
 function playCard(uid, a) {
   const u = uOf(uid), r = roomOf(uid), lk = feed?.friends.find(f => f.user_id === uid)?.linked.find(l => l.platform === a.platform);
-  return h('div.an-card.an-play', { onclick: (e) => ctx.profile(e.currentTarget, uid), oncontextmenu: (e) => ctx.userMenu(e, uid) },
+  return h('div.an-card.an-play', { title: `Mensagem para ${u.display_name}`, onclick: () => ctx.openDM(uid), oncontextmenu: (e) => ctx.userMenu(e, uid) },
     h('div.an-gamelink', { title: `Sobre ${a.game.title}`, onclick: openGame(a) }, gameBanner(a)),
-    h('div.an-top', avatar(u, 40, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(u), h('small', `${platformName(a.platform)} · ${since(a.since)}`)),
+    h('div.an-top', profAv(u, 40), h('div.an-who', nameEl(u), h('small', `${platformName(a.platform)} · ${since(a.since)}`)),
       h('button.ibtn.an-dm', { title: 'Mensagem', onclick: (e) => { e.stopPropagation(); ctx.openDM(uid); } }, icon('dm', 18))),
     h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}`, onclick: openGame(a) }, gameIcon(a, 22), h('span', a.game.title)),
     r && roomLine(r),
@@ -193,7 +195,7 @@ function playCard(uid, a) {
 function voiceCard(uid, r) {
   const u = uOf(uid);
   return h('div.an-card', { title: 'Ir para a sala', onclick: () => goRoom(r), oncontextmenu: (e) => ctx.userMenu(e, uid, r.g?.id) },
-    h('div.an-top', avatar(u, 40, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(u), h('small', r.g ? 'Em chamada de voz' : 'Em uma ligação privada'))),
+    h('div.an-top', { title: `Mensagem para ${u.display_name}`, onclick: (e) => { e.stopPropagation(); ctx.openDM(uid); } }, profAv(u, 40), h('div.an-who', nameEl(u), h('small', r.g ? 'Em chamada de voz' : 'Em uma ligação privada'))),
     roomLine(r),
     h('div.act-btns', ...voiceActions(uid)));
 }
@@ -205,8 +207,8 @@ function voiceCard(uid, r) {
 const gameKey = (a) => String(a.game?.title || a.game?.id || '').trim().toLowerCase();
 const nameList = (us) => us.length <= 2 ? us.map(u => u.display_name).join(' e ') : `${us[0].display_name}, ${us[1].display_name} e mais ${us.length - 2}`;
 function memberRow(u, sub) {
-  return h('div.an-mem', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, u.id); }, oncontextmenu: (e) => { e.stopPropagation(); ctx.userMenu(e, u.id); } },
-    avatar(u, 28, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(u), sub && h('small', sub)),
+  return h('div.an-mem', { title: `Mensagem para ${u.display_name}`, onclick: (e) => { e.stopPropagation(); ctx.openDM(u.id); }, oncontextmenu: (e) => { e.stopPropagation(); ctx.userMenu(e, u.id); } },
+    profAv(u, 28), h('div.an-who', nameEl(u), sub && h('small', sub)),
     h('button.ibtn.an-dm', { title: 'Mensagem', onclick: (e) => { e.stopPropagation(); ctx.openDM(u.id); } }, icon('dm', 16)));
 }
 // as salas em que essas pessoas estão: uma linha por sala, com os rostos de quem está nela e Entrar/Assistir

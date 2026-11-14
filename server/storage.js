@@ -135,7 +135,7 @@ export function mountStorage(app, d) {
   };
   const referenced = () => { // todos os nomes de arquivo citados no banco
     const set = new Set(), add = (s) => { for (const m of String(s || '').matchAll(/[a-f0-9]{24}(?:\.[a-z0-9]{1,10})?/gi)) set.add(m[0]); };
-    for (const [t, c] of [['messages', 'attachments'], ['users', 'avatar'], ['users', 'banner'], ['users', 'settings'], ['emojis', 'url'], ['sounds', 'url'], ['guilds', 'icon'], ['guilds', 'banner'], ['clips', 'url']]) {
+    for (const [t, c] of [['messages', 'attachments'], ['users', 'avatar'], ['users', 'banner'], ['users', 'settings'], ['emojis', 'url'], ['sounds', 'url'], ['guilds', 'icon'], ['guilds', 'banner'], ['clips', 'url'], ['events', 'banner']]) {
       try { for (const r of all(`SELECT ${c} v FROM ${t} WHERE ${c} IS NOT NULL`)) add(r.v); } catch { }
     }
     return set;

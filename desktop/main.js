@@ -372,8 +372,18 @@ ipcMain.handle('foreground-source', async () => {
 ipcMain.handle('select-source', (_e, id, name) => { pickedSource = String(id || ''); pickedName = String(name || '').slice(0, 200); return true; });
 // áudio só do jogo (desktop/appaudio.js): o PCM vai direto para a página, que monta a trilha de áudio da transmissão
 ipcMain.handle('app-audio-capable', () => appAudio.capable());
-ipcMain.handle('app-audio-start', (e, o) => appAudio.start({ pid: +o?.pid || 0, mode: o?.mode === 'exclude' ? 'exclude' : 'include' },
-  (buf) => { if (!e.sender.isDestroyed()) e.sender.send('app-audio-data', buf); }));
+ipcMain.handle('app-audio-start', (e, o) => {
+  // 'screen': só os programas com janela no monitor transmitido (pixels reais do monitor da fonte "screen:<display_id>:0")
+  if (o?.mode === 'screen') {
+    const id = /^screen:(\d+):/.exec(String(o.source || pickedSource || ''))?.[1];
+    const d = screen.getAllDisplays().find(x => String(x.id) === id);
+    if (!d) return { ok: false, error: 'tela não encontrada' };
+    const b = process.platform === 'win32' ? screen.dipToScreenRect(null, d.bounds) : d.bounds;
+    return appAudio.startScreen([b.x, b.y, b.x + b.width, b.y + b.height], (buf, slot) => { if (!e.sender.isDestroyed()) e.sender.send('app-audio-data', buf, slot); });
+  }
+  return appAudio.start({ pid: +o?.pid || 0, mode: o?.mode === 'exclude' ? 'exclude' : 'include' },
+    (buf) => { if (!e.sender.isDestroyed()) e.sender.send('app-audio-data', buf); });
+});
 ipcMain.on('app-audio-stop', () => appAudio.stop());
 // vigia do áudio do jogo (reconectou / jogo fechou, esperando) e estado da janela transmitida (minimizada / fechada)
 appAudio.setEventSink((ev) => { if (win && !win.isDestroyed()) win.webContents.send('app-audio-event', ev); });

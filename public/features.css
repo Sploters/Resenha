@@ -1824,6 +1824,17 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .evform { display: flex; flex-direction: column; gap: 10px; } .evform .f { margin: 0; }
 .evform input, .evform select, .evform textarea { width: 100%; box-sizing: border-box; }
 .evform textarea { resize: vertical; min-height: 64px; font: inherit; }
+/* capa do evento (jogo fora da Steam, link ou imagem própria) */
+.evc { display: flex; flex-direction: column; gap: 6px; }
+.evc-prev { aspect-ratio: 460 / 120; border-radius: 8px; overflow: hidden; background: var(--bg-2, #2b2d31); border: 1px dashed rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center; color: var(--muted, #949ba4); font-size: 13px; }
+.evc-prev.has { border-style: solid; border-color: transparent; }
+.evc-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.evc-empty { display: inline-flex; align-items: center; gap: 6px; }
+.evc-spin { animation: evcPulse 1.2s ease-in-out infinite; } @keyframes evcPulse { 50% { opacity: .45; } }
+.evc-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .evc-row:empty { display: none; }
+.evc-row .btn { display: inline-flex; align-items: center; gap: 5px; }
+.evc-link { flex: 1; min-width: 0; }
+.evc-msg { color: var(--muted, #949ba4); font-size: 12px; } .evc-msg.err { color: #f57e81; }
 .ev-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ev-tz { margin-top: -6px; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 520px) { .ev-frow { grid-template-columns: 1fr; } .ev-list { grid-template-columns: 1fr; } #eventsview .cbody { padding: 12px 12px 32px; } }

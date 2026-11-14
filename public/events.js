@@ -1,9 +1,11 @@
 // Eventos do servidor (server/events.js): cartão no chat com Vou / Talvez / Não vou, tela "Eventos" na lista de canais,
-// criar/editar/cancelar, arquivo de agenda (.ics) e os avisos (15 min antes e na hora, com "Entrar na sala").
+// criar/editar/cancelar, arquivo de agenda (.ics) e os avisos (30 min antes e na hora, com "Entrar na sala", e som próprio).
+// Capa: da Steam (link/appid), de jogos fora dela (catálogo Riot/Battle.net/Epic…, ou link de qualquer loja/site) ou imagem própria.
 // Horários no fuso e formato de quem lê (o servidor guarda em UTC).
-import { h, icon, avatar, skeleton } from './util.js';
-import { S, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, guild, notify } from './state.js';
+import { h, icon, avatar, skeleton, imgUrl } from './util.js';
+import { S, api, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, guild, notify } from './state.js';
 import { steamInfo, steamApp } from './steamcard.js';
+import { uploadFile } from './upload.js';
 
 const ctx = {}; // injetado por app.js: go(gid, cid), joinVoice(cid), profile(anchor, uid), playSound(nome)
 export const initEvents = (c) => Object.assign(ctx, c);
@@ -74,7 +76,8 @@ function paint(el, ev0, compact) {
       open && h('a.ev-btn.ev-ics', { href: `/api/events/${ev.id}.ics`, title: 'Baixar para a agenda (Google, Outlook, celular)', onclick: (e) => { e.preventDefault(); e.stopPropagation(); downloadIcs(ev); } }, icon('calendar', 16), 'Agenda'),
       manage && h('button.ev-btn.ev-more', { type: 'button', title: 'Editar ou cancelar', 'aria-label': 'Editar ou cancelar', onclick: (e) => { e.stopPropagation(); eventModal(ev.guild_id, ev); } }, icon('edit', 16))));
   const appid = ev.appid || null;
-  if (appid) steamInfo(appid).then(i => { if (i?.image) { banner.append(h('img', { src: i.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); el.classList.add('has-art'); } });
+  if (ev.banner) { banner.append(h('img', { src: imgUrl(ev.banner, 480), alt: '', loading: 'lazy', onerror: (e) => { e.target.remove(); el.classList.remove('has-art'); } })); el.classList.add('has-art'); } // capa própria/de fora da Steam
+  else if (appid) steamInfo(appid).then(i => { if (i?.image) { banner.append(h('img', { src: i.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); el.classList.add('has-art'); } });
 }
 // redesenha os cartões na tela quando o horário vira (agendado -> acontecendo -> encerrado)
 setInterval(() => { for (const el of document.querySelectorAll('.evcard')) { const ev = S.events.get(el.dataset.ev); if (ev) paint(el, ev, el.classList.contains('compact')); } }, 30e3);
@@ -100,10 +103,11 @@ export function onEventUpdate(d) {
 export function onEventReminder(d) {
   const ev = d.event, room = ev.channel_id && channelById(ev.channel_id), g = guild(ev.guild_id);
   const where = room ? ` na sala ${room.name}` : '';
-  const txt = d.kind === 'soon' ? `${ev.title} começa em 15 min${where}` : d.kind === 'start' ? `${ev.title} começou${where}` : `${ev.title} foi cancelado`;
+  const mins = Math.max(1, Math.round((ev.starts_at - Date.now()) / 60000)), soon = mins >= 25 ? '30 min' : `${mins} min`;
+  const txt = d.kind === 'soon' ? `${ev.title} começa em ${soon}${where}` : d.kind === 'start' ? `${ev.title} começou${where}` : `${ev.title} foi cancelado`;
   toast(txt + (g ? ` (${g.name})` : ''));
-  ctx.playSound?.('mention');
-  notify(d.kind === 'cancelled' ? 'Evento cancelado' : d.kind === 'soon' ? 'Evento em 15 min' : 'Evento começando', txt, () => { if (room && d.kind !== 'cancelled') ctx.joinVoice?.(room.id); else if (g) ctx.go?.(g.id, 'events'); }, 'event-' + ev.id);
+  ctx.playSound?.(d.kind === 'soon' ? 'event' : 'eventStart'); // som próprio dos eventos (dá para trocar/desligar em Configurações → Sons)
+  notify(d.kind === 'cancelled' ? 'Evento cancelado' : d.kind === 'soon' ? `Evento em ${soon}` : 'Evento começando', txt, () => { if (room && d.kind !== 'cancelled') ctx.joinVoice?.(room.id); else if (g) ctx.go?.(g.id, 'events'); }, 'event-' + ev.id);
   onEventUpdate({ event: ev });
 }
 
@@ -121,7 +125,7 @@ export function renderGuildEvents(main, gid) {
         h('div.ctool', h('button.btn', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento'),
           h('label.ev-past', h('input', { type: 'checkbox', checked: past, onchange: (e) => { past = e.target.checked; load(); } }), 'Mostrar os da última semana')),
         !data ? skeleton('cards', 3) : (now.length + next.length + (past ? old.length : 0)) ? [...sec('Acontecendo agora', now), ...sec('Próximos', next), ...(past ? sec('Já aconteceram', old) : [])]
-          : h('div.cempty', h('div.ceart', icon('calendar', 40)), h('b', 'Nenhum evento marcado'), h('p', 'Marque uma jogatina: escolha o dia, a hora e a sala, e o pessoal responde Vou ou Talvez. Quem vai recebe um aviso 15 min antes.'),
+          : h('div.cempty', h('div.ceart', icon('calendar', 40)), h('b', 'Nenhum evento marcado'), h('p', 'Marque uma jogatina: escolha o dia, a hora e a sala, e o pessoal responde Vou ou Talvez. Quem vai recebe um aviso com som 30 min antes.'),
             h('button.btn', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento'))));
   };
   const load = async () => { const r = await tryApi('GET', `/guilds/${gid}/events${past ? '?past=1' : ''}`); if (!r) return; keepUsers(r.users); data = r.events; for (const e of data) S.events.set(e.id, e); draw(); };
@@ -139,7 +143,8 @@ export function eventModal(gid, ev = null) {
   const voices = g.channels.filter(c => c.type === 2), texts = g.channels.filter(c => c.type === 0);
   const def = new Date(Date.now() + 864e5); def.setHours(21, 0, 0, 0); if (def - Date.now() > 864e5) def.setDate(def.getDate() - 1); // hoje 21h (ou amanhã se já passou)
   const title = h('input', { maxLength: 100, value: ev?.title || '', placeholder: 'Ex.: Sexta de CS2' });
-  const game = h('input', { maxLength: 200, value: ev?.game || '', placeholder: 'Nome do jogo ou link da Steam (opcional)' });
+  const game = h('input', { maxLength: 300, value: ev?.game || '', placeholder: 'Nome do jogo ou link da loja (Steam, Epic, Battle.net, Riot…)', list: 'ev-games' });
+  const cover = coverPicker(gid, ev, game);
   const when = h('input', { type: 'datetime-local', value: localInput(ev?.starts_at || def.getTime()) });
   const dur = h('select', DUR.map(([v, l]) => h('option', { value: v, selected: v === (ev?.duration_min || 120) }, l)));
   const room = h('select', h('option', { value: '' }, 'Nenhuma'), voices.map(c => h('option', { value: c.id, selected: ev ? ev.channel_id === c.id : c === voices[0] }, c.name)));
@@ -153,17 +158,22 @@ export function eventModal(gid, ev = null) {
     h('small.ev-tz', `No seu fuso (${tz}); cada pessoa vê no fuso dela.`),
     h('div.ev-frow', h('label.f', 'Sala de voz', room), h('label.f', 'Vagas', slots)),
     ann && h('label.f', 'Anunciar no canal', ann),
-    h('label.f', 'Descrição', desc));
+    h('label.f', 'Descrição', desc),
+    cover.el);
   const buttons = [{ label: 'Cancelar', cls: 'link' }];
   if (ev) buttons.unshift({ label: 'Cancelar evento', cls: 'red', fn: async () => { if (!(await confirmBox('Cancelar evento', `Cancelar "${ev.title}"? Quem respondeu Vou ou Talvez recebe um aviso.`, 'Cancelar evento'))) return false; const r = await tryApi('DELETE', `/events/${ev.id}`); if (r) { onEventUpdate({ event: r }); toast('Evento cancelado.'); } return !!r; } });
   buttons.push({ label: ev ? 'Salvar' : 'Marcar evento', fn: async () => {
     const t = new Date(when.value).getTime();
     if (!title.value.trim()) { toast('Dê um nome ao evento', true); title.focus(); return false; }
     if (!isFinite(t) || t < Date.now() - 60e3) { toast('Escolha um horário no futuro', true); return false; }
+    if (cover.busy()) { toast('Espere a capa terminar de carregar', true); return false; }
     const raw = game.value.trim(), appid = steamApp(raw) || null;
     let gameName = raw;
     if (appid) { const i = await steamInfo(appid); gameName = i?.title || ''; }
-    const payload = { title: title.value.trim(), starts_at: t, duration_min: +dur.value, channel_id: room.value || null, slots: +slots.value || 0, game: gameName, appid, description: desc.value.trim() };
+    else if (/^https?:\/\//i.test(raw)) gameName = cover.title() || nameFromLink(raw); // link de outra loja: o nome vem da página
+    const c = cover.value();
+    const payload = { title: title.value.trim(), starts_at: t, duration_min: +dur.value, channel_id: room.value || null, slots: +slots.value || 0, game: gameName.slice(0, 80), appid, description: desc.value.trim(),
+      banner: appid && c.auto ? null : c.url, banner_link: appid && c.auto ? null : c.link };
     if (!ev) payload.announce_id = ann.value || null;
     const r = await tryApi(ev ? 'PATCH' : 'POST', ev ? `/events/${ev.id}` : `/guilds/${gid}/events`, payload);
     if (!r) return false;
@@ -172,4 +182,80 @@ export function eventModal(gid, ev = null) {
   } });
   modal(ev ? 'Editar evento' : 'Marcar evento', g.name, body, buttons, { width: 'min(520px, 94vw)' });
   setTimeout(() => title.focus(), 0);
+}
+
+// ---------- capa do evento ----------
+// Automática: jogo da Steam (capa da loja) ou do catálogo de jogos fora dela (Valorant, LoL, Overwatch, Fortnite…), ou link
+// de outra loja colado no campo Jogo (Epic, Battle.net, site do jogo). Ou a pessoa escolhe: link de uma imagem/página, ou
+// envia uma imagem. O servidor baixa a imagem uma vez (/event-art) e todo mundo carrega daqui.
+let catalog = null;
+// sem o título da página: o nome sai do endereço (store.epicgames.com/pt-BR/p/rocket-league -> Rocket League)
+const nameFromLink = (u) => { try { const x = new URL(u), seg = x.pathname.split('/').filter(Boolean).filter(p => !/^[a-z]{2}(-[a-z]{2})?$/i.test(p) && !['p', 'product', 'games', 'game'].includes(p.toLowerCase())).pop(); return seg ? decodeURIComponent(seg).replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : x.hostname.replace(/^www\./, ''); } catch { return ''; } };
+const loadCatalog = () => (catalog ||= tryApi('GET', '/event-art/catalog').then(r => r || []));
+function coverPicker(gid, ev, gameInput) {
+  // estado: url (arquivo desta instalação), link (de onde veio), auto (escolhida pelo jogo; trocar o jogo troca a capa)
+  const st = { url: ev?.banner || null, link: ev?.banner_link || null, auto: !ev?.banner, title: '', busy: 0, err: '' };
+  const prev = h('div.evc-prev'), msg = h('small.evc-msg'), file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif,image/avif', hidden: true });
+  const linkIn = h('input.evc-link', { type: 'url', placeholder: 'Link de uma imagem ou página (Epic, Battle.net, site do jogo…)', hidden: true });
+  const draw = () => {
+    const sid = steamApp(gameInput.value.trim()) || (ev?.appid && gameInput.value.trim() === ev.game ? ev.appid : null);
+    prev.replaceChildren();
+    if (st.busy) prev.append(h('span.evc-spin', 'Buscando a capa…'));
+    else if (st.url) prev.append(h('img', { src: imgUrl(st.url, 480), alt: 'Capa do evento' }));
+    else if (sid && st.auto) steamInfo(sid).then(i => { if (!st.url && !st.busy && i?.image) prev.replaceChildren(h('img', { src: i.image, alt: 'Capa do evento', referrerPolicy: 'no-referrer' })); });
+    else prev.append(h('span.evc-empty', icon('image', 22), 'Sem capa'));
+    prev.classList.toggle('has', !!st.url || !!sid);
+    msg.textContent = st.err || (st.url ? (st.auto ? 'Capa automática do jogo' : st.link ? 'Capa do link' : 'Imagem enviada') : sid ? 'Capa da Steam' : 'Escolha um jogo da lista, cole um link ou envie uma imagem');
+    msg.classList.toggle('err', !!st.err);
+    rm.hidden = !st.url;
+  };
+  const fetchArt = async (body, auto) => {
+    const my = ++st.busy; st.err = ''; draw();
+    let r = null, fail = '';
+    try { r = await api('POST', `/guilds/${gid}/event-art`, body); } catch (e) { fail = e.message; }
+    if (my !== st.busy) return; st.busy = 0;
+    if (r?.url) Object.assign(st, { url: r.url, link: body.url || null, auto, title: r.title || '' });
+    else st.err = (fail || 'Não consegui pegar a imagem desse link.') + (auto ? '' : ' Tente outro link ou envie uma imagem.');
+    draw();
+  };
+  // jogo digitado: do catálogo -> capa oficial; link de outra loja -> capa da página. Só troca se a capa for automática.
+  let t = 0;
+  const onGame = () => {
+    clearTimeout(t); if (!st.auto) return draw();
+    t = setTimeout(async () => {
+      const v = gameInput.value.trim();
+      if (!v || steamApp(v)) { if (st.auto) Object.assign(st, { url: null, link: null }); return draw(); }
+      if (/^https?:\/\/\S+$/i.test(v)) return fetchArt({ url: v }, true);
+      const list = await loadCatalog(), hit = list.find(g => g.name.toLowerCase() === v.toLowerCase());
+      if (hit) return fetchArt({ game: hit.name }, true);
+      if (st.auto && st.url) Object.assign(st, { url: null, link: null }); draw();
+    }, 500);
+  };
+  gameInput.addEventListener('input', onGame);
+  file.onchange = async () => {
+    const f = file.files[0]; file.value = ''; if (!f) return;
+    if (!/^image\/(png|jpeg|webp|gif|avif)$/.test(f.type)) { st.err = 'Envie uma imagem png, jpg, webp, gif ou avif'; return draw(); }
+    if (f.size > 8 * 2 ** 20) { st.err = 'Imagem grande demais (máx. 8 MB)'; return draw(); }
+    const my = ++st.busy; st.err = ''; draw();
+    try { const r = await uploadFile(f); if (my !== st.busy) return; Object.assign(st, { url: r.url, link: null, auto: false, busy: 0 }); }
+    catch (e) { if (my === st.busy) Object.assign(st, { busy: 0, err: e.message || 'Falha no envio' }); }
+    draw();
+  };
+  linkIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); useLink(); } };
+  const useLink = () => { const v = linkIn.value.trim(); if (!/^https?:\/\/\S+$/i.test(v)) { st.err = 'Cole um link começando com https://'; return draw(); } linkIn.hidden = true; okBtn.hidden = true; fetchArt({ url: v }, false); };
+  const okBtn = h('button.btn.sm', { type: 'button', hidden: true, onclick: useLink }, 'Usar');
+  const rm = h('button.btn.link.sm', { type: 'button', onclick: () => { Object.assign(st, { url: null, link: null, auto: false, err: '' }); draw(); } }, 'Remover');
+  const el = h('div.f.evc',
+    h('span', 'Capa'),
+    h('datalist#ev-games'),
+    prev,
+    h('div.evc-row',
+      h('button.btn.grey.sm', { type: 'button', onclick: () => file.click() }, icon('upload', 14), 'Enviar imagem'),
+      h('button.btn.grey.sm', { type: 'button', onclick: () => { linkIn.hidden = !linkIn.hidden; okBtn.hidden = linkIn.hidden; if (!linkIn.hidden) linkIn.focus(); } }, icon('link', 14), 'Usar um link'),
+      rm, file),
+    h('div.evc-row', linkIn, okBtn),
+    msg);
+  loadCatalog().then(list => { const dl = el.querySelector('#ev-games'); dl?.replaceChildren(...list.map(g => h('option', { value: g.name }, g.store))); });
+  draw();
+  return { el, value: () => ({ url: st.url, link: st.link, auto: st.auto }), busy: () => !!st.busy, title: () => st.title };
 }

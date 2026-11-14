@@ -33,6 +33,8 @@ export function linksOf(content) {
   }
   return out.slice(0, 10);
 }
+// "Jogada absurda" + "clipe-30s.webm" -> "Jogada absurda.webm" (mantém a extensão: o ícone e o download continuam certos)
+export const clipName = (title, file) => { const e = String(file || '').match(/\.[a-z0-9]{2,5}$/i)?.[0] || ''; const t = String(title || '').trim() || String(file || 'clipe'); return e && !t.toLowerCase().endsWith(e.toLowerCase()) ? t + e : t; };
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
 export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload }) {
@@ -50,6 +52,12 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
     }
     return null;
   }
+  // clipes da página: o nome mostrado é o título da galeria (renomear lá muda aqui também), não o nome do arquivo
+  function clipTitles(mids) {
+    const out = new Map(); if (!mids.length) return out;
+    for (const c of all('SELECT id, message_id, url, title FROM clips WHERE message_id IN (SELECT value FROM json_each(?))', JSON.stringify(mids))) out.set(c.message_id + '|' + c.url, c);
+    return out;
+  }
   app.get('/api/media', auth, wrap((req, res) => {
     const chs = scopeChannels(req.uid, req.query); if (!chs) return bad(res, 'Conversa não encontrada', 404);
     if (!chs.length) return res.json({ items: [], next: null });
@@ -66,11 +74,13 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
     if (until) { where.push('m.created_at <= ?'); args.push(until); }
     if (kind === 'link') where.push("m.content LIKE '%http%'");
     else if (kind !== 'all') where.push("m.attachments <> '[]'");
-    if (q && kind !== 'link') { where.push('(lower(m.attachments) LIKE ? OR lower(m.content) LIKE ?)'); args.push('%' + q + '%', '%' + q + '%'); }
+    // a busca também acha o clipe pelo nome que ele ganhou na galeria (o anexo guarda o nome original do arquivo)
+    if (q && kind !== 'link') { where.push('(lower(m.attachments) LIKE ? OR lower(m.content) LIKE ? OR m.id IN (SELECT message_id FROM clips WHERE lower(title) LIKE ?))'); args.push('%' + q + '%', '%' + q + '%', '%' + q + '%'); }
     const sql = `SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.attachments, m.pinned FROM messages m WHERE ${where.join(' AND ')} AND m.id < ? ORDER BY m.id DESC LIMIT 200`;
     const items = []; let next = null, scanned = 0;
     for (; ;) {
       const rows = all(sql, ...args, before); if (!rows.length) { next = null; break; }
+      const titles = clipTitles(rows.map(r => r.id));
       for (const m of rows) {
         scanned++; before = m.id;
         const base = { message_id: m.id, channel_id: m.channel_id, author_id: m.author_id, created_at: m.created_at, pinned: !!m.pinned };
@@ -79,8 +89,9 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
           atts.forEach((a, i) => {
             if (!a || a.enc || (!a.url && !a.expired)) return; // protegido de ponta a ponta: o servidor não sabe nome nem tipo
             const k = kindOf(a); if (kind !== 'all' && k !== kind) return;
-            if (q && !String(a.name || '').toLowerCase().includes(q)) return;
-            items.push({ ...base, i, kind: k, url: a.url || null, name: a.name || 'arquivo', size: +a.size || 0, type: a.type || '', expired: !!a.expired, ...(a.voice ? { voice: true, duration: a.duration || 0 } : {}) });
+            const clip = a.url && titles.get(m.id + '|' + a.url), name = clip ? clipName(clip.title, a.name) : a.name || 'arquivo';
+            if (q && !String(a.name || '').toLowerCase().includes(q) && !name.toLowerCase().includes(q)) return;
+            items.push({ ...base, i, kind: k, url: a.url || null, name, ...(clip ? { clip_id: clip.id, file_name: a.name || '' } : {}), size: +a.size || 0, type: a.type || '', expired: !!a.expired, ...(a.voice ? { voice: true, duration: a.duration || 0 } : {}) });
           });
         }
         if (kind === 'all' || kind === 'link') for (const u of linksOf(m.content)) {

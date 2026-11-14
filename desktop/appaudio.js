@@ -41,7 +41,7 @@ function capable() {
   probed = new Promise((res) => execFile(exe, ['--probe'], { windowsHide: true, timeout: 5000 }, (err, out) => {
     let j = null; try { j = JSON.parse(String(out).trim()); } catch { }
     if (!j) { probed = null; return res({ ok: false, reason: 'Não consegui testar o áudio do Windows' + (err ? ': ' + err.message : '') }); }
-    res(j.ok ? { ok: true } : { ok: false, reason: 'Precisa do Windows 10 versão 2004 ou mais novo (este é o build ' + j.build + ').' });
+    res(j.ok ? { ok: true, screen: true } : { ok: false, reason: 'Precisa do Windows 10 versão 2004 ou mais novo (este é o build ' + j.build + ').' });
   }));
   return probed;
 }
@@ -235,7 +235,82 @@ async function start(o, onData) {
   clearInterval(watch); watch = setInterval(tick, 4000);
   return r;
 }
-function stop() { cur = null; clearInterval(watch); watch = null; kill(); }
+function stop() { cur = null; clearInterval(watch); watch = null; kill(); stopScreen(); }
+
+// ---------- áudio "só desta tela" (transmissão de um monitor inteiro) ----------
+// Relato: transmitindo a tela 1 em tela cheia, o som do que estava no monitor 2 (vídeo, outro jogo) ia junto, porque a tela
+// inteira usava o loopback do PC todo. O Windows não separa o som por monitor, mas separa por programa: aqui juntamos os
+// programas que têm janela à vista NESTE monitor (o programa nativo diz o monitor de cada janela) e abrimos um loopback
+// por programa (até 8). A página mistura as trilhas (um AudioWorklet por programa, cada um com sua fila). A cada 2 s e a
+// cada mudança de janelas a lista é refeita: abriu algo nesta tela entra; mudou de monitor, minimizou ou fechou sai.
+// Fica de fora: a própria Resenha (voz da call), o explorer (pai de quase tudo: o loopback dele pegaria o PC inteiro) e as
+// lojas/launchers (pais dos jogos: a Steam aberta aqui pegaria o jogo do outro monitor). Limite: um programa com janelas
+// nos dois monitores (o mesmo Chrome) entra inteiro.
+const MAX_SCREEN_PROCS = 8;
+const SKIP_PARENT = /\\(explorer|steam|steamwebhelper|epicgameslauncher|riotclientservices|riotclientux|battle\.net|battle\.net launcher|eadesktop|ubisoftconnect|upc|galaxyclient|rockstarlauncher|playnite\.\w+|heroic|xboxpcapp|applicationframehost|textinputhost|shellexperiencehost|searchhost|startmenuexperiencehost|systemsettings|lockapp)\.exe$/i;
+let scr = null; // { rect, onData, slots: Map(pid -> { p, slot }), timer, busy }
+const sameMon = (mon, rect) => { if (!Array.isArray(mon) || !rect) return false; const cx = (mon[0] + mon[2]) / 2, cy = (mon[1] + mon[3]) / 2; return cx >= rect[0] && cx < rect[2] && cy >= rect[1] && cy < rect[3]; };
+function screenPids(list, rect) {
+  const out = [];
+  for (const w of list) {
+    if (!w || w.minimized || !w.pid || w.pid === process.pid || !sameMon(w.mon, rect)) continue;
+    if (SKIP_PARENT.test(w.exe || '') || /^(Program Manager)$/.test(w.title || '')) continue;
+    if (!out.includes(w.pid)) out.push(w.pid);
+  }
+  return out.slice(0, MAX_SCREEN_PROCS);
+}
+function openScreenCap(pid, slot, onData) {
+  const exe = helperPath(); if (!exe) return null;
+  const p = spawn(exe, ['--capture'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  p.stdout.on('data', (d) => onData(d, slot));
+  let err = '';
+  p.stderr.on('data', (d) => { err += d; let i; while ((i = err.indexOf('\n')) >= 0) { const line = err.slice(0, i).trim(); err = err.slice(i + 1); try { const ev = JSON.parse(line); if (ev.t === 'error') log('tela: processo', pid, ev.error); } catch { if (line) log(line); } } });
+  p.on('error', (e) => log('tela: processo', pid, e.message));
+  p.stdin.on('error', () => { });
+  p.stdin.write(JSON.stringify({ pid, mode: 'include' }) + '\n');
+  return p;
+}
+const killProc = (p) => { try { p.stdin.write('stop\n'); p.stdin.end(); } catch { } setTimeout(() => { try { p.kill(); } catch { } }, 1500); };
+async function screenTick(list) {
+  const s = scr; if (!s || s.busy) return;
+  s.busy = true;
+  try {
+    const wins = list || await listWindows({ cached: true });
+    if (scr !== s) return;
+    const want = new Set(screenPids(wins, s.rect));
+    for (const [pid, c] of s.slots) if (!want.has(pid) || c.p.exitCode !== null) { killProc(c.p); s.slots.delete(pid); }
+    const used = new Set([...s.slots.values()].map(c => c.slot));
+    for (const pid of want) {
+      if (s.slots.has(pid)) continue;
+      let slot = 0; while (used.has(slot)) slot++;
+      if (slot >= MAX_SCREEN_PROCS) break;
+      const p = openScreenCap(pid, slot, s.onData); if (!p) break;
+      used.add(slot); s.slots.set(pid, { p, slot });
+    }
+    const k = [...s.slots.keys()].sort().join(',');
+    if (k !== s.last) { s.last = k; log('tela: áudio de', s.slots.size, 'programa(s)', k); }
+  } catch (e) { log('tela', e.message); } finally { s.busy = false; }
+}
+// rect: monitor em pixels reais [l, t, r, b]; onData(Buffer, slot)
+async function startScreen(rect, onData) {
+  stop();
+  if (!helperPath()) return { ok: false, error: 'componente de áudio não encontrado' };
+  const wins = await listWindows();
+  if (!wins.some(w => Array.isArray(w.mon))) return { ok: false, error: 'componente de áudio antigo (atualize o app)' };
+  const s = { rect, onData, slots: new Map(), busy: false, last: '' }; scr = s;
+  await screenTick(wins);
+  if (scr !== s) return { ok: false, error: 'cancelado' };
+  s.timer = setInterval(() => screenTick(), 2000);
+  watchWindows(onScreenWindows);
+  return { ok: true, procs: s.slots.size };
+}
+function onScreenWindows(list) { if (scr) screenTick(list); }
+function stopScreen() {
+  const s = scr; if (!s) return;
+  scr = null; clearInterval(s.timer); winListeners.delete(onScreenWindows);
+  for (const c of s.slots.values()) killProc(c.p);
+  s.slots.clear();
+}
 
 // ---------- estado da janela transmitida ----------
 // janela minimizada: o Windows para de entregar quadros e quem assiste vê a imagem parada; janela fechada: nada mais vem.
@@ -251,4 +326,4 @@ async function sourceState(sourceId, list) {
 
 function shutdown() { stop(); helper?.stop(); helper = null; winCache = null; }
 
-module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };
+module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, startScreen, screenPids, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };

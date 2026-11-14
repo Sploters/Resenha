@@ -6,6 +6,17 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-14-1', title: 'Transmissão mais clara e eventos com capa',
+    items: [
+      { i: 'live', t: '"Ao vivo" sempre à vista', d: 'Enquanto você transmite, o painel de voz mostra uma faixa AO VIVO com o tempo, quantas pessoas estão assistindo e o botão Parar, em qualquer tela do app. No palco, o botão virou um selo "AO VIVO · Parar transmissão", com outra cor e mais longe do "Sair da chamada".' },
+      { i: 'vol', t: 'Tela cheia sem o som do outro monitor', d: 'No app para Windows, ao transmitir uma tela inteira, o áudio "Só desta tela" leva só o som dos programas abertos nela. O vídeo ou o jogo do segundo monitor não vazam mais para a transmissão.', try: 'stream' },
+      { i: 'image', t: 'Capa para qualquer jogo nos eventos', d: 'Além da Steam: escolha Valorant, LoL, Overwatch, Fortnite e outros da lista, cole o link da Epic, da Battle.net ou do site do jogo, ou envie uma imagem sua.' },
+      { i: 'bell', t: 'Aviso 30 min antes, com som', d: 'Quem marcou Vou ou Talvez recebe o aviso 30 minutos antes do evento, com um som próprio (dá para trocar em Configurações → Sons).', try: 'sounds' },
+      { i: 'file', t: 'Clipes com o nome certo em Arquivos', d: 'Clipe renomeado na galeria aparece (e baixa) com o nome novo na aba Arquivos do servidor e da DM.' },
+      { i: 'dm', t: 'Ativo agora abre a conversa', d: 'Clicar em quem está no "Ativo agora" abre a DM com a pessoa. Para ver o perfil, clique na foto.' },
+    ],
+  },
+  {
     id: '2026-11-13-4', title: 'Push-to-talk no jogo',
     items: [
       { i: 'mic', t: 'Push-to-talk com o jogo em foco', d: 'No app para Windows, a tecla de push-to-talk funciona com o jogo na frente, não só com a Resenha em foco. Só vale enquanto você está numa chamada em modo push-to-talk, e o app só vê a tecla escolhida. Se o jogo roda como administrador, abra a Resenha como administrador também.', try: 'voice' },

@@ -536,7 +536,7 @@ export class Voice {
     if (fps != null && !this.screenNote && fps < want * 0.6 && fps < 50) items.push(['warn', `${fps} de ${want} fps: ${top?.limit === 'cpu' ? 'o processador está no limite' : top?.limit === 'bandwidth' ? 'a internet está no limite' : 'a fonte está entregando menos quadros (conteúdo parado também conta)'}.`]);
     else if (top?.limit === 'bandwidth') items.push(['warn', 'A internet está limitando a qualidade.']);
     else if (top?.limit === 'cpu') items.push(['warn', 'O processador está limitando a qualidade.']);
-    const audio = !o.audio ? 'sem áudio' : this.appAudio ? (this.appAudio.mode === 'exclude' ? 'áudio do PC (menos a Resenha)' : `áudio de ${this.appAudio.name || 'jogo'}`) : (this.screen.getAudioTracks().length ? 'áudio do sistema' : 'sem áudio');
+    const audio = !o.audio ? 'sem áudio' : this.appAudio ? (this.appAudio.mode === 'exclude' ? 'áudio do PC (menos a Resenha)' : this.appAudio.mode === 'screen' ? 'áudio só desta tela' : `áudio de ${this.appAudio.name || 'jogo'}`) : (this.screen.getAudioTracks().length ? 'áudio do sistema' : 'sem áudio');
     const level = items.some(i => i[0] === 'bad') ? 'bad' : items.length ? 'warn' : 'ok';
     return { level, fps, want, audio, items };
   }
@@ -1083,12 +1083,14 @@ export class Voice {
       const ctx = this.getCtx();
       this._pcmMod ||= ctx.audioWorklet.addModule('/appaudio-worklet.js').catch((e) => { this._pcmMod = null; throw e; });
       await this._pcmMod;
-      node = new AudioWorkletNode(ctx, 'lc-pcm', { numberOfInputs: 0, outputChannelCount: [2] });
-      const dest = ctx.createMediaStreamDestination(); node.connect(dest);
-      d.onAppAudio((b) => node.port.postMessage(b));
+      const mk = () => { const n = new AudioWorkletNode(ctx, 'lc-pcm', { numberOfInputs: 0, outputChannelCount: [2] }); n.connect(dest); return n; };
+      const dest = ctx.createMediaStreamDestination(); node = mk();
+      // "só desta tela": um programa por slot, cada um com a sua fila; o destino soma as trilhas
+      const extra = []; node.extra = extra;
+      d.onAppAudio((b, slot) => { if (!slot) return node.port.postMessage(b); if (slot < 8) (extra[slot] ||= mk()).port.postMessage(b); });
       // vigia do app desktop: o jogo reiniciou com outro processo (religado) ou fechou (esperando voltar)
       d.onAppAudioEvent?.((ev) => { if (!this.appAudio) return; this.appAudio.state = ev.t === 'waiting' ? 'waiting' : 'ok'; this.onAppAudioEvent?.(ev); this.onUpdate(); });
-      const r = await d.appAudioStart({ pid: a.pid, mode: a.mode });
+      const r = await d.appAudioStart(a.mode === 'screen' ? { mode: 'screen', source: a.source } : { pid: a.pid, mode: a.mode });
       if (!r?.ok) throw new Error(r?.error || 'falhou');
       if (!this.screen) throw new Error('transmissão encerrada');
       const t = dest.stream.getAudioTracks()[0];
@@ -1097,8 +1099,8 @@ export class Voice {
       this.appAudio = { node, dest, track: t, mode: a.mode, name: a.name || '', state: 'ok' };
       return true;
     } catch (e) {
-      d.onAppAudio?.(null); d.appAudioStop?.(); node?.disconnect();
-      if (this.screen) { this.error = `Áudio só ${a.mode === 'exclude' ? 'dos outros programas' : 'do jogo'} indisponível (${e.message}). Transmitindo o áudio do PC inteiro.`; this.onUpdate(); }
+      d.onAppAudio?.(null); d.appAudioStop?.(); node?.disconnect(); for (const n of node?.extra || []) n?.disconnect();
+      if (this.screen) { this.error = `Áudio só ${a.mode === 'exclude' ? 'dos outros programas' : a.mode === 'screen' ? 'desta tela' : 'do jogo'} indisponível (${e.message}). Transmitindo o áudio do PC inteiro.`; this.onUpdate(); }
       return false;
     }
   }
@@ -1106,7 +1108,7 @@ export class Voice {
     const a = this.appAudio; if (!a) return;
     this.appAudio = null;
     window.lcDesktop?.onAppAudio?.(null); window.lcDesktop?.onAppAudioEvent?.(null); window.lcDesktop?.appAudioStop?.();
-    a.node.disconnect(); a.track.stop();
+    a.node.disconnect(); for (const n of a.node.extra || []) n?.disconnect(); a.track.stop();
   }
 
   // ---------- 60/120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------

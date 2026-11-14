@@ -15,7 +15,8 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   // avisos do programa nativo, na hora em que a lista de janelas muda (sem esperar a próxima consulta)
   onGameChanged: (() => { let cb = null; ipcRenderer.on('game-changed', (_e, g) => cb?.(g)); return (f) => { cb = f; }; })(), // { id, title } | null
   onSourceState: (() => { let cb = null; ipcRenderer.on('source-state', (_e, s) => cb?.(s)); return (f) => { cb = f; }; })(), // como sourceState()
-  onAppAudio: (() => { let cb = null; ipcRenderer.on('app-audio-data', (_e, b) => cb?.(b)); return (f) => { cb = f; }; })(),
+  onAppAudio: (() => { let cb = null; ipcRenderer.on('app-audio-data', (_e, b, slot) => cb?.(b, slot | 0)); return (f) => { cb = f; }; })(), // slot: um programa no áudio "só desta tela"
+  appAudioScreen: true, // sabe o modo 'screen' (áudio só dos programas da tela transmitida)
   setBadge: (n) => ipcRenderer.send('set-badge', n),
   clipFlash: (o) => ipcRenderer.send('clip-flash', o), // aviso de clipe por cima do jogo (desde a 1.0.24)
   onHotkey: (cb) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),

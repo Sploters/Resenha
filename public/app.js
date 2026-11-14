@@ -52,7 +52,7 @@ function releaseOldScreens() {
   if (!document.getElementById('actfeed')) { S.redrawFeed = null; clearInterval(S.feedClock); S.feedClock = null; } // o relógio de 30 s do "Ativo agora" segurava o painel até o próximo tique
   if (observedStage && !observedStage.isConnected) { stageObs.unobserve(observedStage); observedStage = null; }
 }
-import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles } from './files.js';
+import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFilesClip } from './files.js';
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
@@ -411,7 +411,7 @@ function onEvent(t, d) {
     }
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': onLfgEvent(t, d); break;
-    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') updateClipEmbeds(t, d); break;
+    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null }; boardState(d.boards);
@@ -1276,11 +1276,12 @@ function voicePanel() {
     h('div.t' + (voice.recovering ? '.recovering' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : [pingEl(), 'Voz conectada']),
       h('span.vp-btns', voiceBtn(),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
+    voice.screen && liveStrip(),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
       fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label)),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
-      voice.screen ? h('button.stopshare', { title: 'Parar transmissão', onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
+      voice.screen ? h('button.stopshare', { title: 'Parar transmissão' + shareKeyHint(), onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
       sbButton()));
 }
@@ -3205,20 +3206,22 @@ function renderVoiceUI(speakOnly) {
   else if (['spot', 'sidebar', 'cinema'].includes(layout) && tiles.length > 1 && !focusTile) focusTile = screens[0] || tiles[0]; // sem destaque escolhido: a primeira transmissão
   const abtn = (ic, title, on, fn) => h('button.roundbtn' + (on ? '.active' : ''), { title, onclick: fn }, icon(ic, 24));
   const btn = (ic, title, on, fn, cls = '') => swapIcon(h('button.roundbtn' + (on ? '.off' : '') + cls, { title, onclick: fn, oncontextmenu: cls.startsWith('.mic') ? noiseMenu : null }, icon(ic, 24)), 'bar-' + ic.replace(/(off|set)$/, ''), !!on); // ícone novo entra com fade + desfoque
+  syncLive();
   const bar = h('div.bar', inRoom ? [
     // centro = sala e transmissão; microfone, fone, câmera, efeitos, soundboard e música ficam no painel da esquerda
     // (em tela estreita o painel some: aí eles voltam a aparecer aqui, .solo-narrow)
     btn(voice.muted ? 'micoff' : 'mic', voice.muted ? 'Ativar microfone (clique direito: redução de ruído)' : 'Silenciar (clique direito: redução de ruído)', voice.muted, () => voiceToggle('mute'), '.mic.solo-narrow'),
     btn(voice.deafened ? 'headoff' : 'headset', 'Ensurdecer', voice.deafened, () => voiceToggle('deaf'), '.solo-narrow'),
     btn('video', 'Câmera', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'),
-    voice.screen ? h('button.roundbtn.stopshare', { title: 'Parar de compartilhar a tela', onclick: () => stopSharing() }, icon('screenoff', 22), h('span', 'Parar transmissão')) : btn('screen', 'Transmitir tela', false, startShare),
+    voice.screen ? h('button.roundbtn.stopshare', { title: 'Parar de compartilhar a tela' + shareKeyHint() + ' — você continua na chamada', onclick: () => stopSharing() }, h('i.live-dot'), h('span.live-lbl', 'AO VIVO'), h('span.live-t', liveClock()), h('span.live-sep'), icon('screenoff', 20), h('span', 'Parar transmissão')) : btn('screen', 'Transmitir tela', false, startShare),
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     abtn('gamepad', 'O que jogar hoje? (jogos que todo mundo da chamada tem)', false, () => openGameNight(voice.channelId)),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
-    btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
+    voice.screen && h('span.bar-gap', { 'aria-hidden': 'true' }), // distância entre "Parar transmissão" e "Sair da chamada": não clica um achando que é o outro
+    btn('phoneoff', voice.screen ? 'Sair da chamada (também encerra a transmissão)' : 'Sair da chamada', false, () => voice.leave(), '.red'),
   ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
@@ -3281,7 +3284,14 @@ async function startShare() {
   // de novo nesta transmissão. Antes a preferência 'game' (salva numa transmissão de janela) pegava o primeiro jogo aberto em
   // QUALQUER monitor e a tela ia só com o som dele — os programas do outro monitor ficavam mudos.
   let audGamePicked = false;
-  const audEff = () => (audMode === 'game' && src?.type === 'screen' && !audGamePicked ? 'system' : audMode);
+  // tela inteira com o app novo: "Só desta tela" (os programas com janela neste monitor; o outro monitor não vaza), escolha
+  // guardada à parte (S.prefs.screen.screenAudio: 'screen' | 'system')
+  const scrCap = () => !!(appCap.ok && appCap.screen && desktop?.appAudioScreen);
+  let scrMode = S.prefs.screen?.screenAudio === 'system' ? 'system' : 'screen';
+  const audEff = () => {
+    if (src?.type === 'screen' && audMode !== 'none' && scrCap() && !audGamePicked) return scrMode;
+    return audMode === 'game' && src?.type === 'screen' && !audGamePicked ? 'system' : audMode;
+  };
   const tabs = h('div.seg'), grid = h('div.sources'), audRow = h('div');
   // de quem é o áudio "só o jogo": a janela escolhida; na tela inteira, o jogo aberto (detectado pelo app)
   const audTarget = () => (src?.type === 'window' ? (src.pid ? src : null) : list.find(s => s.type === 'window' && s.game && s.pid) || null);
@@ -3290,13 +3300,19 @@ async function startShare() {
       return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })),
         desktop && appCap.reason && h('div.qinfo', 'Áudio só do jogo indisponível: ' + appCap.reason));
     }
-    const t = audTarget(), opts = {};
-    if (t) opts.game = `Só ${src?.type === 'window' ? 'este programa' : 'o jogo'}: ${t.name.length > 34 ? t.name.slice(0, 33) + '…' : t.name}`;
+    const t = audTarget(), opts = {}, isScr = src?.type === 'screen' && scrCap();
+    if (isScr) opts.screen = 'Só desta tela';
+    if (t && !isScr) opts.game = `Só ${src?.type === 'window' ? 'este programa' : 'o jogo'}: ${t.name.length > 34 ? t.name.slice(0, 33) + '…' : t.name}`;
     opts.system = 'Tudo do PC'; opts.none = 'Sem áudio';
     const mode = audEff() === 'game' && !t ? 'system' : audEff();
-    audRow.replaceChildren(h('label.f', 'Áudio', seg(opts, mode, v => { audMode = v; if (v === 'game') audGamePicked = true; drawAudio(); })),
-      h('div.qinfo', mode === 'game' ? 'Como no Discord: vai só o som do jogo. Música, navegador e a voz da call não entram na transmissão.'
-        : mode === 'system' ? 'Vai o som de todos os programas abertos (música, navegador...), menos o da Resenha.' : 'A transmissão vai sem som.'));
+    audRow.replaceChildren(h('label.f', 'Áudio', seg(opts, mode, v => {
+      if (v === 'screen' || (isScr && v === 'system')) { scrMode = v; audMode = audMode === 'none' ? 'game' : audMode; audGamePicked = false; }
+      else { audMode = v; if (v === 'game') audGamePicked = true; }
+      drawAudio();
+    })),
+      h('div.qinfo', mode === 'screen' ? 'Vai só o som dos programas abertos nesta tela (o jogo, o vídeo, o navegador que estão nela). O que estiver em outro monitor e a voz da call não entram.'
+        : mode === 'game' ? 'Como no Discord: vai só o som do jogo. Música, navegador e a voz da call não entram na transmissão.'
+        : mode === 'system' ? 'Vai o som de todos os programas abertos (música, navegador, outro monitor...), menos o da Resenha.' : 'A transmissão vai sem som.'));
   };
   const drawSources = () => {
     tabs.replaceChildren(...[['screen', 'Telas'], ['window', 'Janelas / aplicativos']].map(([k, l]) => h('button' + (tab === k ? '.on' : ''), { onclick: () => { tab = k; drawSources(); } }, l)));
@@ -3338,10 +3354,11 @@ async function startShare() {
     clearInterval(timer);
     const t = audTarget(), mode = audEff() === 'game' && !(appCap.ok && t) ? 'system' : audEff();
     o.audio = mode !== 'none';
-    const appAudio = !appCap.ok || mode === 'none' ? null : mode === 'game' ? { mode: 'include', pid: t.pid, name: t.name } : { mode: 'exclude' };
-    // 'system' só porque era uma tela não muda a preferência das transmissões de janela/jogo
-    const keep = mode === 'none' || (mode !== audMode && src?.type === 'screen');
-    S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
+    const appAudio = !appCap.ok || mode === 'none' ? null : mode === 'game' ? { mode: 'include', pid: t.pid, name: t.name } : mode === 'screen' ? { mode: 'screen', source: src.id } : { mode: 'exclude' };
+    // 'system'/'screen' só porque era uma tela não muda a preferência das transmissões de janela/jogo
+    const keep = mode === 'none' || mode === 'screen' || (mode !== audMode && src?.type === 'screen');
+    const screenAudio = src?.type === 'screen' && scrCap() && (mode === 'screen' || mode === 'system') ? mode : (S.prefs.screen?.screenAudio || 'screen');
+    S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, screenAudio, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
     voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
   } }], { width: desktop ? '780px' : '560px' });
 }
@@ -3359,6 +3376,28 @@ const pipCtx = {
 };
 // parar de compartilhar a tela (sem sair da chamada)
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
+// ---------- "Você está ao vivo" ----------
+// Relato do 1º teste: o "Parar transmissão" era difícil de achar (vermelho igual ao "Sair da chamada", ao lado dele, e no
+// palco os controles da transmissão somem com o mouse parado). Agora: faixa fixa "AO VIVO" no painel de voz (aparece em
+// qualquer tela do app, mesmo fora da sala), com tempo, quem está assistindo e o botão Parar; e no palco o botão vira um
+// selo "● AO VIVO 12:34 | Parar transmissão", separado do Sair da chamada. O Sair continua só saindo (encerra junto).
+let liveSince = 0, liveTimer = 0;
+const liveClock = () => { if (!liveSince) return '0:00'; const s = Math.floor((Date.now() - liveSince) / 1000), p = (n) => String(n).padStart(2, '0'); return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}` : `${Math.floor(s / 60)}:${p(s % 60)}`; };
+const shareKeyHint = () => (shareKey() ? ` (${comboLabel(shareKey())})` : '');
+function syncLive() {
+  if (voice?.screen && !liveSince) liveSince = Date.now();
+  if (!voice?.screen) liveSince = 0;
+  if (liveSince && !liveTimer) liveTimer = setInterval(() => { if (!voice?.screen) { clearInterval(liveTimer); liveTimer = 0; liveSince = 0; return; } const t = liveClock(); for (const el of document.querySelectorAll('.live-t')) el.textContent = t; }, 1000);
+}
+function liveStrip() {
+  syncLive();
+  const watching = (S.viewers.get(S.me.id) || []).filter(id => id !== S.me.id);
+  const names = watching.map(id => nameOf(id, channelById(voice.channelId)?.guild_id)).join(', ');
+  return h('div.vp-live', { title: watching.length ? 'Assistindo: ' + names : 'Ninguém assistindo ainda' },
+    h('i.live-dot'), h('b', 'AO VIVO'), h('span.live-t', liveClock()),
+    h('span.vp-live-w', icon('eye', 14), String(watching.length)),
+    h('button.vp-live-stop', { title: 'Parar transmissão' + shareKeyHint() + ' — você continua na chamada', onclick: stopSharing }, icon('screenoff', 14), h('span', 'Parar')));
+}
 // ---------- atalho da transmissão (padrão Ctrl+Shift+S) ----------
 // Liga/desliga a transmissão na hora, sem abrir o seletor: transmite o que está em primeiro plano (a janela atual, jogo em
 // janela ou em tela cheia; a área de trabalho na frente = a tela) com as últimas escolhas de qualidade e áudio da pessoa.
@@ -3390,8 +3429,10 @@ async function quickShare(src) {
   const mode = o.audio === false ? 'none' : o.audioMode === 'system' ? 'system' : 'game';
   o.audio = mode !== 'none';
   let appAudio = null;
-  if (src && o.audio && (await desktop.appAudioCapable?.().catch(() => null))?.ok) // 'game' = só o programa da frente; na tela inteira, tudo menos a Resenha
-    appAudio = mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name } : { mode: 'exclude' };
+  const cap = src && o.audio ? await desktop.appAudioCapable?.().catch(() => null) : null;
+  if (cap?.ok) // 'game' = só o programa da frente; na tela inteira, só os programas daquela tela (app novo) ou tudo menos a Resenha
+    appAudio = mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name }
+      : src.type === 'screen' && cap.screen && desktop.appAudioScreen && o.screenAudio !== 'system' ? { mode: 'screen', source: src.id } : { mode: 'exclude' };
   if (src && !(await desktop.selectSource(src.id, src.name).catch(() => false))) { clipFlash(false, 'Transmissão não iniciada', null, 'share'); return; }
   await voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
   if (voice.screen) clipFlash(true, 'Transmitindo', src?.name, 'share');

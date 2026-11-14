@@ -42,7 +42,9 @@ async function load(reset) {
 
 // ---------- itens ----------
 const jump = (it) => { ctx.go?.(channelById(it.channel_id)?.guild_id || '@me', it.channel_id); setTimeout(() => ctx.jumpTo?.(it.message_id), 600); };
-const dl = (it) => { const a = h('a', { href: it.url + '?download=1', download: it.name }); document.body.append(a); a.click(); a.remove(); };
+// clipe renomeado na galeria: baixa com o nome novo (o servidor usa o último pedaço do endereço como nome do arquivo)
+const dlUrl = (it) => (it.clip_id && /^\/files\/[^/]+\//.test(it.url) ? it.url.replace(/\/[^/]*$/, '/' + encodeURIComponent(it.name)) : it.url) + '?download=1';
+const dl = (it) => { const a = h('a', { href: dlUrl(it), download: it.name }); document.body.append(a); a.click(); a.remove(); };
 function itemMenu(e, it) {
   e.preventDefault(); e.stopPropagation();
   menu(e, [
@@ -139,4 +141,10 @@ export function onFilesMessage(m) {
   if (!(m.attachments?.length || /https?:\/\//.test(m.content || ''))) return;
   if (st.gid ? m.guild_id !== st.gid : m.channel_id !== st.dm) return;
   clearTimeout(st.rt); st.rt = setTimeout(() => load(true), 800);
+}
+// clipe renomeado/apagado na galeria: a aba aberta mostra o nome novo sem precisar sair e voltar
+export function onFilesClip(t, d) {
+  if (!st.root || !document.body.contains(st.root) || !d?.id) return;
+  if (t === 'CLIP_UPDATE') { let hit = false; for (const it of st.items) if (it.clip_id === d.id && d.title) { const e = (it.name.match(/\.[a-z0-9]{2,5}$/i) || [''])[0]; it.name = d.title.toLowerCase().endsWith(e.toLowerCase()) ? d.title : d.title + e; hit = true; } if (hit) draw(); return; }
+  if (t === 'CLIP_DELETE' && st.items.some(it => it.clip_id === d.id)) { clearTimeout(st.rt); st.rt = setTimeout(() => load(true), 400); }
 }

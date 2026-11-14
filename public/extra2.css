@@ -651,3 +651,7 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 #active-now .an-who small.an-why { white-space: normal; overflow: visible; line-height: 1.3; }
 #active-now .an-addbtn { align-self: stretch; justify-content: center; }
 #active-now .an-sugx { opacity: .6; flex: none; } #active-now .an-sugx:hover { opacity: 1; }
+/* "Ativo agora": a foto abre o perfil; o resto da pessoa abre a DM */
+#active-now .an-av { display: inline-flex; flex: none; border-radius: 50%; cursor: pointer; }
+#active-now .an-av:hover { filter: brightness(1.1); }
+#active-now .an-card .an-top[title] { cursor: pointer; }

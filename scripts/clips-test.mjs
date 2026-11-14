@@ -56,6 +56,15 @@ try {
   ok((await call(a.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Jogada' })).status === 200, 'dono do servidor (gerenciar mensagens) renomeia');
   ok((await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Minha jogada' })).title === 'Minha jogada', 'quem clipou renomeia');
   ok((await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: '   ' })).status === 400, 'nome vazio é recusado');
+  // aba Arquivos (servidor): o vídeo do clipe aparece com o nome da galeria, não o do arquivo
+  const fm = await call(a.tok, 'GET', `/media?guild=${g.id}&kind=video`);
+  ok(fm.items?.[0]?.name === 'Minha jogada.webm' && fm.items[0].clip_id === c1.clip.id && fm.items[0].file_name === 'x.webm', 'aba Arquivos mostra o nome novo do clipe renomeado', fm.items?.[0]);
+  ok((await call(a.tok, 'GET', `/media?guild=${g.id}&q=jogada`)).items?.some(i => i.clip_id === c1.clip.id), 'buscar na aba Arquivos acha o clipe pelo nome novo');
+  await A.evaluate((gid) => window.__lc.go(gid, 'files'), g.id);
+  await A.waitForFunction(() => /Minha jogada\.webm/.test(document.querySelector('#filesview')?.innerText || ''), { timeout: 8000 }).then(() => ok(true, 'tela Arquivos com o nome do clipe'), () => ok(false, 'tela Arquivos com o nome do clipe'));
+  await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Ace' });
+  await A.waitForFunction(() => /Ace\.webm/.test(document.querySelector('#filesview')?.innerText || ''), { timeout: 8000 }).then(() => ok(true, 'renomear com a aba Arquivos aberta atualiza na hora'), () => ok(false, 'renomear com a aba Arquivos aberta atualiza na hora'));
+  await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Minha jogada' });
   await call(b.tok, 'PUT', `/clips/${c1.clip.id}/fav`);
   ok((await call(b.tok, 'GET', `/guilds/${g.id}/clips?filter=fav`)).clips.length === 1 && (await call(a.tok, 'GET', `/guilds/${g.id}/clips?filter=fav`)).clips.length === 0, 'favorito é por pessoa');
   ok((await call(a.tok, 'GET', `/guilds/${g.id}/clips?filter=mine`)).clips.length === 1, '"Meus" inclui os clipes em que eu transmitia');

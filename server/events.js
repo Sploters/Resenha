@@ -1,4 +1,7 @@
-// Eventos do servidor: "Sexta 21h, CS2 na sala Geral" com Vou / Talvez / Não vou, lembrete 15 min antes e aviso
+import fs from 'node:fs';
+import path from 'node:path';
+import { createArt, catalogGame, ART_CATALOG } from './eventart.js';
+// Eventos do servidor: "Sexta 21h, CS2 na sala Geral" com Vou / Talvez / Não vou, lembrete 30 min antes e aviso
 // quando começa (com "Entrar na sala").
 //
 // Cada evento é anunciado num canal de texto como uma mensagem ("📅 título") que o app desenha como cartão (igual às
@@ -10,15 +13,18 @@
 //
 // Rotas:
 //   GET    /api/guilds/:id/events            -> [evento] (próximos e acontecendo; ?past=1 inclui os de até 7 dias atrás)
-//   POST   /api/guilds/:id/events            { title, starts_at, duration_min, channel_id (sala de voz), announce_id (canal de texto), slots, game, appid, description }
+//   POST   /api/guilds/:id/events            { title, starts_at, duration_min, channel_id (sala de voz), announce_id (canal de texto), slots, game, appid, description,
+//                                              banner (capa: arquivo desta instalação, /files/...), banner_link (de onde veio a capa, só para mostrar) }
+//   POST   /api/guilds/:id/event-art         { url } | { game } -> { url, title, source } capa de um link (Epic, Riot, Battle.net, imagem…) ou do catálogo
+//   GET    /api/event-art/catalog            -> [{ name, store }] jogos fora da Steam que já têm capa automática
 //   PATCH  /api/events/:id                   (mesmos campos)          DELETE /api/events/:id -> cancela (fica no chat como "Cancelado")
 //   PUT    /api/events/:id/rsvp              { state: 'yes' | 'maybe' | 'no' | null }
 //   GET    /api/events/:id.ics               -> arquivo de agenda (iCalendar)
 // Eventos em tempo real: EVENT_UPDATE { event }, EVENT_REMINDER { event, kind: 'soon' | 'start' } (só para quem respondeu Vou/Talvez).
-export const REMIND_MIN = 15;
+export const REMIND_MIN = 30;
 const DURATIONS = new Set([30, 60, 90, 120, 180, 240, 360]);
 
-export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut = () => false, now = () => Date.now(), log = console.log }) {
+export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut = () => false, now = () => Date.now(), log = console.log, uploadDir = null, artPrivate = false }) {
   db.exec(`CREATE TABLE IF NOT EXISTS events(
     id TEXT PRIMARY KEY, guild_id TEXT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE, author_id TEXT NOT NULL,
     title TEXT NOT NULL, description TEXT, game TEXT, appid TEXT, channel_id TEXT, announce_id TEXT, message_id TEXT,
@@ -29,6 +35,8 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
   CREATE TABLE IF NOT EXISTS event_rsvps(
     event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     state TEXT NOT NULL, updated_at INTEGER, PRIMARY KEY(event_id, user_id));`);
+  for (const col of ['banner TEXT', 'banner_link TEXT']) try { db.exec('ALTER TABLE events ADD COLUMN ' + col); } catch { } // capa (jogos fora da Steam / imagem própria)
+  const art = uploadDir ? createArt({ uploadDir, allowPrivate: artPrivate, log }) : null;
 
   const member = (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid);
   const ends = (e) => e.starts_at + e.duration_min * 60e3;
@@ -38,6 +46,7 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     const r = all('SELECT user_id, state FROM event_rsvps WHERE event_id=? ORDER BY updated_at', e.id);
     const of = (s) => r.filter(x => x.state === s).map(x => x.user_id);
     return { id: e.id, guild_id: e.guild_id, author_id: e.author_id, title: e.title, description: e.description || '', game: e.game || '', appid: e.appid || null,
+      banner: e.banner || null, banner_link: e.banner_link || null,
       channel_id: e.channel_id || null, announce_id: e.announce_id || null, message_id: e.message_id || null, starts_at: e.starts_at, duration_min: e.duration_min,
       ends_at: ends(e), slots: e.slots || 0, created_at: e.created_at, status: status(e), yes: of('yes'), maybe: of('maybe'), no: of('no') };
   }
@@ -58,6 +67,12 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     if (b.description !== undefined) out.description = clean(b.description, 1000);
     if (b.game !== undefined) out.game = clean(b.game, 80);
     if (b.appid !== undefined) { out.appid = b.appid ? String(b.appid) : null; if (out.appid && !/^\d{1,10}$/.test(out.appid)) throw new Error('Jogo da Steam inválido'); }
+    if (b.banner !== undefined) { // só arquivo de imagem desta instalação (enviado ou baixado pelo /event-art)
+      out.banner = b.banner ? String(b.banner) : null;
+      const f = out.banner && out.banner.match(/^\/files\/([a-f0-9]{24}\.(png|jpe?g|webp|gif|avif))(\/[^/?#]{0,200})?$/i);
+      if (out.banner && (!f || (uploadDir && !fs.existsSync(path.join(uploadDir, f[1]))))) throw new Error('Imagem de capa inválida');
+    }
+    if (b.banner_link !== undefined) { out.banner_link = b.banner_link ? String(b.banner_link).slice(0, 500) : null; if (out.banner_link && !/^https?:\/\//i.test(out.banner_link)) out.banner_link = null; }
     if (b.starts_at !== undefined || !cur.id) {
       const t = Math.round(+b.starts_at);
       if (!isFinite(t) || t < now() - 5 * 60e3) throw new Error('Escolha um horário no futuro');
@@ -91,9 +106,10 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     const ann = req.body?.announce_id ? get('SELECT * FROM channels WHERE id=? AND guild_id=?', req.body.announce_id, gid) : null;
     if (req.body?.announce_id && (!ann || ann.type !== 0)) return bad(res, 'Canal de texto não encontrado');
     const id = newId(), t = now();
-    run(`INSERT INTO events(id,guild_id,author_id,title,description,game,appid,channel_id,announce_id,starts_at,duration_min,slots,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, gid, req.uid, v.title, v.description || '', v.game || '', v.appid || null, v.channel_id || null, ann?.id || null, v.starts_at, v.duration_min, v.slots || 0, t);
+    run(`INSERT INTO events(id,guild_id,author_id,title,description,game,appid,channel_id,announce_id,starts_at,duration_min,slots,created_at,banner,banner_link) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, gid, req.uid, v.title, v.description || '', v.game || '', v.appid || null, v.channel_id || null, ann?.id || null, v.starts_at, v.duration_min, v.slots || 0, t, v.banner || null, v.banner_link || null);
     run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at) VALUES(?,?,?,?)', id, req.uid, 'yes', t); // quem marca vai
+    if (v.starts_at - t <= REMIND_MIN * 60e3) run('UPDATE events SET reminded_at=? WHERE id=?', t, id); // marcado em cima da hora: não manda "começa em 30 min" para quem acabou de marcar
     if (ann) { // anúncio no canal: o app desenha o cartão do evento
       const mid = newId();
       run('INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES(?,?,?,?,?)', mid, ann.id, req.uid, '📅 ' + v.title, t);
@@ -119,7 +135,7 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     if (!canManage(e, req.uid)) return bad(res, 'Só quem criou (ou quem gerencia o servidor) pode cancelar', 403);
     if (!e.cancelled_at) run('UPDATE events SET cancelled_at=? WHERE id=?', now(), e.id);
     const ev = changed(byId(e.id));
-    dispatch([...ev.yes, ...ev.maybe].filter(u => u !== req.uid), 'EVENT_REMINDER', { event: ev, kind: 'cancelled' });
+    if (!e.cancelled_at) dispatch([...ev.yes, ...ev.maybe].filter(u => u !== req.uid), 'EVENT_REMINDER', { event: ev, kind: 'cancelled' });
     res.json(ev);
   }));
   app.put('/api/events/:id/rsvp', auth, wrap((req, res) => {
@@ -135,6 +151,22 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     else run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at', e.id, req.uid, st, now());
     res.json(changed(e));
   }));
+  // capa a partir de um link (página da loja/site do jogo ou imagem) ou de um jogo do catálogo
+  const artBusy = new Map(); // uid -> último pedido (1 a cada 2 s)
+  app.post('/api/guilds/:id/event-art', auth, async (req, res) => {
+    try {
+      const gid = req.params.id; if (!member(gid, req.uid)) return bad(res, 'Sem acesso', 403);
+      if (!art) return bad(res, 'Indisponível', 503);
+      if (now() - (artBusy.get(req.uid) || 0) < 2000) return bad(res, 'Calma, um de cada vez', 429);
+      artBusy.set(req.uid, now()); if (artBusy.size > 1000) artBusy.clear();
+      const cat = req.body?.game ? catalogGame(req.body.game) : null;
+      const link = cat ? cat.page : String(req.body?.url || '').trim().slice(0, 1000);
+      if (!/^https?:\/\/\S+$/i.test(link)) return bad(res, cat === null && req.body?.game ? 'Jogo fora do catálogo: cole um link ou envie uma imagem' : 'Cole um link (https://…)');
+      const r = await art(link);
+      res.json({ ...r, ...(cat ? { title: cat.name, store: cat.store } : {}) });
+    } catch (e) { if (!res.headersSent) bad(res, e.message || 'Não consegui pegar a imagem', 422); }
+  });
+  app.get('/api/event-art/catalog', auth, (req, res) => res.json(ART_CATALOG.map(g => ({ name: g.name, store: g.store }))));
   // arquivo de agenda: abre no Google Agenda, Outlook, calendário do celular…
   const icsText = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
   const icsDate = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -148,7 +180,7 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     res.set('Content-Type', 'text/calendar; charset=utf-8').set('Content-Disposition', `attachment; filename="evento-${e.id}.ics"`).send(lines.join('\r\n') + '\r\n');
   }));
 
-  // ---- lembretes: 15 min antes e na hora (só quem respondeu Vou ou Talvez) ----
+  // ---- lembretes: 30 min antes e na hora (só quem respondeu Vou ou Talvez) ----
   function tick() {
     const t = now();
     for (const e of all('SELECT * FROM events WHERE cancelled_at IS NULL AND reminded_at IS NULL AND starts_at>? AND starts_at<=?', t, t + REMIND_MIN * 60e3)) {

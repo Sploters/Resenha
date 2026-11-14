@@ -66,7 +66,7 @@ try {
   ok(/Steam/.test(c0) && /(há |começou agora)/.test(c0), 'cartão mostra a plataforma e há quanto tempo está jogando', c0);
   ok(await pb.evaluate(() => !!document.querySelector('#actfeed .an-play a.act-link')), 'cartão tem link para o perfil da Steam (vínculo visível aos amigos)');
   ok(!/Entrar|Assistir|Convidar/.test(c0), 'sem chamada: o cartão NÃO mostra Entrar/Assistir/Convidar', c0);
-  ok(await pb.evaluate(() => !!document.querySelector('#actfeed .an-play .an-dm[title="Mensagem"]')), 'cartão tem botão de Mensagem (e clicar no cartão abre o perfil)');
+  ok(await pb.evaluate(() => !!document.querySelector('#actfeed .an-play .an-dm[title="Mensagem"]')), 'cartão tem botão de Mensagem (clicar no cartão abre a DM; na foto, o perfil)');
   // carol (não vê a aba cheia de coisa, mas vê a alice porque são amigas) — e uma terceira pessoa sem amizade não veria: checado no teste de API
   // painel lateral "Ativo agora" mostra o jogo
   await pb.evaluate(() => window.__lc.go('@me')); await goTab(pb, 'Todos'); await sleep(500);
