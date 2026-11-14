@@ -62,3 +62,24 @@ aqui com mediasoup) tudo funciona. Causa provável: a interface desenhada pela C
 Correção: esses dois só entram em placas antigas (`gpuOld`); a compatibilidade em placas modernas mantém só os ajustes
 de vídeo (decodificação na CPU, sRGB, sem sobreposição), que foram os que resolveram as piscadas. Repintura forçada
 também quando um vídeo começa a tocar (`media-started-playing`).
+
+## Vídeo piscando que para com o mouse em cima (G-Sync/FreeSync em janela)
+
+Sintoma: transmissões e clipes piscam (brilho oscilando) só no app; com o cursor em cima do vídeo costuma estabilizar,
+às vezes nem assim. Só num PC (monitor de 143 Hz). No Chrome/Edge, normal. As mudanças de opções de GPU acima ajudavam
+às vezes e não de vez — porque a causa não é a GPU desenhar errado.
+
+Causa provável: **VRR (G-Sync/FreeSync) em modo janela.** O driver trata o `Resenha.exe` como jogo e faz o monitor seguir
+a taxa de quadros da janela. Vídeo tocando sozinho = a janela só entrega quadro quando chega quadro de vídeo (30/60 fps,
+irregular), o monitor fica trocando de frequência e o brilho oscila (painéis VA/OLED piscam visivelmente). Mexer o mouse
+faz a janela redesenhar o tempo todo → frequência estável → "resolve". Chrome, Edge e Discord já vêm fora do G-Sync nos
+perfis do driver; um executável desconhecido não.
+
+Correção (`public/vrrfix.js`, só no app desktop): enquanto algum `<video>` toca, um ponto de 2 px quase transparente
+anima a opacidade no compositor (Web Animations, não é afetado por "reduzir animações"), e a janela entrega um quadro a
+cada atualização do monitor, como com o mouse em cima. Em tela cheia o ponto vai para dentro do elemento em tela cheia.
+Para ao pausar/fechar o vídeo.
+
+Se ainda piscar: Painel de Controle da NVIDIA → Gerenciar configurações 3D → Configurações do programa → adicionar
+`Resenha.exe` → **Tecnologia de monitor: Atualização fixa** (ou desligar G-Sync "em janela e tela cheia" e deixar só
+"tela cheia"). Na AMD: Adrenalin → Jogos → adicionar o Resenha → FreeSync desligado.
