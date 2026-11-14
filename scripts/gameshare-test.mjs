@@ -91,6 +91,17 @@ try {
   ok(pick.sel === 'VALORANT' && pick.badge && pick.minimized, 'jogo minimizado aparece, com selo JOGO, e já vem escolhido', pick);
   ok(pick.audio.some(t => /^Só o jogo|^Só este programa: VALORANT/.test(t)), 'áudio padrão: só o jogo', pick.audio);
   await A.screenshot({ path: '.testshots/gameshare-picker.png' });
+  // tela inteira (vários monitores): o som de tudo do PC, não só o jogo aberto em algum monitor; voltar para o jogo volta "só o jogo"
+  const audOn = () => A.evaluate(() => [...document.querySelectorAll('.modal .seg button.on')].map(b => b.textContent));
+  const clickTxt = (t) => A.evaluate((t) => [...document.querySelectorAll('.modal button')].find(x => x.textContent === t).click(), t);
+  await clickTxt('Telas'); await sleep(200);
+  await A.evaluate(() => document.querySelector('.source').click()); await sleep(200);
+  const scr = await audOn();
+  ok(scr.includes('Tudo do PC'), 'tela inteira: áudio padrão é tudo do PC (não só o jogo do outro monitor)', scr);
+  await clickTxt('Janelas / aplicativos'); await sleep(200);
+  await A.evaluate(() => [...document.querySelectorAll('.source')].find(x => x.textContent.includes('VALORANT')).click()); await sleep(200);
+  const back = await audOn();
+  ok(back.some(t => /^Só este programa: VALORANT/.test(t)), 'de volta ao jogo: só o jogo de novo', back);
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Transmitir').click());
   await sleep(2500);
   const st = await A.evaluate(() => ({ t: window.__t, appAudio: window.__lc.voice.appAudio && { mode: window.__lc.voice.appAudio.mode, name: window.__lc.voice.appAudio.name }, tracks: window.__lc.voice.screen?.getAudioTracks().length, err: window.__lc.voice.error }));

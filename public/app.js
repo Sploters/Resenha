@@ -3142,6 +3142,11 @@ async function startShare() {
   let src = null, list = [], tab = 'screen', timer, loaded = false, touched = false;
   // áudio: 'game' = só o programa (o jogo), 'system' = tudo do PC menos a Resenha, 'none'
   let audMode = o.audio === false ? 'none' : (o.audioMode === 'system' ? 'system' : 'game'), appCap = { ok: false };
+  // tela inteira (ainda mais com vários monitores) = o som de tudo do PC, como no Discord; "só o jogo" ali só se a pessoa escolher
+  // de novo nesta transmissão. Antes a preferência 'game' (salva numa transmissão de janela) pegava o primeiro jogo aberto em
+  // QUALQUER monitor e a tela ia só com o som dele — os programas do outro monitor ficavam mudos.
+  let audGamePicked = false;
+  const audEff = () => (audMode === 'game' && src?.type === 'screen' && !audGamePicked ? 'system' : audMode);
   const tabs = h('div.seg'), grid = h('div.sources'), audRow = h('div');
   // de quem é o áudio "só o jogo": a janela escolhida; na tela inteira, o jogo aberto (detectado pelo app)
   const audTarget = () => (src?.type === 'window' ? (src.pid ? src : null) : list.find(s => s.type === 'window' && s.game && s.pid) || null);
@@ -3153,8 +3158,8 @@ async function startShare() {
     const t = audTarget(), opts = {};
     if (t) opts.game = `Só ${src?.type === 'window' ? 'este programa' : 'o jogo'}: ${t.name.length > 34 ? t.name.slice(0, 33) + '…' : t.name}`;
     opts.system = 'Tudo do PC'; opts.none = 'Sem áudio';
-    const mode = audMode === 'game' && !t ? 'system' : audMode;
-    audRow.replaceChildren(h('label.f', 'Áudio', seg(opts, mode, v => { audMode = v; drawAudio(); })),
+    const mode = audEff() === 'game' && !t ? 'system' : audEff();
+    audRow.replaceChildren(h('label.f', 'Áudio', seg(opts, mode, v => { audMode = v; if (v === 'game') audGamePicked = true; drawAudio(); })),
       h('div.qinfo', mode === 'game' ? 'Como no Discord: vai só o som do jogo. Música, navegador e a voz da call não entram na transmissão.'
         : mode === 'system' ? 'Vai o som de todos os programas abertos (música, navegador...), menos o da Resenha.' : 'A transmissão vai sem som.'));
   };
@@ -3196,10 +3201,12 @@ async function startShare() {
   modal('Transmitir tela', 'Escolha o que mostrar, a resolução e os quadros por segundo.', body, [{ label: 'Cancelar', cls: 'link', fn: () => clearInterval(timer) }, { label: 'Transmitir', cls: 'green', fn: async () => {
     if (desktop) { if (!src) { toast('Selecione uma tela ou janela', true); return false; } await desktop.selectSource(src.id, src.name); }
     clearInterval(timer);
-    const t = audTarget(), mode = audMode === 'game' && !(appCap.ok && t) ? 'system' : audMode;
+    const t = audTarget(), mode = audEff() === 'game' && !(appCap.ok && t) ? 'system' : audEff();
     o.audio = mode !== 'none';
     const appAudio = !appCap.ok || mode === 'none' ? null : mode === 'game' ? { mode: 'include', pid: t.pid, name: t.name } : { mode: 'exclude' };
-    S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: mode === 'none' ? (S.prefs.screen?.audioMode || 'game') : mode, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
+    // 'system' só porque era uma tela não muda a preferência das transmissões de janela/jogo
+    const keep = mode === 'none' || (mode !== audMode && src?.type === 'screen');
+    S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
     voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
   } }], { width: desktop ? '780px' : '560px' });
 }
