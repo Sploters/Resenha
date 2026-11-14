@@ -150,6 +150,37 @@ try {
   let real = null; for (let i = 0; i < 40 && !real; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before) real = l.clips[0]; }
   ok(real && real.streamer?.id === a.id && real.author.id === b.id && real.secs === 5 && /^alice — \d\d\/\d\d \d\d:\d\d$/.test(real.title), 'botão de clipe da transmissão salva na galeria com nome distinto', real && { t: real.title, secs: real.secs });
   ok(real && (await fetch(BASE + real.url)).headers.get('content-length') > 10000, 'vídeo do clipe real foi enviado', real && (await fetch(BASE + real.url)).headers.get('content-length'));
+  // botão de clipe à vista no quadro: um clique salva os últimos 30s (padrão), sem passar por "Mais opções"
+  const clipBtn = await B.evaluate(() => { const b = document.querySelector('.sctl .sc-clip'); return b && { title: b.title, off: b.classList.contains('off') }; });
+  ok(clipBtn && !clipBtn.off && /Clipar os últimos 30s \(F8\)/.test(clipBtn.title), 'botão de clipe direto no quadro da transmissão', clipBtn);
+  const before2 = (await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total;
+  await B.evaluate(() => document.querySelector('.sctl .sc-clip').click());
+  let one = null; for (let i = 0; i < 40 && !one; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before2) one = l.clips[0]; }
+  ok(one && one.author.id === b.id && one.streamer?.id === a.id, 'um clique no botão de clipe salva na galeria', one && { secs: one.secs });
+  // controles e nome/resolução: só com o mouse em cima; fora do quadro somem
+  const vis = () => B.evaluate(() => { const t = document.querySelector('.tile.screen'); return { ctl: getComputedStyle(t.querySelector('.sctl')).opacity, label: getComputedStyle(t.querySelector(':scope > .label')).opacity }; });
+  const tb = await B.evaluate(() => { const r = document.querySelector('.tile.screen').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await B.mouse.move(tb.x, tb.y); await B.mouse.move(tb.x + 5, tb.y + 5); await sleep(400);
+  const over = await vis();
+  if (process.env.SHOTS) await B.screenshot({ path: `${OUT}/04-controles.png` });
+  ok(over.ctl === '1' && over.label === '1', 'mouse em cima da transmissão: controles e nome à vista', over);
+  await sleep(3000);
+  const still = await vis();
+  ok(still.ctl === '0' && still.label === '0', 'mouse parado em cima: controles e nome somem', still);
+  await B.mouse.move(2, 2); await sleep(400);
+  const out = await vis();
+  ok(out.ctl === '0' && out.label === '0', 'mouse fora da transmissão: controles e nome somem', out);
+  // tela cheia: clipe e sair no canto, somem com o mouse parado
+  await B.mouse.move(tb.x, tb.y); await sleep(200);
+  await B.evaluate(() => document.querySelector('.sctl button[title="Tela cheia"]').click()); await sleep(600);
+  const fb = await B.evaluate(() => { const b = document.querySelector('.fsbox'); return b && { clip: !!b.querySelector('.fs-ctl .fs-btn:not([title^="Sair"])'), idle: b.classList.contains('idle') }; });
+  ok(fb?.clip, 'tela cheia: botão de clipe no canto', fb);
+  await B.mouse.move(400, 300); await B.mouse.move(410, 310); await sleep(300);
+  const fbOn = await B.evaluate(() => getComputedStyle(document.querySelector('.fsbox .fs-ctl')).opacity);
+  await sleep(3000);
+  const fbOff = await B.evaluate(() => getComputedStyle(document.querySelector('.fsbox .fs-ctl')).opacity);
+  ok(fbOn === '1' && fbOff === '0', 'tela cheia: controles aparecem ao mexer o mouse e somem parado', { fbOn, fbOff });
+  await B.keyboard.press('Escape'); await sleep(300);
   await B.evaluate(() => window.__lc.voice?.leave()); await A.evaluate(() => window.__lc.voice?.leave()); await sleep(500);
 
   // galeria vazia

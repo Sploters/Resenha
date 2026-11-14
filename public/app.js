@@ -2805,12 +2805,18 @@ function renderHome(main) {
 
 // =============== Voz: palco ===============
 // tela cheia num <video> próprio fora da árvore que se redesenha: o nativo mostrava pause/minutagem e piscava preto quando a sala era redesenhada
-function fullscreenStream(stream) {
+function fullscreenStream(stream, clip) { // clip { key, who }: botão de clipe na tela cheia
   const v = h('video', { autoplay: true, playsInline: true, muted: true, disablePictureInPicture: true });
   v.muted = true; v.srcObject = stream;
-  const box = h('div.fsbox', { onclick: () => exit(), title: 'Clique para sair (Esc)' }, v);
+  // controles só com o mouse mexendo: parado por 2,5 s (ou fora da tela), somem junto com o cursor
+  const bar = h('div.fs-ctl', { onclick: (e) => e.stopPropagation() }, clip && clipButton(clip.key, clip.who, 'fs-btn'),
+    h('button.fs-btn', { title: 'Sair da tela cheia (Esc)', onclick: (e) => { e.stopPropagation(); exit(); } }, icon('shrink', 18)));
+  const box = h('div.fsbox.idle', { onclick: () => exit(), title: 'Clique para sair (Esc)' }, v, bar);
+  let idleT = 0;
+  const wake = () => { box.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => box.classList.add('idle'), 2500); };
+  box.addEventListener('mousemove', wake); box.addEventListener('mouseleave', () => { clearTimeout(idleT); box.classList.add('idle'); });
   const exit = () => { if (document.fullscreenElement === box) document.exitFullscreen?.().catch(() => { }); else box.remove(); };
-  const gone = () => { stream.removeEventListener('inactive', exit); box.remove(); v.srcObject = null; };
+  const gone = () => { clearTimeout(idleT); stream.removeEventListener('inactive', exit); box.remove(); v.srcObject = null; };
   box.addEventListener('fullscreenchange', () => { if (document.fullscreenElement !== box) gone(); });
   stream.addEventListener('inactive', exit);
   document.body.append(box); v.play?.().catch(() => { });
@@ -3321,8 +3327,33 @@ function streamControls({ key, uid, mine, scr, inRoom, who }) {
   return h('div.sctl', { onclick: (e) => e.stopPropagation() },
     mine ? h('button.sc-main.sc-stop', { title: 'Parar de compartilhar a tela', onclick: (e) => { e.stopPropagation(); stopSharing(); } }, icon('screenoff', 16), h('span', 'Parar transmissão'))
       : h('button.sc-main', { title: 'Fechar esta transmissão (você continua na chamada)', onclick: stop }, icon('x', 16), h('span', 'Parar de assistir')),
-    h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr); } }, icon('expand', 16)),
+    inRoom && clipButton(key, who, 'sc-ic sc-clip'),
+    h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr, inRoom ? { key, who } : null); } }, icon('expand', 16)),
     h('button.sc-ic', { title: 'Mais opções', onclick: more }, icon('more', 16)));
+}
+// controles e nome/resolução da transmissão: só com o mouse em cima e mexendo. Parado 2,5 s, os controles somem (e o cursor
+// também). O #stage não é recriado a cada render, então o estado fica nele, e não nos quadros.
+let stageIdleT = 0;
+addEventListener('mousemove', (e) => {
+  const st = e.target.closest?.('#stage'); if (!st) return;
+  st.classList.remove('sidle'); clearTimeout(stageIdleT);
+  stageIdleT = setTimeout(() => { if (!document.querySelector('.menu')) st.classList.add('sidle'); }, 2500);
+}, { passive: true });
+// botão de clipe à vista no quadro da transmissão (antes só em Mais opções > Clipes): um clique salva os últimos N segundos
+// (como o F8); clique direito abre o menu (duração, cortar, desativar). Clipes desligados: o clique liga.
+const clipKeyLabel = () => String(S.prefs.keyClip || 'F8').replace(/Key|Digit/g, '');
+function clipButton(key, who, cls) {
+  const secs = S.prefs.clipSecs || 30, on = clipping(key);
+  return h('button.' + cls.split(' ').join('.') + (on ? '' : '.off'), {
+    title: on ? `Clipar os últimos ${secs}s (${clipKeyLabel()}) · clique direito: mais opções` : 'Ativar clipes (grava os últimos 60s em segundo plano)',
+    'aria-label': on ? `Clipar os últimos ${secs} segundos` : 'Ativar clipes',
+    onclick: (e) => {
+      e.stopPropagation();
+      if (!clipping(key)) { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); return toast('Clipes ativados: em alguns segundos já dá para clipar'); }
+      saveClip(key, secs, { channelId: voice.channelId, who, onCaptured: (ok) => (ok ? clipFlash(true, 'Clipe salvo', `${secs}s`) : clipFlash(false, 'Clipe não salvo')) });
+    },
+    oncontextmenu: (e) => { e.preventDefault(); e.stopPropagation(); clipMenu(e, key, who); },
+  }, icon('clip', 16));
 }
 // ajustes durante a transmissão: só resolução, FPS e taxa de dados, aplicados na hora sem parar nem trocar o que está sendo
 // compartilhado (parar fica no botão vermelho "Parar transmissão")

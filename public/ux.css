@@ -506,7 +506,20 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 
 /* ---------- transmissão: ações no canto do próprio quadro (a principal com texto; o resto no "⋯") ---------- */
 .tile .sctl { position: absolute; top: 10px; right: 10px; z-index: 4; display: flex; gap: 6px; align-items: center; opacity: 0; transform: translateY(-4px); transition: opacity .12s, transform .12s; pointer-events: none; }
-.tile.screen:hover .sctl, .tile.screen:focus-within .sctl, .tile.screen.focus .sctl, #stage .spot .tile.screen .sctl { opacity: 1; transform: none; pointer-events: auto; }
+.tile.screen:hover .sctl, .tile.screen:has(:focus-visible) .sctl { opacity: 1; transform: none; pointer-events: auto; }
+/* nome e resolução (canto inferior esquerdo): também só com o mouse em cima; parado (#stage.sidle) some tudo, cursor incluso */
+.tile.screen > .label { opacity: 0; transition: opacity .15s; }
+.tile.screen:hover > .label, .tile.screen:has(:focus-visible) > .label { opacity: 1; }
+#stage.sidle .tile.screen:not(:has(:focus-visible)) .sctl { opacity: 0; transform: translateY(-4px); pointer-events: none; }
+#stage.sidle .tile.screen:not(:has(:focus-visible)) > .label { opacity: 0; }
+#stage.sidle .tile.screen { cursor: none; }
+@media (hover: none) { .tile.screen .sctl, .tile.screen > .label { opacity: 1; transform: none; pointer-events: auto; } } /* toque: sem hover, fica à vista */
+.sctl .sc-clip.off { opacity: .7; }
+/* tela cheia: clipe e sair no canto, somem com o mouse parado */
+.fsbox .fs-ctl { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; transition: opacity .15s; }
+.fsbox .fs-btn { width: 40px; height: 40px; border: 0; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); }
+.fsbox .fs-btn:hover { background: rgba(0,0,0,.9); } .fsbox .fs-btn.off { opacity: .7; }
+.fsbox.idle .fs-ctl { opacity: 0; pointer-events: none; } .fsbox.idle { cursor: none; }
 .sctl button { border: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #fff; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); border-radius: 10px; height: 34px; font: inherit; font-size: 14px; font-weight: 600; }
 .sctl .sc-main { padding: 0 12px 0 10px; } .sctl .sc-ic { width: 34px; }
 .sctl button:hover { background: rgba(0,0,0,.85); }
