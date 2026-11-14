@@ -633,3 +633,21 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 #active-now .an-faces > * { margin-left: -6px; box-shadow: 0 0 0 2px var(--bg-sec); border-radius: 50%; } #active-now .an-faces > :first-child { margin-left: 0; }
 #active-now .an-rwho .act-btns { margin: 0 0 0 auto; flex: none; flex-wrap: nowrap; }
 #active-now .an-gicon { width: 40px; height: 40px; flex: none; border-radius: 12px; object-fit: cover; display: grid; place-items: center; background: var(--bg-tert); color: var(--header); font-weight: 700; font-size: 14px; }
+/* "Ativo agora" → Nos seus servidores (quem não é amigo) e "Talvez você conheça" */
+#active-now .an-capbtn { display: flex; align-items: center; gap: 4px; width: calc(100% - 8px); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; font: inherit; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+#active-now .an-capbtn:hover { color: var(--text-normal); }
+#active-now .an-capchev { display: inline-flex; transition: transform .15s; } #active-now .an-capchev.closed { transform: rotate(-90deg); }
+#active-now .an-sub { display: flex; align-items: center; gap: 4px; min-width: 0; } #active-now .an-sub > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-row.an-srv .an-who { flex: 1; }
+#active-now .ibtn-add { padding: 4px; min-width: 0; flex: none; }
+#active-now .an-sent { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: 12px; color: var(--text-muted); }
+#active-now .an-sugs { margin: 0 0 6px; padding: 8px; border-radius: 8px; background: var(--bg-sec); border: 1px dashed var(--divider); }
+#active-now .an-sugh { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 2px 6px; }
+#active-now .an-sug { display: flex; flex-direction: column; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer; min-width: 0; }
+#active-now .an-sug + .an-sug { margin-top: 4px; }
+#active-now .an-sug:hover { background: var(--bg-mod-hover); }
+#active-now .an-sugtop { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+#active-now .an-sugtop .an-who { flex: 1; }
+#active-now .an-who small.an-why { white-space: normal; overflow: visible; line-height: 1.3; }
+#active-now .an-addbtn { align-self: stretch; justify-content: center; }
+#active-now .an-sugx { opacity: .6; flex: none; } #active-now .an-sugx:hover { opacity: 1; }

@@ -5,7 +5,7 @@ import { canCallInvite, sendCallInvite, pendingInvites, acceptInvite, declineInv
 import { h, icon, avatar, clock, skeleton } from './util.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, confirmBox, guild, channelById, modal } from './state.js';
+import { S, api, tryApi, toast, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
 import { openClip } from './clipsgallery.js';
 import { stagger } from './motion.js';
 import { toggle, row, section, seg, factChips } from './ui.js';
@@ -327,6 +327,90 @@ function requestCards() {
       h('button.btn.grey.sm', { onclick: (e) => { e.stopPropagation(); return tryApi('DELETE', `/relationships/${u.id}`); } }, 'Ignorar')]))];
 }
 
+// ---------------------------------------------------------------- gente dos seus servidores (não amigos) + sugestões de amizade
+// Quem divide um servidor com você e está jogando ou numa sala de voz desse servidor. Online parado não entra (seria barulho).
+// O jogo só chega se a pessoa deixou "Amigos e quem está nos meus servidores" (o padrão); a regra é do servidor (canSee).
+// Quem joga o mesmo que você ou que um amigo, ou está na mesma sala, vira "Talvez você conheça", com o motivo e Adicionar.
+const SUG_HIDE_DAYS = 30, SRV_MAX = 6;
+let srvMore = false;
+const sugHidden = (uid) => { const t = S.prefs.anSugHide?.[uid]; return !!t && Date.now() - t < SUG_HIDE_DAYS * 864e5; };
+function hideSug(uid) {
+  const m = (S.prefs.anSugHide ||= {}), lim = Date.now() - SUG_HIDE_DAYS * 864e5;
+  for (const k of Object.keys(m)) if (m[k] < lim) delete m[k]; // não acumula para sempre
+  m[uid] = Date.now(); savePrefs();
+}
+function serverPeers() {
+  const ids = new Set();
+  for (const g of S.guilds.values()) for (const id of g.members?.keys?.() || []) ids.add(id);
+  for (const [id, v] of S.voice) { const ch = channelById(v.channel_id); if (ch && ch.type !== 1 && guild(ch.guild_id) && !v.bot) ids.add(id); } // lista de membros ainda parcial
+  const out = [];
+  for (const id of ids) {
+    const rt = S.rels.get(id)?.type || 0;
+    if (id === S.me.id || rt === 1 || rt === 2 || rt === 3 || S.voice.get(id)?.bot) continue; // amigo, bloqueado, pedido recebido (já aparece em "Para você")
+    const a = activityOf(id), r0 = roomOf(id), r = r0?.g ? r0 : null; // ligação privada de quem não é amigo não conta
+    if (a || r) out.push({ u: uOf(id), a, r, rt });
+  }
+  return out;
+}
+const sharedGuilds = (uid) => [...S.guilds.values()].filter(g => g.members?.has?.(uid)).length;
+// por que sugerir: a pontuação ordena; só entra quem tem algo em comum AGORA (não basta estar no mesmo servidor)
+function suggestReason(p, ctx2) {
+  let score = 0, why = null;
+  const gk = p.a && gameKey(p.a);
+  if (gk && ctx2.myGame === gk) { score += 3; why ||= `Também está jogando ${p.a.game.title}`; }
+  if (p.r && ctx2.myRoom === p.r.ch.id) { score += 3; why ||= 'Na mesma chamada que você'; }
+  const fr = p.r && ctx2.friendRooms.get(p.r.ch.id);
+  if (fr) { score += 2; why ||= `Na chamada com ${nameList(fr.slice(0, 2))}`; }
+  const fg = gk && ctx2.friendGames.get(gk);
+  if (fg) { score += 2; why ||= `Joga ${p.a.game.title}, como ${nameList(fg.slice(0, 2))}`; }
+  const n = sharedGuilds(p.u.id);
+  if (n >= 2) { score += 1; why ||= `${n} servidores em comum`; }
+  return { score, why };
+}
+function addFriend(u, btn, redraw) {
+  btn.disabled = true;
+  return tryApi('POST', '/relationships', { username: u.username }).then(r => {
+    if (r) { toast(`Pedido de amizade enviado para ${u.display_name}`); if (!S.rels.has(u.id)) S.rels.set(u.id, { type: 4, user: { id: u.id } }); }
+    else btn.disabled = false; // privacidade de pedidos da pessoa, por exemplo: o erro já apareceu
+    redraw();
+  });
+}
+const addBtn = (p, redraw, label) => p.rt === 4
+  ? h('span.an-sent', { title: 'Pedido de amizade enviado' }, icon('check', 14), label ? 'Pedido enviado' : null)
+  : h('button.btn.sm' + (label ? '.an-addbtn' : '.grey.ibtn-add'), { title: `Adicionar ${p.u.display_name} como amigo`, onclick: (e) => { e.stopPropagation(); addFriend(p.u, e.currentTarget, redraw); } }, icon('plus', 14), label ? 'Adicionar' : null);
+function serverSection(friendsNow, redraw) {
+  const peers = serverPeers();
+  if (!peers.length) return [];
+  const mine = activityOf(S.me.id), voice = ctx.voice();
+  const ctx2 = { myGame: mine && gameKey(mine), myRoom: voice?.active ? voice.channelId : null, friendRooms: new Map(), friendGames: new Map() };
+  for (const f of friendsNow) {
+    if (f.r) { const l = ctx2.friendRooms.get(f.r.ch.id) || []; l.push(f.u); ctx2.friendRooms.set(f.r.ch.id, l); }
+    if (f.a) { const k = gameKey(f.a), l = ctx2.friendGames.get(k) || []; l.push(f.u); ctx2.friendGames.set(k, l); }
+  }
+  const sugs = peers.filter(p => p.rt === 0 && !sugHidden(p.u.id)).map(p => ({ p, ...suggestReason(p, ctx2) })).filter(x => x.score >= 2)
+    .sort((x, y) => y.score - x.score || (x.p.u.display_name || '').localeCompare(y.p.u.display_name || '')).slice(0, 3);
+  const sugIds = new Set(sugs.map(x => x.p.u.id));
+  const rest = peers.filter(p => !sugIds.has(p.u.id)).sort((x, y) => (!!y.a - !!x.a) || (x.a && y.a ? x.a.since - y.a.since : 0) || (x.u.display_name || '').localeCompare(y.u.display_name || ''));
+  const closed = !!S.prefs.anSrvClosed;
+  const cap = h('button.an-cap.an-capbtn', { 'aria-expanded': String(!closed), title: closed ? 'Mostrar' : 'Esconder', onclick: () => { S.prefs.anSrvClosed = !closed; savePrefs(); redraw(); } },
+    h('span.an-capchev' + (closed ? '.closed' : ''), icon('chevdown', 14)), `Nos seus servidores — ${peers.length}`);
+  if (closed) return [cap];
+  const sub = (p) => p.a ? h('small.an-sub', gameIcon(p.a, 14), h('span', playingLine(p.a))) : h('small.an-sub', icon('voice', 14), h('span', `${chName(p.r.ch)} · ${p.r.g.name}`));
+  const sugCard = ({ p, why }) => h('div.an-sug', { onclick: (e) => ctx.profile(e.currentTarget, p.u.id), oncontextmenu: (e) => ctx.userMenu(e, p.u.id) },
+    h('div.an-sugtop', avatar(p.u, 36, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(p.u), h('small.an-why', why)),
+      h('button.ibtn.an-sugx', { title: `Não sugerir ${p.u.display_name} por ${SUG_HIDE_DAYS} dias`, onclick: (e) => { e.stopPropagation(); hideSug(p.u.id); redraw(); } }, icon('x', 14))),
+    addBtn(p, redraw, true));
+  const rowEl = (p) => h('div.an-row.an-srv', { title: p.r ? 'Ver perfil (clique direito: mais opções)' : 'Ver perfil', onclick: (e) => ctx.profile(e.currentTarget, p.u.id), oncontextmenu: (e) => ctx.userMenu(e, p.u.id, p.r?.g?.id) },
+    avatar(p.u, 32, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(p.u), sub(p)),
+    p.rt === 0 || p.rt === 4 ? addBtn(p, redraw, false) : null);
+  const shown = srvMore ? rest : rest.slice(0, SRV_MAX), more = rest.length - shown.length;
+  return [cap,
+    sugs.length ? h('div.an-sugs', h('div.an-sugh', icon('users', 14), 'Talvez você conheça'), ...sugs.map(sugCard)) : null,
+    ...shown.map(rowEl),
+    more > 0 && h('button.hl-more', { onclick: () => { srvMore = true; redraw(); } }, icon('chevdown', 14), `Mostrar mais ${more}`),
+    srvMore && rest.length > SRV_MAX && h('button.hl-more', { onclick: () => { srvMore = false; redraw(); } }, h('span.hl-up', icon('chevdown', 14)), 'Mostrar menos')].filter(Boolean);
+}
+
 // painel inteiro. Topo, em destaque: o que os amigos estão fazendo AGORA (jogando, em chamada, online). Embaixo: os destaques.
 export function activityPanel(box) {
   box.id ||= 'active-now';
@@ -351,11 +435,14 @@ export function activityPanel(box) {
       ...(online.length ? [h('div.an-cap', `Online — ${online.length}`), ...online.sort(byName).map(({ u }) => h('div.an-row', { onclick: () => ctx.openDM(u.id), oncontextmenu: (e) => ctx.userMenu(e, u.id) }, avatar(u, 32, { ring: 'var(--bg-sec)' }),
         h('div.an-who', nameEl(u), h('small', u.custom_status || STATUS[u.status] || 'Online')), ...voiceActions(u.id).slice(0, 1)))] : []),
     ];
-    if (!now.length && !forMe.length) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
+    // gente dos seus servidores que não é amiga (jogando ou em chamada) e, no topo dela, sugestões de amizade
+    const srv = serverSection([...playing.map(x => ({ u: x.u, a: x.a, r: roomOf(x.u.id) })), ...inVoice.map(x => ({ u: x.u, a: null, r: x.r }))], draw);
+    if (!now.length && !forMe.length && !srv.length) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
       !S.integrations?.some(i => i.account) && !window.lcDesktop?.detectGame && h('button.btn.sm', { onclick: () => ctx.openSettings('connections') }, 'Mostrar o que eu jogo')));
     // você também está jogando: linha discreta (dá para esconder o jogo daqui)
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
       h('button.btn.link.sm', { title: 'Este jogo nunca aparece como atividade', onclick: async () => { if (await tryApi('PUT', `/activity/games/${mine.platform}/${encodeURIComponent(mine.game.id)}`, { hidden: true })) toast('Jogo escondido. Você pode reexibi-lo em Contas vinculadas.'); } }, 'Esconder jogo')));
+    now.push(...srv);
     // destaques agrupados por dia
     const hl = feed?.highlights || [], groups = [];
     for (const x of hl) { const k = dayHead(x.at); let g = groups.find(y => y.k === k); if (!g) groups.push(g = { k, items: [] }); g.items.push(x); }
