@@ -81,7 +81,7 @@ const qrCodeInUrl = () => { const m = /^\/qr\/([\w-]{20,64})\/?$/.exec(location.
 import { initAppUpdate, installAppUpdate, myDesktopVersion, refreshDesktopVersion, latestDesktop, isOlder } from './appupdate.js';
 applyTheme();
 
-let ws, voice, retry = 0, ready = false, pendingInvite = null, offlineSince = 0;
+let ws, voice, retry = 0, ready = false, pendingInvite = null, offlineSince = 0, restarting = false; // restarting: o servidor avisou que vai reiniciar (atualização)
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 // qual servidor esta tela mostra (null: nenhum, ou janela escondida): o servidor só manda a presença dos membros dele
@@ -210,18 +210,20 @@ function connect() {
   };
   ws.onopen = () => {
     // telemetria: caiu e voltou (conta a queda e quanto tempo ficou sem conexão, mesmo com a aba escondida)
-    if (offlineSince) { track('ws_reconnect', '', { bg: true }); timing('ws_offline', Date.now() - offlineSince, { bg: true }); offlineSince = 0; }
+    if (offlineSince) { track('ws_reconnect', restarting ? 'restart' : '', { bg: true }); timing('ws_offline', Date.now() - offlineSince, { bg: true }); offlineSince = 0; }
+    restarting = false;
     retry = 0; $('#reconnect')?.remove();
     // versão do app desktop desta conexão: a sala mostra quem está desatualizado e o servidor pode exigir uma mínima
     const sent = myDesktopVersion(); gwSend('CLIENT_INFO', { desktop: sent, kind: devKind() });
     lastActive = null; reportActive(); // conta para os outros aparelhos se este está em uso
     refreshDesktopVersion().then(v => { if (v !== sent) gwSend('CLIENT_INFO', { desktop: v }); });
   };
-  ws.onclose = async () => {
+  ws.onclose = async (e) => {
     if (!S.token) return;
+    if (e?.code === 1012) restarting = true; // 1012 = o servidor está reiniciando
     if (ready && !offlineSince) offlineSince = Date.now();
     try { await api('GET', '/users/0'); } catch (e) { if (e.status === 401) { localStorage.removeItem('lc_token'); S.token = null; return showAuth(); } }
-    if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, 'Conexão perdida. Reconectando…'));
+    if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, restarting ? 'Servidor atualizando. Volta em alguns segundos…' : 'Conexão perdida. Reconectando…'));
     connect.t = setTimeout(connect, reconnectDelay(retry++)); // com sorteio: num reinício, não voltam todos juntos
   };
 }
@@ -242,6 +244,7 @@ function ingestGuild(g) {
 
 function onEvent(t, d) {
   switch (t) {
+    case 'SERVER_RESTART': restarting = true; return; // vem logo antes do servidor fechar a conexão
     case 'READY': {
       const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
       if (d.now) S.clockOff = d.now - Date.now(); // relógio do servidor - o deste aparelho (cronômetro da chamada vem com a hora do servidor)

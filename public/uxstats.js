@@ -196,7 +196,7 @@ export function uxStatsPage() {
       block('Desempenho', 'Do jeito que a pessoa sente'),
       card('Tempos', 'Passe o mouse numa linha para ver por aparelho', timings(data.tempos, data.faixas_ms || [])),
       h('div.ux-grid',
-        card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))) : empty('Nenhuma queda neste período.')),
+        card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('div', h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))), list(E.ws_reconnect, 2, (k) => k === 'restart' ? 'Atualização do servidor' : 'Queda de rede ou do servidor')) : empty('Nenhuma queda neste período.')),
         card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k))),
       card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
       card('Qualidade técnica das chamadas', 'Medida pela conexão em toda chamada, sem perguntar: atraso, perda de pacotes, oscilação, voz picotada, vídeo travando e quedas', netq(data.qualidade)),

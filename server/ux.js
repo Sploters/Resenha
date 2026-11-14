@@ -83,7 +83,7 @@ export const UX_EVENTS = {
   error_shown: free(100), // aviso de erro mostrado na tela (o texto, sem números)
   timing: (d) => TIMING_RE.test(d), // "métrica:faixa"
   voice_fail: (d) => /^[a-z_]{1,24}$/.test(d), // não conseguiu entrar na voz: motivo
-  ws_reconnect: (d) => d === '', // a conexão em tempo real caiu e voltou
+  ws_reconnect: (d) => d === '' || d === 'restart', // a conexão em tempo real caiu e voltou ('restart' = o servidor avisou que estava atualizando)
   // troca de canal com mais de 1 s: onde foi o tempo e o que estava acontecendo (ex.: "espera:chamada+assistindo")
   slow_switch: (d) => /^(rede|desenho|espera)(:(chamada|transmitindo|assistindo|cripto)(\+(chamada|transmitindo|assistindo|cripto)){0,3})?$/.test(d),
   u_turn: free(60), // foi de A para B e voltou para A em menos de 3 s: "A → B"

@@ -20,9 +20,10 @@ próxima jogatina, leia o painel (Configurações → Administração → Estat�
 - **Situação:** reconectar mais rápido foi testado e **desfeito**. O tempo total de volta quase não mudou (5,6 s contra
   5,8 s), e o servidor ficou bem mais sobrecarregado.
 - **Causa:** as quedas vêm do reinício do servidor a cada atualização.
-- **O que fazer:** não publicar versão durante as sessões com o pessoal. Nada a mudar no código por enquanto.
-- **Painel:** "Conexão caiu e voltou" e "Tempo desconectado". Se aparecerem quedas fora dos horários de publicação, aí
-  sim há outra causa a investigar.
+- **Feito (2026-11-14):** o `deploy/umbrel.sh` agora espera a chamada acabar antes de trocar o container (ver README,
+  "Atualizar sem derrubar a chamada"), e o app mostra "Servidor atualizando" em vez de "Conexão perdida".
+- **Painel:** o cartão "Conexão" separa "Atualização do servidor" de "Queda de rede ou do servidor". Se as quedas de rede
+  continuarem, aí sim há outra causa a investigar.
 
 ## Travadas da transmissão
 

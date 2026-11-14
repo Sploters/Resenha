@@ -1553,6 +1553,17 @@ mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id =
     for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; if (st.video) cams++; } if (n) { calls++; inCalls += n; } }
     return { online: conns.size, connections, calls, inCalls, screens, cams };
   } });
+// quem está em chamada agora, num arquivo da pasta de dados: o deploy (deploy/umbrel.sh) lê antes de trocar o container
+// e espera a chamada acabar (reiniciar derruba todo mundo por ~6 s). Só contagens, sem nomes; atualizado a cada 10 s.
+{
+  const file = path.join(DATA_DIR, 'em-chamada.json');
+  const write = () => {
+    let calls = 0, inCalls = 0, screens = 0;
+    for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; } if (n) { calls++; inCalls += n; } }
+    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens })); fs.renameSync(file + '.tmp', file); } catch { }
+  };
+  write(); setInterval(write, 10e3).unref();
+}
 app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga do worker do mediasoup
   if (!get('SELECT 1 AS x FROM guilds WHERE owner_id=?', req.uid)) return bad(res, 'Sem permissão', 403);
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
@@ -2101,10 +2112,15 @@ function shutdown(sig) {
   setTimeout(() => process.exit(0), 3000).unref(); // não espera conexões presas
   try { musicStopAll(); } catch { }
   try { activity.stop(); } catch { }
-  for (const c of wss.clients) try { c.close(1001, 'Servidor reiniciando'); } catch { }
+  // avisa antes de fechar: o app mostra "Servidor atualizando, volta em segundos" em vez de "Conexão perdida"
+  // (código 1012 = reinício do serviço; o aviso vai junto para clientes que não leem o código)
+  for (const c of wss.clients) try { c.send(JSON.stringify({ t: 'SERVER_RESTART', d: {} })); c.close(1012, 'Servidor reiniciando'); } catch { }
+  try { fs.rmSync(path.join(DATA_DIR, 'em-chamada.json'), { force: true }); } catch { }
   server.close();
-  try { db.close(); } catch { }
-  process.exit(0);
+  // espera os avisos saírem (até 0,5 s; antes o processo saía na hora e os apps só viam a conexão cair)
+  const t0 = Date.now(), end = () => { try { db.close(); } catch { } process.exit(0); };
+  const tick = () => ([...wss.clients].every(c => c.readyState === 3) || Date.now() - t0 > 500 ? end() : setTimeout(tick, 25));
+  tick();
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

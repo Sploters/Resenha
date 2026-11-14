@@ -76,6 +76,8 @@ Voz (SFU): `RTC_PORT` (padrão 40000, UDP+TCP — libere no firewall), `RTC_IPS`
 Docker: `docker build -t resenha . && docker run -d --restart=always -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -v ~/resenha-data:/data -e TLS_SAN=IP:<ip-vpn> -e RTC_ANNOUNCED_IP=<ip-vpn> resenha`
 Atualizar: reconstrua a imagem e recrie o container com o mesmo volume (o banco migra sozinho).
 
+**Atualizar sem derrubar a chamada:** `sh deploy/umbrel.sh` monta a imagem nova e, se houver gente em chamada, **espera a sala esvaziar** antes de trocar o container (reiniciar derruba todo mundo por ~6 s). O servidor grava a contagem em `~/resenha-data/em-chamada.json` a cada 10 s (só números, sem nomes). `FORCAR=1` troca na hora; `ESPERA_MAX=30` desiste depois de 30 min (padrão 120). Na troca, o servidor avisa os apps antes de fechar e eles mostram "Servidor atualizando. Volta em alguns segundos…" em vez de "Conexão perdida". No painel de estatísticas, as quedas por atualização aparecem separadas das quedas de rede.
+
 ## Bot de música
 Embutido, no estilo do Jockie Music: botão 🎵 no painel de voz (aceso enquanto toca) abre um popup com a busca no topo, o que está tocando (capa, barra de posição e controles), Automático e 24/7, e as abas Fila, Histórico e Playlists. Busque pelo nome (escolha entre 6 resultados) ou cole um link — YouTube (vídeo ou playlist), YouTube Music, SoundCloud, Spotify (faixa, álbum ou playlist: os nomes são procurados no YouTube), Bandcamp, Twitch, Vimeo… O bot entra na sala como um participante e toca numa fila.
 - **Tocar agora / a seguir / no fim**, pular, voltar para a anterior, pausar e continuar do mesmo ponto, **barra para pular para qualquer ponto** (ou ← → de 10 s), parar.
