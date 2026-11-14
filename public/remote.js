@@ -1,6 +1,9 @@
-// Controle remoto (só mouse e teclado). Dois papéis:
+// Controle remoto (mouse, teclado e controle de videogame). Dois papéis:
 //  - quem ASSISTE pede o controle no quadro da transmissão e, aceito, controla clicando e digitando dentro dele;
-//  - quem TRANSMITE recebe o pedido, escolhe o que libera (mouse, teclado) e vê um aviso permanente enquanto durar.
+//  - quem TRANSMITE recebe o pedido, escolhe o que libera (mouse, teclado, controle) e vê um aviso permanente enquanto durar.
+// Transmitindo uma janela (não a tela inteira), os comandos só valem dentro dela: o programa nativo descarta o clique onde
+// outra janela a cobre e a tecla quando ela não está em foco. O controle de videogame aparece no PC do dono como um
+// controle de Xbox 360 (precisa do driver gratuito ViGEmBus instalado lá).
 // A injeção acontece só no app desktop do dono (programa nativo); o navegador comum só pode controlar, nunca ser controlado.
 import { h, icon, whenGone } from './util.js';
 import { S, toast, modal, desktop } from './state.js';
@@ -8,9 +11,11 @@ import { playSound } from './sounds.js';
 
 let ctx = {}; // injetado por app.js: send(t, d), name(uid), rerender()
 export const initRemote = (c) => { ctx = c; };
-const REASON = { declined: 'recusou o pedido de controle', unsupported: 'não pode ser controlado (só pelo app para Windows, transmitindo a tela inteira)', stream_ended: 'parou de transmitir', left: 'saiu da sala', expired: 'não respondeu ao pedido de controle', panic: 'parou o controle remoto', stopped: 'encerrou o controle remoto' };
+const REASON = { declined: 'recusou o pedido de controle', unsupported: 'não pode ser controlado (só pelo app para Windows)', stream_ended: 'parou de transmitir', left: 'saiu da sala', expired: 'não respondeu ao pedido de controle', panic: 'parou o controle remoto', stopped: 'encerrou o controle remoto' };
 export const session = () => S.remote || null;
 export const controlling = (uid) => { const s = S.remote; return !!s && s.state === 'active' && s.controller === S.me.id && s.owner === uid; };
+// "mouse e teclado", "mouse, teclado e controle", "controle"…
+export const permsText = (p) => { const l = [p.mouse && 'mouse', p.keyboard && 'teclado', p.gamepad && 'controle'].filter(Boolean); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l.at(-1) : l[0] || 'nada'; };
 export const pendingFor = (uid) => { const s = S.remote; return !!s && s.state === 'pending' && s.controller === S.me.id && s.owner === uid; };
 
 // ---------- quem assiste ----------
@@ -23,7 +28,7 @@ export function requestControl(uid) {
   // primeira vez: explica o que é, os riscos com anti-cheat e as limitações antes de pedir
   if (S.prefs.remoteIntroSeen) return ctx.send('REMOTE_REQUEST', { to: uid });
   modal('Pedir controle remoto', null, h('div.rmask',
-    h('p', `Você vai pedir para controlar o mouse e/ou o teclado de ${ctx.name(uid)} pela transmissão. A pessoa escolhe o que liberar e pode parar quando quiser.`),
+    h('p', `Você vai pedir para controlar o mouse, o teclado e/ou o controle de videogame de ${ctx.name(uid)} pela transmissão. A pessoa escolhe o que liberar e pode parar quando quiser.`),
     antiCheatWarning([]), limitations()),
     [{ label: 'Cancelar', cls: 'grey' }, { label: 'Pedir controle', fn: () => { S.prefs.remoteIntroSeen = true; ctx.savePrefs?.(); ctx.send('REMOTE_REQUEST', { to: uid }); } }]);
 }
@@ -32,7 +37,7 @@ export function stopControl() { if (S.remote) ctx.send('REMOTE_STOP', { id: S.re
 // botão nos controles do quadro da transmissão
 export function tileButton(uid) {
   const on = controlling(uid), wait = pendingFor(uid);
-  return h('button.ibtn' + (on ? '.rec' : ''), { title: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta… (clique para cancelar o pedido)' : 'Pedir controle (mouse e teclado)',
+  return h('button.ibtn' + (on ? '.rec' : ''), { title: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta… (clique para cancelar o pedido)' : 'Pedir controle (mouse, teclado ou controle de videogame)',
     onclick: (e) => { e.stopPropagation(); on || wait ? stopControl() : requestControl(uid); } }, icon('pointer', 18));
 }
 
@@ -91,7 +96,34 @@ const keyHandler = (down) => (e) => {
 };
 addEventListener('keydown', keyHandler(true), true);
 addEventListener('keyup', keyHandler(false), true);
-addEventListener('blur', () => { if (S.remote) { setKb(false); releaseAll(); flush(); } });
+addEventListener('blur', () => { if (S.remote) { setKb(false); releaseAll(); padNeutral(); flush(); } });
+
+// controle de videogame de quem controla (Gamepad API): lê ~60 vezes por segundo e manda o estado inteiro só quando muda.
+// Sem foco na janela o navegador para de atualizar o controle: manda tudo solto para nada ficar apertado no PC do dono.
+let padTimer = 0, padLast = '', padHinted = false;
+const DEAD = 0.08; // zona morta dos analógicos (controles gastos "andam" sozinhos)
+const dz = (v) => (Math.abs(v) < DEAD ? 0 : Math.round(v * 1e3) / 1e3);
+function readPad() {
+  const pads = [...(navigator.getGamepads?.() || [])].filter(Boolean), g = pads.find(p => p.mapping === 'standard') || pads[0];
+  if (!g) return null;
+  let b = 0; g.buttons.forEach((x, i) => { if (i < 17 && i !== 6 && i !== 7 && x.pressed) b |= 1 << i; });
+  const ax = [0, 1, 2, 3].map(i => dz(g.axes[i] || 0));
+  return { k: 'g', b, ax, lt: Math.round((g.buttons[6]?.value || 0) * 1e3) / 1e3, rt: Math.round((g.buttons[7]?.value || 0) * 1e3) / 1e3 };
+}
+function padNeutral() { if (padLast && padLast !== '0') { padLast = '0'; push({ k: 'g', b: 0, ax: [0, 0, 0, 0], lt: 0, rt: 0 }); } }
+function padTick() {
+  const s = S.remote;
+  if (!s || s.state !== 'active' || s.controller !== S.me.id || !s.perms.gamepad) { clearInterval(padTimer); padTimer = 0; padLast = ''; return; }
+  if (!document.hasFocus()) return padNeutral();
+  const st = readPad(); if (!st) return;
+  const key = st.b || st.ax.some(Boolean) || st.lt || st.rt ? JSON.stringify(st) : '0';
+  if (key !== padLast) { padLast = key; push(st); }
+}
+function padStart() {
+  if (padTimer) return;
+  padTimer = setInterval(padTick, 16); padLast = '';
+  if (!padHinted && !readPad()) { padHinted = true; toast('Ligue o controle neste PC e aperte qualquer botão para o navegador reconhecer.'); }
+}
 
 // ---------- quem transmite ----------
 let askDlg = null, askTimer = 0;
@@ -101,18 +133,23 @@ async function onRequest(s) {
   if (!cap.ok) { ctx.send('REMOTE_ANSWER', { id: s.id, accept: false, capable: false }); toast(`${who} pediu para controlar seu PC, mas não é possível: ${cap.reason}`, true); return; }
   playSound('ring');
   const mouse = h('input', { type: 'checkbox', checked: true }), kb = h('input', { type: 'checkbox', checked: true });
+  const pad = h('input', { type: 'checkbox', checked: false, disabled: !cap.pad }); // controle: só com o driver ViGEmBus aqui
   let answered = false;
-  const answer = (accept) => { if (answered) return; answered = true; clearTimeout(askTimer); askDlg = null; ctx.send('REMOTE_ANSWER', { id: s.id, accept, mouse: mouse.checked, keyboard: kb.checked, capable: true }); };
+  const answer = (accept) => { if (answered) return; answered = true; clearTimeout(askTimer); askDlg = null; ctx.send('REMOTE_ANSWER', { id: s.id, accept, mouse: mouse.checked, keyboard: kb.checked, gamepad: pad.checked && !pad.disabled, capable: true }); };
   askDlg = modal(`${who} quer controlar seu PC`, null, h('div.rmask',
     h('p', `${who} vai poder mexer no seu computador pela transmissão, como se estivesse sentado aí. Só aceite se confiar nessa pessoa.`),
     h('label.rmopt', mouse, h('span', h('b', 'Mouse'), h('small', 'mover, clicar, arrastar e rolar'))),
     h('label.rmopt', kb, h('span', h('b', 'Teclado'), h('small', 'digitar e usar atalhos'))),
+    h('label.rmopt' + (cap.pad ? '' : '.off'), pad, h('span', h('b', 'Controle de videogame'),
+      cap.pad ? h('small', 'aparece aqui como um controle de Xbox 360 enquanto durar')
+        : h('small', 'precisa do driver gratuito ', h('a', { href: 'https://github.com/nefarius/ViGEmBus/releases', target: '_blank', rel: 'noopener' }, 'ViGEmBus'), ' instalado neste PC (reinicie o app depois)'))),
+    cap.window && h('p.rmwin', 'Você está transmitindo uma janela: os comandos só valem dentro dela, e só quando ela está na frente. O resto do PC fica de fora.'),
     antiCheatWarning(cap.antiCheats || []),
     h('ul.rmnotes',
       h('li', 'Para parar a qualquer momento: botão ', h('b', 'Parar'), ' no aviso vermelho ou ', h('b', 'Ctrl+Alt+Shift+Q'), ' (só o seu teclado aciona).'),
       h('li', 'Acaba sozinho se alguém sair da sala ou você parar de transmitir.')),
     limitations()),
-    [{ label: 'Recusar', cls: 'grey', fn: () => answer(false) }, { label: 'Permitir', cls: 'red', fn: () => { if (!mouse.checked && !kb.checked) { toast('Escolha mouse e/ou teclado', true); return false; } answer(true); } }]);
+    [{ label: 'Recusar', cls: 'grey', fn: () => answer(false) }, { label: 'Permitir', cls: 'red', fn: () => { if (!mouse.checked && !kb.checked && !(pad.checked && !pad.disabled)) { toast('Escolha mouse, teclado ou controle', true); return false; } answer(true); } }]);
   // fechou a janela no X, Esc ou "voltar" sem escolher: conta como recusa (antes o pedido ficava pendurado até expirar)
   const dlg = askDlg; whenGone(dlg.el, () => { if (!dlg.quiet) answer(false); }); // quiet: fechada porque o pedido acabou
   askTimer = setTimeout(() => { answered = true; dlg.close(); if (askDlg === dlg) askDlg = null; }, 30000); // o servidor expira o pedido e avisa
@@ -120,6 +157,8 @@ async function onRequest(s) {
 desktop?.onRemoteEvent?.((k) => {
   if (k === 'panic' && S.remote?.owner === S.me.id) ctx.send('REMOTE_STOP', { id: S.remote.id, reason: 'panic' });
   if (k === 'blocked') toast('O Windows bloqueou o controle: a janela em foco foi aberta como administrador.', true);
+  if (k === 'covered') toast('Um comando do controle remoto foi ignorado: a janela transmitida estava coberta, minimizada ou fora de foco.', true);
+  if (k === 'nopad') toast('O controle de videogame não funcionou: o driver ViGEmBus não respondeu neste PC.', true);
 });
 
 // jogos com anti-cheat: a entrada injetada pode ser ignorada ou tratada como trapaça (risco de banimento da conta do dono)
@@ -134,12 +173,12 @@ export function antiCheatWarning(found) {
 export function limitations() {
   return h('details.rmlimits', h('summary', 'Limitações'),
     h('ul',
-      h('li', 'Só funciona transmitindo a ', h('b', 'tela inteira'), ' pelo app para Windows (não uma janela, nem pelo navegador).'),
+      h('li', 'Só funciona com quem transmite pelo app para Windows (não pelo navegador). Transmitindo uma ', h('b', 'janela'), ', os comandos só valem dentro dela e com ela na frente.'),
       h('li', 'Programas abertos ', h('b', 'como administrador'), ' não recebem os comandos (regra do Windows); você vê um aviso quando acontecer.'),
       h('li', 'Jogos em ', h('b', 'tela cheia exclusiva'), ' podem não receber os comandos e às vezes aparecem pretos na transmissão; use "janela sem bordas".'),
       h('li', h('b', 'Ctrl+Alt+Del'), ' e a tela de bloqueio/UAC do Windows não podem ser controlados.'),
       h('li', 'Há um pequeno atraso: os comandos passam pelo servidor. Bom para ajudar; para jogar à distância pode não ser ideal.'),
-      h('li', 'Só mouse e teclado: controle de videogame ainda não é suportado.'),
+      h('li', 'Controle de videogame: quem controla usa o próprio controle ligado no PC dele; no PC de quem transmite ele aparece como um controle de Xbox 360 (precisa do driver gratuito ViGEmBus instalado lá).'),
       h('li', 'Com vários monitores, só o monitor transmitido é controlado.')));
 }
 
@@ -168,7 +207,10 @@ export function onRemoteEvent(t, d) {
     if (d.state === 'active' && before?.state !== 'active') {
       if (mine) {
         desktop?.remoteStart?.({ who: other, perms: d.perms }).then(r => { if (!r?.ok) { toast(r?.reason || 'Não foi possível iniciar o controle remoto', true); ctx.send('REMOTE_STOP', { id: d.id }); } });
-      } else toast(`${other} liberou o ${d.perms.mouse && d.perms.keyboard ? 'mouse e o teclado' : d.perms.mouse ? 'mouse' : 'teclado'}. Clique na transmissão para controlar. Evite jogos com anti-cheat.`);
+      } else {
+        toast(`${other} liberou: ${permsText(d.perms)}. ${d.perms.mouse || d.perms.keyboard ? 'Clique na transmissão para controlar. ' : ''}Evite jogos com anti-cheat.`);
+        if (d.perms.gamepad) padStart();
+      }
     }
   }
   paintChip(); ctx.rerender();
@@ -179,7 +221,7 @@ function paintChip() { document.getElementById('remote-chip')?.remove(); const c
 export function remoteBar() {
   const s = S.remote; if (!s || s.state !== 'active') return null;
   const mine = s.owner === S.me.id, who = ctx.name(mine ? s.controller : s.owner);
-  const what = s.perms.mouse && s.perms.keyboard ? 'mouse e teclado' : s.perms.mouse ? 'mouse' : 'teclado';
+  const what = permsText(s.perms);
   return h('div.remote-chip' + (mine ? '.owner' : ''), h('i'), h('span', mine ? `${who} está controlando seu ${what}` : `Você está controlando o PC de ${who} (${what})`),
     h('button.btn.red.sm', { onclick: (e) => { e.stopPropagation(); stopControl(); } }, 'Parar'));
 }

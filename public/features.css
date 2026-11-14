@@ -686,6 +686,8 @@ html.anim .rail-wrap::before { transition: height .2s, margin-top .2s, opacity .
 .rmask .rmopt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 6px; border-radius: 6px; background: var(--bg-sec); cursor: pointer; }
 .rmask .rmopt input { width: 18px; height: 18px; accent-color: var(--red, #f23f43); }
 .rmask .rmopt span { display: flex; flex-direction: column; } .rmask .rmopt small { color: var(--text-muted); }
+.rmask .rmopt.off { opacity: .75; cursor: default; } .rmask .rmopt.off input { cursor: not-allowed; } .rmask .rmopt small a { color: var(--text-link); }
+.rmask .rmwin { margin: 4px 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--bg-sec); color: var(--text); font-size: 13px; }
 .rmask .rmnotes { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-muted); line-height: 1.45; }
 .rmask .rmwarn { margin: 10px 0; padding: 10px 12px; border-radius: 6px; border-left: 4px solid var(--yellow, #f0b232); background: color-mix(in srgb, var(--yellow, #f0b232) 12%, transparent); font-size: 13px; line-height: 1.45; }
 .rmask .rmwarn.hot { border-left-color: var(--red, #f23f43); background: color-mix(in srgb, var(--red, #f23f43) 16%, transparent); }

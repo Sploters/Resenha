@@ -6,7 +6,7 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null;
+let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null, padOk = false, readyWait = [];
 // push-to-talk global: o mesmo programa (lc-input) vigia só a tecla/botão escolhido; ver setPtt
 let pttCode = null, onPttEvent = () => { }, pttRetry = 0, pttTimer = null, quitting = false, startedAt = 0;
 const log = (...a) => console.log('[remote]', ...a);
@@ -19,6 +19,11 @@ const helperPath = () => {
 // fonte escolhida para transmitir (vem do setDisplayMediaRequestHandler)
 function setShared(src) { shared = src ? { id: src.id, display_id: src.display_id || '' } : null; }
 
+// o que está sendo transmitido, para o lc-input: { rect } (monitor) ou { hwnd } (janela; o id do Electron é "window:<HWND>:0")
+function sharedTarget() {
+  if (shared?.id.startsWith('window:')) { const h = Number(shared.id.split(':')[1]); return Number.isSafeInteger(h) && h > 0 ? { hwnd: h } : null; }
+  const rect = sharedRect(); return rect ? { rect } : null;
+}
 // retângulo do monitor transmitido em pixels físicos; null se a transmissão é de uma janela
 function sharedRect() {
   if (!shared || !shared.id.startsWith('screen:')) return null;
@@ -53,8 +58,11 @@ function antiCheats() {
 async function capable() {
   if (process.platform !== 'win32') return { ok: false, reason: 'O controle remoto só funciona no app para Windows.' };
   if (!helperPath()) return { ok: false, reason: 'Componente de controle remoto não encontrado. Atualize o app.' };
-  if (!sharedRect()) return { ok: false, reason: 'Transmita a tela inteira (não uma janela) para permitir controle remoto.' };
-  return { ok: true, antiCheats: await antiCheats() };
+  const target = sharedTarget();
+  if (!target) return { ok: false, reason: 'Não consegui identificar o que você está transmitindo. Pare e transmita de novo.' };
+  // controle de videogame: precisa do driver ViGEmBus no PC (o lc-input conta ao iniciar se conseguiu falar com ele)
+  const pad = ensureHelper() && await whenReady(2500) && padOk;
+  return { ok: true, antiCheats: await antiCheats(), window: !!target.hwnd, pad };
 }
 
 function ensureHelper() {
@@ -67,11 +75,11 @@ function ensureHelper() {
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       let m; try { m = JSON.parse(line); } catch { continue; }
-      if (m.t === 'ready') ready = true;
+      if (m.t === 'ready') { ready = true; padOk = !!m.pad; readyWait.splice(0).forEach(f => f(true)); }
       if (m.t === 'ptt') onPttEvent(!!m.down);
       if (m.t === 'panic') { armed = false; closeIndicator(); onEvent('panic'); }
-      if (m.t === 'err' && m.msg === 'blocked') onEvent('blocked');
-      if (m.t === 'err' && m.msg !== 'blocked') log('helper:', m.msg);
+      if (m.t === 'err' && ['blocked', 'covered', 'nopad'].includes(m.msg)) onEvent(m.msg);
+      else if (m.t === 'err') log('helper:', m.msg);
     }
   });
   helper.on('exit', (code) => {
@@ -84,6 +92,7 @@ function ensureHelper() {
   helper.stdin.on('error', () => { });
   return true;
 }
+const whenReady = (ms) => (ready ? Promise.resolve(true) : new Promise(res => { readyWait.push(res); setTimeout(() => res(ready), ms); }));
 const write = (o) => { try { helper?.stdin.write(JSON.stringify(o) + '\n'); } catch { } };
 
 function showIndicator(who, perms) {
@@ -98,7 +107,7 @@ function showIndicator(who, perms) {
   indicator.setAlwaysOnTop(true, 'screen-saver'); // por cima de janelas sem borda e da barra de tarefas
   indicator.setVisibleOnAllWorkspaces(true);
   const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const what = perms.mouse && perms.keyboard ? 'mouse e teclado' : perms.mouse ? 'mouse' : 'teclado';
+  const what = permsText(perms);
   const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#1e1f22;color:#f2f3f5;font:13px "Segoe UI",sans-serif;user-select:none;-webkit-app-region:drag}
     body{display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;border:2px solid #f23f43;box-sizing:border-box;border-radius:8px}
     i{width:10px;height:10px;border-radius:50%;background:#f23f43;flex:none}b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}small{color:#b5bac1;white-space:nowrap}span{flex:1}
@@ -113,11 +122,14 @@ function showIndicator(who, perms) {
 }
 function closeIndicator() { const w = indicator; indicator = null; if (w && !w.isDestroyed()) w.destroy(); }
 
+// "mouse e teclado", "mouse, teclado e controle", "controle"…
+function permsText(p) { const l = [p.mouse && 'mouse', p.keyboard && 'teclado', p.gamepad && 'controle'].filter(Boolean); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l.at(-1) : l[0] || 'nada'; }
+
 async function start({ who, perms }) {
   const c = await capable(); if (!c.ok) return c;
   if (!ensureHelper()) return { ok: false, reason: 'Não foi possível iniciar o componente de controle remoto.' };
-  write({ t: 'arm', rect: sharedRect() }); armed = true;
-  showIndicator(String(who || 'Alguém').slice(0, 40), { mouse: !!perms?.mouse, keyboard: !!perms?.keyboard });
+  write({ t: 'arm', ...sharedTarget() }); armed = true;
+  showIndicator(String(who || 'Alguém').slice(0, 40), { mouse: !!perms?.mouse, keyboard: !!perms?.keyboard, gamepad: !!perms?.gamepad });
   return { ok: true };
 }
 function input(ev) { if (armed && Array.isArray(ev) && ev.length <= 64) write({ t: 'ev', ev }); }

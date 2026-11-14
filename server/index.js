@@ -2034,7 +2034,7 @@ wss.on('connection', (ws) => {
           const c = currentVoice(uid);
           if (msg.t !== 'REMOTE_STOP' && (!c || voice.get(c).get(uid).ws !== ws)) { if (msg.t !== 'REMOTE_INPUT') send(ws, 'REMOTE_ERROR', { error: 'Entre na sala de voz neste aparelho' }); break; }
           const r = msg.t === 'REMOTE_REQUEST' ? remote.request(uid, String(d.to || ''))
-            : msg.t === 'REMOTE_ANSWER' ? remote.answer(uid, d.id, { accept: d.accept === true, mouse: d.mouse === true, keyboard: d.keyboard === true, capable: d.capable !== false })
+            : msg.t === 'REMOTE_ANSWER' ? remote.answer(uid, d.id, { accept: d.accept === true, mouse: d.mouse === true, keyboard: d.keyboard === true, gamepad: d.gamepad === true, capable: d.capable !== false })
             : msg.t === 'REMOTE_INPUT' ? remote.input(uid, d.id, d.ev)
             : remote.stop(uid, d.id, d.reason === 'panic' ? 'panic' : 'stopped');
           if (r.error) send(ws, 'REMOTE_ERROR', { error: r.error });

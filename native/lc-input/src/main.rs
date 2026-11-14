@@ -2,6 +2,10 @@
 //! Iniciado pelo app desktop, conversa só pela entrada/saída padrão (nenhuma porta de rede).
 //! Segurança:
 //!  - só injeta "armado" (o app arma depois que o dono aceitou no próprio PC) e só dentro do monitor transmitido;
+//!  - transmitindo uma JANELA: o mouse só cai dentro dela e só onde ela é a de cima (se outra janela a cobre, o clique é
+//!    descartado, nunca vai para o que não aparece na transmissão), e o teclado só vale com ela em foco;
+//!  - controle de videogame: um controle de Xbox 360 virtual (driver ViGEmBus, se instalado), ligado no primeiro uso e
+//!    desligado (tudo solto) ao desarmar;
 //!  - atalho de emergência Ctrl+Alt+Shift+Q lido por um gancho de teclado de baixo nível que IGNORA entrada injetada:
 //!    só o teclado físico do dono dispara (quem controla não consegue desligar o atalho nem apertá-lo);
 //!  - ao desarmar, no atalho, ou se o app fechar (fim da entrada padrão), solta toda tecla/botão que ficou pressionado.
@@ -9,8 +13,9 @@
 //! ELA desce ou sobe — nenhuma outra tecla sai daqui. A tecla não é bloqueada (o jogo continua recebendo). Entrada
 //! injetada conta (macros de mouse/teclado gamer), exceto enquanto o controle remoto está armado (quem controla não abre
 //! o microfone do dono). O gancho de mouse só existe enquanto o PTT for um botão do mouse.
-//! Saída padrão: {"t":"ready"}, {"t":"armed"}, {"t":"disarmed"}, {"t":"panic"}, {"t":"ptt-ok","on":bool},
-//! {"t":"ptt","down":bool}, {"t":"err","msg":...}
+//! Saída padrão: {"t":"ready","pad":bool}, {"t":"armed"}, {"t":"disarmed"}, {"t":"panic"}, {"t":"ptt-ok","on":bool},
+//! {"t":"ptt","down":bool}, {"t":"err","msg":...} (msg "blocked": janela de administrador; "covered": a janela transmitida
+//! está coberta ou fora de foco; "nopad": sem o driver do controle virtual)
 mod keymap;
 mod proto;
 
@@ -39,19 +44,23 @@ fn main() { win::run(); }
 #[cfg(windows)]
 mod win {
     use super::{emit, proto};
-    use proto::{Action, Cmd, PttKey, Rect};
+    use proto::{Action, Cmd, Pad, PttKey, Rect, Target};
     use std::io::BufRead;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::mpsc::Sender;
     use std::sync::{Mutex, OnceLock};
-    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
     use windows::Win32::UI::WindowsAndMessaging::*;
 
-    struct State { armed: bool, rect: Option<Rect>, keys: Vec<(u16, bool)>, buttons: [bool; 3] }
-    static STATE: Mutex<State> = Mutex::new(State { armed: false, rect: None, keys: Vec::new(), buttons: [false; 3] });
+    type PadDev = vigem_client::Xbox360Wired<vigem_client::Client>;
+    struct State { armed: bool, target: Option<Target>, keys: Vec<(u16, bool)>, buttons: [bool; 3], pad: Option<PadDev>, warned: bool }
+    // o controle virtual guarda um HANDLE do driver: só esta thread (a da entrada padrão) mexe nele, sempre com o Mutex
+    unsafe impl Send for State {}
+    static STATE: Mutex<State> = Mutex::new(State { armed: false, target: None, keys: Vec::new(), buttons: [false; 3], pad: None, warned: false });
     static PHYS_CTRL: AtomicBool = AtomicBool::new(false);
     static PHYS_ALT: AtomicBool = AtomicBool::new(false);
     static PHYS_SHIFT: AtomicBool = AtomicBool::new(false);
@@ -103,7 +112,50 @@ mod win {
         for (i, down) in st.buttons.iter_mut().enumerate() { if *down { v.push(mouse(0, 0, 0, BTN[i].1)); *down = false; } }
         if !v.is_empty() { send(&v); }
     }
-    fn disarm(st: &mut State) { release_all(st); st.armed = false; ARMED.store(false, Ordering::SeqCst); st.rect = None; }
+    fn disarm(st: &mut State) {
+        release_all(st); st.armed = false; ARMED.store(false, Ordering::SeqCst); st.target = None; st.warned = false;
+        // controle virtual: solta tudo e desconecta (o Windows avisa "controle desconectado" e o jogo pausa, como num cabo solto)
+        if let Some(mut p) = st.pad.take() { let _ = p.update(&vigem_client::XGamepad::default()); let _ = p.unplug(); }
+    }
+
+    // ---- janela transmitida ----
+    fn hwnd(h: u64) -> HWND { HWND(h as usize as *mut _) }
+    /// retângulo visível da janela em pixels físicos (sem a sombra; é o que a captura de janela mostra). None: fechada ou minimizada
+    fn window_rect(h: u64) -> Option<Rect> {
+        let w = hwnd(h);
+        unsafe {
+            if !IsWindow(Some(w)).as_bool() || IsIconic(w).as_bool() { return None; }
+            let mut r = RECT::default();
+            if DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut _, std::mem::size_of::<RECT>() as u32).is_err() && GetWindowRect(w, &mut r).is_err() { return None; }
+            let (wd, ht) = (r.right - r.left, r.bottom - r.top);
+            if wd < 1 || ht < 1 { return None; }
+            Some(Rect { x: r.left, y: r.top, w: wd, h: ht })
+        }
+    }
+    fn root(w: HWND) -> HWND { unsafe { GetAncestor(w, GA_ROOT) } }
+    /// a janela transmitida é a de cima no ponto do cursor? Se não for, tenta trazê-la para a frente uma vez
+    fn window_under_cursor(h: u64) -> bool {
+        let want = hwnd(h);
+        let under = || unsafe { let mut p = POINT::default(); GetCursorPos(&mut p).is_ok() && root(WindowFromPoint(p)) == want };
+        if under() { return true; }
+        unsafe { let _ = SetForegroundWindow(want); }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        under()
+    }
+    fn window_focused(h: u64) -> bool { unsafe { root(GetForegroundWindow()) == hwnd(h) } }
+
+    // ---- controle de videogame ----
+    fn pad_available() -> bool { vigem_client::Client::connect().is_ok() }
+    fn pad_update(st: &mut State, pad: Pad) -> bool {
+        if st.pad.is_none() {
+            let Ok(c) = vigem_client::Client::connect() else { return false };
+            let mut t = vigem_client::Xbox360Wired::new(c, vigem_client::TargetId::XBOX360_WIRED);
+            if t.plugin().is_err() || t.wait_ready().is_err() { return false; }
+            st.pad = Some(t);
+        }
+        let g = vigem_client::XGamepad { buttons: vigem_client::XButtons(pad.buttons), left_trigger: pad.lt, right_trigger: pad.rt, thumb_lx: pad.lx, thumb_ly: pad.ly, thumb_rx: pad.rx, thumb_ry: pad.ry };
+        st.pad.as_mut().map_or(false, |p| p.update(&g).is_ok())
+    }
 
     fn apply(st: &mut State, a: Action) -> bool {
         match a {
@@ -123,6 +175,7 @@ mod win {
                 let mut v = vec![]; if dy != 0 { v.push(mouse(0, 0, -dy, MOUSEEVENTF_WHEEL)); } if dx != 0 { v.push(mouse(0, 0, dx, MOUSEEVENTF_HWHEEL)); }
                 send(&v)
             }
+            Action::Pad(p) => pad_update(st, p),
             Action::Key { scan, ext, down } => {
                 if down { if !st.keys.contains(&(scan, ext)) { st.keys.push((scan, ext)); } } else if let Some(i) = st.keys.iter().position(|k| *k == (scan, ext)) { st.keys.swap_remove(i); } else { return true; } // não solta o que não apertou
                 send(&[key(scan, ext, down)])
@@ -205,18 +258,37 @@ mod win {
             sync(&mut mhook);
             while GetMessageW(&mut msg, None, 0, 0).as_bool() { if msg.message == WM_SYNC_MOUSE { sync(&mut mhook); } }
         });
-        emit(r#"{"t":"ready","native":true,"panic":"Ctrl+Alt+Shift+Q"}"#);
+        emit(&format!(r#"{{"t":"ready","native":true,"panic":"Ctrl+Alt+Shift+Q","pad":{}}}"#, pad_available()));
         let mut blocked_warned = false;
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
             let mut st = STATE.lock().unwrap();
             match proto::parse(&line) {
-                Cmd::Arm(r) => { st.armed = true; ARMED.store(true, Ordering::SeqCst); st.rect = Some(r); drop(st); emit(r#"{"t":"armed"}"#); }
+                Cmd::Arm(t) => { st.armed = true; ARMED.store(true, Ordering::SeqCst); st.target = Some(t); st.warned = false; drop(st); emit(r#"{"t":"armed"}"#); }
                 Cmd::Disarm => { disarm(&mut st); drop(st); emit(r#"{"t":"disarmed"}"#); }
                 Cmd::Ptt(k) => { drop(st); set_ptt(k); emit(&format!(r#"{{"t":"ptt-ok","on":{}}}"#, k.is_some())); }
                 Cmd::Events(v) => {
-                    let Some(r) = st.rect.filter(|_| st.armed) else { continue };
+                    let Some(t) = st.target.filter(|_| st.armed) else { continue };
                     let mut ok = true;
-                    for raw in v { ok &= apply(&mut st, proto::place(raw, r)); }
+                    let (mut covered, mut nopad) = (false, false);
+                    for raw in v {
+                        let r = match t { Target::Screen(r) => r, Target::Window(h) => match window_rect(h) { Some(r) => r, None => { covered = true; continue } } };
+                        let a = proto::place(raw, r);
+                        if let Target::Window(h) = t {
+                            // só o que aparece na transmissão: clique/rolagem onde a janela é a de cima; tecla com ela em foco.
+                            // Soltar o que já está apertado sempre passa (nunca deixa tecla/botão preso)
+                            let pass = match &a {
+                                Action::Button { down: true, .. } => window_under_cursor(h),
+                                Action::Wheel { .. } => window_under_cursor(h),
+                                Action::Key { down: true, .. } => window_focused(h),
+                                _ => true,
+                            };
+                            if !pass { covered = true; continue; }
+                        }
+                        let is_pad = matches!(a, Action::Pad(_));
+                        let done = apply(&mut st, a);
+                        if is_pad { nopad |= !done; } else { ok &= done; }
+                    }
+                    if (covered || nopad) && !st.warned { st.warned = true; drop(st); emit(if nopad { r#"{"t":"err","msg":"nopad"}"# } else { r#"{"t":"err","msg":"covered"}"# }); continue; }
                     // SendInput falha quando a janela em foco é de administrador (UIPI): avisa uma vez
                     if !ok && !blocked_warned { blocked_warned = true; drop(st); emit(r#"{"t":"err","msg":"blocked"}"#); }
                 }

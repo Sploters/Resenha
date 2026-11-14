@@ -3536,7 +3536,7 @@ function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
       inRoom && { ux: 'clipes', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
       { ux: 'desenhar', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão', hint: 'Todos na sala veem', fn: () => { S.annot = S.annot === key ? null : key; renderVoiceUI(); } },
       { ux: 'destacar', label: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
-      !mine && inRoom && { ux: 'controle', label: on ? 'Parar de controlar' : wait ? 'Cancelar o pedido de controle' : 'Pedir controle (mouse e teclado)', fn: () => (on || wait ? stopControl() : requestControl(uid)) },
+      !mine && inRoom && { ux: 'controle', label: on ? 'Parar de controlar' : wait ? 'Cancelar o pedido de controle' : 'Pedir controle (mouse, teclado ou controle)', fn: () => (on || wait ? stopControl() : requestControl(uid)) },
       !mine && { ux: 'qualidade', label: S.qstats === key ? 'Esconder a qualidade' : 'Qualidade desta transmissão', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
       { ux: 'flutuante', label: 'Janela flutuante sobre outros apps', fn: () => popOut(scr) },
       { ux: 'telacheia', label: 'Tela cheia', hint: 'ou clique duas vezes no vídeo', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },

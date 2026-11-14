@@ -1,5 +1,6 @@
 //! Protocolo com o app desktop: uma linha JSON por comando na entrada padrão.
 //!   {"t":"arm","rect":[x,y,w,h]}   liga a injeção para o monitor transmitido (pixels físicos)
+//!   {"t":"arm","hwnd":123456}      liga a injeção para a JANELA transmitida (o retângulo é lido a cada evento)
 //!   {"t":"disarm"}                 desliga e solta tudo
 //!   {"t":"ev","ev":[...]}          eventos já validados pelo servidor; validados de novo aqui
 //!   {"t":"ptt","code":"KeyV"}      push-to-talk global: avisa só quando ESTA tecla (ou botão do mouse) desce/sobe
@@ -17,10 +18,28 @@ pub enum Action {
     Button { b: u8, down: bool },     // 0 esquerdo, 1 meio, 2 direito (como MouseEvent.button)
     Wheel { dx: i32, dy: i32 },       // unidades do Windows (120 = um "dente"); dy > 0 = para baixo
     Key { scan: u16, ext: bool, down: bool },
+    Pad(Pad),                         // estado inteiro do controle de videogame (Xbox 360 virtual)
 }
 
+/// Controle no formato do XInput: botões (XINPUT_GAMEPAD_*), gatilhos 0..255 e analógicos -32768..32767 (Y para cima > 0).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Pad { pub buttons: u16, pub lt: u8, pub rt: u8, pub lx: i16, pub ly: i16, pub rx: i16, pub ry: i16 }
+
+/// Botões no "standard mapping" do navegador (Gamepad API, índice = bit) -> bits do XInput.
+/// 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, (6 e 7 são os gatilhos, que vão como eixo), 8 Back, 9 Start, 10 L3, 11 R3,
+/// 12 cima, 13 baixo, 14 esquerda, 15 direita, 16 Guia.
+const PAD_MAP: [(u8, u16); 15] = [(0, 0x1000), (1, 0x2000), (2, 0x4000), (3, 0x8000), (4, 0x0100), (5, 0x0200), (8, 0x0020), (9, 0x0010),
+    (10, 0x0040), (11, 0x0080), (12, 0x0001), (13, 0x0002), (14, 0x0004), (15, 0x0008), (16, 0x0400)];
+pub fn pad_buttons(std_bits: u32) -> u16 { PAD_MAP.iter().filter(|(i, _)| std_bits & (1 << i) != 0).fold(0, |a, (_, x)| a | x) }
+fn axis(v: f64) -> i16 { (v.clamp(-1.0, 1.0) * 32767.0).round() as i16 }
+fn trig(v: f64) -> u8 { (v.clamp(0.0, 1.0) * 255.0).round() as u8 }
+
+/// Onde a injeção vale: um monitor (retângulo fixo) ou uma janela (retângulo lido na hora; ela pode mexer)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Target { Screen(Rect), Window(u64) }
+
 #[derive(Debug, PartialEq)]
-pub enum Cmd { Arm(Rect), Disarm, Events(Vec<Raw>), Ptt(Option<PttKey>), Bad }
+pub enum Cmd { Arm(Target), Disarm, Events(Vec<Raw>), Ptt(Option<PttKey>), Bad }
 
 /// Tecla do push-to-talk: scancode do teclado (como em `scan_for`) ou botão do mouse
 /// (3 = meio, 4 = lateral de trás / XBUTTON1, 5 = lateral da frente / XBUTTON2). Esquerdo e direito não valem.
@@ -35,7 +54,7 @@ pub fn ptt_key(code: &str) -> Option<PttKey> {
 }
 
 #[derive(Deserialize)]
-struct Line { t: String, rect: Option<[i64; 4]>, ev: Option<Vec<serde_json::Value>>, code: Option<String> }
+struct Line { t: String, rect: Option<[i64; 4]>, hwnd: Option<u64>, ev: Option<Vec<serde_json::Value>>, code: Option<String> }
 
 const MAX_EVENTS: usize = 64;
 
@@ -43,9 +62,10 @@ pub fn parse(line: &str) -> Cmd {
     if line.len() > 16 * 1024 { return Cmd::Bad; }
     let Ok(l) = serde_json::from_str::<Line>(line) else { return Cmd::Bad };
     match l.t.as_str() {
-        "arm" => match l.rect {
-            Some([x, y, w, h]) if w > 0 && h > 0 && w <= 32768 && h <= 32768 && x.abs() <= 65536 && y.abs() <= 65536 =>
-                Cmd::Arm(Rect { x: x as i32, y: y as i32, w: w as i32, h: h as i32 }),
+        "arm" => match (l.rect, l.hwnd) {
+            (Some([x, y, w, h]), None) if w > 0 && h > 0 && w <= 32768 && h <= 32768 && x.abs() <= 65536 && y.abs() <= 65536 =>
+                Cmd::Arm(Target::Screen(Rect { x: x as i32, y: y as i32, w: w as i32, h: h as i32 })),
+            (None, Some(h)) if h != 0 && h <= u32::MAX as u64 => Cmd::Arm(Target::Window(h)), // HWND cabe em 32 bits
             _ => Cmd::Bad,
         },
         "disarm" => Cmd::Disarm,
@@ -70,6 +90,14 @@ fn raw_event(v: &serde_json::Value) -> Option<Raw> {
         "d" | "u" => { let b = f("b")?; if b == 0.0 || b == 1.0 || b == 2.0 { Some(Raw::Act(Action::Button { b: b as u8, down: k == "d" })) } else { None } }
         "w" => { let (dx, dy) = (f("dx").unwrap_or(0.0), f("dy").unwrap_or(0.0)); if dx.abs() <= 2400.0 && dy.abs() <= 2400.0 && (dx != 0.0 || dy != 0.0) { Some(Raw::Act(Action::Wheel { dx: dx as i32, dy: dy as i32 })) } else { None } }
         "kd" | "ku" => { let (scan, ext) = scan_for(v.get("c")?.as_str()?)?; Some(Raw::Act(Action::Key { scan, ext, down: k == "kd" })) }
+        "g" => {
+            let b = f("b")?; if !(0.0..=131071.0).contains(&b) || b.fract() != 0.0 { return None; }
+            let ax = v.get("ax")?.as_array()?; if ax.len() != 4 { return None; }
+            let a: Vec<f64> = ax.iter().map(|x| x.as_f64().filter(|x| x.is_finite() && (-1.0..=1.0).contains(x))).collect::<Option<_>>()?;
+            let (lt, rt) = (f("lt").unwrap_or(0.0), f("rt").unwrap_or(0.0)); if !(0.0..=1.0).contains(&lt) || !(0.0..=1.0).contains(&rt) { return None; }
+            // o navegador dá Y para baixo positivo; o XInput, para cima
+            Some(Raw::Act(Action::Pad(Pad { buttons: pad_buttons(b as u32), lt: trig(lt), rt: trig(rt), lx: axis(a[0]), ly: axis(-a[1]), rx: axis(a[2]), ry: axis(-a[3]) })))
+        }
         _ => None,
     }
 }
@@ -91,7 +119,10 @@ mod tests {
     use super::*;
     #[test]
     fn arm_e_disarm() {
-        assert_eq!(parse(r#"{"t":"arm","rect":[1920,0,2560,1440]}"#), Cmd::Arm(Rect { x: 1920, y: 0, w: 2560, h: 1440 }));
+        assert_eq!(parse(r#"{"t":"arm","rect":[1920,0,2560,1440]}"#), Cmd::Arm(Target::Screen(Rect { x: 1920, y: 0, w: 2560, h: 1440 })));
+        assert_eq!(parse(r#"{"t":"arm","hwnd":132456}"#), Cmd::Arm(Target::Window(132456)));
+        assert_eq!(parse(r#"{"t":"arm","hwnd":0}"#), Cmd::Bad);
+        assert_eq!(parse(r#"{"t":"arm","rect":[0,0,10,10],"hwnd":5}"#), Cmd::Bad); // um ou outro
         assert_eq!(parse(r#"{"t":"arm","rect":[0,0,0,1080]}"#), Cmd::Bad);
         assert_eq!(parse(r#"{"t":"disarm"}"#), Cmd::Disarm);
         assert_eq!(parse("lixo"), Cmd::Bad);
@@ -121,6 +152,17 @@ mod tests {
         assert_eq!(parse(r#"{"t":"ptt"}"#), Cmd::Ptt(None));
         assert_eq!(parse(r#"{"t":"ptt","code":"Mouse1"}"#), Cmd::Bad); // botão esquerdo nunca
         assert_eq!(parse(r#"{"t":"ptt","code":"Inexistente"}"#), Cmd::Bad);
+    }
+    #[test]
+    fn controle_de_videogame() {
+        // A + LB + cima + Start; analógico esquerdo todo para cima e à direita; gatilho direito pela metade
+        let Cmd::Events(v) = parse(r#"{"t":"ev","ev":[{"k":"g","b":4625,"ax":[1,-1,0,0.5],"lt":0,"rt":0.5}]}"#) else { panic!() };
+        assert_eq!(v[0], Raw::Act(Action::Pad(Pad { buttons: 0x1000 | 0x0100 | 0x0001 | 0x0010, lt: 0, rt: 128, lx: 32767, ly: 32767, rx: 0, ry: -16384 })));
+        assert_eq!(pad_buttons(1 << 6 | 1 << 7), 0); // gatilhos não viram botão
+        assert_eq!(pad_buttons(1 << 16), 0x0400);
+        // fora da faixa, eixos faltando ou botões demais: descartado
+        let Cmd::Events(v) = parse(r#"{"t":"ev","ev":[{"k":"g","b":0,"ax":[2,0,0,0]},{"k":"g","b":0,"ax":[0,0,0]},{"k":"g","b":131072,"ax":[0,0,0,0]},{"k":"g","b":1.5,"ax":[0,0,0,0]},{"k":"g","b":0,"ax":[0,0,0,0],"rt":3}]}"#) else { panic!() };
+        assert!(v.is_empty());
     }
     #[test]
     fn limite_de_eventos_por_linha() {

@@ -1,6 +1,6 @@
-// Controle remoto (Fase 3, só mouse e teclado). O servidor é o porteiro:
+// Controle remoto (mouse, teclado e controle de videogame). O servidor é o porteiro:
 // - a sessão nasce de um PEDIDO de quem assiste e só vale depois do CONSENTIMENTO do dono da tela (no cliente dele);
-// - permissões separadas (mouse, teclado), escolhidas pelo dono;
+// - permissões separadas (mouse, teclado, controle de videogame), escolhidas pelo dono;
 // - cada evento é validado (formato, faixa, tamanho) e só passa se vier do controlador daquela sessão, com taxa limitada;
 // - acaba na hora quando qualquer um para, sai da sala, desconecta ou o dono para de transmitir.
 // A injeção em si acontece só no app desktop do dono (programa nativo), nunca no navegador.
@@ -19,6 +19,15 @@ export function cleanEvent(e, perms) {
     case 'd': case 'u': { if (!perms.mouse) return null; const b = num(e.b, 0, 2); return b === null || !Number.isInteger(b) ? null : { k: e.k, b }; }
     case 'w': { if (!perms.mouse) return null; const dx = num(e.dx ?? 0, -2400, 2400), dy = num(e.dy ?? 0, -2400, 2400); return dx === null || dy === null || (!dx && !dy) ? null : { k: 'w', dx: Math.round(dx), dy: Math.round(dy) }; }
     case 'kd': case 'ku': { if (!perms.keyboard) return null; return typeof e.c === 'string' && KEY_RE.test(e.c) ? { k: e.k, c: e.c } : null; }
+    // controle de videogame: o estado inteiro (botões no "standard mapping" do navegador, 17 bits; 4 eixos -1..1; gatilhos 0..1)
+    case 'g': {
+      if (!perms.gamepad) return null;
+      const b = num(e.b, 0, 0x1ffff), lt = num(e.lt ?? 0, 0, 1), rt = num(e.rt ?? 0, 0, 1);
+      if (b === null || !Number.isInteger(b) || lt === null || rt === null || !Array.isArray(e.ax) || e.ax.length !== 4) return null;
+      const ax = e.ax.map(v => num(v, -1, 1)); if (ax.includes(null)) return null;
+      const r = (v) => Math.round(v * 1e3) / 1e3;
+      return { k: 'g', b, ax: ax.map(r), lt: r(lt), rt: r(rt) };
+    }
     default: return null;
   }
 }
@@ -45,7 +54,7 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     if (!b.screen) return { error: 'A pessoa precisa estar transmitindo a tela' };
     if (of(to).length) return { error: 'Essa pessoa já está numa sessão de controle remoto' };
     if (of(from).length) return { error: 'Você já está numa sessão de controle remoto' };
-    const s = { id: newId(), owner: to, controller: from, cid: a.cid, perms: { mouse: false, keyboard: false }, state: 'pending', created: now(), bucket: BURST, last: now() };
+    const s = { id: newId(), owner: to, controller: from, cid: a.cid, perms: { mouse: false, keyboard: false, gamepad: false }, state: 'pending', created: now(), bucket: BURST, last: now() };
     sessions.set(s.id, s);
     sendUser(to, 'REMOTE_REQUEST', pub(s));
     sendUser(from, 'REMOTE_STATE', pub(s));
@@ -54,13 +63,13 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
   }
 
   // resposta do dono (no cliente dele). Sem o programa nativo (navegador comum), o cliente responde capable:false.
-  function answer(uid, id, { accept, mouse, keyboard, capable }) {
+  function answer(uid, id, { accept, mouse, keyboard, gamepad, capable }) {
     const s = sessions.get(String(id));
     if (s && s.state === 'pending' && !live(s)) end(s, 'expired');
     if (!s || s.owner !== uid || s.state !== 'pending' || !live(s)) return { error: 'Pedido não encontrado ou expirado' };
     if (!accept) { end(s, capable === false ? 'unsupported' : 'declined'); return {}; }
-    const perms = { mouse: !!mouse, keyboard: !!keyboard };
-    if (!perms.mouse && !perms.keyboard) { end(s, 'declined'); return {}; }
+    const perms = { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad };
+    if (!perms.mouse && !perms.keyboard && !perms.gamepad) { end(s, 'declined'); return {}; }
     const v = voiceOf(uid);
     if (!v || v.cid !== s.cid || !v.screen) { end(s, 'stream_ended'); return {}; }
     s.perms = perms; s.state = 'active'; s.bucket = BURST; s.last = now();

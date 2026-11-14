@@ -32,6 +32,10 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const bad = [{ k: 'm', x: 2, y: 0 }, { k: 'm', x: NaN, y: 0 }, { k: 'd', b: 5 }, { k: 'w', dy: 99999 }, { k: 'kd', c: 'Key A' }, { k: 'kd', c: '<script>' }, { k: 'exec', cmd: 'calc' }, null, 'x'];
   ok(bad.every(e => cleanEvent(e, { mouse: true, keyboard: true }) === null), 'eventos fora do formato/faixa são descartados');
   ok(cleanEvent({ k: 'kd', c: 'ArrowLeft', extra: 1 }, { mouse: true, keyboard: true })?.extra === undefined, 'campos extras são removidos');
+  { const P = { gamepad: true }, g = (o) => cleanEvent({ k: 'g', b: 1, ax: [0, 0, 0, 0], ...o }, P);
+    ok(JSON.stringify(g({ ax: [0.12345, -1, 1, 0], rt: 0.5, x: 9 })) === '{"k":"g","b":1,"ax":[0.123,-1,1,0],"lt":0,"rt":0.5}', 'controle: estado arredondado, campos extras fora');
+    ok([g({ b: 0x20000 }), g({ b: 1.5 }), g({ ax: [2, 0, 0, 0] }), g({ ax: [0, 0, 0] }), g({ ax: 'x' }), g({ lt: -0.1 }), g({ rt: NaN })].every(v => v === null), 'controle: botões, eixos ou gatilhos fora da faixa são descartados');
+    ok(cleanEvent({ k: 'g', b: 1, ax: [0, 0, 0, 0] }, { mouse: true, keyboard: true }) === null, 'controle não liberado: evento descartado'); }
   // limite de taxa: rajada de 2000 eventos em 1 ms
   let sent = 0; for (let i = 0; i < 40; i++) sent += R.input('b', s1.id, Array.from({ length: 64 }, () => ({ k: 'm', x: .5, y: .5 }))).sent;
   ok(sent <= 800 && sent >= 700, 'rajada é limitada (~800 eventos de folga)', sent);
@@ -76,7 +80,7 @@ async function page(tok, desk) {
       window.__ri = []; window.__rs = []; window.__rstop = 0;
       const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { },
         getSources: async () => [{ id: 'screen:1:0', name: 'Tela 1', type: 'screen', thumbnail: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
-        remoteCapable: async () => ({ ok: true, antiCheats: window.__ac || [] }), remoteStart: async (o) => { window.__rs.push(o); return { ok: true }; },
+        remoteCapable: async () => ({ ok: true, antiCheats: window.__ac || [], pad: !!window.__pad, window: !!window.__win }), remoteStart: async (o) => { window.__rs.push(o); return { ok: true }; },
         remoteInput: (ev) => window.__ri.push(...ev), remoteStop: () => { window.__rstop++; }, onRemoteEvent: (cb) => { window.__remoteCb = cb; } };
       window.lcDesktop = new Proxy(fns, { get: (t, k) => (k in t ? t[k] : () => Promise.resolve(true)) });
     }
@@ -123,7 +127,7 @@ try {
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Permitir').click());
   await A.waitForFunction(() => window.__rs.length > 0, { timeout: 5000 }).catch(() => { });
   ok(await A.evaluate(() => window.__rs[0]?.who === 'bob' && window.__rs[0]?.perms.mouse && !window.__rs[0]?.perms.keyboard), 'app desktop da alice é armado só com mouse', await A.evaluate(() => window.__rs[0]));
-  ok(await toastOf(B, 'liberou o mouse'), 'bob fica sabendo que o mouse foi liberado');
+  ok(await toastOf(B, 'liberou: mouse\\.'), 'bob fica sabendo que o mouse foi liberado');
   ok(await A.evaluate(() => /bob está controlando seu mouse/.test(document.getElementById('remote-chip')?.textContent || '')), 'alice vê o aviso "bob está controlando seu mouse"');
   ok(await B.evaluate((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.classList.contains('controlling'), a.id), 'quadro da transmissão marcado como controlado no bob');
 
@@ -157,7 +161,7 @@ try {
   await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
   ok(await A.evaluate(() => /Anti-cheat rodando agora: Riot Vanguard/.test(document.querySelector('.modal .rmwarn.hot')?.textContent || '')), 'anti-cheat detectado no PC do dono: aviso vermelho com o nome');
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Permitir').click());
-  await toastOf(B, 'liberou o mouse e o teclado');
+  await toastOf(B, 'liberou: mouse e teclado');
   ok(true, 'segundo pedido sai direto, sem repetir a apresentação');
   await A.evaluate(() => { window.__ri = []; });
   await B.evaluate(() => document.querySelectorAll('textarea').forEach(t => { t.value = ''; })); // na sessão só com mouse, a tecla ficou no chat do próprio bob (esperado)
@@ -174,6 +178,40 @@ try {
   // bob para pelo aviso
   await B.evaluate(() => document.querySelector('#remote-chip .btn').click());
   ok(await A.waitForFunction(() => !document.getElementById('remote-chip') && window.__rstop >= 2, { timeout: 5000 }).then(() => true, () => false), 'bob para pelo botão do aviso: alice desarmada');
+
+  // ---- controle de videogame ----
+  // sem o driver ViGEmBus no PC da alice: a opção aparece desligada, com o link do driver
+  await sleep(300); await clickCtl(B);
+  await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
+  const noPad = await A.evaluate(() => { const o = document.querySelectorAll('.modal .rmopt')[2]; return { off: o?.querySelector('input').disabled, link: o?.querySelector('a')?.href }; });
+  ok(noPad.off && /ViGEmBus/.test(noPad.link || ''), 'sem o driver no PC do dono: "Controle de videogame" desligado, com o link do ViGEmBus', noPad);
+  await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Recusar').click()); await sleep(500);
+  // com o driver e transmitindo uma janela: alice libera SÓ o controle
+  await A.evaluate(() => { window.__pad = true; window.__win = true; window.__ri = []; window.__rs = []; });
+  await B.evaluate(() => { const b = (on, v = on ? 1 : 0) => ({ pressed: on, value: v }); window.__gp = { mapping: 'standard', buttons: Array.from({ length: 17 }, () => b(false)), axes: [0, 0, 0, 0] }; window.__gpb = b; navigator.getGamepads = () => [window.__gp]; });
+  await clickCtl(B);
+  await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
+  const padDlg = await A.evaluate(() => ({ win: /transmitindo uma janela/.test(document.querySelector('.modal .rmwin')?.textContent || ''), padOn: !document.querySelectorAll('.modal .rmopt input')[2].disabled }));
+  ok(padDlg.win && padDlg.padOn, 'transmitindo uma janela: o pedido explica que só ela é controlada; com o driver, a opção do controle fica disponível', padDlg);
+  await A.evaluate(() => { const cbs = [...document.querySelectorAll('.modal .rmopt input')]; cbs[0].click(); cbs[1].click(); cbs[2].click(); });
+  await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Permitir').click());
+  ok(await toastOf(B, 'liberou: controle\\.'), 'bob fica sabendo que só o controle foi liberado');
+  ok(await A.evaluate(() => window.__rs[0]?.perms.gamepad && !window.__rs[0]?.perms.mouse && !window.__rs[0]?.perms.keyboard), 'app desktop da alice armado só com o controle', await A.evaluate(() => window.__rs[0]));
+  await B.bringToFront();
+  // bob aperta A, empurra o analógico esquerdo para cima e à direita e o gatilho direito até 3/4
+  await B.evaluate(() => { const g = window.__gp, b = window.__gpb; g.buttons[0] = b(true); g.buttons[7] = b(true, 0.75); g.axes = [0.5, -1, 0.03, 0]; });
+  await sleep(300);
+  await B.evaluate(() => { const g = window.__gp, b = window.__gpb; g.buttons = g.buttons.map(() => b(false)); g.axes = [0, 0, 0, 0]; });
+  await B.mouse.click(box.x, box.y); await sleep(400);
+  const pads = await A.evaluate(() => window.__ri.slice());
+  const press = pads.find(e => e.k === 'g' && e.b);
+  ok(press && press.b === 1 && press.ax.join() === '0.5,-1,0,0' && press.rt === 0.75 && press.lt === 0, 'botão, analógico (com zona morta) e gatilho chegam ao PC da alice', press);
+  ok(pads.at(-1)?.k === 'g' && pads.at(-1).b === 0 && pads.at(-1).ax.every(v => v === 0) && pads.at(-1).rt === 0, 'soltar tudo chega como controle em repouso', pads.at(-1));
+  ok(pads.filter(e => e.k === 'g').length <= 3, 'só manda quando muda (sem repetir o mesmo estado 60 vezes por segundo)', pads.filter(e => e.k === 'g').length);
+  ok(!pads.some(e => e.k !== 'g'), 'só o controle liberado: o clique do bob não chega', pads.filter(e => e.k !== 'g'));
+  await B.evaluate(() => document.querySelector('#remote-chip .btn').click());
+  await A.waitForFunction(() => !document.getElementById('remote-chip'), { timeout: 5000 }).catch(() => { });
+  await A.evaluate(() => { window.__win = false; });
 
   // dono pelo navegador comum (carol): não pode ser controlado
   await C.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(x => x.title.includes('Transmitir')).click()); await sleep(800);
