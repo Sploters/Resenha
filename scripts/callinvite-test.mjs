@@ -102,11 +102,12 @@ try {
   ok((await call(c.tok, 'POST', `/call-invites/${rc.invite.id}/decline`)).invite?.state === 'declined', 'carol recusa');
   ok(await seen('carol recusou'), 'alice fica sabendo que a carol recusou');
   // cartão da alice (DM com a carol) mostra o resultado
+  const hasDm = (cid) => [...window.__lc.S.dms.values()].some(x => x.recipients?.some(u => u.id === cid) || x.recipient_ids?.includes(cid));
+  await A.waitForFunction(hasDm, { timeout: 10000 }, c.id).catch(() => { }); // a DM com a carol nasce com o convite (DM_CREATE)
   const dmC = await A.evaluate((cid) => [...window.__lc.S.dms.values()].find(x => x.recipients?.some(u => u.id === cid) || x.recipient_ids?.includes(cid))?.id, c.id);
   if (dmC) await A.evaluate((id) => window.__lc.go('@me', id), dmC);
   const recusou = () => /carol recusou/.test(document.querySelector('.callcard[data-state="declined"] .ccstate')?.textContent || '');
   ok(await A.waitForFunction(recusou, { timeout: 10000 }).then(() => true, () => false), 'cartão de quem convidou mostra "carol recusou"');
-  if (process.env.DIAG) console.log('DIAG', dmC, JSON.stringify(await A.evaluate(() => ({ view: window.__lc.S.view, cards: [...document.querySelectorAll('.callcard')].map(c => [c.dataset.state, c.querySelector('.ccstate')?.textContent, c.textContent.slice(0, 80)]), dms: [...window.__lc.S.dms.values()].map(d => d.recipients?.map(u => u.username)) }))));
   await A.screenshot({ path: `${SHOTS}/callinv-declined.png` });
 
   // cancelar: alice convida de novo e cancela; aceitar depois falha
