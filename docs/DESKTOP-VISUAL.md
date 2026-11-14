@@ -96,3 +96,9 @@ Junto: no app, todo `<video>` ganha `filter: opacity(.999)` (`html.lc-desk`, cla
 filtro põe o vídeo numa camada desenhada pela página, que nunca é candidata à sobreposição da placa: o Chromium deixa
 de alternar entre os dois caminhos quando algo aparece ou some por cima. Sem mudança visível; custo de uma camada a
 mais por vídeo. No navegador nada muda.
+
+**Resultado (2026-11-14):** confirmado no PC que relatou. Com as três mudanças juntas (ponto anti-VRR, sem
+`backdrop-filter` sobre vídeo e `filter: opacity(.999)` em todo `<video>` no app), não piscou mais em nenhum caso:
+mouse em cima ou não, saindo e voltando para a sala rápido ou devagar. Não dá para dizer qual das três resolveu
+sozinha; a do filtro é a que tira a alternância de caminho, que explica todos os sintomas. Não remover sem testar
+nesse PC.
