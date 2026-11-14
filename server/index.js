@@ -1715,14 +1715,15 @@ function dropWatching(uid, cid) { // tira uid das transmissões que assistia e e
     else if (set.delete(uid)) { if (!set.size) watchers.delete(k); pushViewers(cid, streamer); }
   }
 }
-function leaveVoice(uid, cid) {
+// reason 'drop': a conexão caiu/fechou (F5, internet, app fechado) — o app oferece "Reconectar" quando a pessoa volta
+function leaveVoice(uid, cid, reason) {
   const m = voice.get(cid); if (!m || !m.has(uid)) return;
   remote.onLeave(uid); // controle remoto acaba antes de qualquer outra coisa
   m.delete(uid); dropWatching(uid, cid); if (!m.size) { voice.delete(cid); roomStart.delete(cid); acts.delete(cid); }
   else { const a = acts.get(cid); if (a?.spot && (a.spot.slice(2) === uid)) { a.spot = a.spotBy = null; roomSend(cid, 'ROOM_STATE', actState(cid)); } } // quem estava em destaque saiu
   sfuLeave(cid, uid);
   const ch = get('SELECT * FROM channels WHERE id=?', cid);
-  if (ch) dispatch(channelAudience(ch), 'VOICE_STATE', { channel_id: null, prev_channel_id: cid, user_id: uid, guild_id: ch.guild_id });
+  if (ch) dispatch(channelAudience(ch), 'VOICE_STATE', { channel_id: null, prev_channel_id: cid, user_id: uid, guild_id: ch.guild_id, ...(reason ? { reason } : {}) });
   for (const [, s] of m) send(s.ws, 'VOICE_PEER_LEFT', { channel_id: cid, user_id: uid });
   musicOnLeave(cid);
 }
@@ -1750,7 +1751,7 @@ function currentVoice(uid) { for (const [cid, m] of voice) if (m.has(uid)) retur
 function dropStaleVoice(uid, ws) {
   const c = currentVoice(uid), st = c && voice.get(c).get(uid), old = st?.ws;
   if (!old || old === ws) return;
-  if (old.readyState !== 1 || (ws.tab && old.tab === ws.tab)) { leaveVoice(uid, c); try { old.terminate(); } catch { } return; }
+  if (old.readyState !== 1 || (ws.tab && old.tab === ws.tab)) { leaveVoice(uid, c, 'drop'); try { old.terminate(); } catch { } return; }
   if (old.probing) return;
   old.probing = true; old.alive = false; try { old.ping(); } catch { }
   setTimeout(() => { old.probing = false; if (!old.alive) old.terminate(); }, 5000); // terminate -> 'close' -> sai da sala
@@ -2027,7 +2028,7 @@ wss.on('connection', (ws) => {
     clearTimeout(ws.laterT);
     const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
-    if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c);
+    if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c, 'drop');
     if (set && !set.size) { conns.delete(uid); broadcastStatus(uid); }
     else { if (ws.active) pushDevices(uid); pushPlatforms(uid); }
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou

@@ -101,6 +101,16 @@ try {
     lit: !!document.querySelector('button.on[title="Música: tocar no canal de voz"]') }));
   ok(/Musica/.test(pan.now || '') && pan.tabs.join() === 'Fila,Histórico,Playlists' && pan.q === 2 && pan.gone && pan.lit, 'popup: tocando agora, abas Fila/Histórico/Playlists, sem volume para todos/efeitos/letra, botão aceso', pan);
   await A.screenshot({ path: '.testshots/music-panel.png' });
+  // ---- volume do bot (só para você): salvo, e vale para qualquer bot de música (Música 2 era outro id e voltava a 100%) ----
+  await A.evaluate(() => { const r = document.querySelector('.mupanel .muvol input'); r.value = 40; r.dispatchEvent(new Event('input', { bubbles: true })); }); await sleep(300);
+  const vol = (P, id) => P.evaluate((id) => { const v = window.__lc.voice, p = v.peers.get(id); return { of: v.volOf(id), el: p?.audioEl ? Math.round(p.audioEl.volume * 100) : null, saved: JSON.parse(localStorage.lc_prefs || '{}').musicVolume }; }, id);
+  const va = await vol(A, s.bot_id);
+  ok(va.of === 40 && va.el === 40 && va.saved === 40, 'volume do bot em 40%: aplicado e salvo', va);
+  await A.evaluate((gid, cid) => { window.__lc.go(gid, cid); return window.__lc.voice.join(cid); }, g.id, v2.id); await sleep(3000);
+  const v2a = await vol(A, sb.bot_id);
+  ok(v2a.of === 40 && v2a.el === 40, 'na outra sala, o "Música 2" já toca a 40% (não volta para 100%)', v2a);
+  await A.evaluate((gid, cid) => { window.__lc.go(gid, cid); return window.__lc.voice.join(cid); }, g.id, v1); await sleep(3000);
+  ok((await vol(A, s.bot_id)).el === 40, 'de volta à sala do bot 1: continua 40%');
   // ---- 24/7 e sair ----
   await cmd(A, 'stay', { on: true }); ok((await st(A)).stay === true, '24/7 ligado');
   await cmd(A, 'disconnect'); await sleep(600);

@@ -838,3 +838,6 @@ body.reorder-on .rail-wrap[data-tip]:hover::after, body.reorder-on .rail-wrap::a
 .keyctl .ibtn:hover { color: var(--text-normal, #fff); background: var(--bg-mod-hover, rgba(255,255,255,.06)); }
 .keyctl .key-rm:hover { color: var(--red, #ed4245); }
 .keybtns { align-items: center; } .card2 .keybtns .btn { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+/* painel "Você saiu da chamada · Reconectar" (no lugar do painel de voz) */
+#voice-panel.rejoin .t { color: var(--text-muted, #b5bac1); }
+#voice-panel.rejoin .rj-go { width: 100%; margin-top: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }

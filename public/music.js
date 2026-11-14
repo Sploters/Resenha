@@ -4,7 +4,7 @@
 // - reprodução automática e 24/7 como chips, volume do bot só para você
 // - abas Fila (arrastar para reordenar), Histórico e Playlists do servidor; rodapé com parar e tirar o bot da sala
 import { h, icon } from './util.js';
-import { S, toast, popout, promptBox, confirmBox, menu, closeFloating } from './state.js';
+import { S, toast, popout, promptBox, confirmBox, menu, closeFloating, savePrefs } from './state.js';
 
 let send = () => { }, state = null, redraw = null, rid = 0;
 const waiting = new Map();
@@ -166,8 +166,8 @@ export function openMusic(anchor, voice) {
           chip('sparkle', 'Automático', state.autoplay, 'Quando a fila acaba, toca músicas parecidas', () => act('autoplay')),
           chip('clock', '24/7', state.stay, 'O bot fica na sala mesmo parado ou sozinho', () => act('stay')),
           inRoom && h('label.muvol', { title: 'Volume do bot só para você' }, icon('headset', 16),
-            h('input', { type: 'range', min: 0, max: 200, step: 5, value: voice.volumes[state.bot_id] ?? 100, 'aria-label': 'Volume do bot só para você', oninput: (e) => { voice.setVolume(state.bot_id, +e.target.value); e.target.nextSibling.textContent = e.target.value + '%'; } }),
-            h('small', (voice.volumes[state.bot_id] ?? 100) + '%'))),
+            h('input', { type: 'range', min: 0, max: 200, step: 5, value: voice.volOf(state.bot_id), 'aria-label': 'Volume do bot só para você', oninput: (e) => { voice.setVolume(state.bot_id, +e.target.value); savePrefs(); e.target.nextSibling.textContent = e.target.value + '%'; } }),
+            h('small', voice.volOf(state.bot_id) + '%'))),
         h('div.mutabs', { role: 'tablist' },
           state?.active && tab('queue', 'Fila', state.queue.length || null),
           state?.active && tab('history', 'Histórico', null),

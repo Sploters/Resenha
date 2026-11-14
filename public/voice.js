@@ -829,7 +829,7 @@ export class Voice {
   applyVolume(uid) {
     const p = this.peers.get(uid); if (!p) return;
     const master = (this.prefs.volume ?? 100) / 100;
-    this.setLevel(p, 'audioEl', this.prefs.mutedUsers?.[uid] ? 0 : (this.volumes[uid] ?? 100) / 100 * master); // "Mute" do menu do usuário
+    this.setLevel(p, 'audioEl', this.prefs.mutedUsers?.[uid] ? 0 : this.volOf(uid) / 100 * master); // "Mute" do menu do usuário
     this.setLevel(p, 'screenAudioEl', (this.streamVolumes[uid] ?? 100) / 100 * master);
   }
   // até 100% usa o volume do elemento; acima disso o áudio passa por um ganho WebAudio (com limitador para não estourar)
@@ -935,7 +935,18 @@ export class Voice {
   get volumes() { return (this.prefs.userVolumes ||= {}); }
   get streamVolumes() { return (this.prefs.streamVolumes ||= {}); }
   // volume por usuário (0–1000%); 100% apaga o valor salvo
-  setVolume(uid, v) { if (v === 100) delete this.volumes[uid]; else this.volumes[uid] = v; this.applyVolume(uid); }
+  // bot de música: um volume só para todos ("Música", "Música 2"… são usuários diferentes; com outro bot já tocando em outra
+  // sala, o da sua sala era outro id e voltava a 100%). isMusicBot vem do app (estado de voz com bot.kind 'music').
+  volOf(uid) { return this.volumes[uid] ?? (this.isMusicBot?.(uid) ? this.prefs.musicVolume : undefined) ?? 100; }
+  setVolume(uid, v) {
+    if (this.isMusicBot?.(uid)) {
+      delete this.volumes[uid];
+      if (v === 100) delete this.prefs.musicVolume; else this.prefs.musicVolume = v;
+      for (const id of this.peers.keys()) if (this.isMusicBot(id)) this.applyVolume(id);
+      return;
+    }
+    if (v === 100) delete this.volumes[uid]; else this.volumes[uid] = v; this.applyVolume(uid);
+  }
   setStreamVolume(uid, v) { if (v === 100) delete this.streamVolumes[uid]; else this.streamVolumes[uid] = v; this.applyVolume(uid); }
   watch(uid, stream) {
     try {

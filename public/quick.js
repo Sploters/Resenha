@@ -30,7 +30,7 @@ function deviceList(kind, key, onPick) {
 export const MAX_VOL = 1000;
 const VOL_STEPS = [[0, 'Mudo'], [50, '50%'], [100, '100%'], [200, '200%'], [400, '400%']];
 export function volumeControl(voice, uid, kind = 'mic', label) {
-  const get = () => (kind === 'screen' ? voice.streamVolumes : voice.volumes)[uid] ?? 100;
+  const get = () => (kind === 'screen' ? voice.streamVolumes[uid] ?? 100 : voice.volOf(uid));
   const set = (v) => {
     v = Math.round(Math.max(0, Math.min(MAX_VOL, Number.isFinite(v) ? v : 100)));
     kind === 'screen' ? voice.setStreamVolume(uid, v) : voice.setVolume(uid, v); savePrefs(); sync();

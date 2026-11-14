@@ -262,6 +262,7 @@ function onEvent(t, d) {
       voice.onRecovered = () => { toast('Voz reconectada'); renderVoiceUI(); };
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
+      voice.isMusicBot = (uid) => S.voice.get(uid)?.bot?.kind === 'music';
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; }); }
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
@@ -272,6 +273,7 @@ function onEvent(t, d) {
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
       e2eeLoad(true);
+      if (!ready) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); initCallRating();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
@@ -363,11 +365,12 @@ function onEvent(t, d) {
       if (d.channel_id) S.voice.set(d.user_id, d); else S.voice.delete(d.user_id);
       if (d.channel_id && d.channel_id === voice.channelId) { if (d.user_id === S.me.id && before !== d.channel_id) scanOutdated(); else warnOutdated(d); }
       if (d.user_id !== S.me.id && (prevVs?.fx || null) !== (d.fx || null)) voice?.setPeerFx(d.user_id);
+      if (d.bot?.kind === 'music' && !prevVs?.bot) voice?.applyVolume(d.user_id); // áudio do bot chegou antes do estado: aplica o volume da música
       if (S.view.kind === 'home') { setTimeout(renderActiveNow); setTimeout(refreshFeedView); }
       if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
       if (d.user_id === S.me.id && d.channel_id !== before) resetPresenceSounds(); // saí ou troquei de sala: sons pendentes da sala antiga não tocam mais
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
-      if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) voice.leave();
+      if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) { callDropped = d.reason === 'drop'; voice.leave(); }
       if (d.user_id !== S.me.id && !d.bot && !prevVs?.bot) { // o bot entrando/saindo não toca o som de pessoa
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
         if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
@@ -512,7 +515,7 @@ function onReadState(d) {
 function onSettingsSync(d) {
   if (!d.settings || (d.tab && d.tab === tabId)) return;
   if (!S.synced) return; // ainda carregando: o GET /me/settings do início já traz a versão mais nova
-  if (mergeRemote(d.settings)) prefsChanged();
+  if (mergeRemote(d.settings)) { prefsChanged(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); } // volumes mudados em outro aparelho
 }
 function prefsChanged() {
   applyTheme(); renderRail(); renderSide(); renderMembers();
@@ -1023,7 +1026,7 @@ function renderSide() {
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
-  const area = h('div#user-area', voice?.active && h('div.ua-vp', voicePanel()), userbar());
+  const area = h('div#user-area', voice?.active ? h('div.ua-vp', voicePanel()) : S.rejoin && h('div.ua-vp', rejoinPanel()), userbar());
   const oldHead = side.querySelector(':scope > #side-head'), oldList = side.querySelector(':scope > #side-list'), oldArea = side.querySelector(':scope > #user-area');
   if (oldHead && oldList && oldArea && head.id === 'side-head' && side.children.length === 3) {
     // mesma tela: atualiza só o que mudou (a área do usuário guarda referências a elementos e é recriada)
@@ -1299,6 +1302,57 @@ function watchFriend(uid, ch) {
   if (voice.channelId === ch.id) { voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); return; }
   S.autoWatch = { uid, exp: Date.now() + 20000 };
   joinVoice(ch.id);
+}
+// ---------- voltar para a chamada ----------
+// A sala da chamada atual fica guardada (lc_lastcall, com mudo/ensurdecido). Ao recarregar a página, fechar o app ou cair
+// a conexão (o servidor avisa reason 'drop'), o painel de voz vira "Você saiu da chamada · Reconectar" por 5 minutos.
+// Sair pelo botão, trocar de sala ou entrar por outro aparelho apaga a lembrança: aí não há o que oferecer.
+const LASTCALL = 'lc_lastcall', REJOIN_MS = 5 * 60 * 1000;
+let lastCallCid = null, callDropped = false, lastCallBeat = 0, rejoinT = 0;
+const saveLastCall = () => { if (!voice?.channelId) return; try { localStorage.setItem(LASTCALL, JSON.stringify({ cid: voice.channelId, at: Date.now(), muted: !!voice.muted, deaf: !!voice.deafened })); } catch { } };
+const forgetLastCall = () => { try { localStorage.removeItem(LASTCALL); } catch { } };
+function trackLastCall() {
+  const cid = voice?.channelId;
+  if (cid) {
+    if (cid !== lastCallCid) { lastCallCid = cid; callDropped = false; if (S.rejoin) { S.rejoin = null; clearTimeout(rejoinT); } }
+    saveLastCall();
+    if (!lastCallBeat) lastCallBeat = setInterval(saveLastCall, 20000); // app morto sem pagehide (travou, fechado pelo sistema)
+    return;
+  }
+  if (voice?._joinTo || !lastCallCid) return; // entrando de novo (rejoin) ou nunca esteve numa chamada
+  clearInterval(lastCallBeat); lastCallBeat = 0;
+  const was = lastCallCid; lastCallCid = null;
+  if (callDropped) { callDropped = false; offerRejoin(was); } else forgetLastCall();
+}
+addEventListener('pagehide', saveLastCall, { capture: true }); // F5 / fechar: o "agora" da saída
+function readLastCall() { try { return JSON.parse(localStorage.getItem(LASTCALL) || 'null'); } catch { return null; } }
+function checkRejoinOnLoad() {
+  const r = readLastCall(); if (!r?.cid) return;
+  if (Date.now() - r.at > REJOIN_MS || !channelById(r.cid)) return forgetLastCall();
+  if (S.voice.get(S.me.id)?.channel_id) return; // já está numa chamada por outra aba ou aparelho
+  offerRejoin(r.cid, r, true);
+}
+function offerRejoin(cid, r = readLastCall(), quiet) {
+  if (!channelById(cid)) return;
+  S.rejoin = { cid, muted: r?.cid === cid && !!r.muted, deaf: r?.cid === cid && !!r.deaf };
+  clearTimeout(rejoinT); rejoinT = setTimeout(dismissRejoin, Math.max(5000, REJOIN_MS - (Date.now() - (r?.cid === cid ? r.at : Date.now()))));
+  if (!quiet) { renderSide(); toast('Você caiu da chamada. Clique em Reconectar para voltar.'); }
+}
+function dismissRejoin() { clearTimeout(rejoinT); if (!S.rejoin) return; S.rejoin = null; forgetLastCall(); renderSide(); }
+function rejoinNow() {
+  const r = S.rejoin; if (!r) return;
+  S.rejoin = null; clearTimeout(rejoinT);
+  if (!voice.active) { voice.muted = r.muted; voice.deafened = r.deaf; } // volta como estava (mudo/ensurdecido)
+  joinVoice(r.cid); renderSide();
+}
+function rejoinPanel() {
+  const ch = channelById(S.rejoin.cid), g = guild(ch?.guild_id);
+  const name = ch?.type === 1 ? 'Chamada com ' + (user(dmPeer(ch)?.id)?.display_name || '') : (ch?.name || 'Sala');
+  return h('div#voice-panel.rejoin',
+    h('div.t', h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, icon('phoneoff', 16), 'Você saiu da chamada'),
+      h('span.vp-btns', h('button.ibtn', { title: 'Dispensar', 'aria-label': 'Dispensar', onclick: dismissRejoin }, icon('x', 18)))),
+    h('div.sub', `${name}${g ? ' / ' + g.name : ''}`),
+    h('button.btn.green.rj-go', { onclick: rejoinNow }, icon('phone', 16), 'Reconectar'));
 }
 function joinVoice(cid) {
   if (voice.channelId === cid) return;
@@ -3004,7 +3058,7 @@ function autoClosed() {
 // Antes cada um redesenhava a lista lateral e o palco inteiros na hora (~400 elementos por vez).
 let vuiQ = 0; // 1 = só as falas, 2 = completo
 function voiceUpdate(speakOnly) {
-  if (!speakOnly) syncGlobalPtt(voice); // entrou/saiu da chamada: liga/desliga o push-to-talk global (só avisa o app se mudou)
+  if (!speakOnly) { syncGlobalPtt(voice); trackLastCall(); } // entrou/saiu da chamada: liga/desliga o push-to-talk global (só avisa o app se mudou)
   const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
   const first = !vuiQ; vuiQ = want;
   if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) applyCamFlow(); }); // câmera nova com a sala fora da tela também pausa
@@ -3561,7 +3615,7 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPendin
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, savePrefs, import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {
