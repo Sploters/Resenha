@@ -37,6 +37,7 @@ import { mountLfg } from './lfg.js';
 import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
 import { mountGames } from './games.js';
+import { mountEvents } from './events.js';
 import { translate, translateEnabled, engineName } from './translate.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 
@@ -225,6 +226,7 @@ function guildFull(gid, { users = true } = {}) {
     voice_states: voiceStatesFor(gid) };
 }
 
+let eventsSvc = null; // server/events.js (montado mais abaixo)
 function messageObj(m) {
   const rx = {};
   for (const r of all('SELECT emoji,user_id FROM reactions WHERE message_id=?', m.id)) (rx[r.emoji] ||= []).push(r.user_id);
@@ -236,6 +238,7 @@ function messageObj(m) {
     reply: reply ? { id: reply.id, content: isE2ee(reply.content) ? reply.content : (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
     reactions: Object.entries(rx).map(([emoji, users]) => ({ emoji, users })),
     ...((m.content || '').startsWith('📊') ? { poll: pollObj(get('SELECT * FROM polls WHERE message_id=?', m.id)) } : {}),
+    ...((m.content || '').startsWith('📅') && eventsSvc ? eventsSvc.ofMessage(m.id) : {}), // anúncio de evento (server/events.js)
     ...(m.attachments && m.attachments.includes('video/') ? clipOfMessage(m.id) : {}) };
 }
 // mensagem de clipe: o chat mostra um cartão leve (miniatura + título) em vez do player; o vídeo fica na galeria
@@ -991,6 +994,7 @@ app.patch('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   const content = mc.content;
   if (!content.trim()) return bad(res, 'Mensagem vazia');
   if (get('SELECT 1 x FROM polls WHERE message_id=?', m.id)) return bad(res, 'Enquetes não podem ser editadas');
+  if (get('SELECT 1 x FROM events WHERE message_id=?', m.id)) return bad(res, 'Anúncios de evento não podem ser editados (edite o evento)');
   run('UPDATE messages SET content=?,edited_at=? WHERE id=?', content, Date.now(), m.id);
   // editar para pôr @everyone conta como uma nova @everyone; editar uma que já notificava mantém
   saveMentions(m, ch, resolveMentions(content, ch, req.uid, !/@everyone|@here/.test(m.content || '')));
@@ -1476,6 +1480,7 @@ mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
 reputation.mount(app, { auth, wrap, bad, channelFor });
 // apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
 mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
+eventsSvc = mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut }); // eventos do servidor com Vou/Talvez/Não vou e lembretes
 const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk });
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,

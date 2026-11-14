@@ -7,6 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { steamCard, steamApp } from './steamcard.js';
+import { initEvents, eventCard, renderGuildEvents, eventModal, onEventUpdate, onEventReminder } from './events.js';
 import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal, openGameNight, onGameDeal, onDealsSeen, dealsUnseen, dealsList, markDealsSeen, loadDeals } from './games.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
@@ -346,6 +347,8 @@ function onEvent(t, d) {
     case 'GAMES_UPDATE': onGamesUpdate(d); break;
     case 'GAME_DEAL': onGameDeal(d); break;
     case 'GAME_DEAL_SEEN': onDealsSeen(); break;
+    case 'EVENT_UPDATE': onEventUpdate(d); break;
+    case 'EVENT_REMINDER': onEventReminder(d); break;
     case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(mergeUser); renderSide(); renderRail(); break; }
     case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); mergeUser(d.user); renderMembers(); } break; }
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
@@ -589,7 +592,7 @@ document.addEventListener('settings-closed', () => { if (!ready || chNameKey() =
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 // telemetria: nome do tipo de tela (nunca o nome do canal ou da pessoa) e a chave para reconhecer "voltou para a mesma"
-const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes', wishlist: 'Wishlist' };
+const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes', wishlist: 'Wishlist', events: 'Eventos' };
 function applyRoute(first) {
   const prevCid = S.view?.cid;
   queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
@@ -610,6 +613,7 @@ function applyRoute(first) {
     const g = guild(gid);
     if (!g) { location.hash = '#/@me'; return; }
     if (cid === 'files') { S.view = { kind: 'files', gid, cid: 'files' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
+    if (cid === 'events') { S.view = { kind: 'events', gid, cid: 'events' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'wishlist') { S.view = { kind: 'wishlist', gid, cid: 'wishlist' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'clips') { S.view = { kind: 'clips', gid, cid: 'clips' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     const chans = g.channels.filter(c => c.type !== 4);
@@ -764,6 +768,7 @@ function gFlyShow(anchor, g) {
     opt(here && S.view.kind === 'clips', 'clip', 'Clipes', () => go(g.id, 'clips')),
     opt(here && S.view.kind === 'files', 'file', 'Arquivos', () => go(g.id, 'files')),
     opt(here && S.view.kind === 'wishlist', 'gift', 'Wishlist', () => go(g.id, 'wishlist')),
+    opt(here && S.view.kind === 'events', 'calendar', 'Eventos', () => go(g.id, 'events')),
     (text || room) && h('div.gf-sep'),
     text && opt(here && S.view.cid === text.id, 'hash', chName(text), () => go(g.id, text.id),
       S.mentions[text.id] > 0 ? h('span.pill', S.mentions[text.id]) : S.unread[text.id] ? h('i.gf-dot') : null),
@@ -1050,7 +1055,8 @@ function renderSide() {
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
     const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
     const wishRow = h('div.ch.clipsrow.wishrow' + (S.view.kind === 'wishlist' ? '.active' : ''), { onclick: () => go(g.id, 'wishlist'), title: 'Jogos que o pessoal deste servidor quer, com preço e promoção' }, icon('gift', 20), h('span.name', 'Wishlist'));
-    list = h('div#side-list', clipsRow, filesRow, wishRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    const evRow = h('div.ch.clipsrow.evrow' + (S.view.kind === 'events' ? '.active' : ''), { onclick: () => go(g.id, 'events'), title: 'Jogatinas marcadas: dia, hora, sala e quem vai' }, icon('calendar', 20), h('span.name', 'Eventos'));
+    list = h('div#side-list', clipsRow, filesRow, wishRow, evRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
@@ -1679,6 +1685,7 @@ function renderMain() {
   if (v.kind === 'home') return renderHome(main);
   if (v.kind === 'clips') return renderClips(main, v.gid);
   if (v.kind === 'wishlist') return renderGuildWishlist(main, v.gid);
+  if (v.kind === 'events') return renderGuildEvents(main, v.gid);
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
@@ -1986,7 +1993,7 @@ function msgEl(m, prev) {
     let shown = shared ? stripThemeCodes(m.content) : m.content; // o código do tema não aparece, só o bloco
     if (invites.length || calls.length) shown = stripInvites(shown); // o link do convite também vira só o cartão
     const clipIds = m.clip ? [] : clipLinkIds(shown); if (clipIds.length) shown = stripClipLinks(shown); // link de clipe: só o cartão
-    if (m.poll) shown = ''; // enquete: o cartão mostra a pergunta
+    if (m.poll || m.event) shown = ''; // enquete / anúncio de evento: o cartão mostra tudo
     if (m.clip) shown = ''; // clipe: o cartão mostra o título
     const gifOnly = !m.poll && !shared && isGifMessage(shown); if (gifOnly) shown = ''; // só um GIF: mostra a imagem, sem o link
     if (shown) body.innerHTML = md(shown, ctxFor(gid));
@@ -1997,6 +2004,7 @@ function msgEl(m, prev) {
     for (const id of calls) body.append(callCard(id));
     for (const id of clipIds) body.append(clipEmbed(id));
     if (m.poll) body.append(pollCard(m));
+    if (m.event) body.append(eventCard(m.event));
     if (gifOnly && S.prefs.embedLinks !== false) body.append(gifEl(m.content.trim(), (u) => lightbox(u))); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));
     if (S.prefs.embedLinks !== false) for (const url of (shown.match(/https?:\/\/\S+/g) || []).filter(isImageUrl).slice(0, 3)) body.append(h('div.attach', h('img', { src: url, loading: 'lazy', referrerPolicy: 'no-referrer', onclick: () => lightbox(url) })));
     if (S.prefs.embedLinks !== false) for (const card of [...new Set((shown.match(/https?:\/\/[^\s<>)]+/g) || []))].slice(0, 6).map(socialCard).filter(Boolean).slice(0, 3)) body.append(card); // YouTube/Shorts/TikTok/Reels (media.js)
@@ -2013,7 +2021,7 @@ function msgEl(m, prev) {
   el.append(h('div.toolbar',
     h('button', { title: 'Reagir', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em, true)) }, icon('smile', 18)),
     h('button', { title: 'Responder', onclick: () => setReply(m) }, icon('reply', 18)),
-    mine && !m.poll && typeof m.e2ee !== 'string' && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
+    mine && !m.poll && !m.event && typeof m.e2ee !== 'string' && h('button', { title: 'Editar', onclick: () => { S.editing = m.id; renderMessages(true); } }, icon('edit', 18)),
     (mine || (gid && can(gid, PERM.MANAGE_MESSAGES))) && h('button.tdel', { title: 'Excluir (Shift: sem confirmar)', onclick: (e) => deleteMenu(e, m) }, icon('trash', 18)),
     h('button', { title: 'Mais', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); msgMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom }, m); } }, icon('more', 18))));
   return el;
@@ -2094,6 +2102,7 @@ function plusMenu(e, ch, fileIn) {
   menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 157 }, [
     { label: 'Enviar arquivo', fn: () => fileIn.click() },
     { label: 'Criar enquete', fn: () => pollModal(ch) },
+    ch.guild_id && { label: 'Marcar evento', fn: () => eventModal(ch.guild_id) },
     { label: 'Inserir horário', fn: () => { const ta = $('#composer textarea'); if (ta) timestampModal(ta); } },
     { label: 'Compartilhar tema', fn: () => shareThemePicker(ch) },
   ]);
@@ -2215,7 +2224,7 @@ function msgMenu(e, m) {
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
     m.content && !m.e2ee && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) }, // protegida: traduzir mandaria o texto para fora
-    mine && !m.poll && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
+    mine && !m.poll && !m.event && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
     ...(m.type === 1 ? [] : spoilerItems(m, mine, mod)),
     S.prefs.devMode && { label: 'Copiar ID da mensagem', fn: () => navigator.clipboard?.writeText(m.id) },
@@ -3660,6 +3669,7 @@ initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModa
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
+initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
 initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { inboxTab = tab; showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
