@@ -106,13 +106,19 @@ export const comboLabel = (c) => !c ? '—' : MOUSE_LABEL[c] || c.split('+').map
 // "Backslash" e companhia davam "atalho inválido" e o atalho nunca funcionava)
 const ACCEL_KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',
   Minus: '-', Equal: '=', Backquote: '`', NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult', NumpadDivide: 'numdiv', NumpadDecimal: 'numdec', NumpadEnter: 'Enter' };
+// atalhos configuráveis: sem valor salvo = o padrão; '' = removido pela pessoa (nenhuma tecla)
+export const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS', pttKey: 'KeyV' };
+export const hotkey = (k) => { const v = S.prefs[k]; return v === '' ? null : v || KEY_DEFAULTS[k] || null; };
+// os atalhos que o app desktop registra no Windows (funcionam com o jogo em foco)
+export const DESKTOP_HOTKEYS = { keyMute: 'hotkeyMute', keyDeafen: 'hotkeyDeafen', keyClip: 'hotkeyClip', keyShare: 'hotkeyShare' };
+export const desktopHotkeys = () => Object.fromEntries(Object.entries(DESKTOP_HOTKEYS).map(([k, d]) => [d, comboToAccel(hotkey(k))]));
 export function comboToAccel(c) {
   if (!c) return '';
   return c.split('+').map(p => p === 'Ctrl' ? 'CommandOrControl' : ACCEL_KEYS[p] || p.replace(/^Numpad(\d)$/, 'num$1').replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '')).join('+');
 }
 // mouse: aceita também o botão do meio e os laterais (Mouse3/4/5); esquerdo e direito não, para não travar a interface
-export function captureKey(button, current, onSet, { combo = true, label = '', mouse = false } = {}) {
-  const paint = (c) => (button.textContent = `${label}${comboLabel(c)}`);
+export function captureKey(button, current, onSet, { combo = true, label = '', mouse = false, empty = null } = {}) {
+  const paint = (c) => (button.textContent = `${label}${!c && empty ? empty : comboLabel(c)}`);
   paint(current);
   button.onclick = () => {
     button.textContent = mouse ? 'Pressione uma tecla ou botão do mouse… (Esc cancela)' : 'Pressione as teclas… (Esc cancela)'; button.classList.add('capturing');

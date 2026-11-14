@@ -2,7 +2,7 @@ import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cl
 import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES } from './voice.js';
 import { profileCard } from './card.js';
-import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
+import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
 import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
@@ -581,7 +581,7 @@ function voicePage(ctx, reg) {
   const gateBox = h('label.f', { style: { marginTop: '4px' } }, 'Limite da porta: ', h('span', S.prefs.gateDb + ' dB')); gateBox.style.display = S.prefs.gate ? '' : 'none';
   const gate = h('input', { type: 'range', min: -70, max: -10, value: S.prefs.gateDb, oninput: () => { S.prefs.gateDb = +gate.value; gateLbl.textContent = gate.value + ' dB'; gateBox.firstElementChild.textContent = gate.value + ' dB'; placeMark(); }, onchange: () => { save(); restartTest(); } });
   gateBox.append(gate);
-  const pttBtn = captureKey(h('button.btn.grey'), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); syncGlobalPtt(); }, { combo: false, mouse: true, label: 'Tecla de push-to-talk: ' });
+  const pttBtn = captureKey(h('button.btn.grey'), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); syncGlobalPtt(); }, { combo: false, mouse: true, label: 'Tecla de push-to-talk: ', empty: 'nenhuma (defina em Atalhos)' });
   const dev = (kind) => async () => { try { const s = await navigator.mediaDevices.getUserMedia(kind === 'cam' ? { video: true } : { audio: true }); s.getTracks().forEach(t => t.stop()); toast('Permissão concedida. Reabra a página para listar os nomes.'); } catch (e) { toast(e.message, true); } };
   const camPrev = h('video', { autoplay: true, muted: true, playsInline: true, style: { width: '100%', borderRadius: '8px', background: '#000', display: 'none', marginTop: '12px' } });
   let camStream; reg(() => camStream?.getTracks().forEach(t => t.stop()));
@@ -741,21 +741,53 @@ function notificationsPage() {
 }
 
 // ============================ Atalhos ============================
-const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS' };
+// cada atalho: trocar (clicar e apertar as teclas), remover (×: fica sem tecla) e, no fim, voltar todos ao padrão ou remover todos
+const KEY_ROWS = ['keyMute', 'keyDeafen', 'keyClip', 'keyShare', 'keyFx', 'pttKey'];
+function applyKeys() { if (desktop) desktop.setSettings(desktopHotkeys()); syncGlobalPtt(); }
 function keysPage() {
-  const cap = (key, label, desktopKey) => captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs[key] || KEY_DEFAULTS[key], (c) => { S.prefs[key] = c; save(); if (desktop && desktopKey) desktop.setSettings({ [desktopKey]: comboToAccel(c) }); }, { combo: true });
+  const root = h('div');
+  const set = (k, v) => { S.prefs[k] = v; save(); applyKeys(); };
+  const ctl = (k, opts = {}) => {
+    const cur = hotkey(k), def = KEY_DEFAULTS[k];
+    const btn = captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), cur, (c) => { set(k, c); draw(); }, { combo: true, empty: 'Nenhum atalho', ...opts });
+    return h('div.keyctl', btn,
+      cur !== def && h('button.ibtn.key-def', { type: 'button', title: `Voltar ao padrão (${comboLabel(def)})`, 'aria-label': 'Voltar ao padrão', onclick: () => { set(k, def); draw(); } }, icon('refresh', 16)),
+      cur && h('button.ibtn.key-rm', { type: 'button', title: 'Remover atalho', 'aria-label': 'Remover atalho', onclick: () => { set(k, ''); draw(); toast('Atalho removido'); } }, icon('x', 16)));
+  };
   const rows = [['Ctrl + K', 'Busca rápida'], ['↑ (campo vazio)', 'Editar sua última mensagem'], ['Ctrl + ↑ / ↓', 'Escolher a mensagem a responder'], ['Esc', 'Cancelar resposta / fechar / sair da conversa direta'], ['Shift + Enter', 'Quebra de linha']];
-  return h('div', h('h2', 'Atalhos'),
-    card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', cap('keyMute', '', 'hotkeyMute')),
-      row('Ensurdecer / ativar áudio', null, cap('keyDeafen', '', 'hotkeyDeafen')),
-      row('Salvar clipe da transmissão', 'Salva os últimos segundos da transmissão em destaque no chat da sala (clipes ficam ligados por padrão nas transmissões dos outros).', cap('keyClip', '', 'hotkeyClip')),
-      row('Iniciar / encerrar transmissão', desktop ? 'Funciona com o jogo aberto. Começa na hora, sem escolher nada: transmite a janela em primeiro plano (jogo em janela ou em tela cheia) com a qualidade e o áudio da última vez.' : 'Transmite com a qualidade e o áudio da última vez; o navegador ainda pede para escolher a tela (no app desktop começa direto na janela da frente).', cap('keyShare', '', 'hotkeyShare')),
-      row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
-      row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', cap('keyFx', '')),
-      row('Duração do clipe do atalho', null, seg({ 15: '15s', 30: '30s', 60: '60s' }, S.prefs.clipSecs || 30, (v) => { S.prefs.clipSecs = +v; save(); })),
-      row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo). Aceita tecla ou botão do meio/lateral do mouse. ' + pttHint(), captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), S.prefs.pttKey, (c) => { S.prefs.pttKey = c; save(); syncGlobalPtt(); }, { combo: false, mouse: true }))),
-    section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
-    hint('Atalhos para tocar sons do soundboard: clique direito no som → "Definir atalho".'));
+  const draw = () => {
+    const changed = KEY_ROWS.some(k => hotkey(k) !== KEY_DEFAULTS[k]), any = KEY_ROWS.some(k => hotkey(k));
+    const sbN = Object.keys(S.prefs.sbKeys || {}).length;
+    root.replaceChildren(h('h2', 'Atalhos'),
+      card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', ctl('keyMute')),
+        row('Ensurdecer / ativar áudio', null, ctl('keyDeafen')),
+        row('Salvar clipe da transmissão', 'Salva os últimos segundos da transmissão em destaque no chat da sala (clipes ficam ligados por padrão nas transmissões dos outros).', ctl('keyClip')),
+        row('Iniciar / encerrar transmissão', desktop ? 'Funciona com o jogo aberto. Começa na hora, sem escolher nada: transmite a janela em primeiro plano (jogo em janela ou em tela cheia) com a qualidade e o áudio da última vez.' : 'Transmite com a qualidade e o áudio da última vez; o navegador ainda pede para escolher a tela (no app desktop começa direto na janela da frente).', ctl('keyShare')),
+        row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
+        row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', ctl('keyFx')),
+        row('Duração do clipe do atalho', null, seg({ 15: '15s', 30: '30s', 60: '60s' }, S.prefs.clipSecs || 30, (v) => { S.prefs.clipSecs = +v; save(); })),
+        row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo). Aceita tecla ou botão do meio/lateral do mouse. ' + pttHint(), ctl('pttKey', { combo: false, mouse: true }))),
+      card(h('div.btns.keybtns',
+        h('button.btn.grey', { disabled: !changed, onclick: async () => {
+          if (!await confirmBox('Restaurar atalhos padrão', 'Os atalhos voltam ao padrão: ' + KEY_ROWS.map(k => comboLabel(KEY_DEFAULTS[k])).join(', ') + '. Os atalhos do soundboard ficam como estão.', 'Restaurar')) return;
+          for (const k of KEY_ROWS) S.prefs[k] = KEY_DEFAULTS[k];
+          save(); applyKeys(); draw(); toast('Atalhos restaurados ao padrão');
+        } }, icon('refresh', 16), 'Restaurar padrão'),
+        h('button.btn.red', { disabled: !any, onclick: async () => {
+          if (!await confirmBox('Remover todos os atalhos', 'Nenhuma tecla vai silenciar, ensurdecer, clipar, transmitir, ligar efeito ou falar no push-to-talk até você definir de novo (ou restaurar o padrão).', 'Remover todos')) return;
+          for (const k of KEY_ROWS) S.prefs[k] = '';
+          save(); applyKeys(); draw(); toast('Atalhos removidos');
+        } }, 'Remover todos'),
+        sbN > 0 && h('button.btn.grey', { onclick: async () => {
+          if (!await confirmBox('Remover atalhos do soundboard', `Remove os atalhos de ${sbN} ${sbN === 1 ? 'som' : 'sons'} do soundboard.`, 'Remover')) return;
+          S.prefs.sbKeys = {}; save(); draw(); toast('Atalhos do soundboard removidos');
+        } }, `Remover atalhos do soundboard (${sbN})`)),
+        hint('O botão ↺ ao lado de um atalho volta só ele ao padrão; o × deixa ele sem tecla.')),
+      section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
+      hint('Atalhos para tocar sons do soundboard: clique direito no som → "Definir atalho".'));
+  };
+  draw();
+  return root;
 }
 
 // ============================ Avançado ============================

@@ -832,3 +832,9 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 .ct-tab.reordering { background: var(--bg-mod-sel); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
 body.reorder-on, body.reorder-on * { cursor: grabbing !important; user-select: none !important; }
 body.reorder-on .rail-wrap[data-tip]:hover::after, body.reorder-on .rail-wrap::after { display: none !important; }
+/* Configurações → Atalhos: trocar, voltar ao padrão (↺) e remover (×) */
+.keyctl { display: flex; align-items: center; gap: 6px; }
+.keyctl .ibtn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); }
+.keyctl .ibtn:hover { color: var(--text-normal, #fff); background: var(--bg-mod-hover, rgba(255,255,255,.06)); }
+.keyctl .key-rm:hover { color: var(--red, #ed4245); }
+.keybtns { align-items: center; } .card2 .keybtns .btn { display: inline-flex; align-items: center; gap: 6px; margin: 0; }

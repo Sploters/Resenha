@@ -51,7 +51,7 @@ function releaseOldScreens() {
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles } from './files.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
-import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel } from './ui.js';
+import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
 const lazySettings = () => import('./settings.js');
 const openSettings = (...a) => { lazySettings().then(m => m.openSettings(...a)); };
@@ -3234,7 +3234,7 @@ function stopSharing() { if (voice.screen) voice.toggleScreen(); }
 // Liga/desliga a transmissão na hora, sem abrir o seletor: transmite o que está em primeiro plano (a janela atual, jogo em
 // janela ou em tela cheia; a área de trabalho na frente = a tela) com as últimas escolhas de qualidade e áudio da pessoa.
 // Um aviso rápido (como o do clipe) confirma que ligou/desligou — por cima do jogo quando a Resenha está em segundo plano.
-const shareKey = () => S.prefs.keyShare || 'Ctrl+Shift+KeyS';
+const shareKey = () => hotkey('keyShare');
 let shareBusy = false;
 async function shareHotkey() {
   if (!voice?.active) return clipFlash(false, 'Entre numa sala de voz', null, 'share');
@@ -3341,11 +3341,11 @@ addEventListener('mousemove', (e) => {
 }, { passive: true });
 // botão de clipe à vista no quadro da transmissão (antes só em Mais opções > Clipes): um clique salva os últimos N segundos
 // (como o F8); clique direito abre o menu (duração, cortar, desativar). Clipes desligados: o clique liga.
-const clipKeyLabel = () => String(S.prefs.keyClip || 'F8').replace(/Key|Digit/g, '');
+const clipKeyLabel = () => (hotkey('keyClip') ? comboLabel(hotkey('keyClip')) : '');
 function clipButton(key, who, cls) {
   const secs = S.prefs.clipSecs || 30, on = clipping(key);
   return h('button.' + cls.split(' ').join('.') + (on ? '' : '.off'), {
-    title: on ? `Clipar os últimos ${secs}s (${clipKeyLabel()}) · clique direito: mais opções` : 'Ativar clipes (grava os últimos 60s em segundo plano)',
+    title: on ? `Clipar os últimos ${secs}s${clipKeyLabel() ? ` (${clipKeyLabel()})` : ''} · clique direito: mais opções` : 'Ativar clipes (grava os últimos 60s em segundo plano)',
     'aria-label': on ? `Clipar os últimos ${secs} segundos` : 'Ativar clipes',
     onclick: (e) => {
       e.stopPropagation();
@@ -3532,7 +3532,7 @@ function migrateClipKey() {
   if (S.prefs.keyClipV === 2) return;
   if (!S.prefs.keyClip || S.prefs.keyClip === 'Ctrl+Alt+KeyC') S.prefs.keyClip = 'F8';
   S.prefs.keyClipV = 2; savePrefs();
-  desktop?.setSettings?.({ hotkeyClip: comboToAccel(S.prefs.keyClip) });
+  desktop?.setSettings?.({ hotkeyClip: comboToAccel(hotkey('keyClip')) });
 }
 function setupDesktop() {
   if (setupDesktop.done) return; setupDesktop.done = true;
@@ -3540,14 +3540,14 @@ function setupDesktop() {
   addEventListener('keydown', (e) => {
     if (!(typing(e.target) && !e.ctrlKey && !e.altKey) && sbKey(e, voice)) return;
     const c = comboFromEvent(e);
-    if (c && c === (S.prefs.keyMute || 'Ctrl+Shift+KeyM')) { e.preventDefault(); voiceToggle('mute'); }
-    if (c && c === (S.prefs.keyDeafen || 'Ctrl+Shift+KeyD')) { e.preventDefault(); voiceToggle('deaf'); }
-    if (c && c === (S.prefs.keyClip || 'F8')) { e.preventDefault(); clipHotkey(); }
-    if (c && c === (S.prefs.keyFx || 'Ctrl+Shift+KeyE')) { e.preventDefault(); fxHotkey(); }
+    if (c && c === hotkey('keyMute')) { e.preventDefault(); voiceToggle('mute'); }
+    if (c && c === hotkey('keyDeafen')) { e.preventDefault(); voiceToggle('deaf'); }
+    if (c && c === hotkey('keyClip')) { e.preventDefault(); clipHotkey(); }
+    if (c && c === hotkey('keyFx')) { e.preventDefault(); fxHotkey(); }
     if (c && c === shareKey() && !e.repeat) { e.preventDefault(); shareHotkey(); }
   });
   setupPtt(() => voice);
-  desktop?.setSettings?.({ hotkeyMute: comboToAccel(S.prefs.keyMute || 'Ctrl+Shift+KeyM'), hotkeyDeafen: comboToAccel(S.prefs.keyDeafen || 'Ctrl+Shift+KeyD'), hotkeyClip: comboToAccel(S.prefs.keyClip || 'F8'), hotkeyShare: comboToAccel(shareKey()) });
+  desktop?.setSettings?.(desktopHotkeys());
   desktop?.onHotkey?.((k) => { if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); if (k === 'share') shareHotkey(); });
 }
 

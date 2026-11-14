@@ -3,6 +3,7 @@
 // quando a tecla desce/sobe com o jogo em foco (PTT global). Ele só fica ligado enquanto você está numa chamada em
 // modo push-to-talk, e só reporta a tecla escolhida — nenhuma outra tecla sai do programa.
 import { S, desktop } from './state.js';
+import { hotkey } from './ui.js';
 
 let voiceRef = null, sent = null, status = null;
 
@@ -16,7 +17,7 @@ const globalOn = () => !!sent && !!status?.ok && !!status?.global;
 export function syncGlobalPtt(voice) {
   if (voice) voiceRef = voice;
   if (!desktop?.pttSet) return;
-  const want = voiceRef?.active && S.prefs.inputMode === 'ptt' ? (S.prefs.pttKey || null) : null;
+  const want = voiceRef?.active && S.prefs.inputMode === 'ptt' ? hotkey('pttKey') : null;
   if (want === sent) return;
   sent = want;
   desktop.pttSet(want).then((r) => { if (sent === want) status = r || null; }).catch(() => { status = { ok: false }; });
@@ -27,13 +28,13 @@ export function setupPtt(getVoice) {
   const isPtt = () => S.prefs.inputMode === 'ptt';
   addEventListener('keydown', (e) => {
     // letra/número/espaço digitados num campo de texto não abrem o microfone
-    if (isPtt() && e.code === S.prefs.pttKey && !e.repeat && (!typing(e.target) || !/^(Key|Digit|Space|Numpad)/.test(e.code))) getVoice()?.setPtt(true);
+    if (isPtt() && e.code === hotkey('pttKey') && !e.repeat && (!typing(e.target) || !/^(Key|Digit|Space|Numpad)/.test(e.code))) getVoice()?.setPtt(true);
   });
-  addEventListener('keyup', (e) => { if (e.code === S.prefs.pttKey) getVoice()?.setPtt(false); });
-  addEventListener('mousedown', (e) => { if (isPtt() && MOUSE_PTT[e.button] === S.prefs.pttKey) { e.preventDefault(); getVoice()?.setPtt(true); } }, true);
-  addEventListener('mouseup', (e) => { if (MOUSE_PTT[e.button] === S.prefs.pttKey) { e.preventDefault(); getVoice()?.setPtt(false); } }, true);
+  addEventListener('keyup', (e) => { if (e.code === hotkey('pttKey')) getVoice()?.setPtt(false); });
+  addEventListener('mousedown', (e) => { if (isPtt() && MOUSE_PTT[e.button] === hotkey('pttKey')) { e.preventDefault(); getVoice()?.setPtt(true); } }, true);
+  addEventListener('mouseup', (e) => { if (MOUSE_PTT[e.button] === hotkey('pttKey')) { e.preventDefault(); getVoice()?.setPtt(false); } }, true);
   // botões laterais do mouse são "voltar/avançar" no Chromium: não navegam quando são o PTT
-  addEventListener('auxclick', (e) => { if (MOUSE_PTT[e.button] === S.prefs.pttKey && e.button !== 1) e.preventDefault(); }, true);
+  addEventListener('auxclick', (e) => { if (MOUSE_PTT[e.button] === hotkey('pttKey') && e.button !== 1) e.preventDefault(); }, true);
   // perder o foco soltava o PTT (a página não vê o keyup lá fora); com o PTT global o app desktop avisa a soltura
   addEventListener('blur', () => { if (!globalOn()) getVoice()?.setPtt(false); });
   desktop?.onPtt?.((down) => {
