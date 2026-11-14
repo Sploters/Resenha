@@ -10,7 +10,7 @@ export const EVENT_NAMES = {
   settings_search_empty: 'Busca sem resultado nas Configurações', flow: 'Começou/terminou uma tarefa', rage_click: 'Vários cliques rápidos no mesmo lugar',
   dead_click: 'Clique que não fez nada', js_error: 'Erro do app', error_shown: 'Aviso de erro na tela', timing: 'Tempo de carregamento',
   voice_fail: 'Falha ao entrar na voz', ws_reconnect: 'Conexão caiu e voltou', u_turn: 'Foi e voltou rápido', quick_exit: 'Saiu logo de uma página',
-  menu_open: 'Abriu um menu', menu_abandoned: 'Fechou um menu sem escolher', call_rating: 'Avaliação da chamada', call_issue: 'Problema na chamada',
+  menu_open: 'Abriu um menu', menu_abandoned: 'Fechou um menu sem escolher', menu_pick: 'Escolheu um item de menu', slow_switch: 'Troca de canal lenta (onde foi o tempo)', call_rating: 'Avaliação da chamada', call_issue: 'Problema na chamada',
   call_quality: 'Qualidade da rede na chamada', call_net: 'Medida da chamada (faixa)', call_qcause: 'O que pesou na chamada', call_rating_q: 'Avaliação × rede medida',
 };
 const DEV = { desktop: 'computador', mobile: 'celular', app: 'app desktop' };

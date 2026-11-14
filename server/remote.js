@@ -23,7 +23,9 @@ export function cleanEvent(e, perms) {
   }
 }
 
-export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId }) {
+// later: agenda a expiração do pedido (nos testes, um relógio falso chama sweep() direto)
+const defaultLater = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; };
+export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId, later = defaultLater }) {
   const sessions = new Map(); // id -> { id, owner, controller, cid, perms, state, created, bucket, last }
   const pub = (s, reason) => ({ id: s.id, owner: s.owner, controller: s.controller, channel_id: s.cid, perms: s.perms, state: s.state, ...(reason ? { reason } : {}) });
   const tell = (s, reason) => { const p = pub(s, reason); sendUser(s.owner, 'REMOTE_STATE', p); sendUser(s.controller, 'REMOTE_STATE', p); };
@@ -31,8 +33,12 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId 
   const of = (uid) => [...sessions.values()].filter(s => live(s) && (s.owner === uid || s.controller === uid));
   const end = (s, reason) => { if (s.state === 'ended') return; s.state = 'ended'; sessions.delete(s.id); tell(s, reason); };
 
+  // pedido sem resposta passou do prazo: encerra AVISANDO os dois lados. Antes só era apagado em silêncio no próximo pedido,
+  // e quem pediu ficava com a sessão "pendente" na tela até reconectar ("Já existe uma sessão de controle remoto")
+  function sweep() { for (const s of [...sessions.values()]) if (!live(s)) { if (s.state === 'pending') end(s, 'expired'); else sessions.delete(s.id); } }
+
   function request(from, to) {
-    for (const s of sessions.values()) if (!live(s)) sessions.delete(s.id);
+    sweep();
     const a = voiceOf(from), b = voiceOf(to);
     if (!to || to === from) return { error: 'Pedido inválido' };
     if (!a || !b || a.cid !== b.cid) return { error: 'Vocês precisam estar na mesma sala de voz' };
@@ -43,12 +49,14 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId 
     sessions.set(s.id, s);
     sendUser(to, 'REMOTE_REQUEST', pub(s));
     sendUser(from, 'REMOTE_STATE', pub(s));
+    later(sweep, REMOTE_PENDING_MS + 100);
     return { session: pub(s) };
   }
 
   // resposta do dono (no cliente dele). Sem o programa nativo (navegador comum), o cliente responde capable:false.
   function answer(uid, id, { accept, mouse, keyboard, capable }) {
     const s = sessions.get(String(id));
+    if (s && s.state === 'pending' && !live(s)) end(s, 'expired');
     if (!s || s.owner !== uid || s.state !== 'pending' || !live(s)) return { error: 'Pedido não encontrado ou expirado' };
     if (!accept) { end(s, capable === false ? 'unsupported' : 'declined'); return {}; }
     const perms = { mouse: !!mouse, keyboard: !!keyboard };
@@ -79,11 +87,11 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId 
   function stop(uid, id, reason = 'stopped') {
     const s = sessions.get(String(id));
     if (!s || (s.owner !== uid && s.controller !== uid)) return { error: 'Sessão não encontrada' };
-    end(s, uid === s.owner && reason === 'panic' ? 'panic' : 'stopped'); return {}; // "panic" = atalho de emergência no PC do dono
+    end(s, uid === s.owner && reason === 'panic' ? 'panic' : s.state === 'pending' && uid === s.controller ? 'cancelled' : 'stopped'); return {}; // "panic" = atalho de emergência no PC do dono
   }
   // saiu da sala, desconectou ou parou de transmitir: encerra o que envolver a pessoa
-  function onLeave(uid) { for (const s of of(uid)) end(s, 'left'); }
+  function onLeave(uid) { sweep(); for (const s of of(uid)) end(s, 'left'); }
   function onScreenOff(uid) { for (const s of of(uid)) if (s.owner === uid) end(s, 'stream_ended'); }
 
-  return { request, answer, input, stop, onLeave, onScreenOff, _sessions: sessions };
+  return { request, answer, input, stop, onLeave, onScreenOff, sweep, _sessions: sessions };
 }

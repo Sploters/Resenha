@@ -155,6 +155,7 @@ function netq(q) {
     h('div.ux-grid',
       h('div', h('h4.ux-sub', 'Nota da rede'), bars(Object.keys(GRADE).map(g => [GRADE[g], { total: q.notas[g], tip: tips(g) }]))),
       h('div', h('h4.ux-sub', 'O que mais pesou nas chamadas médias e ruins'), q.causas.length ? bars(q.causas.map(k => [k.nome, { total: k.n }])) : empty('Nenhuma chamada média ou ruim.'))),
+    Object.values(c.limite || {}).some(v => v.n) ? h('div', h('h4.ux-sub', 'O que limitou a transmissão de quem transmitiu'), bars(Object.values(c.limite).map(v => [v.nome, { total: v.n }]))) : null,
     h('div.ux-grid', Object.values(I).filter(v => v.medidas).map(v => h('div', h('h4.ux-sub', v.nome), bars(v.faixas.map(f => [f.faixa, { total: f.n }]), { text: (o) => nf(o.total) + ' · ' + pct(o.total, v.medidas) + '%' })))));
 }
 

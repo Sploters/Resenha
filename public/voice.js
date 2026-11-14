@@ -4,12 +4,27 @@
 
 import { playSound } from './sounds.js';
 import { createFx, loadFx, FX_IDS } from './voicefx.js';
-import { track, stopTimer, cancelTimer } from './ux.js';
+import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
 let nsLib;
+const wasmCache = {}; // modo de ruído -> Promise<ArrayBuffer> do modelo
+// pré-carrega, com o app ocioso, o que a 1ª entrada na voz precisaria baixar: a biblioteca do SFU e, se a pessoa usa a IA
+// de ruído, a biblioteca e o modelo dela (antes tudo isso entrava no tempo de "entrar na voz")
+export function prewarmVoice(prefs) {
+  const go = () => {
+    import('/vendor/msc/mediasoup-client.js').catch(() => { });
+    const mode = prefs?.noiseMode;
+    if (mode === 'rnnoise' || mode === 'gtcrn') import(`${NS}/index.js`).then((lib) => {
+      nsLib ||= lib;
+      wasmCache[mode] ||= (mode === 'rnnoise' ? lib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : lib.loadGtcrn({ url: `${NS}/gtcrn.wasm` })).catch((e) => { delete wasmCache[mode]; throw e; });
+      wasmCache[mode].catch(() => { });
+    }).catch(() => { });
+  };
+  (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(go, { timeout: 8000 });
+}
 
 export const NOISE_MODES = {
   off: 'Nenhuma',
@@ -67,13 +82,9 @@ export async function createMic(prefs, ctx) {
       nsLib ||= await import(`${NS}/index.js`);
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80; chain(hp);
       await ensureModule(ctx, mode);
-      if (mode === 'rnnoise') {
-        const wasmBinary = await nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` });
-        chain(new nsLib.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary }));
-      } else {
-        const wasmBinary = await nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` });
-        chain(new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary }));
-      }
+      // o modelo (.wasm) é baixado uma vez por abertura do app; cada chamada recebe uma cópia (o nó pode transferir o buffer)
+      const wasmBinary = (await (wasmCache[mode] ||= (mode === 'rnnoise' ? nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` })).catch((e) => { delete wasmCache[mode]; throw e; }))).slice(0);
+      chain(mode === 'rnnoise' ? new nsLib.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary }) : new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary }));
       out.processed = true;
     }
     if (prefs.gate) {
@@ -182,28 +193,41 @@ export class Voice {
       if (!this._joinTo && !this.channelId) { this.micGraph?.dispose(); this.micGraph = null; this.mic = null; this.analysers.delete(this.myId); }
       return true;
     };
-    this.error = null;
+    this.error = null; this._jt = null;
+    const t0 = performance.now(); // telemetria: "entrar na voz" por etapa (microfone → servidor → mídia conectada)
     // conversa direta protegida (public/e2ee.js): a chamada também vai cifrada de ponta a ponta; trancada = não entra
     const pre = await this.beforeJoin?.(channelId).catch((e) => ({ error: e.message }));
     if (stale()) return;
     if (pre?.error) { this.error = pre.error; return; }
     this.e2ee = pre?.key || null;
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error(location.protocol === 'http:' && !isSecureContext
-        ? `Microfone indisponível: abra https://${location.hostname}:3443 (aceite o aviso do certificado) ou use o aplicativo desktop.`
-        : 'Microfone indisponível neste navegador.');
-      await this.buildMic();
-    } catch (e) { this.mic = null; this.error = e.message || 'Não foi possível acessar o microfone (entrando como ouvinte).'; }
-    if (stale()) return;
+    // o microfone (permissão, dispositivo, filtro de ruído) é preparado AO MESMO TEMPO que o servidor aceita a entrada e a
+    // conexão de mídia abre: antes era um depois do outro, e no app desktop o "entrar na voz" levava ~2,5 s (metade das vezes).
+    // A mídia espera o microfone só na hora de enviar a voz (sfuStart / onJoined aguardam this._micReady).
+    let micErr = null;
+    const micP = this._micReady = (async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error(location.protocol === 'http:' && !isSecureContext
+          ? `Microfone indisponível: abra https://${location.hostname}:3443 (aceite o aviso do certificado) ou use o aplicativo desktop.`
+          : 'Microfone indisponível neste navegador.');
+        await this.buildMic();
+      } catch (e) { this.mic = null; micErr = e.message || 'Não foi possível acessar o microfone (entrando como ouvinte).'; }
+    })();
     this.channelId = channelId; this.joinedAt = Date.now();
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
     this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
-    this.send('VOICE_JOIN', { channel_id: channelId });
+    this._jt = { sent: performance.now() }; this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
+    await micP;
+    if (stale() || this.channelId !== channelId) return; // saiu (ou o servidor recusou) enquanto o microfone ficava pronto
+    if (micErr) this.error = micErr; else timing('voice_mic', performance.now() - t0);
+    // malha (sem SFU): quem conectou antes de o microfone ficar pronto recebe a voz agora
+    if (this.mic && !this.sfu) { const track = this.mic.getAudioTracks()[0]; for (const p of this.peers.values()) if (!p.senders.micaudio && track) p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
+    this.sendState(); this.onUpdate();
   }
   leave({ silent = false } = {}) {
     if (this._joinTo) { this._joinGen = (this._joinGen || 0) + 1; this._joinTo = this._joinP = null; } // cancela uma entrada em andamento
     if (!this.channelId) return;
+    this._jt = null;
     // qualidade técnica da chamada que acabou: vai para a telemetria em faixas e junto do aviso (a avaliação cruza com ela)
     const ms = Date.now() - (this.joinedAt || Date.now());
     clearInterval(this._cqT); this._cqT = null; let quality = null;
@@ -233,9 +257,10 @@ export class Voice {
   onJoined({ channel_id, peers, sfu, rejoin }) {
     if (channel_id !== this.channelId) return;
     clearTimeout(this._mrWait); this._mrWait = null;
+    const jt = this._jt; if (jt?.sent && !jt.joined) { timing('voice_server', performance.now() - jt.sent); jt.joined = performance.now(); if (!sfu) this._jt = null; }
     if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
     if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); if (this.recovering) return this.mediaReconnect('start_failed'); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
-    else for (const uid of peers) this.connect(uid, true);
+    else (this._micReady || Promise.resolve()).then(() => { if (channel_id === this.channelId) for (const uid of peers) if (!this.peers.has(uid)) this.connect(uid, true); });
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }
 
@@ -265,7 +290,7 @@ export class Voice {
       t.on('connectionstatechange', (st) => {
         if (st === 'disconnected' || st === 'failed') this._cq?.drop();
         if (st === 'failed') track('voice_fail', 'ice_failed');
-        if (st === 'connected') stopTimer('voice_connect', this.channelId);
+        if (st === 'connected') { stopTimer('voice_connect', this.channelId); const jt = this._jt; if (jt?.joined) { this._jt = null; timing('voice_media', performance.now() - jt.joined); } }
         this.watchMedia(t, sfu, st); this.onUpdate(true);
       });
       // recebimento protegido: a decifragem entra no evento 'track', durante a negociação de cada consumer (depois dela o
@@ -275,13 +300,15 @@ export class Voice {
         this.sfuReq('produce', { transport_id: t.id, kind, rtpParameters, source: appData.source }).then(ok, fail));
       return t;
     };
-    sfu.send = await transport('send'); sfu.recv = await transport('recv');
+    // os dois canais (envio e recebimento) e a lista do que já está no ar: pedidos ao mesmo tempo (antes, um por vez)
+    const [st, rt, pr] = await Promise.all([transport('send'), transport('recv'), this.sfuReq('producers')]);
+    sfu.send = st; sfu.recv = rt;
     if (this.sfu !== sfu) return;
-    const { producers } = await this.sfuReq('producers');
-    if (this.sfu !== sfu) return;
+    const { producers } = pr;
     sfu.ready = true; this.syncVoiceFlow(); // já entra ensurdecido e escondido: nem começa a receber as vozes
     for (const p of producers) this.onSfuProducer(p);
     // o que já estava ligado antes de conectar
+    await this._micReady; if (this.sfu !== sfu) return; // microfone ainda ficando pronto (entrada em paralelo)
     if (this.mic) await this.sfuProduce('mic', this.mic.getAudioTracks()[0]);
     if (this.cam) await this.sfuProduce('cam', this.cam.getVideoTracks()[0]);
     if (this.screen) await this.sfuPublishScreen();
@@ -1223,8 +1250,15 @@ export class Voice {
     const pcs = this.sfu ? [this.sfu.send, this.sfu.recv].filter(Boolean) : [...this.peers.values()].map(p => p.pc).filter(Boolean);
     if (!pcs.length) return;
     this._cqBusy = true;
-    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up); }
+    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up, this.videoKinds()); }
     finally { this._cqBusy = false; }
+  }
+  // de que tipo é cada vídeo (id da faixa -> 'cam' | 'screen'), recebidos e os seus: a qualidade separa câmera de transmissão
+  videoKinds() {
+    const m = new Map(), put = (st, k) => { for (const t of st?.getVideoTracks?.() || []) m.set(t.id, k); };
+    for (const p of this.peers.values()) for (const [k, st] of Object.entries(p.streams || {})) put(st, k === 'screen' ? 'screen' : 'cam');
+    put(this.cam, 'cam'); put(this.screen, 'screen');
+    return m;
   }
   // perda real da voz que você envia, contada pelo servidor: { count, lost } acumulados, ou null (sem voz saindo / servidor antigo).
   // (o fractionLost que o navegador recebe no SFU é a pior perda entre quem te ouve, não a sua: ver server/sfu.js 'upstats')

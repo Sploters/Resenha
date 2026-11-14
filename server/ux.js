@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS ux_first(h TEXT NOT NULL, step TEXT NOT NULL, day TEX
 // fluxos com começo e fim, para o funil: quantos começam e quantos terminam
 export const UX_FLOWS = { e2ee: 'Ativar a criptografia', mymsgs: 'Apagar minhas mensagens', lfg_post: 'Criar anúncio em Jogos', add_server: 'Criar ou entrar num servidor' };
 // tempos medidos no app, em faixas (guardamos só quantos caíram em cada faixa; o painel estima mediana e pior caso)
-export const UX_TIMINGS = { channel_switch: 'Trocar de canal ou conversa', msg_send: 'Mandar mensagem (até o servidor confirmar)', voice_connect: 'Entrar na voz', ws_offline: 'Tempo desconectado' };
+export const UX_TIMINGS = { channel_switch: 'Trocar de canal ou conversa', msg_send: 'Mandar mensagem (até o servidor confirmar)', voice_connect: 'Entrar na voz', ws_offline: 'Tempo desconectado',
+  // "entrar na voz" por etapa: microfone pronto (permissão, filtro de ruído) → servidor aceitou → mídia conectada (SFU)
+  voice_mic: 'Entrar na voz: preparar o microfone', voice_server: 'Entrar na voz: resposta do servidor', voice_media: 'Entrar na voz: conectar o áudio' };
 export const UX_BUCKETS = [100, 250, 500, 1000, 2500, 5000, Infinity]; // faixa i: até UX_BUCKETS[i] ms
 // primeiros passos de quem é novo, na ordem do funil
 export const UX_CALL_ISSUES = { audio_cut: 'Áudio cortando', echo: 'Eco ou chiado', lag: 'Atraso', video: 'Vídeo ou tela travando', cant_hear: 'Não ouvia as pessoas', not_heard: 'Não me ouviam', other: 'Outro' };
@@ -53,9 +55,16 @@ export const UX_NET = { // indicador: [nome, rótulos das faixas]
   conceal: ['Voz picotada (preenchida)', ['até 1%', '1–3%', '3–8%', '8–15%', 'mais de 15%']],
   freeze: ['Travadas do vídeo', ['nenhuma', '1–2', '3–5', '6 ou mais']],
   drop: ['Quedas da conexão', ['nenhuma', '1', '2 ou mais']],
+  // vídeo separado (desde a versão que mede por minuto assistido): só a câmera entra na nota (ver public/callqual.js)
+  freeze_cam: ['Travadas da câmera (por minuto assistido)', ['nenhuma', 'até 1 por min', '1–3 por min', 'mais de 3 por min']],
+  freeze_scr: ['Travadas da transmissão (por minuto assistido)', ['nenhuma', 'até 1 por min', '1–3 por min', 'mais de 3 por min']],
+  scr_fps: ['Quadros por segundo da transmissão recebida', ['até 5', '5–15', '15–30', '30–50', 'mais de 50'], 'low'],
+  send_fps: ['Quadros por segundo da transmissão enviada', ['até 5', '5–15', '15–30', '30–50', 'mais de 50'], 'low'],
 };
+// o que mais limitou a transmissão de quem transmitiu (qualityLimitationReason do WebRTC)
+export const UX_SEND_LIMITS = { none: 'Nada (enviou o que capturou)', cpu: 'Processador (CPU)', bandwidth: 'Internet (banda)', other: 'Outro motivo' };
 export const UX_NET_CAUSES = { rtt: 'Atraso alto', jitter: 'Oscilação', loss_in: 'Perda chegando', loss_out: 'Perda saindo', conceal: 'Voz picotada', freeze: 'Vídeo travando', drop: 'Conexão caiu' };
-const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay))$`);
+const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay)|slim:(${Object.keys(UX_SEND_LIMITS).join('|')}))$`);
 export const UX_STEPS = { avatar: 'Pôs uma foto', friend: 'Fez um amigo', message: 'Mandou a 1ª mensagem', voice: 'Entrou na voz' };
 
 const free = (max) => (d) => d.length <= max;
@@ -75,9 +84,12 @@ export const UX_EVENTS = {
   timing: (d) => TIMING_RE.test(d), // "métrica:faixa"
   voice_fail: (d) => /^[a-z_]{1,24}$/.test(d), // não conseguiu entrar na voz: motivo
   ws_reconnect: (d) => d === '', // a conexão em tempo real caiu e voltou
+  // troca de canal com mais de 1 s: onde foi o tempo e o que estava acontecendo (ex.: "espera:chamada+assistindo")
+  slow_switch: (d) => /^(rede|desenho|espera)(:(chamada|transmitindo|assistindo|cripto)(\+(chamada|transmitindo|assistindo|cripto)){0,3})?$/.test(d),
   u_turn: free(60), // foi de A para B e voltou para A em menos de 3 s: "A → B"
   quick_exit: free(80), // abriu uma página das Configurações e saiu em menos de 2 s
   menu_open: free(80), menu_abandoned: free(80), // menu aberto / fechado sem escolher nada: "área › botão"
+  menu_pick: free(84), // item escolhido num menu que marca os itens (rótulo fixo): "área › botão › item"
   // avaliação depois de uma chamada (pergunta rara: ~5% das chamadas, no máximo 1 vez por semana por pessoa)
   call_rating: (d) => /^(shown|good|bad|ignored)$/.test(d),
   call_issue: (d) => Object.hasOwn(UX_CALL_ISSUES, d),
@@ -233,14 +245,16 @@ function netQuality(eventos) {
   for (const [g, v] of Object.entries(q)) for (const dv of DEVICES) if (v[dv]) (aparelhos[dv] ||= { good: 0, fair: 0, poor: 0, total: 0 })[g] += v[dv], aparelhos[dv].total += v[dv];
   for (const a of Object.values(aparelhos)) a.taxa_ruim = pctOf(a.poor, a.total);
   const net = det('call_net'), n = (k) => net[k]?.total || 0;
-  const indicadores = Object.fromEntries(Object.entries(UX_NET).map(([k, [nome, rot]]) => {
+  const indicadores = Object.fromEntries(Object.entries(UX_NET).map(([k, [nome, rot, lado]]) => {
     const faixas = rot.map((r, i) => ({ faixa: r, n: n(k + ':' + i) })), medidas = faixas.reduce((a, f) => a + f.n, 0);
-    // "acima do aceitável": as duas faixas de cima (atraso > 200 ms, perda > 5%…); travadas e quedas: qualquer uma
-    const ruins = k === 'freeze' || k === 'drop' ? medidas - faixas[0].n : faixas.slice(-2).reduce((a, f) => a + f.n, 0);
+    // "acima do aceitável": as duas faixas de cima (atraso > 200 ms, perda > 5%…); travadas e quedas: qualquer uma;
+    // quadros por segundo ('low'): as duas de baixo (até 15 fps)
+    const ruins = /^(freeze|drop)/.test(k) ? medidas - faixas[0].n : lado === 'low' ? faixas.slice(0, 2).reduce((a, f) => a + f.n, 0) : faixas.slice(-2).reduce((a, f) => a + f.n, 0);
     return [k, { nome, faixas, medidas, acima: pctOf(ruins, medidas) }];
   }));
   const via = (a, b, key) => ({ [a]: n(key + ':' + a), [b]: n(key + ':' + b) });
   const conexao = { modo: via('sfu', 'p2p', 'mode'), protocolo: via('udp', 'tcp', 'proto'), rota: via('direct', 'relay', 'route') };
+  conexao.limite = Object.fromEntries(Object.entries(UX_SEND_LIMITS).map(([k, nome]) => [k, { nome, n: n('slim:' + k) }]));
   conexao.tcp = pctOf(conexao.protocolo.tcp, conexao.protocolo.tcp + conexao.protocolo.udp); conexao.relay = pctOf(conexao.rota.relay, conexao.rota.relay + conexao.rota.direct);
   const causas = Object.entries(det('call_qcause')).map(([k, v]) => ({ k, nome: UX_NET_CAUSES[k] || k, n: v.total })).sort((a, b) => b.n - a.n);
   // cruzamento: de quem relatou problema, quantos tinham a rede ruim/média (o resto aponta para microfone, fone ou o app)

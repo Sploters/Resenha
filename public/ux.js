@@ -52,7 +52,8 @@ export function stopTimer(name, key = '') {
   const m = marks.get(name); if (!m || (key && m.key && m.key !== key)) return;
   marks.delete(name);
   // a aba ficou escondida no meio: o tempo não diz nada sobre o app
-  if (document.visibilityState === 'visible') timing(name, performance.now() - m.t);
+  if (document.visibilityState !== 'visible') return null;
+  const ms = performance.now() - m.t; timing(name, ms); return ms; // devolve o tempo medido (para detalhar os lentos)
 }
 export const cancelTimer = (name) => marks.delete(name);
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') for (const k of [...marks.keys()]) if (k !== 'ws_offline') marks.delete(k); });
@@ -133,11 +134,18 @@ export function navTo(key, label) {
   if (a && a.key === key && now - b.t < 3000) track('u_turn', `${a.label} → ${b.label}`);
   nav.push({ key, label, t: now }); if (nav.length > 3) nav.shift();
 }
-// página das Configurações aberta pela pessoa e deixada em menos de 2 s (a primeira, que abre sozinha, não conta)
+// página das Configurações aberta pela pessoa e deixada em menos de 2 s SEM seguir adiante: fechou as Configurações ou
+// voltou para a página de antes (a primeira, que abre sozinha, não conta). Passar de página em página olhando a lista
+// (A → B → C) não conta mais: no 1º teste isso dava 80 "saídas" espalhadas por todas as páginas, sem dizer nada.
 let page = null;
 export function settingsPage(label, { initial = false, closing = false } = {}) {
   const now = performance.now();
-  if (page && !page.initial && now - page.t < 2000) track('quick_exit', 'configurações › ' + page.label);
-  page = closing ? null : { label, t: now, initial };
+  if (page && !page.initial && now - page.t < 2000 && (closing || label === page.prev)) track('quick_exit', 'configurações › ' + page.label);
+  page = closing ? null : { label, t: now, initial, prev: page?.label };
 }
-queueMicrotask(() => menuHooks.push((what, e) => { if (uxOn()) track(what === 'open' ? 'menu_open' : 'menu_abandoned', describeClick(e?.target || document.body)); }));
+queueMicrotask(() => menuHooks.push((what, e, key) => {
+  if (!uxOn()) return;
+  const where = describeClick(e?.target || document.body);
+  if (what === 'pick') { if (/^[a-z_]{1,24}$/.test(key || '')) track('menu_pick', where.slice(0, 55) + ' › ' + key); }
+  else track(what === 'open' ? 'menu_open' : 'menu_abandoned', where);
+}));

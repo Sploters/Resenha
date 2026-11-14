@@ -14,7 +14,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 {
   let t = 1e12, n = 0; const out = [];
   const where = { a: { cid: 'v', screen: true }, b: { cid: 'v', screen: false }, c: { cid: 'v', screen: true }, x: { cid: 'outra', screen: true } };
-  const R = createRemote({ newId: () => 's' + ++n, now: () => t, voiceOf: (u) => where[u] || null, sendUser: (u, type, d) => out.push({ u, type, d }) });
+  const R = createRemote({ newId: () => 's' + ++n, now: () => t, later: () => { }, voiceOf: (u) => where[u] || null, sendUser: (u, type, d) => out.push({ u, type, d }) });
   const last = (u, type) => out.filter(o => o.u === u && o.type === type).at(-1)?.d;
   ok(R.request('b', 'x').error, 'pedir para quem está em outra sala é recusado');
   ok(R.request('a', 'b').error, 'pedir para quem não está transmitindo é recusado');
@@ -41,6 +41,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   ok(R.input('b', s1.id, [{ k: 'm', x: .5, y: .5 }]).sent === 0, 'sessão encerrada não aceita mais eventos');
   const s2 = R.request('b', 'c').session; t += 31000;
   ok(R.answer('c', s2.id, { accept: true, mouse: true }).error, 'pedido expira em 30 s');
+  ok(last('b', 'REMOTE_STATE')?.id === s2.id && last('b', 'REMOTE_STATE')?.state === 'ended' && last('b', 'REMOTE_STATE')?.reason === 'expired', 'pedido expirado: quem pediu é avisado (não fica "pendente" para sempre)');
+  // sem ninguém mexer: o temporizador (sweep) encerra e avisa os dois lados
+  const sx = R.request('b', 'c').session; t += 31000; R.sweep();
+  ok(last('b', 'REMOTE_STATE')?.id === sx.id && last('b', 'REMOTE_STATE')?.reason === 'expired' && last('c', 'REMOTE_STATE')?.reason === 'expired' && !R._sessions.size, 'pedido sem resposta expira sozinho e avisa os dois lados');
+  const sc = R.request('b', 'c').session; R.stop('b', sc.id);
+  ok(last('c', 'REMOTE_STATE')?.id === sc.id && last('c', 'REMOTE_STATE')?.reason === 'cancelled' && !R._sessions.size, 'quem pediu pode cancelar o pedido pendente');
   const s3 = R.request('b', 'c').session; R.answer('c', s3.id, { accept: true, keyboard: true, capable: true });
   R.stop('c', s3.id, 'panic'); ok(last('b', 'REMOTE_STATE')?.reason === 'panic', 'atalho de emergência do dono encerra');
   const s4 = R.request('b', 'c').session; R.answer('c', s4.id, { accept: false, capable: false });

@@ -2,7 +2,13 @@
 // voice.js lê os relatórios das conexões e este coletor guarda atraso (ida e volta), perda de pacotes nos dois sentidos,
 // oscilação (jitter), quanto da voz que chegou teve de ser "inventada" pelo decodificador (picote), travadas do vídeo
 // recebido e quedas da conexão. No fim da chamada vira um resumo em FAIXAS, contado na telemetria (public/ux.js):
-//   call_quality good|fair|poor · call_net métrica:faixa (e proto/route/mode) · call_qcause o que mais pesou
+//   call_quality good|fair|poor · call_net métrica:faixa (e proto/route/mode/slim) · call_qcause o que mais pesou
+// Vídeo: travadas da CÂMERA e da TRANSMISSÃO são contadas à parte e por minuto ASSISTIDO (antes era uma soma de todos os
+// vídeos da chamada inteira, e 3 travadas já davam nota "média"). Só a câmera pesa na nota da REDE: a transmissão de
+// tela trava por motivos de quem transmite (captura do jogo, codificador, CPU), que a rede não explica. Ela vai para o
+// painel à parte, com os quadros por segundo recebidos e, do lado de quem transmite, os quadros capturados/enviados e o
+// que limitou o envio (CPU, banda ou nada). (No Chromium, tela parada por 20 s não gerou travada falsa:
+// scripts/callqual-video-test.mjs.)
 //   call_rating_q resposta:nota (cruza "Teve algum problema?" com o que a rede mediu: problema com rede boa = aparelho/app)
 // Nada de quem, com quem ou em que sala: só as faixas. Chamada sem voz chegando de ninguém (sozinho na sala) não conta.
 import { track } from './ux.js';
@@ -15,7 +21,11 @@ export const QB = {
   loss_in: [0.5, 2, 5, 10], // % de pacotes de voz perdidos chegando
   loss_out: [0.5, 2, 5, 10], // % perdidos saindo (o outro lado/servidor informa)
   conceal: [1, 3, 8, 15], // % da voz recebida que foi preenchida pelo decodificador (picote)
-  freeze: [0, 2, 5], // travadas do vídeo recebido na chamada toda
+  freeze: [0, 2, 5], // travadas do vídeo recebido na chamada toda (todos os vídeos somados; mantido para comparar com antes)
+  freeze_cam: [0, 1, 3], // travadas por minuto assistido: câmera
+  freeze_scr: [0, 1, 3], // travadas por minuto assistido: transmissão de tela
+  scr_fps: [5, 15, 30, 50], // quadros por segundo da transmissão recebida (mediana)
+  send_fps: [5, 15, 30, 50], // quadros por segundo da SUA transmissão saindo (mediana)
   drop: [0, 1], // quedas da conexão (0, 1, 2 ou mais)
 };
 // mínimo de pacotes de voz para calcular perda: num momento (5 s; voz falando = 50/s) e na chamada toda (~10 s de fala)
@@ -29,15 +39,22 @@ export function levelOf(s) {
 }
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
+const newVid = () => ({ freezes: 0, freezeMs: 0, watchMs: 0, fps: [] });
+// travadas por minuto assistido (null = menos de 30 s de vídeo desse tipo: não diz nada)
+const rate = (v) => (v.watchMs >= 30e3 ? v.freezes / (v.watchMs / 60e3) : null);
+
 export class CallQuality {
-  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.padGaps = 0; this.rxAll = 0; this.proto = null; this.relay = false; }
+  constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0;
+    this.vid = { cam: newVid(), screen: newVid() }; this.sent = { ms: 0, lim: { none: 0, cpu: 0, bandwidth: 0, other: 0 }, fps: [], cap: [] }; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.padGaps = 0; this.rxAll = 0; this.proto = null; this.relay = false; }
   // reps: relatórios de getStats() de cada conexão (SFU: envio e recebimento; malha: uma por pessoa)
   // up (só SFU): { count, lost } acumulados da voz que você envia, contados pelo servidor (op 'upstats' em server/sfu.js).
   // No SFU o fractionLost do RTCP NÃO é a sua perda: com a correção de erros do Opus, o mediasoup põe nele a pior perda
   // entre quem te ouve (a internet ruim de um ouvinte virava "perda saindo" sua). Sem `up`, no SFU a perda saindo fica sem medida.
-  add(reps, mode = this.mode, up = null) {
+  // kinds (opcional): Map trackId -> 'cam' | 'screen' dos vídeos (recebidos e os seus), para separar câmera de transmissão
+  add(reps, mode = this.mode, up = null, kinds = null) {
     this.mode = mode;
     let rtt = null, sendLoss = null, lost = 0, recv = 0, jit = null, conc = 0, tot = 0;
+    const outSeen = new Map();
     for (const rep of reps) {
       const byId = new Map([...rep.values()].map(r => [r.id, r]));
       for (const r of rep.values()) {
@@ -69,11 +86,11 @@ export class CallQuality {
           }
           if (r.jitter != null && dr > 0) jit = Math.max(jit ?? 0, r.jitter * 1000);
         }
-        if (r.type === 'inbound-rtp' && r.kind === 'video' && r.freezeCount != null) {
-          const p = this.prev.get(r.id) || {}; this.freezes += Math.max(0, r.freezeCount - (p.f || 0)); this.prev.set(r.id, { f: r.freezeCount });
-        }
+        if (r.type === 'inbound-rtp' && r.kind === 'video') this.addVideoIn(r, kinds);
+        if (r.type === 'outbound-rtp' && r.kind === 'video') this.addVideoOut(r, byId, kinds, outSeen);
       }
     }
+    for (const o of outSeen.values()) if (!o.first && o.fps != null) this.sent.fps.push(o.fps);
     this.inPk += recv; this.inLost += lost;
     if (mode === 'sfu' && up && Number.isFinite(up.count) && Number.isFinite(up.lost)) {
       const p = this.upPrev; this.upPrev = up;
@@ -89,6 +106,42 @@ export class CallQuality {
     if (Object.values(s).some(v => v != null)) this.samples.push(s);
     return s;
   }
+  // vídeo recebido: travadas (quantas e quanto tempo), tempo assistido (houve quadro novo desde a última leitura) e fps
+  addVideoIn(r, kinds) {
+    const p = this.prev.get(r.id), fc = r.freezeCount ?? 0, fd = r.totalFreezesDuration ?? 0, fr = r.framesDecoded ?? 0;
+    this.prev.set(r.id, { f: fc, d: fd, fr, ts: r.timestamp });
+    // com o mapa de faixas, vídeo que não está nele não é de ninguém (ex.: 'probator', a sondagem de banda do mediasoup)
+    const k = kinds ? kinds.get(r.trackIdentifier) : 'cam'; if (!k) return;
+    const kind = k === 'screen' ? 'screen' : 'cam', v = this.vid[kind];
+    const df = Math.max(0, fc - (p?.f || 0)); this.freezes += df; v.freezes += df;
+    v.freezeMs += Math.max(0, fd - (p?.d || 0)) * 1000;
+    // tempo assistido: desde que o vídeo mostrou o 1º quadro, mesmo sem quadro novo (tela parada ou travada também é tempo
+    // na tela; contar só o tempo com quadros novos inflava a fração travada). A 1ª leitura de cada vídeo só marca o ponto.
+    if (p && p.fr > 0 && r.timestamp > p.ts) v.watchMs += Math.min(r.timestamp - p.ts, 15e3);
+    if (r.framesPerSecond != null && fr > (p?.fr || 0)) v.fps.push(r.framesPerSecond);
+  }
+  // seu vídeo saindo (só a transmissão de tela interessa aqui): o que limitou (CPU/banda), quadros enviados e capturados
+  // (com simulcast há um outbound-rtp por camada, todas da mesma captura: o tempo de limitação conta uma vez por captura e
+  // os quadros enviados são os da camada mais alta)
+  addVideoOut(r, byId, kinds, seen) {
+    const src = byId.get(r.mediaSourceId), kind = src && kinds?.get(src.trackIdentifier);
+    if (kind !== 'screen') return;
+    const k = 'o:' + r.mediaSourceId, cur = seen.get(k);
+    if (cur) { if (r.framesPerSecond != null) cur.fps = Math.max(cur.fps ?? 0, r.framesPerSecond); return; }
+    const p = this.prev.get(k), lim = r.qualityLimitationDurations || {};
+    this.prev.set(k, { lim: { ...lim } });
+    seen.set(k, { fps: r.framesPerSecond ?? null, first: !p });
+    if (!p) return;
+    let tot = 0; for (const x of Object.keys(this.sent.lim)) { const d = Math.max(0, (lim[x] || 0) - (p.lim[x] || 0)) * 1000; this.sent.lim[x] += d; tot += d; }
+    this.sent.ms += tot;
+    if (src.framesPerSecond != null) this.sent.cap.push(src.framesPerSecond);
+  }
+  // nota do vídeo da câmera: pela fração do tempo assistido que ficou travada e por travadas/minuto (precisa de 1 min assistido)
+  camLevel() {
+    const v = this.vid.cam; if (v.watchMs < 60e3 || !v.freezes) return 0;
+    const share = v.freezeMs / v.watchMs, perMin = v.freezes / (v.watchMs / 60e3);
+    return v.freezes >= 5 && (share >= 0.08 || perMin > 3) ? 2 : v.freezes >= 3 && (share >= 0.02 || perMin > 1) ? 1 : 0;
+  }
   // queda da conexão (envio e recebimento caem juntos no SFU: uma queda só se vier em menos de 5 s)
   drop(now = Date.now()) { if (this.dropAt == null || now - this.dropAt > 5000) this.drops++; this.dropAt = now; }
   // resumo da chamada inteira (null = pouco dado ou ninguém falando com você)
@@ -98,21 +151,27 @@ export class CallQuality {
     const med = (k) => median(S.map(s => s[k]).filter(v => v != null));
     const levels = S.map(levelOf), n = levels.length, poor = levels.filter(l => l[0] === 2).length, bad = levels.filter(l => l[0] >= 1).length;
     const tally = {}; for (const [lv, k] of levels) if (lv >= (poor / n >= 0.2 ? 2 : 1) && k) tally[k] = (tally[k] || 0) + 1;
-    const perMin = this.freezes / (ms / 60e3);
-    let grade = poor / n >= 0.2 || this.drops >= 2 || (this.freezes >= 5 && perMin > 2) ? 'poor' : bad / n >= 0.2 || this.drops === 1 || this.freezes >= 3 ? 'fair' : 'good';
-    let cause = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-    if (grade !== 'good' && !cause) cause = this.drops ? 'drop' : this.freezes ? 'freeze' : null;
+    // nota = a pior entre rede (momentos ruins), quedas e câmera travando; a causa é a do que de fato puxou a nota para baixo
+    // (antes a causa vinha dos poucos momentos de rede ruim mesmo quando a nota tinha caído pelas travadas)
+    const netLv = poor / n >= 0.2 ? 2 : bad / n >= 0.2 ? 1 : 0, dropLv = this.drops >= 2 ? 2 : this.drops === 1 ? 1 : 0, camLv = this.camLevel();
+    const lv = Math.max(netLv, dropLv, camLv), grade = ['good', 'fair', 'poor'][lv];
+    const cause = !lv ? null : netLv === lv ? Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null : dropLv === lv ? 'drop' : 'freeze';
     const m = {
       rtt: med('rtt'), jitter: med('jitter'),
       loss_out: this.mode === 'sfu' ? (this.upPk + this.upLost >= MIN_PK_CALL ? (this.upLost / (this.upPk + this.upLost)) * 100 : null) : med('loss_out'),
       loss_in: this.inPk + this.inLost >= MIN_PK_CALL ? (this.inLost / (this.inPk + this.inLost)) * 100 : null, // da chamada toda
       conceal: med('conceal'), freeze: this.freezes, drop: this.drops,
+      freeze_cam: rate(this.vid.cam), freeze_scr: rate(this.vid.screen), scr_fps: median(this.vid.screen.fps), send_fps: median(this.sent.fps),
     };
     const net = Object.entries(m).filter(([, v]) => v != null).map(([k, v]) => k + ':' + bucket(v, QB[k]));
     net.push('mode:' + (this.mode === 'sfu' ? 'sfu' : 'p2p'));
     if (this.proto === 'udp' || this.proto === 'tcp') net.push('proto:' + this.proto);
     net.push('route:' + (this.relay ? 'relay' : 'direct'));
-    return { grade, cause: grade === 'good' ? null : cause, net, m, samples: n };
+    // sua transmissão: o que mais limitou o envio (com pelo menos 20 s medidos)
+    const L = this.sent.lim; if (this.sent.ms >= 20e3) net.push('slim:' + Object.keys(L).reduce((a, b) => (L[b] > L[a] ? b : a), 'none'));
+    const v = (x) => ({ freezes: x.freezes, freezeMs: Math.round(x.freezeMs), watchMs: Math.round(x.watchMs), fps: median(x.fps) });
+    const video = { cam: v(this.vid.cam), screen: v(this.vid.screen), sent: { ms: Math.round(this.sent.ms), lim: L, fps: median(this.sent.fps), captured: median(this.sent.cap) } };
+    return { grade, cause, net, m, samples: n, video };
   }
 }
 

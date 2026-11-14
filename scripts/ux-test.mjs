@@ -138,10 +138,12 @@ try {
   await Q.evaluate(() => window.__lc.go('@me')); await sleep(300); await Q.evaluate((id) => window.__lc.go('@me', id), dm); await sleep(500); await Q.evaluate(() => window.__lc.go('@me')); await sleep(400);
   // menu aberto e fechado sem escolher (botão direito numa conversa da lista, depois Esc)
   await Q.click('#side-list .dmrow', { button: 'right' }).catch(() => { }); await sleep(300); await Q.keyboard.press('Escape'); await sleep(400);
-  // Configurações: entrar em Aparência e sair em menos de 2 s
+  // Configurações: passar por Aparência a caminho de Sons (navegando: não conta); depois abrir Notificações e voltar logo
+  // para a página de antes (conta)
   await Q.evaluate(() => window.__lc.openSettings('account')); await sleep(900);
   const nav = (rx) => Q.evaluate((rx) => { const el = [...document.querySelectorAll('#settings .ni')].find(x => new RegExp(rx).test(x.textContent)); const r = el.getBoundingClientRect(); return [r.x + 20, r.y + r.height / 2]; }, rx);
   let [x, y] = await nav('^Aparência'); await Q.mouse.click(x, y); await sleep(500); [x, y] = await nav('^Sons'); await Q.mouse.click(x, y); await sleep(600);
+  [x, y] = await nav('^Notificações'); await Q.mouse.click(x, y); await sleep(500); [x, y] = await nav('^Sons'); await Q.mouse.click(x, y); await sleep(2200);
   await Q.keyboard.press('Escape'); await sleep(300);
   // erro de JavaScript e aviso de erro na tela (agrupados sem números nem nomes)
   await Q.addScriptTag({ content: `setTimeout(() => { throw new Error('Falha 123 ao abrir "fulano"'); });` }); // script da própria página (o de fora vira "Script error.")
@@ -158,7 +160,8 @@ try {
   ok(full.tempos?.channel_switch?.geral?.n >= 1 && full.tempos?.msg_send?.geral?.n >= 1, 'tempo de troca de canal e de envio medidos (mediana e 95%)', full.tempos);
   ok(n(ev, 'u_turn', 'Amigos → Conversa direta') >= 1, 'ida e volta rápida Amigos → conversa → Amigos', ev.u_turn);
   ok(ev.menu_open?.total >= 1 && ev.menu_abandoned?.total >= 1, 'menu fechado sem escolher é contado', { open: ev.menu_open, ab: ev.menu_abandoned });
-  ok(n(ev, 'quick_exit', 'configurações › Aparência') === 1, 'página das Configurações deixada em menos de 2 s', ev.quick_exit);
+  ok(n(ev, 'quick_exit', 'configurações › Notificações') === 1, 'página das Configurações deixada em menos de 2 s voltando para a anterior', ev.quick_exit);
+  ok(!n(ev, 'quick_exit', 'configurações › Aparência'), 'passar por uma página a caminho de outra não conta como "saiu logo"', ev.quick_exit);
   const P2 = full.pessoas;
   ok(P2.ativos.hoje === 3 && P2.ativos.d7 === 5, 'ativos hoje e em 7 dias (pessoas diferentes, sem repetir)', P2.ativos);
   ok(P2.retencao.d1.elegiveis === 2 && P2.retencao.d1.voltaram === 1 && P2.retencao.d1.taxa === 50, 'retenção no dia seguinte: 1 de 2 = 50%', P2.retencao);

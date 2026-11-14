@@ -2,20 +2,24 @@
 //  - quem ASSISTE pede o controle no quadro da transmissão e, aceito, controla clicando e digitando dentro dele;
 //  - quem TRANSMITE recebe o pedido, escolhe o que libera (mouse, teclado) e vê um aviso permanente enquanto durar.
 // A injeção acontece só no app desktop do dono (programa nativo); o navegador comum só pode controlar, nunca ser controlado.
-import { h, icon } from './util.js';
+import { h, icon, whenGone } from './util.js';
 import { S, toast, modal, desktop } from './state.js';
 import { playSound } from './sounds.js';
 
 let ctx = {}; // injetado por app.js: send(t, d), name(uid), rerender()
 export const initRemote = (c) => { ctx = c; };
-const REASON = { declined: 'recusou o pedido de controle', unsupported: 'não pode ser controlado (só pelo app para Windows, transmitindo a tela inteira)', stream_ended: 'parou de transmitir', left: 'saiu da sala', panic: 'parou o controle remoto', stopped: 'encerrou o controle remoto' };
+const REASON = { declined: 'recusou o pedido de controle', unsupported: 'não pode ser controlado (só pelo app para Windows, transmitindo a tela inteira)', stream_ended: 'parou de transmitir', left: 'saiu da sala', expired: 'não respondeu ao pedido de controle', panic: 'parou o controle remoto', stopped: 'encerrou o controle remoto' };
 export const session = () => S.remote || null;
 export const controlling = (uid) => { const s = S.remote; return !!s && s.state === 'active' && s.controller === S.me.id && s.owner === uid; };
 export const pendingFor = (uid) => { const s = S.remote; return !!s && s.state === 'pending' && s.controller === S.me.id && s.owner === uid; };
 
 // ---------- quem assiste ----------
 export function requestControl(uid) {
-  if (S.remote) return toast('Já existe uma sessão de controle remoto', true);
+  const cur = S.remote;
+  if (cur) {
+    if (cur.state === 'pending' && cur.controller === S.me.id) return toast(`Você já pediu o controle para ${ctx.name(cur.owner)}. Espere a resposta ou cancele o pedido no quadro da transmissão.`);
+    return toast(cur.owner === S.me.id ? 'Seu PC já está sendo controlado. Pare essa sessão antes de pedir outra.' : `Você já está controlando o PC de ${ctx.name(cur.owner)}. Pare antes de pedir outro.`, true);
+  }
   // primeira vez: explica o que é, os riscos com anti-cheat e as limitações antes de pedir
   if (S.prefs.remoteIntroSeen) return ctx.send('REMOTE_REQUEST', { to: uid });
   modal('Pedir controle remoto', null, h('div.rmask',
@@ -28,8 +32,8 @@ export function stopControl() { if (S.remote) ctx.send('REMOTE_STOP', { id: S.re
 // botão nos controles do quadro da transmissão
 export function tileButton(uid) {
   const on = controlling(uid), wait = pendingFor(uid);
-  return h('button.ibtn' + (on ? '.rec' : ''), { title: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta…' : 'Pedir controle (mouse e teclado)', disabled: wait,
-    onclick: (e) => { e.stopPropagation(); on ? stopControl() : requestControl(uid); } }, icon('pointer', 18));
+  return h('button.ibtn' + (on ? '.rec' : ''), { title: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta… (clique para cancelar o pedido)' : 'Pedir controle (mouse e teclado)',
+    onclick: (e) => { e.stopPropagation(); on || wait ? stopControl() : requestControl(uid); } }, icon('pointer', 18));
 }
 
 // eventos capturados no quadro -> fila -> servidor (movimento agrupado a cada 16 ms)
@@ -97,7 +101,8 @@ async function onRequest(s) {
   if (!cap.ok) { ctx.send('REMOTE_ANSWER', { id: s.id, accept: false, capable: false }); toast(`${who} pediu para controlar seu PC, mas não é possível: ${cap.reason}`, true); return; }
   playSound('ring');
   const mouse = h('input', { type: 'checkbox', checked: true }), kb = h('input', { type: 'checkbox', checked: true });
-  const answer = (accept) => { clearTimeout(askTimer); askDlg = null; ctx.send('REMOTE_ANSWER', { id: s.id, accept, mouse: mouse.checked, keyboard: kb.checked, capable: true }); };
+  let answered = false;
+  const answer = (accept) => { if (answered) return; answered = true; clearTimeout(askTimer); askDlg = null; ctx.send('REMOTE_ANSWER', { id: s.id, accept, mouse: mouse.checked, keyboard: kb.checked, capable: true }); };
   askDlg = modal(`${who} quer controlar seu PC`, null, h('div.rmask',
     h('p', `${who} vai poder mexer no seu computador pela transmissão, como se estivesse sentado aí. Só aceite se confiar nessa pessoa.`),
     h('label.rmopt', mouse, h('span', h('b', 'Mouse'), h('small', 'mover, clicar, arrastar e rolar'))),
@@ -108,7 +113,9 @@ async function onRequest(s) {
       h('li', 'Acaba sozinho se alguém sair da sala ou você parar de transmitir.')),
     limitations()),
     [{ label: 'Recusar', cls: 'grey', fn: () => answer(false) }, { label: 'Permitir', cls: 'red', fn: () => { if (!mouse.checked && !kb.checked) { toast('Escolha mouse e/ou teclado', true); return false; } answer(true); } }]);
-  askTimer = setTimeout(() => { askDlg?.close?.(); askDlg = null; }, 30000); // o servidor também expira o pedido
+  // fechou a janela no X, Esc ou "voltar" sem escolher: conta como recusa (antes o pedido ficava pendurado até expirar)
+  const dlg = askDlg; whenGone(dlg.el, () => { if (!dlg.quiet) answer(false); }); // quiet: fechada porque o pedido acabou
+  askTimer = setTimeout(() => { answered = true; dlg.close(); if (askDlg === dlg) askDlg = null; }, 30000); // o servidor expira o pedido e avisa
 }
 desktop?.onRemoteEvent?.((k) => {
   if (k === 'panic' && S.remote?.owner === S.me.id) ctx.send('REMOTE_STOP', { id: S.remote.id, reason: 'panic' });
@@ -137,6 +144,7 @@ export function limitations() {
 }
 
 // ---------- eventos do servidor ----------
+let pendingTimer = 0;
 export function onRemoteEvent(t, d) {
   if (t === 'REMOTE_REQUEST') return onRequest(d);
   if (t === 'REMOTE_ERROR') return toast(d.error, true);
@@ -145,14 +153,18 @@ export function onRemoteEvent(t, d) {
   const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner);
   if (d.state === 'ended') {
     const was = S.remote; S.remote = null; setKb(false); queue = []; lastMove = null;
-    if (mine) { desktop?.remoteStop?.(); askDlg?.close?.(); askDlg = null; }
+    if (mine) { desktop?.remoteStop?.(); if (askDlg) { askDlg.quiet = true; askDlg.close(); } askDlg = null; }
     if (was?.id === d.id || !was) {
       const r = d.reason || 'stopped';
       if (mine) { if (was?.state === 'active') toast('Controle remoto encerrado'); } // recusar/expirar o pedido: quem recusou não precisa de aviso
-      else toast(`${other} ${REASON[r] || 'encerrou o controle remoto'}`, r !== 'stopped' && r !== 'panic');
+      else if (r === 'cancelled') toast('Pedido de controle cancelado');
+      else toast(`${other} ${REASON[r] || 'encerrou o controle remoto'}`, r !== 'stopped' && r !== 'panic' && r !== 'expired');
     }
   } else {
     const before = S.remote; S.remote = d;
+    // rede de segurança: se o aviso de expiração do servidor se perder, o pedido pendente não trava o botão para sempre
+    clearTimeout(pendingTimer);
+    if (d.state === 'pending') pendingTimer = setTimeout(() => { if (S.remote?.id === d.id && S.remote.state === 'pending') onRemoteEvent('REMOTE_STATE', { ...d, state: 'ended', reason: 'expired' }); }, 35000);
     if (d.state === 'active' && before?.state !== 'active') {
       if (mine) {
         desktop?.remoteStart?.({ who: other, perms: d.perms }).then(r => { if (!r?.ok) { toast(r?.reason || 'Não foi possível iniciar o controle remoto', true); ctx.send('REMOTE_STOP', { id: d.id }); } });

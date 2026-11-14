@@ -67,15 +67,18 @@ function arcTo(from, to) {
   pip.style.transform = t(to);
   try { pip.animate([{ transform: t(from) }, { transform: t(mid), offset: .5 }, { transform: t(to) }], { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' }); } catch { }
 }
+let dragged = false, clickT = 0;
 function build() {
-  pip = h('div.livepip');
+  pip = h('div.livepip', { title: 'Clique para voltar para a sala · arraste para mover · dois cliques: tela cheia' });
   pip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.closest('button,.lp-resize')) return;
-    const sx = e.clientX - (pos.x ?? 0), sy = e.clientY - (pos.y ?? 0);
+    const sx = e.clientX - (pos.x ?? 0), sy = e.clientY - (pos.y ?? 0), x0 = e.clientX, y0 = e.clientY;
+    dragged = false;
     pip.classList.add('drag'); pip.setPointerCapture(e.pointerId);
     // passar da borda: a janela vai, mas cada vez mais presa (elástico); ao soltar volta para dentro em arco
     let shown = null;
     const mv = (m) => {
+      if (Math.hypot(m.clientX - x0, m.clientY - y0) > 4) dragged = true; // arrastou: o clique ao soltar não conta
       pos.x = m.clientX - sx; pos.y = m.clientY - sy; const rx = pos.x, ry = pos.y; clamp();
       if (!document.documentElement.classList.contains('anim')) return;
       const band = (d) => Math.sign(d) * 90 * (1 - 1 / (Math.abs(d) / 160 + 1)); // até ~90 px além da borda, com resistência
@@ -110,7 +113,10 @@ export function updatePip(ctx) {
   if (!outside || (!mineUp && !theirs)) return removePip();
   const key = mineUp ? 'me' : theirs, stream = mineUp ? null : ctx.streamOf(theirs);
   if (!pip) build();
-  pip.ondblclick = (e) => { if (e.target.closest('button,.lp-resize')) return; ctx.openRoom(); ctx.fullscreen?.(mineUp ? null : theirs); };
+  // um clique (sem arrastar): volta para a sala; dois: volta e abre em tela cheia. No 1º teste, cliques repetidos na janela
+  // flutuante não faziam nada (só o duplo clique e o título levavam de volta)
+  pip.onclick = (e) => { if (dragged || e.target.closest('button,.lp-resize,.lp-title')) return; clearTimeout(clickT); clickT = setTimeout(() => ctx.openRoom(), 250); };
+  pip.ondblclick = (e) => { clearTimeout(clickT); if (e.target.closest('button,.lp-resize')) return; ctx.openRoom(); ctx.fullscreen?.(mineUp ? null : theirs); };
   if (pipKey !== key + (stream?.id || '')) {
     pipKey = key + (stream?.id || '');
     let body;

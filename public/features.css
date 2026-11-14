@@ -292,6 +292,7 @@ body:has(> #lightbox) #layer { z-index: 130; } /* menus de clique direito por ci
 
 /* Amigos: texto das abas centralizado; a barra lateral acompanha a altura do topo da tela inicial */
 #home .tabs .tab { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+#home .tabs .tab.active { cursor: default; } /* a aba aberta não faz nada ao clicar: sem mãozinha (contava como clique sem efeito) */
 #app:has(> #main > #home) #side-head { height: 58px; }
 
 /* abas de canais por cima da lista lateral: a lateral desce a altura das abas e as abas se estendem para a esquerda sobre ela

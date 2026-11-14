@@ -14,7 +14,7 @@ import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
-import { Voice, SCREEN_PRESETS, VOICE_BITRATES } from './voice.js';
+import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
@@ -110,8 +110,12 @@ function openBot(anchor, uid) {
 }
 function botMenu(e, uid) {
   const v = S.voice.get(uid), here = v && voice?.channelId === v.channel_id;
+  const m = botPlaying(uid), run = (op) => musicCmd(op).catch(err => toast(err.message, true));
   menu(e, [
-    { label: 'Abrir o painel de música', fn: () => openBot(e.target, uid) },
+    // controles rápidos: no 1º teste o clique direito no bot (cartão, nome, música tocando) era aberto e fechado sem uso
+    here && m && { ux: 'pausar', icon: m.paused ? 'play' : 'pause', label: m.paused ? 'Continuar' : 'Pausar', fn: () => run(m.paused ? 'resume' : 'pause') },
+    here && m && { ux: 'pular', icon: 'skip', label: 'Pular música', fn: () => run('skip') },
+    { ux: 'painel', label: 'Abrir o painel de música', fn: () => openBot(e.target, uid) },
     here && voice.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume da música (só para você)') },
     here && '-',
     here && { label: 'Tirar o bot da sala', danger: true, fn: () => musicCmd('disconnect').catch(err => toast(err.message, true)) },
@@ -253,7 +257,7 @@ function onEvent(t, d) {
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
-      if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate });
+      if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate }); prewarmVoice(S.prefs); }
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
       // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
       voice.beforeJoin = async (cid) => {
@@ -1823,6 +1827,16 @@ async function catchUp(cid) {
   else for (const m of fresh) if (after(m.id, last)) cur.push(m);
   if (S.view.cid === cid) renderMessages(true);
 }
+// troca de canal que passou de 1 s: onde foi o tempo (servidor, montar as mensagens ou esperando outra coisa — a página
+// ocupada com outra tarefa) e o que estava acontecendo (chamada, transmitindo, assistindo, conversa protegida). Só rótulos fixos.
+function slowSwitch(ms, netMs, drawMs, cid) {
+  const where = netMs > ms / 2 ? 'rede' : drawMs > ms / 2 ? 'desenho' : 'espera', ctx = [];
+  if (voice?.channelId) ctx.push('chamada');
+  if (voice?.screen) ctx.push('transmitindo');
+  if ([...(voice?.peers?.values() || [])].some(p => p.streams?.screen)) ctx.push('assistindo');
+  if (S.messages.get(cid)?.some(m => m.e2ee === true)) ctx.push('cripto');
+  track('slow_switch', where + (ctx.length ? ':' + ctx.join('+') : ''));
+}
 async function loadChannel(cid) {
   const box = $('#msgs');
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
@@ -1830,15 +1844,16 @@ async function loadChannel(cid) {
   // do servidor ao rolar para cima (~4 ms cada página). Antes eram montadas todas (300 mensagens = quadro de ~1 s na CPU 4x)
   const cached = S.messages.get(cid);
   if (cached && cached.length > OPEN_KEEP + 30) { cached.splice(0, cached.length - OPEN_KEEP); S.loaded.set(cid, false); }
+  let netMs = 0; // telemetria: quanto da troca foi esperando o servidor
   if (!S.messages.has(cid)) {
     box.replaceChildren(skeleton('msgs', 9));
-    const list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); if (!list) return;
+    const tf = performance.now(), list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); netMs = performance.now() - tf; if (!list) return;
     list.forEach(m => mergeUser(m.author));
     S.messages.set(cid, list); S.loaded.set(cid, list.length < 50);
   }
   if (S.view.cid !== cid) return;
-  renderMessages(false); ack(cid); renderTyping();
-  requestAnimationFrame(() => stopTimer('channel_switch', cid)); // telemetria: do clique até as mensagens na tela
+  const tr = performance.now(); renderMessages(false); ack(cid); renderTyping(); const drawMs = performance.now() - tr;
+  requestAnimationFrame(() => { const ms = stopTimer('channel_switch', cid); if (ms > 1000) slowSwitch(ms, netMs, drawMs, cid); }); // telemetria: do clique até as mensagens na tela
   const msgs = $('#msgs');
   msgs.onscroll = async () => {
     if (detached.has(cid) && !msgs.dataset.loading && msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80) {
@@ -3158,7 +3173,10 @@ function renderVoiceUI(speakOnly) {
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
             const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });
-            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); }, oncontextmenu: (e) => !mine && menu(e, [{ node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); },
+              // duplo clique: tela cheia (no 1º teste, cliques repetidos no vídeo procuravam isso)
+              ondblclick: (e) => { if (S.annot === key || e.target.closest('button, input, .sctl, .annot-bar, .snote')) return; fullscreenStream(scr, inRoom ? { key, who: nm(uid) } : null); },
+              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
     }
     const ckey = 'c:' + uid;
@@ -3418,22 +3436,25 @@ function healthPill() {
   }
   return hpEl;
 }
+// opções de uma transmissão: as mesmas no botão "Mais opções" e no clique direito no vídeo (antes o clique direito só
+// tinha o volume — 47 de 48 vezes o menu foi fechado sem uso no 1º teste: as pessoas procuravam as opções ali)
+function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
+  const on = remoteControlling(uid), wait = remotePending(uid);
+  return [
+      mine && { ux: 'previa', label: S.selfPreview ? 'Pausar a prévia' : 'Ver a prévia da minha transmissão', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
+      mine && { ux: 'ajustes', label: 'Ajustes da transmissão', hint: 'Qualidade, áudio e trocar o que compartilho', fn: liveShareModal },
+      inRoom && { ux: 'clipes', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
+      { ux: 'desenhar', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão', hint: 'Todos na sala veem', fn: () => { S.annot = S.annot === key ? null : key; renderVoiceUI(); } },
+      { ux: 'destacar', label: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
+      !mine && inRoom && { ux: 'controle', label: on ? 'Parar de controlar' : wait ? 'Cancelar o pedido de controle' : 'Pedir controle (mouse e teclado)', fn: () => (on || wait ? stopControl() : requestControl(uid)) },
+      !mine && { ux: 'qualidade', label: S.qstats === key ? 'Esconder a qualidade' : 'Qualidade desta transmissão', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
+      { ux: 'flutuante', label: 'Janela flutuante sobre outros apps', fn: () => popOut(scr) },
+      { ux: 'telacheia', label: 'Tela cheia', hint: 'ou clique duas vezes no vídeo', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },
+  ].filter(Boolean);
+}
 function streamControls({ key, uid, mine, scr, inRoom, who }) {
   const stop = (e) => { e.stopPropagation(); voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); };
-  const more = (e) => {
-    e.stopPropagation();
-    const on = remoteControlling(uid), wait = remotePending(uid);
-    menu(e, [
-      mine && { label: S.selfPreview ? 'Pausar a prévia' : 'Ver a prévia da minha transmissão', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
-      mine && { label: 'Ajustes da transmissão', hint: 'Qualidade, áudio e trocar o que compartilho', fn: liveShareModal },
-      inRoom && { label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
-      { label: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão', hint: 'Todos na sala veem', fn: () => { S.annot = S.annot === key ? null : key; renderVoiceUI(); } },
-      { label: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
-      !mine && inRoom && { label: on ? 'Parar de controlar' : wait ? 'Aguardando a resposta…' : 'Pedir controle (mouse e teclado)', fn: () => (on ? stopControl() : !wait && requestControl(uid)) },
-      !mine && { label: S.qstats === key ? 'Esconder a qualidade' : 'Qualidade desta transmissão', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
-      { label: 'Janela flutuante sobre outros apps', fn: () => popOut(scr) },
-    ]);
-  };
+  const more = (e) => { e.stopPropagation(); menu(e, streamItems({ key, uid, mine, scr, inRoom, who }, e)); };
   return h('div.sctl', { onclick: (e) => e.stopPropagation() },
     mine ? h('button.sc-main.sc-stop', { title: 'Parar de compartilhar a tela', onclick: (e) => { e.stopPropagation(); stopSharing(); } }, icon('screenoff', 16), h('span', 'Parar transmissão'))
       : h('button.sc-main', { title: 'Fechar esta transmissão (você continua na chamada)', onclick: stop }, icon('x', 16), h('span', 'Parar de assistir')),

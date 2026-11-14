@@ -342,7 +342,8 @@ export function menu(e, items) {
   // item: { label, fn, danger, icon (nome do ícone, à esquerda), checked (caixa marcável), sub: [itens] (submenu ao passar o mouse) }
   const build = (list, depth) => h('div.menu', { 'data-depth': depth }, list.filter(Boolean).map(i => {
     if (i === '-') return h('div.sp');
-    if (i.node) return h('div.mnode', i.node);
+    // controle dentro do menu (ex.: volume): mexer nele conta como usar o menu, não como "fechou sem escolher"
+    if (i.node) return h('div.mnode', { oninput: () => { picked = true; }, onchange: () => { picked = true; } }, i.node);
     const cbx = i.checked !== undefined ? h('span.cbx' + (i.checked ? '.on' : ''), i.checked && icon('check', 16)) : null;
     const row = h('div.it' + (i.danger ? '.danger' : '') + (i.icon ? '.hasic' : ''), i.icon && h('span.mic', icon(i.icon, 18)), i.hint ? h('div.itl', h('span', i.label), h('small', i.hint)) : i.icon ? h('span.mlab', i.label) : i.label, cbx, i.radio !== undefined && h('span.radio' + (i.radio ? '.on' : '')), i.sub && h('span', { style: { marginLeft: 'auto', opacity: .7 } }, '›'));
     const closeDeeper = () => layer().querySelectorAll('.menu:not(.leaving)').forEach(m => { if (+m.dataset.depth > depth) leave(m, 100); });
@@ -351,6 +352,7 @@ export function menu(e, items) {
       row.onmouseenter = open; row.onclick = open;
     } else { row.onmouseenter = closeDeeper; row.onclick = () => {
         picked = true;
+        if (i.ux) menuHooks.forEach(f => { try { f('pick', e, i.ux); } catch { } }); // telemetria: qual item (rótulo fixo, ex.: 'desenhar')
         if (!cbx) { closeFloating(); i.fn?.(); return; }
         i.checked = !i.checked; i.fn?.(); cbx.classList.toggle('on', i.checked); cbx.replaceChildren(...(i.checked ? [icon('check', 16)] : [])); // caixa de seleção: o menu fica aberto
       }; }
