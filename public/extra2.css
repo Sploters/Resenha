@@ -615,3 +615,21 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .sbq-snd { width: 100%; border: 0; text-align: left; color: inherit; font: inherit; }
 .sbq-snd:hover { background: var(--bg-mod-hover, #35373c); }
 .sbq .sbnote { padding: 4px 0; }
+
+/* "Ativo agora": vários amigos no mesmo jogo / no mesmo servidor viram um cartão só */
+#active-now .an-game .an-count { margin-left: auto; flex: none; font-size: 12px; font-weight: 600; color: var(--text-muted); background: var(--bg-tert); padding: 2px 8px; border-radius: 10px; }
+#active-now .an-mems { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+#active-now .an-mem { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; min-width: 0; }
+#active-now .an-mem:hover { background: var(--bg-mod-hover); }
+#active-now .an-card:hover .an-mem:hover { background: var(--bg-tert); }
+#active-now .an-mem .an-who small { font-size: 12px; }
+#active-now .an-mem .an-dm { margin-left: auto; flex: none; width: 26px; height: 26px; border-radius: 50%; opacity: 0; }
+#active-now .an-mem:hover .an-dm, #active-now .an-mem .an-dm:focus-visible { opacity: 1; background: var(--bg-sec); }
+#active-now .an-rblock { margin-top: 8px; }
+#active-now .an-rblock .an-room { margin-top: 0; }
+#active-now .an-rwho { display: flex; align-items: center; gap: 8px; margin: 6px 2px 0; min-width: 0; }
+#active-now .an-rwho small { color: var(--text-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-faces { display: inline-flex; flex: none; }
+#active-now .an-faces > * { margin-left: -6px; box-shadow: 0 0 0 2px var(--bg-sec); border-radius: 50%; } #active-now .an-faces > :first-child { margin-left: 0; }
+#active-now .an-rwho .act-btns { margin: 0 0 0 auto; flex: none; flex-wrap: nowrap; }
+#active-now .an-gicon { width: 40px; height: 40px; flex: none; border-radius: 12px; object-fit: cover; display: grid; place-items: center; background: var(--bg-tert); color: var(--header); font-weight: 700; font-size: 14px; }

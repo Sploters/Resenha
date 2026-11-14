@@ -195,6 +195,50 @@ function voiceCard(uid, r) {
     h('div.act-btns', ...voiceActions(uid)));
 }
 
+// ---------------------------------------------------------------- grupos: vários amigos no mesmo jogo / no mesmo servidor
+// Dois ou mais amigos no mesmo jogo viram um cartão só ("Valorant · 2 amigos"), com cada um numa linha e as salas em que
+// estão (uma sala com vários deles = um "Entrar" só). Em chamada sem jogo, o mesmo por servidor: as salas do servidor com
+// quem está em cada uma. Ligação privada (DM) não agrupa: é de duas pessoas.
+const gameKey = (a) => String(a.game?.title || a.game?.id || '').trim().toLowerCase();
+const nameList = (us) => us.length <= 2 ? us.map(u => u.display_name).join(' e ') : `${us[0].display_name}, ${us[1].display_name} e mais ${us.length - 2}`;
+function memberRow(u, sub) {
+  return h('div.an-mem', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, u.id); }, oncontextmenu: (e) => { e.stopPropagation(); ctx.userMenu(e, u.id); } },
+    avatar(u, 28, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(u), sub && h('small', sub)),
+    h('button.ibtn.an-dm', { title: 'Mensagem', onclick: (e) => { e.stopPropagation(); ctx.openDM(u.id); } }, icon('dm', 16)));
+}
+// as salas em que essas pessoas estão: uma linha por sala, com os rostos de quem está nela e Entrar/Assistir
+function roomBlocks(uids, { showGuild = true } = {}) {
+  const rooms = new Map();
+  for (const id of uids) { const r = roomOf(id); if (!r) continue; let x = rooms.get(r.ch.id); if (!x) rooms.set(r.ch.id, x = { r, ids: [] }); x.ids.push(id); }
+  const voice = ctx.voice(), myCh = voice?.active ? voice.channelId : null;
+  return [...rooms.values()].map(({ r, ids }) => {
+    const live = ids.find(id => S.voice.get(id)?.screen);
+    const btns = [
+      myCh !== r.ch.id && h('button.btn.green.sm', { title: r.g ? `Entrar em ${chName(r.ch)} (${r.g.name})` : 'Entrar na chamada', onclick: (e) => { e.stopPropagation(); goRoom(r); ctx.joinVoice(r.ch.id); } }, icon('voice', 14), 'Entrar'),
+      live && (myCh !== r.ch.id || voice.closedStreams.has(live)) && h('button.btn.sm', { title: 'Entrar e assistir à transmissão', onclick: (e) => { e.stopPropagation(); ctx.watchFriend(live, r.ch); } }, icon('screen', 14), 'Assistir'),
+    ].filter(Boolean);
+    return h('div.an-rblock', { title: 'Ir para a sala', onclick: (e) => { e.stopPropagation(); goRoom(r); } },
+      h('div.an-room', icon('voice', 16), h('span', r.g ? (showGuild ? `${chName(r.ch)} · ${r.g.name}` : chName(r.ch)) : 'Ligação privada'), live && h('span.an-live', 'AO VIVO')),
+      h('div.an-rwho', h('span.an-faces', ...ids.slice(0, 5).map(id => avatar(uOf(id), 20, { status: false }))), h('small', nameList(ids.map(uOf))),
+        btns.length ? h('div.act-btns', ...btns) : null));
+  });
+}
+function playGroupCard(list) {
+  const a = list[0].a, uids = list.map(x => x.u.id);
+  return h('div.an-card.an-play.an-group', { 'data-game': gameKey(a), onclick: openGame(a) },
+    h('div.an-gamelink', { title: `Sobre ${a.game.title}` }, gameBanner(a)),
+    h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}` }, gameIcon(a, 22), h('span', a.game.title), h('small.an-count', `${list.length} amigos`)),
+    h('div.an-mems', ...list.map(({ u, a: x }) => memberRow(u, since(x.since)))),
+    ...roomBlocks(uids));
+}
+function voiceGroupCard(g, list) {
+  const first = list[0].r;
+  return h('div.an-card.an-group.an-vgroup', { 'data-guild': g.id, title: 'Ir para o servidor', onclick: () => goRoom(first) },
+    h('div.an-top', g.icon ? h('img.an-gicon', { src: g.icon, alt: '' }) : h('div.an-gicon', (g.name || '?').slice(0, 2).toUpperCase()),
+      h('div.an-who', h('b', g.name), h('small', `${list.length} amigos em chamada`))),
+    ...roomBlocks(list.map(x => x.u.id), { showGuild: false }));
+}
+
 // ---------------------------------------------------------------- destaques da semana
 const durShort = (s) => { const m = Math.round(s / 60), hh = Math.floor(m / 60), mm = m % 60; return hh ? `${hh}h${mm ? ' ' + String(mm).padStart(2, '0') + 'min' : ''}` : `${m} min`; };
 const dayHead = (t) => {
@@ -297,11 +341,13 @@ export function activityPanel(box) {
       if (a) playing.push({ u, a }); else if (r) inVoice.push({ u, r }); else if (u.status && u.status !== 'offline') online.push({ u });
     }
     playing.sort((x, y) => x.a.since - y.a.since);
+    // junta pela chave mantendo a ordem de quem apareceu primeiro (grupo no lugar do primeiro dele)
+    const bunch = (arr, key) => { const m = new Map(); for (const x of arr) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return [...m.values()]; };
     const mine = activityOf(S.me.id);
     const forMe = requestCards();
     const now = [
-      ...(playing.length ? [h('div.an-cap', `Jogando — ${playing.length}`), ...playing.map(({ u, a }) => playCard(u.id, a))] : []),
-      ...(inVoice.length ? [h('div.an-cap', `Em chamada — ${inVoice.length}`), ...inVoice.sort(byName).map(({ u, r }) => voiceCard(u.id, r))] : []),
+      ...(playing.length ? [h('div.an-cap', `Jogando — ${playing.length}`), ...bunch(playing, x => gameKey(x.a)).map(l => (l.length > 1 ? playGroupCard(l) : playCard(l[0].u.id, l[0].a)))] : []),
+      ...(inVoice.length ? [h('div.an-cap', `Em chamada — ${inVoice.length}`), ...bunch(inVoice.sort(byName), x => x.r.g?.id || 'dm:' + x.u.id).map(l => (l.length > 1 ? voiceGroupCard(l[0].r.g, l) : voiceCard(l[0].u.id, l[0].r)))] : []),
       ...(online.length ? [h('div.an-cap', `Online — ${online.length}`), ...online.sort(byName).map(({ u }) => h('div.an-row', { onclick: () => ctx.openDM(u.id), oncontextmenu: (e) => ctx.userMenu(e, u.id) }, avatar(u, 32, { ring: 'var(--bg-sec)' }),
         h('div.an-who', nameEl(u), h('small', u.custom_status || STATUS[u.status] || 'Online')), ...voiceActions(u.id).slice(0, 1)))] : []),
     ];
