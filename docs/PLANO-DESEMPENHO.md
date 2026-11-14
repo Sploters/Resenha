@@ -148,6 +148,38 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       vídeo está abaixo do real), todos na mesma máquina (sem rede de verdade), fonte de áudio é um tom, não voz. Entrar
       numa sala de 60 levou 47 s no simulador porque uma aba só renegocia os 3.540 consumers; no app cada pessoa negocia
       só os dela.
+- [x] ★ **Vídeo pesado no SFU: 120 FPS em 1080p, 1440p e 4K, em várias salas** (2026-11-14,
+      `scripts/load/sfu-video-load.mjs`). Sem navegador (o simulador do `sfu-load` não decodificava tanto vídeo): RTP H.264
+      sintético no formato da transmissão nativa (quadro-chave com SPS/PPS a cada 2 s, quadros em rajada a cada 1/fps),
+      entrando por SRTP num worker fonte separado (`pipeToRouter` com SRTP) e saindo cifrado para espectadores em sockets
+      UDP que contam pacotes e perda. Taxas padrão do app (`bitrateFor`). 4 núcleos, tudo na mesma máquina, 20 s por cenário:
+
+      | cenário | worker(s) | CPU do(s) worker(s) | sai do SFU | por espectador | perda |
+      |---|---|---|---|---|---|
+      | 1 sala: 1080p120 (10,8 Mb/s) + 5 | 1 | 8% | 60 Mb/s (6,1 mil p/s) | 11,9 Mb/s | 0% |
+      | 1 sala: 1440p120 (19,2 Mb/s) + 5 | 1 | 12,8% | 102 Mb/s (10,3 mil p/s) | 20,3 Mb/s | 0% |
+      | 1 sala: 4K120 (21,6 Mb/s) + 5 | 1 | 14% | 114 Mb/s | 22,7 Mb/s | 0% |
+      | 1 sala: 4K120 no máximo (64 Mb/s) + 5 | 1 | 36% | 332 Mb/s (33,7 mil p/s) | 66,3 Mb/s | 0,9% |
+      | 4 salas: 1440p120 + 5 | 1 | 37,1% | 401 Mb/s (40,8 mil p/s) | 19,9–20,3 Mb/s | 1,3% |
+      | 4 salas: 1440p120 + 5 | 2 | 15,8% + 14,7% | 405 Mb/s | 20,2–20,3 Mb/s | 0,4% |
+      | 4 salas: 1080p120 + 10 | 1 | 36,6% | 475 Mb/s (48,3 mil p/s) | 11,8–11,9 Mb/s | 0,6% |
+      | 8 salas: 1440p120 + 5 | 1 | 58,4% | 569 de 810 Mb/s | **0,9**–20,3 Mb/s | **29,6%** |
+      | 8 salas: 1440p120 + 5 | 2 | 27,2% + 25,9% | 807 Mb/s (82 mil p/s) | 20,1–20,3 Mb/s | 0,8% |
+      | 8 salas: 1440p120 + 10 | 1 | 84,9% | 1.042 de 1.620 Mb/s | **0,7**–20,3 Mb/s | **35,9%** |
+      | 8 salas: 1440p120 + 10 | 4 | ~23% cada | 1.619 Mb/s (165 mil p/s) | 20,1–20,3 Mb/s | 0,4% |
+      | 4 salas: 4K120 a 64 Mb/s + 5 | 2 | 40% + 36,1% | 1.179 de 1.330 Mb/s | 49,8–66,3 Mb/s | 11,9% |
+
+      **Um worker aguenta ~45–50 mil pacotes/s de vídeo (~450–500 Mb/s saindo)** sem perda relevante: 4 salas com uma
+      transmissão 1440p120 e 5 espectadores cada, ou 4 salas de 1080p120 com 10. Passando disso ele não chega a 100% de
+      CPU, mas começa a descartar pacotes (8 salas num worker: 30–36% de perda, alguns espectadores quase sem vídeo).
+      Com 2 ou 4 workers a mesma carga passa limpa. Custo: ~1% de um núcleo a cada mil pacotes/s, como na voz.
+      **Na prática o limite vem antes, no upload da VPS/casa:** uma transmissão 1440p120 para 5 pessoas já são ~100 Mb/s
+      saindo, e 4K120 a 64 Mb/s para 5 são ~330 Mb/s. Conclusão: com o grupo de hoje (uma ou duas salas), um worker basta
+      com folga. Se um dia houver mais de ~4 salas com transmissão de 120 FPS ao mesmo tempo (e upload para isso),
+      `SFU_WORKERS=auto` resolve, abrindo também as portas extras (`RTC_EXTRA_PORT`, 40011…, que o `deploy/umbrel.sh`
+      ainda não publica). Limites do teste: loopback (sem rede de verdade), espectadores sem estimativa de banda
+      (PlainTransport: sem a troca de camada do simulcast) e a máquina de teste também rodava a fonte e os espectadores
+      (o processo de teste chegou a 82% de um núcleo nos cenários grandes).
 - [x] ★ **SQLite** (2026-11-11). WAL e `synchronous=NORMAL` já estavam. Novo: consulta preparada guardada pelo texto
       (`server/db.js`; preparar a cada chamada era ~4/5 do custo de uma consulta pequena: 6,8 → 1,6 µs), `busy_timeout`,
       `temp_store=MEMORY`, cache de 32 MB. Plano (`EXPLAIN QUERY PLAN`) das 268 consultas do servidor: sobraram 3
