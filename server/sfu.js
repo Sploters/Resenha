@@ -30,6 +30,22 @@ const note = (kind, text) => { events.push({ at: Date.now(), kind, text }); if (
 // porque a estimativa de banda no servidor fica em ~0,3-0,5 Mbps enquanto só a camada pequena é enviada. 0 desliga (internet muito lenta).
 const MIN_OUT_KBPS = process.env.SFU_MIN_OUT_KBPS != null ? Math.max(0, +process.env.SFU_MIN_OUT_KBPS || 0) : 6000;
 const WEAK_KBPS = 800; // piso para quem mostrou perda (a camada leve da transmissão + voz cabem)
+// O piso vale só na SUBIDA (vídeo novo ou retomado): passado FLOOR_MS, a estimativa de banda do servidor (atraso e perda,
+// pelo transport-cc) volta a mandar. Antes ele valia para sempre: quem tinha menos de 6 Mbps livres (ou o upload do
+// servidor dividido entre vários espectadores) recebia acima do que o caminho aguentava; sem perda logo de cara (a fila
+// do roteador/VPN segura), a nota não caía, a fila crescia e a transmissão chegava com oscilação de 20 ms ou mais e
+// quadros atrasados/descartados (10-30 fps). SFU_FLOOR_MS=0 mantém o piso sempre (comportamento antigo).
+const FLOOR_MS = process.env.SFU_FLOOR_MS != null ? Math.max(0, +process.env.SFU_FLOOR_MS || 0) : 15000;
+function rampFloor(t) {
+  if (!(MIN_OUT_KBPS > 0) || t.closed || t.appData.weak) return;
+  clearTimeout(t.appData.floorTimer);
+  if (!t.appData.floorOn) { t.appData.floorOn = true; t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { }); }
+  if (FLOOR_MS > 0) t.appData.floorTimer = setTimeout(() => {
+    if (t.closed || t.appData.weak) return;
+    t.appData.floorOn = false; t.setMinOutgoingBitrate(0).catch(() => { }); // 0 tira o piso
+  }, FLOOR_MS);
+  t.appData.floorTimer?.unref?.();
+}
 const rooms = new Map(); // channelId -> { router, peers: Map<userId, Peer> }
 
 // IPs anunciados: RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN)
@@ -236,7 +252,8 @@ export async function sfuRequest(cid, uid, op, d) {
     case 'transport': {
       if ([...peer.transports.values()].filter(t => t.appData?.dir).length >= 2) throw new Error('transportes demais');
       const t = await r.router.createWebRtcTransport({ webRtcServer: r.w.webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, initialAvailableOutgoingBitrate: 8_000_000, appData: { dir: d.dir === 'send' ? 'send' : 'recv' } });
-      if (t.appData.dir === 'recv' && MIN_OUT_KBPS > 0) await t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { });
+      if (t.appData.dir === 'recv' && MIN_OUT_KBPS > 0) { await t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { }); t.appData.floorOn = true; }
+      t.observer.on('close', () => clearTimeout(t.appData.floorTimer));
       peer.transports.set(t.id, t);
       return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters };
     }
@@ -272,7 +289,8 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.consumers.set(c.id, c);
       // conexão fraca de quem recebe: a nota (0-10) do que chega até ela cai com perda. Aí o piso de banda deixa de valer
       // para essa pessoa (senão o servidor seguia mandando vídeo acima do que a internet dela aguenta e a voz picotava)
-      c.on('score', (sc) => { if (sc.score < 7 && !t.appData.weak && MIN_OUT_KBPS > WEAK_KBPS) { t.appData.weak = true; t.setMinOutgoingBitrate(WEAK_KBPS * 1000).catch(() => { }); } });
+      c.on('score', (sc) => { if (sc.score < 7 && !t.appData.weak && MIN_OUT_KBPS > WEAK_KBPS) { t.appData.weak = true; clearTimeout(t.appData.floorTimer); t.setMinOutgoingBitrate(t.appData.floorOn ? WEAK_KBPS * 1000 : 0).catch(() => { }); } });
+      c.appData.recvT = t;
       const drop = () => { if (peer.consumers.delete(c.id)) peer.notify('SFU_CONSUMER_CLOSED', { consumer_id: c.id }); };
       c.on('producerclose', drop); c.on('transportclose', () => peer.consumers.delete(c.id));
       return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters };
@@ -281,8 +299,8 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.wantLevels = !!d.on; if (peer.wantLevels) await levelsFor(r);
       return { ids: peer.wantLevels ? r.levelsNow?.() || [] : [] };
     }
-    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) d.paused ? await c.pause() : await c.resume(); return {}; }
-    case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') await c.setPreferredLayers({ spatialLayer: Math.max(0, Math.min(2, d.spatial | 0)), temporalLayer: 2 }).catch(() => { }); return {}; }
+    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) { if (d.paused) await c.pause(); else { await c.resume(); if (c.kind === 'video') rampFloor(c.appData.recvT); } } return {}; }
+    case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') { const sp = Math.max(0, Math.min(2, d.spatial | 0)); const up = sp > (c.preferredLayers?.spatialLayer ?? 2); await c.setPreferredLayers({ spatialLayer: sp, temporalLayer: 2 }).catch(() => { }); if (up) rampFloor(c.appData.recvT); } return {}; }
     // perda de verdade da voz que esta pessoa envia, vista pelo servidor. O relatório RTCP que o navegador recebe não serve:
     // com a correção de erros do Opus ligada, o mediasoup põe nele a PIOR perda entre quem ouve (para o Opus mandar mais
     // correção), então a internet ruim de um ouvinte aparecia como "perda saindo" de quem fala (public/callqual.js)
@@ -294,7 +312,7 @@ export async function sfuRequest(cid, uid, op, d) {
       }
       return seen ? { count, lost } : {};
     }
-    case 'resume': { await peer.consumers.get(String(d.consumer_id))?.resume(); return {}; }
+    case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
     default: throw new Error('operação desconhecida');
   }
 }

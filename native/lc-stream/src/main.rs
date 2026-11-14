@@ -121,6 +121,7 @@ fn main() {
 pub fn sender(o: &Opts) -> Result<rtp::Session, String> {
     let mut tx = rtp::Session::new(&o.host, o.port).map_err(|e| format!("UDP: {e}"))?;
     for l in &o.layers { tx.add_stream(l.ssrc, o.pt); }
+    tx.set_pace_kbps(o.layers.iter().map(|l| l.kbps as u64).sum());
     if let Some((a, b)) = &o.key { tx.set_srtp(a, b)?; }
     Ok(tx)
 }

@@ -49,6 +49,11 @@ const opusHi = (sdp) => {
   const pt = sdp.match(/a=rtpmap:(\d+) opus\/48000/i)?.[1]; if (!pt) return sdp;
   return sdp.replace(new RegExp(`a=fmtp:${pt} (.*)`), (_, f) => `a=fmtp:${pt} ${f.replace(/;?(maxaveragebitrate|stereo|sprop-stereo)=\d+/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=${OPUS_MAX * 1000}`);
 };
+// fps pedido à captura de tela do Chromium. O capturador do Windows entrega quadros numa grade irregular de ~16 ms (até
+// ~48 fps, docs/PASSO0-DIAGNOSTICO-FPS.md). Com "max" igual ao pedido, o Chromium descartava todo quadro que chegava um
+// nada antes do intervalo (16,1 ms < 16,7 ms; 32,2 ms < 33,3 ms): pedindo 60 saíam ~32 fps e pedindo 30, ~21 (medido).
+// Com 25% de folga no teto passam os quadros da grade, e o limite exato fica com o codificador (maxFramerate, sfuTuneScreen).
+export const capFps = (fps) => ({ ideal: +fps, max: Math.ceil(+fps * 1.25) });
 const bitrateFor = (res, fps, mbps) => {
   if (+mbps > 0) return Math.round(Math.min(+mbps, 64) * 1e6); // taxa escolhida (até 64 Mbps)
   const base = { 720: 2.2, 1080: 4.5, 1440: 8, source: 9 }[res] || 4.5;
@@ -587,6 +592,12 @@ export class Voice {
       prm.degradationPreference = this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
       await p.rtpSender.setParameters(prm);
     } catch (e) { console.warn('screen params', e); }
+    // teto de fps no codificador (a captura tem 25% de folga, capFps). À parte: se esta versão do Chromium recusar
+    // maxFramerate no simulcast, o resto (taxa e preferência) já ficou aplicado acima
+    try {
+      const fps = +this.screenOpts?.fps || 30, prm = p.rtpSender.getParameters();
+      if (prm.encodings?.length && prm.encodings.some(e => e.maxFramerate !== fps)) { prm.encodings.forEach(e => { e.maxFramerate = fps; }); await p.rtpSender.setParameters(prm); }
+    } catch { }
   }
   // ---- chamada protegida: cada envio/recebimento passa pelo worker que cifra/decifra os quadros (e2ee-worker.js) ----
   e2eeLegacy() { return !!this.e2ee && !window.RTCRtpScriptTransform; } // Chromium sem RTCRtpScriptTransform: createEncodedStreams
@@ -1055,7 +1066,7 @@ export class Voice {
   async toggleScreenNow(opts) {
     if (this.screen) return this.stopLocal('screen');
     opts = { res: 1080, fps: 30, audio: true, hint: 'motion', ...opts };
-    const video = { frameRate: { ideal: +opts.fps, max: +opts.fps }, cursor: opts.cursor === false ? 'never' : 'always' };
+    const video = { frameRate: capFps(opts.fps), cursor: opts.cursor === false ? 'never' : 'always' };
     if (opts.res !== 'source') { video.height = { ideal: +opts.res, max: +opts.res }; video.width = { ideal: Math.round(+opts.res * 16 / 9) }; }
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
@@ -1133,8 +1144,8 @@ export class Voice {
     if (!vt) return;
     const o = this.screenOpts || {}, p = this.previewSpec();
     this._prevSpec = on ? p.fps + 'x' + p.h : null;
-    const c = on ? { frameRate: { ideal: p.fps, max: p.fps }, height: { ideal: p.h, max: p.h }, width: { ideal: Math.round(p.h * 16 / 9) } }
-      : { frameRate: { ideal: +o.fps, max: +o.fps }, ...(o.res !== 'source' ? { height: { ideal: +o.res, max: +o.res }, width: { ideal: Math.round(+o.res * 16 / 9) } } : {}) };
+    const c = on ? { frameRate: capFps(p.fps), height: { ideal: p.h, max: p.h }, width: { ideal: Math.round(p.h * 16 / 9) } }
+      : { frameRate: capFps(o.fps), ...(o.res !== 'source' ? { height: { ideal: +o.res, max: +o.res }, width: { ideal: Math.round(+o.res * 16 / 9) } } : {}) };
     vt.applyConstraints(c).catch(() => { });
   }
   // clipes ligados/desligados durante a transmissão nativa: ajusta a prévia (chamado a cada redesenho; só mexe se mudou)
@@ -1219,7 +1230,7 @@ export class Voice {
       this.startNative().catch(() => { }); this.onUpdate(); return;
     }
     if (this.native) { this.stopNative(); this.previewOnly(vt, false); if (this.sfu) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e)); }
-    const c = { frameRate: { ideal: +o.fps, max: +o.fps } };
+    const c = { frameRate: capFps(o.fps) };
     if (o.res !== 'source') { c.height = { ideal: +o.res, max: +o.res }; c.width = { ideal: Math.round(+o.res * 16 / 9) }; }
     try { await vt.applyConstraints(c); } catch (e) { console.warn('applyConstraints', e); }
     vt.contentHint = o.hint;

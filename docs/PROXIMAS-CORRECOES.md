@@ -34,6 +34,24 @@ próxima jogatina, leia o painel (Configurações → Administração → Estat�
   de quem transmitiu"** (CPU ou banda). Se as travadas coincidirem com limite por CPU ou banda, a causa está em quem
   transmite. Se não houver limite e mesmo assim travar, olhar quem assiste.
 
+## FPS baixo (10-30) e oscilação acima de 20 ms em quem assiste (2026-11-14)
+
+Relato: mesmo trocando a qualidade, com o modo leve desligado em quem transmite e 60 FPS forçado. Três causas no código,
+corrigidas sem medição no Windows (falta conferir na próxima jogatina):
+1. **Caminho do Chromium** (Windows 10, sem codificador na placa, conversa protegida ou volta do nativo): o teto `max` do
+   fps igual ao pedido descartava os quadros da grade irregular do capturador. Pedindo 60 saíam ~32 fps; pedindo 30,
+   ~21 (bate com `PASSO0-DIAGNOSTICO-FPS.md`). Agora o teto tem 25% de folga (`capFps`) e o limite exato fica no
+   codificador (`maxFramerate`).
+2. **Servidor** (`server/sfu.js`): o piso de 6 Mbps por espectador valia para sempre e impedia a estimativa de banda de
+   baixar quando a fila crescia sem perda (oscilação alta, quadros atrasados). Agora vale só nos 15 s de subida do vídeo
+   (novo, retomado ou trocado para uma camada maior); `SFU_FLOOR_MS=0` volta ao antigo.
+3. **Programa nativo** (60/120 FPS): mandava cada quadro de uma vez (quadro-chave de 1080p = centenas de pacotes em
+   rajada). Agora há um pacer: 2,5x a taxa pedida, acelerando se a fila passar de ~30 ms; envio recusado pelo sistema
+   espera e tenta de novo em vez de perder o pacote. Precisa de um app desktop novo (o `lc-stream.exe` vai no instalador).
+
+Para conferir: painel "Transmissão ao vivo" de quem assiste (fps, oscilação, perda) antes e depois. Se seguir baixo
+com o nativo e sem perda, olhar os fps enviados pelo programa no painel de quem transmite.
+
 ## O que olhar no painel depois da próxima jogatina
 
 1. **"Entrar na voz" por etapa:** preparar o microfone, resposta do servidor e conectar o áudio.

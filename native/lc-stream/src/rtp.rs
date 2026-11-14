@@ -2,7 +2,10 @@
 //! - NAL que cabe no MTU vai inteira; maior vai em fragmentos FU-A; marcador no último pacote do quadro.
 //! - Guarda os últimos pacotes e reenvia os pedidos por NACK; PLI/FIR pedem um quadro-chave.
 //! - SPS/PPS: guardados e reenviados antes de todo IDR que vier sem eles.
+//! - Ritmo (pacer): os pacotes saem por uma thread própria, espalhados no tempo, e não em rajada a cada quadro.
+use std::collections::VecDeque;
 use std::net::UdpSocket;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 pub const MTU_PAYLOAD: usize = 1180;
@@ -23,7 +26,61 @@ pub struct Stream {
 }
 
 /// Um socket UDP (o PlainTransport aprende o endereço do primeiro pacote: todas as camadas saem dele) e N fluxos.
-pub struct Session { sock: UdpSocket, rx: Option<crate::srtp::Rx>, key: Option<String>, pub streams: Vec<Stream>, pub rtcp_bad: u64 }
+pub struct Session { sock: UdpSocket, out: Pacer, rx: Option<crate::srtp::Rx>, key: Option<String>, pub streams: Vec<Stream>, pub rtcp_bad: u64 }
+
+/// Envio no ritmo (como o "pacer" do WebRTC). Antes cada quadro saía de uma vez: um quadro-chave de 1080p (100-300 KB,
+/// centenas de pacotes) em rajada enchia a fila do roteador/VPN de quem transmite e do servidor, e quem assistia via
+/// oscilação (jitter) de 20 ms ou mais, perdas e quadros atrasados. Agora uma thread manda os pacotes a 2,5x a taxa
+/// pedida (folga para os quadros maiores), e acelera quando a fila passa de ~30 ms, para nunca segurar o vídeo.
+/// Envio recusado pelo sistema (buffer cheio, WouldBlock) espera um pouco e tenta de novo, em vez de perder o pacote.
+pub struct Pacer { tx: Option<mpsc::Sender<Msg>> }
+enum Msg { Packet(Vec<u8>), Rate(u64) }
+/// fila máxima antes de acelerar (segundos de envio na taxa base)
+const PACE_MAX_QUEUE_S: f64 = 0.03;
+/// piso do ritmo, em bits/s (taxas muito baixas não precisam espaçar tanto)
+const PACE_MIN_BPS: u64 = 4_000_000;
+impl Pacer {
+    fn new(sock: UdpSocket) -> Self {
+        let (tx, rx) = mpsc::channel::<Msg>();
+        std::thread::Builder::new().name("lc-pacer".into()).spawn(move || pace_loop(sock, rx)).ok();
+        Self { tx: Some(tx) }
+    }
+    fn send(&self, p: Vec<u8>) { if let Some(t) = &self.tx { let _ = t.send(Msg::Packet(p)); } }
+    fn rate(&self, bps: u64) { if let Some(t) = &self.tx { let _ = t.send(Msg::Rate(bps)); } }
+}
+fn pace_loop(sock: UdpSocket, rx: mpsc::Receiver<Msg>) {
+    let mut q: VecDeque<Vec<u8>> = VecDeque::new();
+    let mut queued: usize = 0;
+    let mut bps: u64 = PACE_MIN_BPS * 4;
+    let mut budget: f64 = 0.0; // bytes que podem sair agora
+    let mut last = Instant::now();
+    loop {
+        // fila vazia: espera o próximo pacote (sem gastar processador)
+        if q.is_empty() {
+            match rx.recv() { Ok(m) => { take(m, &mut q, &mut queued, &mut bps); } Err(_) => return }
+            budget = budget.min(1500.0); last = Instant::now();
+        }
+        loop { match rx.try_recv() { Ok(m) => take(m, &mut q, &mut queued, &mut bps), Err(mpsc::TryRecvError::Empty) => break, Err(mpsc::TryRecvError::Disconnected) => { flush(&sock, &mut q); return; } } }
+        let now = Instant::now(); let dt = now.duration_since(last).as_secs_f64(); last = now;
+        // ritmo: a base ou o necessário para esvaziar a fila em ~30 ms, o que for maior
+        let base = bps as f64 / 8.0; let rate = base.max(queued as f64 / PACE_MAX_QUEUE_S);
+        budget = (budget + dt * rate).min(rate * 0.005 + 3000.0); // no máximo ~5 ms de rajada
+        while budget > 0.0 {
+            let Some(p) = q.front() else { break };
+            match sock.send(p) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => { std::thread::sleep(Duration::from_micros(300)); break; }
+                Err(_) => {} // rede fora (UDP): descarta, como antes
+            }
+            let p = q.pop_front().unwrap(); queued -= p.len(); budget -= p.len() as f64;
+        }
+        if !q.is_empty() { std::thread::sleep(Duration::from_micros(500)); }
+    }
+}
+fn take(m: Msg, q: &mut VecDeque<Vec<u8>>, queued: &mut usize, bps: &mut u64) {
+    match m { Msg::Packet(p) => { *queued += p.len(); q.push_back(p); } Msg::Rate(r) => *bps = r.max(PACE_MIN_BPS) }
+}
+fn flush(sock: &UdpSocket, q: &mut VecDeque<Vec<u8>>) { for p in q.drain(..) { let _ = sock.send(&p); } }
 
 pub fn split_annexb(buf: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
@@ -46,8 +103,11 @@ impl Session {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
         sock.connect((host, port))?;
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0 })
+        let out = Pacer::new(sock.try_clone()?);
+        Ok(Self { sock, out, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0 })
     }
+    /// ritmo do envio: 2,5x a soma das taxas das camadas (kbps), como o WebRTC
+    pub fn set_pace_kbps(&mut self, kbps: u64) { self.out.rate(kbps * 1000 * 5 / 2); }
     /// Liga o SRTP: nossa chave (para o que enviamos) e a do servidor (para abrir o RTCP que ele manda).
     pub fn set_srtp(&mut self, ours: &str, server: &str) -> Result<(), String> {
         crate::srtp::parse_key(ours).ok_or("chave SRTP invalida")?;
@@ -82,7 +142,7 @@ impl Session {
         for x in payload { p.extend_from_slice(x); }
         let seq = st.seq; st.seq = st.seq.wrapping_add(1);
         let p = match &mut st.tx { Some(tx) => tx.protect_rtp(&p), None => p };
-        let _ = self.sock.send(&p);
+        self.out.send(p.clone());
         st.stats.packets += 1; st.stats.bytes += p.len() as u64;
         st.hist[seq as usize % HISTORY] = Some((seq, p));
     }
@@ -131,7 +191,7 @@ impl Session {
         p.extend_from_slice(&ts.to_be_bytes());
         p.extend_from_slice(&(st.stats.packets as u32).to_be_bytes()); p.extend_from_slice(&(st.stats.bytes as u32).to_be_bytes());
         let p = match &mut st.tx { Some(tx) => tx.protect_rtcp(&p), None => p };
-        let _ = self.sock.send(&p);
+        self.out.send(p);
     }
 
     /// Lê o RTCP que o servidor manda de volta: NACK (reenvia), PLI/FIR (pede quadro-chave) — para o fluxo do ssrc indicado.
@@ -165,7 +225,7 @@ impl Session {
     }
     fn resend(&mut self, i: usize, seq: u16) {
         let st = &mut self.streams[i];
-        if let Some(Some((s, p))) = st.hist.get(seq as usize % HISTORY) { if *s == seq { let _ = self.sock.send(p); st.stats.resent += 1; } }
+        if let Some(Some((s, p))) = st.hist.get(seq as usize % HISTORY) { if *s == seq { self.out.send(p.clone()); st.stats.resent += 1; } }
     }
 }
 
@@ -193,5 +253,23 @@ mod tests {
         assert_eq!(got[2][1] & 0x80, 0x80); assert_eq!(got[0][1] & 0x80, 0);
         let body: Vec<u8> = got.iter().flat_map(|p| p[14..].to_vec()).collect();
         assert_eq!(body, nal[1..].to_vec());
+    }
+    /// um quadro grande (~300 pacotes) sai espalhado no tempo, sem perder nem trocar a ordem de nenhum pacote
+    #[test]
+    fn paced() {
+        let rx = UdpSocket::bind("127.0.0.1:0").unwrap(); let port = rx.local_addr().unwrap().port();
+        let mut s = Session::new("127.0.0.1", port).unwrap(); s.add_stream(1234, 102); s.set_pace_kbps(8000); // 20 Mbit/s de ritmo
+        let mut f = vec![0, 0, 0, 1, 0x65]; f.extend(std::iter::repeat(7u8).take(350_000));
+        let t0 = Instant::now(); s.send_frame(0, &f, 9000);
+        assert!(t0.elapsed() < Duration::from_millis(20), "enviar não pode segurar a captura");
+        rx.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+        let mut buf = [0u8; 2000]; let mut seqs = Vec::new(); let mut first = None; let mut lastt = t0;
+        while let Ok(n) = rx.recv(&mut buf) { first.get_or_insert(Instant::now()); lastt = Instant::now(); seqs.push(u16::from_be_bytes([buf[2], buf[3]])); let _ = n; }
+        let want = 350_000usize.div_ceil(MTU_PAYLOAD - 2);
+        assert_eq!(seqs.len(), want);
+        assert!(seqs.windows(2).all(|w| w[1] == w[0].wrapping_add(1)));
+        let spread = lastt.duration_since(first.unwrap());
+        // 350 KB: a 20 Mbit/s seriam 140 ms; a fila acelera para esvaziar em ~30 ms. Nem rajada (<5 ms) nem preso
+        assert!(spread >= Duration::from_millis(15) && spread <= Duration::from_millis(120), "espalhado em {spread:?}");
     }
 }
