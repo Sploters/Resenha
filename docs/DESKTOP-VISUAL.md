@@ -92,5 +92,7 @@ piscar. O que aparece com o mouse em cima são os botões do quadro (`.sctl`) e 
 o caminho de desenho dele quando o botão aparece/some. Tirado de tudo que fica sobre vídeo (`.sctl button`,
 `.fsbox .fs-btn`, `.hpill`, `.snote`, `.fsvid .vc-big`), com fundo mais escuro no lugar.
 
-Próximo passo se continuar: impedir de vez que o vídeo vá para a sobreposição da placa no app
-(`html.lc-desk .tile video { opacity: .999 }`), para ele nunca trocar de caminho.
+Junto: no app, todo `<video>` ganha `filter: opacity(.999)` (`html.lc-desk`, classe posta por `public/vrrfix.js`). O
+filtro põe o vídeo numa camada desenhada pela página, que nunca é candidata à sobreposição da placa: o Chromium deixa
+de alternar entre os dois caminhos quando algo aparece ou some por cima. Sem mudança visível; custo de uma camada a
+mais por vídeo. No navegador nada muda.

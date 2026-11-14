@@ -32,6 +32,7 @@ const soon = () => { if (!timer) timer = setTimeout(check, 50); };
 export function initVrrFix() {
   if (!desktop || inited) return;
   inited = true;
+  document.documentElement.classList.add('lc-desk'); // ux.css: vídeo sempre desenhado junto com a página
   for (const ev of ['playing', 'play', 'pause', 'ended', 'emptied', 'loadeddata']) document.addEventListener(ev, soon, true);
   document.addEventListener('fullscreenchange', soon);
   // vídeo tirado da tela nem sempre avisa (transmissão que acabou, sala redesenhada): confere de vez em quando

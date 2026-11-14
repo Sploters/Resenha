@@ -517,6 +517,11 @@ h3.sec.snd-sec .icon { fill: currentColor; }
 .sctl .sc-clip.off { opacity: .7; }
 /* tela cheia: clipe e sair no canto, somem com o mouse parado */
 .fsbox .fs-ctl { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; transition: opacity .15s; }
+/* app desktop: o vídeo nunca vai para a sobreposição da placa (DirectComposition). Sem isso o Chromium alterna entre
+   entregar o vídeo direto à placa e desenhá-lo junto com a página toda vez que algo aparece/some por cima (botões ao
+   passar o mouse, avisos), e cada troca piscava. Um filtro que não muda nada visível põe o vídeo numa camada própria
+   desenhada pela página, sempre pelo mesmo caminho. Classe lc-desk: public/vrrfix.js. */
+html.lc-desk video { filter: opacity(.999); }
 /* nada de backdrop-filter (vidro fosco) por cima de vídeo: obriga o Chromium a reler o vídeo a cada quadro e a trocar o
    caminho de desenho dele quando o botão aparece/some (no app, com o mouse em cima, a transmissão piscava). Fundo mais
    escuro no lugar do desfoque. */
