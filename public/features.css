@@ -940,7 +940,7 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .fsvid .vc-vfill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: #fff; }
 .fsvid .vc-vknob { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; left: var(--v, 0); pointer-events: none; display: none; }
 /* botão grande no meio quando pausado; pulso ao tocar/pausar */
-.fsvid .vc-big { position: absolute; left: 50%; top: 50%; z-index: 2; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: opacity .2s, transform .2s; backdrop-filter: blur(2px); }
+.fsvid .vc-big { position: absolute; left: 50%; top: 50%; z-index: 2; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; background: rgba(0,0,0,.78); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: opacity .2s, transform .2s; }
 .fsvid .vc-big svg { fill: currentColor; margin-left: 3px; }
 .fsvid .vc-big:hover { transform: scale(1.06); background: rgba(0,0,0,.7); }
 .fsvid.playing .vc-big { opacity: 0; transform: scale(.85); pointer-events: none; }
@@ -1411,7 +1411,7 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 @media (max-width: 520px) { .usage .us-row { grid-template-columns: minmax(0, 1fr) 64px 48px 64px; } .usage .us-bar, .usage .us-hd > span:nth-child(2) { display: none; } }
 
 /* ---------- saúde da transmissão (app.js healthPill) e aviso para quem assiste (screen_note) ---------- */
-.tile.screen .hpill { position: absolute; left: 8px; top: 8px; z-index: 4; max-width: calc(100% - 16px); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 5px 10px; border: 0; border-radius: 12px; background: rgba(0,0,0,.62); color: #fff; font: 600 12px/1.25 var(--font, inherit); text-align: left; cursor: pointer; backdrop-filter: blur(4px); }
+.tile.screen .hpill { position: absolute; left: 8px; top: 8px; z-index: 4; max-width: calc(100% - 16px); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 5px 10px; border: 0; border-radius: 12px; background: rgba(0,0,0,.78); color: #fff; font: 600 12px/1.25 var(--font, inherit); text-align: left; cursor: pointer; }
 .tile.screen .hpill .hp-head { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .tile.screen .hpill small { font-weight: 500; opacity: .8; overflow: hidden; text-overflow: ellipsis; }
 .tile.screen .hpill .hp-dot { width: 8px; height: 8px; border-radius: 50%; background: #23a55a; flex: none; }
@@ -1419,7 +1419,7 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .tile.screen .hpill .hp-items { display: none; flex-direction: column; gap: 4px; white-space: normal; max-width: 340px; font-weight: 500; }
 .tile.screen .hpill.open .hp-items, .tile.screen .hpill.bad .hp-items { display: flex; }
 .tile.screen .hpill .hp-i.bad { color: #ffb4b6; } .tile.screen .hpill .hp-i.warn { color: #ffe1a1; }
-.tile.screen .snote { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; background: rgba(0,0,0,.6); color: #fff; text-align: center; pointer-events: none; backdrop-filter: blur(2px); }
+.tile.screen .snote { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; background: rgba(0,0,0,.78); color: #fff; text-align: center; pointer-events: none; }
 .tile.screen .snote svg { fill: currentColor; opacity: .85; } .tile.screen .snote b { font-size: 15px; } .tile.screen .snote span { font-size: 13px; opacity: .85; }
 
 /* ---------- envio: progresso, compressão e espera de conexão (upload.js) ---------- */

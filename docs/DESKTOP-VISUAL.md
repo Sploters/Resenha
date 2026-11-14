@@ -83,3 +83,14 @@ Para ao pausar/fechar o vídeo.
 Se ainda piscar: Painel de Controle da NVIDIA → Gerenciar configurações 3D → Configurações do programa → adicionar
 `Resenha.exe` → **Tecnologia de monitor: Atualização fixa** (ou desligar G-Sync "em janela e tela cheia" e deixar só
 "tela cheia"). Na AMD: Adrenalin → Jogos → adicionar o Resenha → FreeSync desligado.
+
+### Piscar ao passar o mouse sobre a transmissão (depois de voltar à sala estava normal)
+
+Relato seguinte: assistindo, ir para "Mensagens e Amigos" e voltar deixa o vídeo normal; ao passar o cursor, volta a
+piscar. O que aparece com o mouse em cima são os botões do quadro (`.sctl`) e o nome, e esses botões usavam
+`backdrop-filter: blur(6px)` por cima do vídeo — o desfoque obriga o Chromium a reler o vídeo a cada quadro e a trocar
+o caminho de desenho dele quando o botão aparece/some. Tirado de tudo que fica sobre vídeo (`.sctl button`,
+`.fsbox .fs-btn`, `.hpill`, `.snote`, `.fsvid .vc-big`), com fundo mais escuro no lugar.
+
+Próximo passo se continuar: impedir de vez que o vídeo vá para a sobreposição da placa no app
+(`html.lc-desk .tile video { opacity: .999 }`), para ele nunca trocar de caminho.
