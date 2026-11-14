@@ -1744,3 +1744,15 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .mw-img { width: 92px; flex: none; aspect-ratio: 231 / 87; border-radius: 4px; overflow: hidden; background: var(--bg-tert); } .mw-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mw-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; } .mw-txt b { color: var(--header); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mw-txt small { color: var(--text-muted); font-size: 12px; }
 @media (max-width: 520px) { #wishview .cbody { padding: 12px 12px 32px; } .wgrid { grid-template-columns: 1fr; } }
+.gpmodal .mh { position: relative; padding-right: 48px; } .gpmodal .gp-x { position: absolute; top: 12px; right: 12px; }
+/* alerta de promoção: caixa de entrada → Promoções */
+.deal { display: flex; gap: 12px; padding: 10px; border-radius: 8px; margin: 0 8px 6px; background: var(--bg-sec); border: 1px solid transparent; }
+.deal.new { border-color: color-mix(in srgb, var(--green) 55%, transparent); }
+.deal-img { flex: none; width: 140px; aspect-ratio: 460 / 215; border-radius: 6px; overflow: hidden; background: var(--bg-tert); align-self: flex-start; } .deal-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.deal-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.deal-title { color: var(--header); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deal-ends { color: var(--yellow); font-size: 12px; font-weight: 600; }
+.deal-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.deal-acts .sc-btn { display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 6px; background: var(--bg-mod-sel); color: var(--header); font-weight: 600; text-decoration: none; cursor: pointer; }
+.deal-acts .sc-btn .icon { fill: currentColor; } .deal-acts .sc-btn.primary { background: var(--brand); color: #fff; } .deal-acts .deal-x { margin-left: auto; background: none; color: var(--text-muted); }
+@media (max-width: 520px) { .deal-img { width: 96px; } }

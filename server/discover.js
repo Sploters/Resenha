@@ -229,8 +229,8 @@ export function mountDiscover(app, { auth, dataDir }) {
   const ASSETS = 'https://shared.akamai.steamstatic.com/store_item_assets/';
   const tagNames = () => cached('steam:tags', 7 * 864e5, async () => Object.fromEntries((await get(`${steamApi()}/IStoreService/GetTagList/v1/?language=brazilian`, 'json'))?.response?.tags?.map(t => [t.tagid, t.name]) || []));
   // detalhes de cada jogo (nome, imagens, preço, avaliações, tags), guardados por 6 h; busca em lotes de 50
-  async function storeItems(ids) {
-    const miss = ids.filter(id => { const c = cache.get('sitem:' + id); return !c || Date.now() - c.at > 6 * 3600e3; });
+  async function storeItems(ids, maxAge = 6 * 3600e3) {
+    const miss = ids.filter(id => { const c = cache.get('sitem:' + id); return !c || Date.now() - c.at > maxAge; });
     for (let i = 0; i < miss.length; i += 50) {
       const r = await sapi('IStoreBrowseService/GetItems', { ids: miss.slice(i, i + 50).map(appid => ({ appid })), context: ctx(),
         data_request: { include_assets: true, include_reviews: true, include_all_purchase_options: true, include_tag_count: 3, include_basic_info: true, include_release: true, include_platforms: true } }).catch(() => null);
@@ -244,6 +244,7 @@ export function mountDiscover(app, { auth, dataDir }) {
       const bp = it.best_purchase_option, rv = it.reviews?.summary_filtered;
       out[id] = { appid: id, title: it.name, url: `https://store.steampowered.com/app/${id}/`, image: img(a.header), thumb: img(a.small_capsule) || img(a.header),
         free: !!it.is_free, price: it.is_free ? 'Gratuito' : bp?.formatted_final_price || '', old: bp?.discount_pct ? bp.formatted_original_price || '' : '', discount: bp?.discount_pct || 0,
+        ends: bp?.discount_pct ? (Math.max(0, ...(bp.active_discounts || []).map(d => +d.discount_end_date || 0)) * 1000 || null) : null,
         reviews: rv?.review_count ? { pct: rv.percent_positive, label: rv.review_score_label, count: rv.review_count } : null,
         tags: (it.tagids || []).slice(0, 3).map(t => tags[t]).filter(Boolean) };
     }
@@ -310,4 +311,6 @@ export function mountDiscover(app, { auth, dataDir }) {
       res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
     } catch { res.json({}); }
   });
+  // preços para o alerta de promoção da wishlist (server/games.js): { appid: item } ou null se a Steam estiver desligada
+  return { storeItems: (ids, maxAge) => (off() || conf().steam === false ? Promise.resolve(null) : storeItems(ids.map(Number), maxAge)) };
 }

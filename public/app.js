@@ -7,7 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { steamCard, steamApp } from './steamcard.js';
-import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal } from './games.js';
+import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal, onGameDeal, onDealsSeen, dealsUnseen, dealsList, markDealsSeen, loadDeals } from './games.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
@@ -250,6 +250,7 @@ function onEvent(t, d) {
       for (const r of d.relationships) { S.rels.set(r.user.id, r); S.users.set(r.user.id, r.user); }
       S.friendLosses = d.friend_losses || []; S.friendLosses.forEach(x => mergeUser(x.user)); noticeFriendLosses(S.friendLosses.filter(x => x.at > seenLoss()));
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
+      setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
       if (!voice) voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate });
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
@@ -343,6 +344,8 @@ function onEvent(t, d) {
     case 'ACTIVITY_UPDATE': onActivityUpdate(d); break;
     case 'INTEGRATION_UPDATE': onIntegrationUpdate(d); break;
     case 'GAMES_UPDATE': onGamesUpdate(d); break;
+    case 'GAME_DEAL': onGameDeal(d); break;
+    case 'GAME_DEAL_SEEN': onDealsSeen(); break;
     case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(mergeUser); renderSide(); renderRail(); break; }
     case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); mergeUser(d.user); renderMembers(); } break; }
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
@@ -2391,7 +2394,7 @@ async function doSearch(q) {
   if (!list.length) $('#results')?.append(h('div.hintline', { style: { padding: '8px' } }, 'Dica: use de:nome, tem:imagem, tem:arquivo, tem:link ou em:canal para filtrar.'));
 }
 // ---------- caixa de entrada: menções, respostas e @everyone ----------
-const inboxCount = () => Object.values(S.mentions).reduce((n, v) => n + (v || 0), 0) + [...S.rels.values()].filter(r => r.type === 3).length; // menções + pedidos de amizade esperando resposta
+const inboxCount = () => Object.values(S.mentions).reduce((n, v) => n + (v || 0), 0) + [...S.rels.values()].filter(r => r.type === 3).length + dealsUnseen(); // menções + pedidos de amizade esperando resposta + promoções da wishlist
 const inboxBadge = () => { const n = inboxCount(); return n ? h('span.ibadge', n > 99 ? '99+' : n) : null; };
 const KIND_TXT = { mention: 'mencionou você', reply: 'respondeu você', everyone: 'mencionou @everyone' };
 // popup "Caixa de entrada" no canto superior direito: não lidas por canal e menções/respostas
@@ -2406,7 +2409,7 @@ async function showInbox(e) {
   const body = h('div.ib-body'), tabs = h('div.ib-tabs');
   const pending = [...S.rels.values()].filter(r => r.type === 3).length;
   const reqCount = () => [...S.rels.values()].filter(r => r.type === 3).length;
-  const drawTabs = () => tabs.replaceChildren(...[['unread', 'Não lidas'], ['mentions', 'Menções'], ['requests', 'Pedidos']].map(([k, l]) => h('button' + (inboxTab === k ? '.on' : ''), { onclick: () => { inboxTab = k; drawTabs(); draw(); } }, l, k === 'requests' && reqCount() > 0 && h('span.ib-tabn', reqCount()))));
+  const drawTabs = () => tabs.replaceChildren(...[['unread', 'Não lidas'], ['mentions', 'Menções'], ['requests', 'Pedidos'], ['deals', 'Promoções']].map(([k, l]) => h('button' + (inboxTab === k ? '.on' : ''), { onclick: () => { inboxTab = k; drawTabs(); draw(); } }, l, k === 'deals' && dealsUnseen() > 0 && h('span.ib-tabn', dealsUnseen()), k === 'requests' && reqCount() > 0 && h('span.ib-tabn', reqCount()))));
   const empty = (t, p) => h('div.ib-empty', h('div.ib-art', icon('inbox', 36)), h('b', t), h('p', p));
   const chBox = ({ ch, u }) => {
     const g = ch.guild_id ? guild(ch.guild_id) : null, dm = ch.type === 1, peer = dm && dmPeer(ch), cat = ch.parent_id && channelById(ch.parent_id);
@@ -2426,6 +2429,7 @@ async function showInbox(e) {
   };
   const draw = () => {
     if (inboxTab === 'requests') { body.replaceChildren(...friendRequests(() => { drawTabs(); draw(); }, empty)); return; }
+    if (inboxTab === 'deals') { body.replaceChildren(...dealsList(empty)); setTimeout(() => { if (inboxTab === 'deals' && body.isConnected) { markDealsSeen(); drawTabs(); } }, 1500); return; }
     if (inboxTab === 'unread') {
       const chs = unreadCh().slice(0, 20);
       body.replaceChildren(...(chs.length ? chs.map(chBox) : [empty('Tudo em dia!', 'Você não tem mensagens não lidas.')]));
@@ -3655,7 +3659,7 @@ initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModa
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
-initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()) });
+initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { inboxTab = tab; showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;

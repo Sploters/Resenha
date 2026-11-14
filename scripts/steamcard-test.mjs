@@ -84,10 +84,11 @@ try {
   await P.screenshot({ path: OUT + '/01-cartoes.png' });
   await (await P.$('.steamcard[data-app="7001"]')).screenshot({ path: OUT + '/02-cartao-promocao.png' });
   await P.evaluate(() => [...document.querySelectorAll('.steamcard[data-app="7001"] .sc-btn')].find(b => /Quem joga/.test(b.textContent)).click()); await sleep(400);
-  ok(await P.evaluate(() => /Estrela Cadente/.test(document.querySelector('.gamemodal h2')?.textContent || '')), '"Quem joga" abre o popup do jogo');
+  await P.waitForFunction(() => /Estrela Cadente/.test(document.querySelector('.gpmodal h2')?.textContent || '') && document.querySelector('.gpmodal .gm-person'));
+  ok(await P.evaluate(() => /Jogando agora/i.test(document.querySelector('.gpmodal').innerText) && /beto/.test(document.querySelector('.gpmodal').innerText)), '"Quem joga" abre o popup com quem está jogando agora');
   await P.screenshot({ path: OUT + '/03-quem-joga.png' });
-  await P.evaluate(() => document.querySelector('.gm-x').click()); await sleep(300);
-  ok(await P.evaluate(() => !document.querySelector('.gamemodal')), 'popup fecha');
+  await P.evaluate(() => document.querySelector('.gpmodal .gp-x').click()); await sleep(400);
+  ok(await P.evaluate(() => !document.querySelector('.gpmodal')), 'popup fecha no X');
   // celular
   await P.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 }); await sleep(500);
   const wide = await P.evaluate(() => { const c = document.querySelector('.steamcard[data-app="7001"]'); return { over: document.documentElement.scrollWidth > innerWidth, w: c.getBoundingClientRect().width }; });

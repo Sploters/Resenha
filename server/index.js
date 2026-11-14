@@ -1043,7 +1043,7 @@ mountLfg(app, {
   voiceCount: (cid) => voice.get(cid)?.size || 0, voiceChannelOf: (uid) => currentVoice(uid),
   callInvite: (from, to) => callInv.create(from, to), postDm: (a, b, c) => postDm(a, b, c),
 });
-mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
+const discover = mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
 // ---------- Enquetes ----------
 const POLL_DURATIONS = new Set([0, 1, 4, 8, 24, 72, 168]); // horas (0 = sem prazo)
 const pollTimers = new Map();
@@ -1553,7 +1553,7 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
 });
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
 const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), log: console.log });
-const games = mountGames(app, { auth, wrap, bad, db, all, get, run, getAdapter, dispatch, userPub }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
+const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const linkStates = new Map(); // state -> { uid, platform, returnTo, exp } (uso único, 10 min)
 const publicBase = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const accountPub = (a) => !a ? null : ({ platform: a.platform, external_id: a.external_id, display_name: a.display_name, avatar: a.avatar, profile_url: a.profile_url, visibility: a.visibility, link_visibility: a.link_visibility, linked_at: a.linked_at, last_sync: a.last_sync, sync_state: a.sync_state });
