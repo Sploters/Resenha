@@ -7,6 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { steamCard, steamApp } from './steamcard.js';
+import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal } from './games.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
@@ -341,6 +342,7 @@ function onEvent(t, d) {
     }
     case 'ACTIVITY_UPDATE': onActivityUpdate(d); break;
     case 'INTEGRATION_UPDATE': onIntegrationUpdate(d); break;
+    case 'GAMES_UPDATE': onGamesUpdate(d); break;
     case 'DM_CREATE': { S.dms.set(d.id, d); d.recipients.forEach(mergeUser); renderSide(); renderRail(); break; }
     case 'MEMBER_ADD': { const g = guild(d.guild_id); if (g) { g.members.set(d.member.user_id, d.member); mergeUser(d.user); renderMembers(); } break; }
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
@@ -584,7 +586,7 @@ document.addEventListener('settings-closed', () => { if (!ready || chNameKey() =
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 // telemetria: nome do tipo de tela (nunca o nome do canal ou da pessoa) e a chave para reconhecer "voltou para a mesma"
-const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes' };
+const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes', wishlist: 'Wishlist' };
 function applyRoute(first) {
   const prevCid = S.view?.cid;
   queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
@@ -605,6 +607,7 @@ function applyRoute(first) {
     const g = guild(gid);
     if (!g) { location.hash = '#/@me'; return; }
     if (cid === 'files') { S.view = { kind: 'files', gid, cid: 'files' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
+    if (cid === 'wishlist') { S.view = { kind: 'wishlist', gid, cid: 'wishlist' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'clips') { S.view = { kind: 'clips', gid, cid: 'clips' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     const chans = g.channels.filter(c => c.type !== 4);
     const post = cid && S.posts.get(cid)?.guild_id === gid ? S.posts.get(cid) : null;
@@ -757,6 +760,7 @@ function gFlyShow(anchor, g) {
     h('div.gf-head', g.name),
     opt(here && S.view.kind === 'clips', 'clip', 'Clipes', () => go(g.id, 'clips')),
     opt(here && S.view.kind === 'files', 'file', 'Arquivos', () => go(g.id, 'files')),
+    opt(here && S.view.kind === 'wishlist', 'gift', 'Wishlist', () => go(g.id, 'wishlist')),
     (text || room) && h('div.gf-sep'),
     text && opt(here && S.view.cid === text.id, 'hash', chName(text), () => go(g.id, text.id),
       S.mentions[text.id] > 0 ? h('span.pill', S.mentions[text.id]) : S.unread[text.id] ? h('i.gf-dot') : null),
@@ -1042,7 +1046,8 @@ function renderSide() {
     // galeria de clipes do servidor: primeira linha da lista
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
     const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
-    list = h('div#side-list', clipsRow, filesRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    const wishRow = h('div.ch.clipsrow.wishrow' + (S.view.kind === 'wishlist' ? '.active' : ''), { onclick: () => go(g.id, 'wishlist'), title: 'Jogos que o pessoal deste servidor quer, com preço e promoção' }, icon('gift', 20), h('span.name', 'Wishlist'));
+    list = h('div#side-list', clipsRow, filesRow, wishRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
@@ -1629,13 +1634,14 @@ function callUserMenu(e, uid, gid) {
 function userMenu(e, uid, gid) {
   if (botOf(uid)) return botMenu(e, uid);
   if (voice?.channelId) return callUserMenu(e, uid, gid);
-  if (uid === S.me.id) return menu(e, [{ label: 'Perfil', fn: () => profile(e.target, uid, gid) }, S.prefs.devMode && { label: 'Copiar ID do usuário', fn: () => navigator.clipboard?.writeText(uid) }]);
+  if (uid === S.me.id) return menu(e, [{ label: 'Perfil', fn: () => profile(e.target, uid, gid) }, { label: 'Jogos e wishlist', fn: () => userGamesModal(uid) }, S.prefs.devMode && { label: 'Copiar ID do usuário', fn: () => navigator.clipboard?.writeText(uid) }]);
   const g = gid && gid !== '@me' ? guild(gid) : null, rt = relType(uid), muted = isLocalMuted(uid);
   menu(e, [
     { label: isPinnedDM(uid) ? 'Desafixar' : 'Fixar', fn: () => togglePinDM(uid) },
     { label: 'Perfil', fn: () => profile(e.target, uid, gid) },
     { label: 'Iniciar Ligação', fn: () => callUser(uid) },
     { label: 'Convidar para Servidor', fn: () => inviteToServer(uid) },
+    { label: 'Jogos e wishlist', fn: () => userGamesModal(uid) },
     rt === 1 ? { label: 'Remover Amizade', danger: true, fn: async () => { if (await confirmBox('Remover amizade', `Remover ${user(uid).display_name} dos seus amigos?`, 'Remover')) tryApi('DELETE', `/relationships/${uid}`); } }
       : rt === 3 ? { label: 'Aceitar Amizade', fn: () => tryApi('PUT', `/relationships/${uid}`, {}) }
       : rt === 4 ? { label: 'Cancelar Pedido de Amizade', fn: () => tryApi('DELETE', `/relationships/${uid}`) }
@@ -1669,6 +1675,7 @@ function renderMain() {
   setTimeout(releaseOldScreens); // depois de trocar a tela: solta o que guardava a tela anterior
   if (v.kind === 'home') return renderHome(main);
   if (v.kind === 'clips') return renderClips(main, v.gid);
+  if (v.kind === 'wishlist') return renderGuildWishlist(main, v.gid);
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
@@ -3648,6 +3655,7 @@ initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModa
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
+initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()) });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;

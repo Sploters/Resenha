@@ -4,7 +4,8 @@
 // aparelho não fala com a Steam, só baixa a imagem da capa.
 import { h, icon, avatar } from './util.js';
 import { S, tryApi } from './state.js';
-import { gameModal, playingSteam } from './activity.js';
+import { playingSteam } from './activity.js';
+import { gamePeople, cachedPeople, socialLine, wishButton, peopleModal } from './games.js';
 
 // URL -> appid (string) ou null
 export function steamApp(url) {
@@ -27,14 +28,17 @@ function load(id) {
   let res; const p = new Promise(r => (res = r)); data.set(id, { at: Date.now(), p, res, v: undefined }); queue.add(id);
   clearTimeout(timer); timer = setTimeout(async () => {
     const ids = [...queue]; queue = new Set();
-    for (let i = 0; i < ids.length; i += 10) {
-      const part = ids.slice(i, i + 10);
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
       const r = await tryApi('GET', '/steam-apps?ids=' + part.join(',')).catch(() => null);
       for (const x of part) { const e = data.get(x); if (!e) continue; e.v = r?.[x] || null; e.at = r ? Date.now() : Date.now() - 29 * 60e3; e.res(e.v); }
     }
   }, 30);
   return p;
 }
+
+export const steamInfo = (id) => load(String(id));
+steamInfo.cached = (id) => data.get(String(id))?.v || null;
 
 // ---------- textos ----------
 const dateFmt = (t, opts = { day: 'numeric', month: 'short', year: 'numeric' }) => new Date(t).toLocaleDateString('pt-BR', opts).replace(/ de /g, ' ');
@@ -91,12 +95,21 @@ function paint(card, x) {
       h('div.sc-foot',
         priceBox,
         h('div.sc-acts',
-          h('button.sc-btn', { type: 'button', title: 'Quem da Resenha joga isto', onclick: (e) => { e.stopPropagation(); gameModal({ platform: 'steam', game: { id, title } }); } }, icon('users', 16), 'Quem joga'),
-          h('a.sc-btn.sc-app', { href: `steam://store/${id}`, title: 'Abrir no aplicativo da Steam', onclick: ext }, icon('gamepad', 16), 'No app'),
+          wishButton(id),
+          h('button.sc-btn', { type: 'button', title: 'Quem joga, quem tem e quem quer', onclick: (e) => { e.stopPropagation(); peopleModal(id, title); } }, icon('users', 16), 'Quem joga'),
+          h('a.sc-btn.sc-app', { href: `steam://store/${id}`, title: 'Abrir no aplicativo da Steam', 'aria-label': 'Abrir no aplicativo da Steam', onclick: ext }, icon('gamepad', 16)),
           h('a.sc-btn.primary', { href: store, target: '_blank', rel: 'noopener noreferrer', onclick: ext }, icon('external', 16), 'Ver na Steam'))),
-      now));
-  paintNow(card);
+      now, h('div.sc-people')));
+  paintNow(card); paintPeople(card);
 }
+// "Você tem · 12 h · 3 têm · 2 querem" (quem você pode ver: amigos e quem divide servidor)
+function paintPeople(card) {
+  const id = card.dataset.app, box = card.querySelector('.sc-people'); if (!box) return;
+  const put = (v) => { const title = card.querySelector('.sc-title')?.textContent; box.replaceChildren(...[v && socialLine(id, title, v)].filter(Boolean)); };
+  const c = cachedPeople(id); if (c) put(c);
+  gamePeople(id).then(put);
+}
+addEventListener('rs-games', () => { for (const c of document.querySelectorAll('.steamcard:not(.loading)')) paintPeople(c); });
 
 // "jogando agora" com os avatares de quem está no jogo (atualiza quando a atividade muda)
 function paintNow(card) {

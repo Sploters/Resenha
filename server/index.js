@@ -36,6 +36,7 @@ import { mountUx, uxSeen, uxSignup, uxFirst } from './ux.js';
 import { mountLfg } from './lfg.js';
 import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
+import { mountGames } from './games.js';
 import { translate, translateEnabled, engineName } from './translate.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 
@@ -1552,6 +1553,7 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
 });
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
 const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), log: console.log });
+const games = mountGames(app, { auth, wrap, bad, db, all, get, run, getAdapter, dispatch, userPub }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const linkStates = new Map(); // state -> { uid, platform, returnTo, exp } (uso único, 10 min)
 const publicBase = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const accountPub = (a) => !a ? null : ({ platform: a.platform, external_id: a.external_id, display_name: a.display_name, avatar: a.avatar, profile_url: a.profile_url, visibility: a.visibility, link_visibility: a.link_visibility, linked_at: a.linked_at, last_sync: a.last_sync, sync_state: a.sync_state });
@@ -1579,7 +1581,7 @@ app.get('/api/integrations/:platform/callback', (req, res) => { // aberto: quem 
     run('DELETE FROM linked_accounts WHERE user_id=? AND platform=?', st.uid, ad.id);
     run('INSERT INTO linked_accounts(user_id,platform,external_id,visibility,linked_at,sync_state) VALUES(?,?,?,?,?,?)', st.uid, ad.id, external_id, 'friends', Date.now(), 'pending');
     dispatch([st.uid], 'INTEGRATION_UPDATE', { platform: ad.id, account: accountPub(accountOf(st.uid, ad.id)) });
-    activity.onLinked();
+    activity.onLinked(); if (ad.id === 'steam') games.onLinked(st.uid);
     page(true, 'Conta ' + ad.name + ' vinculada!');
   }).catch(e => page(false, e.message || 'Falha ao vincular'));
 });
@@ -1599,6 +1601,7 @@ app.delete('/api/integrations/:platform', auth, wrap((req, res) => {
   const cur = accountOf(req.uid, p); if (cur) activity.onUnlinking(req.uid, p, cur.external_id);
   run('DELETE FROM linked_accounts WHERE user_id=? AND platform=?', req.uid, p);
   run('DELETE FROM activities WHERE user_id=? AND platform=?', req.uid, p); run('DELETE FROM game_prefs WHERE user_id=? AND platform=?', req.uid, p);
+  if (p === 'steam') games.onUnlinked(req.uid);
   dispatch([req.uid], 'INTEGRATION_UPDATE', { platform: p, account: null });
   res.json({});
 }));

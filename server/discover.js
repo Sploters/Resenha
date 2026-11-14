@@ -290,9 +290,9 @@ export function mountDiscover(app, { auth, dataDir }) {
   app.get('/api/discover/upcoming', auth, send(async () => ({ items: await steamUpcoming() })));
   app.get('/api/discover/tournaments', auth, send(tournaments));
   app.get('/api/discover/charts', auth, send(charts));
-  // cartão de link da loja (store.steampowered.com/app/<id>) no chat: até 10 jogos por pedido, guardados por 6 h
+  // cartão de link da loja (store.steampowered.com/app/<id>) no chat e wishlist: até 50 jogos por pedido, guardados por 6 h
   app.get('/api/steam-apps', auth, async (req, res) => {
-    const ids = [...new Set(String(req.query.ids || '').split(',').filter(x => /^\d{1,10}$/.test(x)))].slice(0, 10);
+    const ids = [...new Set(String(req.query.ids || '').split(',').filter(x => /^\d{1,10}$/.test(x)))].slice(0, 50);
     if (!ids.length || off() || conf().steam === false) return res.json({});
     try {
       const it = await storeItems(ids.map(Number));

@@ -7,6 +7,7 @@ import { chName } from './chnames.js';
 import { styleName } from './themes.js';
 import { S, api, tryApi, toast, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
 import { openClip } from './clipsgallery.js';
+import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
 import { toggle, row, section, seg, factChips } from './ui.js';
 
@@ -499,7 +500,7 @@ export function connectionsPage(reg) {
   };
   S.refreshConnections = draw; reg?.(() => { S.refreshConnections = null; });
   draw();
-  return h('div', h('h2', 'Contas vinculadas'), pcActivityBlock(), box);
+  return h('div', h('h2', 'Contas vinculadas'), pcActivityBlock(), box, gamesBlock());
 }
 // jogo aberto no PC (app desktop detecta, como na transmissão): quem pode ver
 export const PC_VIS = { servers: 'Amigos e quem está nos meus servidores', friends: 'Só amigos', off: 'Ninguém' };

@@ -1697,3 +1697,50 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 @keyframes scpulse { from { opacity: .45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .steamcard .sc-sk { animation: none; } }
 @media (max-width: 520px) { .steamcard .sc-app { display: none; } .steamcard .sc-acts { margin-left: 0; } }
+
+/* ---------- biblioteca e wishlist (games.js) ---------- */
+.steamcard .sc-people:empty { display: none; }
+.sc-social { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 0 0; border: 0; border-top: 1px solid var(--bg-mod-sel); background: none; color: var(--text-muted); font-size: 12.5px; text-align: left; cursor: pointer; }
+.sc-social:hover span:last-child { color: var(--header); text-decoration: underline; }
+.sc-social .sc-avs { display: inline-flex; } .sc-social .sc-avs .avatar + .avatar { margin-left: -6px; } .sc-social .sc-avs .avatar { box-shadow: 0 0 0 2px var(--bg-sec); }
+.steamcard .sc-now + .sc-people .sc-social { border-top: 0; padding-top: 2px; }
+.sc-btn.wishbtn.on { background: color-mix(in srgb, var(--green) 24%, var(--bg-mod-sel)); }
+.sc-btn.sm { min-height: 26px; padding: 0 8px; font-size: 12px; }
+.steamcard .sc-app { padding: 0 8px; }
+.gpmodal .mb { max-height: min(70vh, 640px); overflow-y: auto; }
+.gp { display: flex; flex-direction: column; gap: 6px; }
+.gp .gm-cap:first-child { margin-top: 0; }
+.gp-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.gp-foot .sc-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--bg-mod-sel); color: var(--header); font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.gp-foot .sc-btn .icon, .wcard .sc-btn .icon, .mw-row .sc-btn .icon { fill: currentColor; }
+.ug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.ug-tile { border-radius: 8px; overflow: hidden; background: var(--bg-sec); cursor: pointer; transition: transform .12s; } .ug-tile:hover { transform: translateY(-2px); }
+.ug-img { aspect-ratio: 460 / 215; background: var(--bg-tert); } .ug-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ug-txt { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; min-width: 0; } .ug-txt b { font-size: 13px; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ug-txt small { color: var(--text-muted); font-size: 12px; } .ug-off { font-size: 12px; font-weight: 700; color: var(--green); }
+#wishview { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--bg-pri, #313338); }
+#wishview #topbar { flex: none; }
+#wishview .cbody { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+#wishview .ctool { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 16px; }
+#wishview .ctabs { display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--bg-sec, #2b2d31); }
+#wishview .ctab { padding: 6px 12px; border: 0; border-radius: 6px; background: none; color: var(--text-muted); font-weight: 600; font-size: 13px; cursor: pointer; } #wishview .ctab.on { background: var(--bg-mod-sel); color: var(--header); }
+#wishview .btn.sm { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; } #wishview .btn.sm .icon { fill: currentColor; }
+.wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.wcard { display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; background: var(--bg-sec); border: 1px solid var(--bg-mod-sel); cursor: pointer; transition: transform .12s, border-color .12s; }
+.wcard:hover { transform: translateY(-2px); border-color: var(--bg-mod-hover); }
+.wc-img { aspect-ratio: 460 / 215; background: linear-gradient(135deg, var(--bg-tert), var(--bg-mod-sel)); } .wc-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wc-body { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; flex: 1; }
+.wc-title { font-size: 14.5px; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-price { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 22px; font-variant-numeric: tabular-nums; } .wc-price:empty { display: none; }
+.wc-price .sc-off { padding: 2px 6px; border-radius: 4px; background: var(--green); color: #fff; font-weight: 800; font-size: 12.5px; }
+.wc-price s { color: var(--text-muted); font-size: 12px; } .wc-price b { color: var(--header); }
+.wc-who { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12.5px; margin-top: auto; }
+.wc-who .sc-avs { display: inline-flex; } .wc-who .avatar + .avatar { margin-left: -7px; } .wc-who .avatar { box-shadow: 0 0 0 2px var(--bg-sec); }
+.wc-acts { display: flex; justify-content: flex-end; }
+.wcard .sc-btn, .mw-row .sc-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 6px; background: var(--bg-mod-sel); color: var(--header); font-weight: 600; cursor: pointer; }
+.mw-add { display: flex; gap: 8px; margin: 4px 0 10px; } .mw-add input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; border: 0; background: var(--bg-input, var(--bg-tert)); color: var(--text); }
+.mywish { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.mw-row { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; } .mw-row:hover { background: var(--bg-mod-hover); }
+.mw-img { width: 92px; flex: none; aspect-ratio: 231 / 87; border-radius: 4px; overflow: hidden; background: var(--bg-tert); } .mw-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mw-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; } .mw-txt b { color: var(--header); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mw-txt small { color: var(--text-muted); font-size: 12px; }
+@media (max-width: 520px) { #wishview .cbody { padding: 12px 12px 32px; } .wgrid { grid-template-columns: 1fr; } }

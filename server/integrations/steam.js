@@ -17,7 +17,7 @@ async function fetchT(url, opts = {}, ms = 10000) {
 }
 
 export default {
-  id: 'steam', name: 'Steam', capabilities: ['link', 'presence', 'playtime'],
+  id: 'steam', name: 'Steam', capabilities: ['link', 'presence', 'playtime', 'library', 'wishlist'],
   configured: () => !!key(),
 
   startLink({ returnTo, realm }) {
@@ -42,6 +42,24 @@ export default {
     const txt = await r.text();
     if (!r.ok || !/^is_valid\s*:\s*true\s*$/m.test(txt)) throw new Error('A Steam não confirmou o login');
     return { external_id: m[1] };
+  },
+
+  // Biblioteca (jogos e horas). Perfil ou "Detalhes do jogo" privados: a Steam responde vazio -> { private: true }
+  async library(steamid) {
+    if (!key()) throw new PollError('STEAM_API_KEY ausente', 401);
+    const r = await fetchT(`${API()}/IPlayerService/GetOwnedGames/v1/?key=${encodeURIComponent(key())}&steamid=${steamid}&include_appinfo=1&include_played_free_games=1`, {}, 20000);
+    if (!r.ok) throw new PollError('Steam respondeu ' + r.status, r.status);
+    const j = (await r.json().catch(() => null))?.response;
+    if (!j || !('game_count' in j)) return { private: true };
+    return { games: (j.games || []).filter(g => g.appid).map(g => ({ appid: String(g.appid), title: g.name || null, minutes: +g.playtime_forever || 0, last: g.rtime_last_played ? g.rtime_last_played * 1000 : null })) };
+  },
+  // Lista de desejos (pública como o perfil). Sem a chave também funciona
+  async wishlist(steamid) {
+    const r = await fetchT(`${API()}/IWishlistService/GetWishlist/v1/?steamid=${steamid}${key() ? '&key=' + encodeURIComponent(key()) : ''}`, {}, 20000);
+    if (!r.ok) throw new PollError('Steam respondeu ' + r.status, r.status);
+    const j = (await r.json().catch(() => null))?.response;
+    if (!j) throw new PollError('resposta inválida', 502);
+    return { items: (j.items || []).filter(x => x.appid).map(x => ({ appid: String(x.appid), added: x.date_added ? x.date_added * 1000 : null, priority: x.priority ?? null })) };
   },
 
   // Lote de até 100 SteamIDs por chamada (1 requisição atende todos os usuários vinculados)
