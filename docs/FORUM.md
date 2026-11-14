@@ -1,4 +1,21 @@
-# Fóruns (proposta — ainda não implementado)
+# Fóruns
+
+## Estado atual (etapa 1 feita, escopo menor)
+Implementado em `server/forum.js`, `public/forum.js` e `public/forum.css` (teste: `scripts/forum-test.mjs`):
+- canal de fórum (`type 15`) com posts no estilo Reddit: ▲ e votos à esquerda, tags coloridas, título, começo do texto,
+  imagem, nº de comentários; ordem **Em alta / Novos / Top / Atividade**, filtro por tag, busca e o quadro "Sobre" ao lado;
+- criar/editar post (título, tags, texto com prévia, imagens e vídeos), apagar, fixar e trancar (moderação);
+- post aberto: o post no topo e os comentários no chat comum (o post é um canal `type 11`, como na proposta);
+- tags e regras do fórum editáveis (quem gerencia canais); fórum novo já vem com 4 tags.
+
+Diferenças em relação à proposta abaixo: o **texto do post fica em `forum_posts.content`** (não como primeira mensagem do
+canal), e **comentários e última atividade são contados na consulta** (sem contador para manter). Ainda **não** feito:
+seguir posts e não lidas de post, arquivamento automático, "melhor resposta", seção Fóruns (feed geral), aba Posts no
+perfil, atalhos de clipe/mensagem → post e fóruns abertos. Comentário em post só avisa quem foi mencionado.
+
+---
+
+# Proposta original
 
 Dois pedaços, nessa ordem:
 1. **Canal de fórum** dentro do servidor: no lugar do chat, uma lista de **posts** (título, corpo, tags), cada um com a

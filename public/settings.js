@@ -879,7 +879,7 @@ function channelsPage(gid) {
   const draw = () => {
     const cats = g.channels.filter(c => c.type === 4), kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid);
     const move = async (c, siblings, dir) => { const i = siblings.indexOf(c), j = i + dir; if (j < 0 || j >= siblings.length) return; const o = siblings[j]; const [a, b] = [c.position, o.position]; await tryApi('PATCH', `/channels/${c.id}`, { position: b === a ? b + dir : b }); await tryApi('PATCH', `/channels/${o.id}`, { position: a }); setTimeout(draw, 250); };
-    const line = (c, siblings) => h('div.chrow', h('span.ico', icon(c.type === 2 ? 'voice' : c.type === 4 ? 'caret' : 'hash', 16)), h('span.cn', c.name),
+    const line = (c, siblings) => h('div.chrow', h('span.ico', icon(c.type === 2 ? 'voice' : c.type === 4 ? 'caret' : c.type === 15 ? 'forum' : 'hash', 16)), h('span.cn', c.name),
       canEdit && h('div.btns', h('button.ibtn', { title: 'Subir', onclick: () => move(c, siblings, -1) }, '▲'), h('button.ibtn', { title: 'Descer', onclick: () => move(c, siblings, 1) }, '▼'),
         h('button.btn.grey', { onclick: async () => { const n = await promptBox('Renomear canal', 'Nome', c.name); if (n) { await tryApi('PATCH', `/channels/${c.id}`, { name: n }); setTimeout(draw, 250); } } }, 'Renomear'),
         h('button.btn.red', { onclick: async () => { if (await confirmBox('Excluir canal', `Excluir ${c.name}?`, 'Excluir')) { await tryApi('DELETE', `/channels/${c.id}`); setTimeout(draw, 250); } } }, 'Excluir')));

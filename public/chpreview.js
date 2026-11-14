@@ -14,6 +14,7 @@ let timer, hideT, box, dim, cur, hovered;
 const cancel = () => { clearTimeout(timer); timer = null; };
 
 export function previewHooks(c) {
+  if (c.type === 15) return { 'data-cid': c.id }; // fórum: não tem chat para espiar
   return {
     'data-cid': c.id,
     onmouseenter: (e) => {

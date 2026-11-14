@@ -240,6 +240,7 @@ export const user = (id) => { const b = botOf(id); if (b) return { id, username:
 export const guild = (id) => S.guilds.get(id);
 export function channelById(id) {
   if (S.dms.has(id)) return S.dms.get(id);
+  if (S.posts?.has(id)) return S.posts.get(id); // post de fórum (public/forum.js): não vem no READY
   for (const g of S.guilds.values()) { const c = g.channels.find(c => c.id === id); if (c) return c; }
   return null;
 }

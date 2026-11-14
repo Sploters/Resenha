@@ -49,6 +49,7 @@ function releaseOldScreens() {
   if (observedStage && !observedStage.isConnected) { stageObs.unobserve(observedStage); observedStage = null; }
 }
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles } from './files.js';
+import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys } from './ui.js';
@@ -333,7 +334,8 @@ function onEvent(t, d) {
     case 'CHANNEL_DELETE': {
       const g = guild(d.guild_id); if (!g) break;
       g.channels = g.channels.filter(c => c.id !== d.id); S.messages.delete(d.id);
-      if (S.view.cid === d.id) go(d.guild_id); else renderSide();
+      for (const [pid, pc] of S.posts) if (pc.parent_id === d.id) S.posts.delete(pid); // fórum apagado: os posts foram junto
+      if (S.view.cid === d.id || channelById(S.view.cid) == null && S.view.gid === d.guild_id) go(d.guild_id); else renderSide();
       break;
     }
     case 'ACTIVITY_UPDATE': onActivityUpdate(d); break;
@@ -426,6 +428,7 @@ function onEvent(t, d) {
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
     }
     case 'MESSAGE_CREATE': onMessage(d); break;
+    case 'FORUM_POST_CREATE': case 'FORUM_POST_UPDATE': case 'FORUM_POST_DELETE': onForumEvent(t, d); break;
     case 'E2EE_KEY': onE2eeKey(d); break;
     case 'READ_STATE': onReadState(d); break; // lido em outro aparelho (ou nesta conta por outra aba)
     case 'SETTINGS_UPDATE': onSettingsSync(d); break;
@@ -468,6 +471,16 @@ function onMessage(m) {
   if (S.view.cid === m.channel_id && list && !gap) appendMessage(m);
   const dmc = S.dms.get(m.channel_id);
   if (dmc) { dmc.last_message = { id: m.id, author_id: m.author_id, content: (m.content || '').slice(0, 140), created_at: m.created_at, attachment: !!m.attachments?.length }; if (inMessages()) renderSide(); }
+  if (m.forum_id) { // comentário num post de fórum: conta no cartão; só avisa se me mencionaram
+    onPostReply(m);
+    if (mine) return;
+    if (S.view.cid === m.channel_id && document.hasFocus()) return ack(m.channel_id);
+    if ((m.mentions || []).includes(S.me.id) && !quietHere() && alertAllowed('server')) {
+      const pc = channelById(m.channel_id); playSound('mention');
+      notify(`${m.author.display_name} (comentário em ${pc?.name || 'um post'})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (m.content || 'Anexo'), () => go(m.guild_id, m.channel_id), m.channel_id);
+    }
+    return;
+  }
   if (mine) return;
   const ch = channelById(m.channel_id), isDM = ch?.type === 1, pol = notifPolicy(ch);
   const text = m.content || '', direct = text.includes(`<@${S.me.id}>`);
@@ -593,7 +606,13 @@ function applyRoute(first) {
     if (cid === 'files') { S.view = { kind: 'files', gid, cid: 'files' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'clips') { S.view = { kind: 'clips', gid, cid: 'clips' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     const chans = g.channels.filter(c => c.type !== 4);
-    let ch = chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
+    const post = cid && S.posts.get(cid)?.guild_id === gid ? S.posts.get(cid) : null;
+    if (!post && cid && /^\d{6,24}$/.test(cid) && !chans.some(c => c.id === cid)) { // link de um post ainda não carregado
+      S.view = { kind: 'guild', gid, cid, pendingPost: true };
+      loadPost(cid).then(c => { if (S.view.cid !== cid) return; if (c?.guild_id === gid) { S.view.pendingPost = false; renderSide(); renderMain(); } else { toast('Post não encontrado', true); go(gid); } });
+      syncWatching(null); renderRail(); renderSide(); renderMain(); return;
+    }
+    let ch = post || chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
     if (g.partial) loadMembers(gid).catch(() => { }); // mesmo com a lista de membros fechada (menções, cores dos cargos)
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }
@@ -955,15 +974,15 @@ async function inviteModal(g) {
   draw(); q.focus();
 }
 function channelModal(g, type, parent) {
-  const name = h('input', { placeholder: type === 2 ? 'Sala de voz' : type === 4 ? 'Nova categoria' : 'novo-canal', maxLength: 100 });
+  const name = h('input', { placeholder: type === 2 ? 'Sala de voz' : type === 4 ? 'Nova categoria' : type === 15 ? 'ideias-e-discussões' : 'novo-canal', maxLength: 100 });
   let t = type;
-  const typeSel = type === 4 ? null : h('select', { onchange: (e) => (t = +e.target.value) }, h('option', { value: 0 }, 'Texto'), h('option', { value: 2, selected: type === 2 }, 'Voz'));
+  const typeSel = type === 4 ? null : h('select', { onchange: (e) => (t = +e.target.value) }, h('option', { value: 0 }, 'Texto'), h('option', { value: 2, selected: type === 2 }, 'Voz'), h('option', { value: 15, selected: type === 15 }, 'Fórum (posts com votos e comentários)'));
   modal(type === 4 ? 'Criar categoria' : 'Criar canal', '', h('div', typeSel && h('label.f', 'Tipo de canal', typeSel), h('label.f', 'Nome', name)),
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Criar', fn: async () => { const r = await tryApi('POST', `/guilds/${g.id}/channels`, { name: name.value, type: t, parent_id: parent }); if (!r) return false; if (t !== 4) setTimeout(() => go(g.id, r.id), 100); } }]);
 }
 
 // ---------- barra lateral ----------
-const chIcon = (c) => icon(c.type === 2 ? 'voice' : 'hash', 20);
+const chIcon = (c) => icon(c.type === 2 ? 'voice' : c.type === 15 ? 'forum' : 'hash', 20);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
@@ -1008,7 +1027,7 @@ function renderSide() {
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
-      return h('div', h('div.ch' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
+      return h('div', h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
         chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
@@ -1397,7 +1416,7 @@ function statusMenu(e) {
 function quickSwitch() {
   const inp = h('input', { placeholder: 'Para onde você quer ir?', style: { width: '100%' } }), res = h('div');
   const items = [...[...S.dms.values()].map(d => ({ label: '@' + user(dmPeer(d).id).display_name, fn: () => go('@me', d.id) })),
-    ...[...S.guilds.values()].flatMap(g => g.channels.filter(c => c.type !== 4).map(c => ({ label: chName(c), ic: c.type === 2 ? 'voice' : 'hash', alt: c.name, hint: g.name, fn: () => go(g.id, c.id) }))),
+    ...[...S.guilds.values()].flatMap(g => g.channels.filter(c => c.type !== 4).map(c => ({ label: chName(c), ic: c.type === 2 ? 'voice' : c.type === 15 ? 'forum' : 'hash', alt: c.name, hint: g.name, fn: () => go(g.id, c.id) }))),
     ...[...S.guilds.values()].map(g => ({ label: g.name, hint: 'servidor', fn: () => go(g.id) }))];
   const m = modal('Busca rápida', '', h('div', h('label.f', inp), res), [], {});
   const draw = () => { res.replaceChildren(...items.filter(i => (i.label + ' ' + (i.alt || '')).toLowerCase().includes(inp.value.toLowerCase())).slice(0, 10).map(i => h('div.role-row', { onclick: () => { m.close(); i.fn(); } }, i.ic && icon(i.ic, 18), i.label, h('small', { style: { marginLeft: 'auto', color: 'var(--text-muted)' } }, i.hint || '')))); };
@@ -1642,6 +1661,7 @@ function renderCallBar() { // mostra/oculta o palco de chamada nas DMs
   if (ch.type === 1 && callActive(ch.id) !== !!$('#stage')) renderMain(); else renderVoiceUI();
 }
 const renderHomeIfHome = () => { if (S.view.kind === 'home') renderMain(); };
+let openedPost = null, postTop = null; // post de fórum aberto agora: a primeira vez rola para o topo (o post)
 function renderMain() {
   const main = $('#main'); if (!main) return;
   const v = S.view;
@@ -1651,13 +1671,17 @@ function renderMain() {
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
+  if (v.pendingPost) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('p', 'Abrindo o post…')));
   const ch = channelById(v.cid);
+  if (ch?.type === 15) return renderForum(main, ch);
   if (!ch) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('h2', 'Sem canais'), h('p', 'Este servidor ainda não tem canais.')));
-  const dm = ch.type === 1, vc = ch.type === 2, peer = dm && dmPeer(ch);
+  const dm = ch.type === 1, vc = ch.type === 2, post = ch.type === 11, peer = dm && dmPeer(ch);
   const inCall = dm && callActive(ch.id), chatOpen = !vcChatHidden(ch);
   const top = h('div#topbar',
       h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
       dm ? [h('span.hash', '@'), h('span', user(peer.id).display_name), h('div.status.s-' + user(peer.id).status, { style: { position: 'static', borderColor: 'transparent', width: '10px', height: '10px', minWidth: 0, minHeight: 0 } })]
+        : post ? [h('button.ibtn.fo-back', { title: 'Voltar ao fórum', 'aria-label': 'Voltar ao fórum', onclick: () => go(ch.guild_id, ch.parent_id) }, icon('arrowr', 20)), h('span.hash', icon('forum', 22)),
+          h('button.fo-crumb', { onclick: () => go(ch.guild_id, ch.parent_id) }, forumOfPost(ch) ? chName(forumOfPost(ch)) : 'Fórum'), h('span.fo-crumbsep', '›'), h('span.fo-crumbt', { title: ch.name }, ch.name)]
         : [h('span.hash', icon(vc ? 'voice' : 'hash', 24)), h('span', { title: ch.name }, chName(ch)), ch.topic && h('span.topic', ch.topic)],
       h('div.spacer'),
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
@@ -1667,22 +1691,28 @@ function renderMain() {
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
-        h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('toppin')),
-        h('button.ibtn.files-btn', { title: dm ? 'Mídia, arquivos e links desta conversa' : 'Mídia, arquivos e links deste canal', 'aria-label': 'Arquivos', onclick: () => { if (dm) location.hash = `#/@me/${ch.id}/files`; else { filesPreset({ channel: ch.id }); go(ch.guild_id, 'files'); } } }, icon('file')),
+        !post && h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('toppin')),
+        !post && h('button.ibtn.files-btn', { title: dm ? 'Mídia, arquivos e links desta conversa' : 'Mídia, arquivos e links deste canal', 'aria-label': 'Arquivos', onclick: () => { if (dm) location.hash = `#/@me/${ch.id}/files`; else { filesPreset({ channel: ch.id }); go(ch.guild_id, 'files'); } } }, icon('file')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
         dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('dmprofile'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord
   main.replaceChildren(...[!vc && top,
     h('div#content',
       vc && h('div#vcall', top, h('div#stage')),
-      chatOpen && h('div#chat' + (vc ? '.side' : ''),
+      chatOpen && h('div#chat' + (vc ? '.side' : '') + (post ? '.fo-chat' : ''),
         vc && h('div.vchead', h('span.vcico', icon('dm', 20)), h('span.vctitle', { title: ch.name }, chName(ch)), h('button.ibtn', { title: 'Fechar chat', onclick: () => toggleVcChat(ch) }, icon('x'))),
-        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : (vc ? 'chat de ' : '#') + chName(ch))),
+        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : post ? null : (vc ? 'chat de ' : '#') + chName(ch))),
       !dm && !vc && S.membersOpen && h('div#members'),
       dm && S.prefs.dmPanel !== false && h('div#dmpanel'))].filter(Boolean));
   if (dm && S.prefs.dmPanel !== false) renderDmPanel(peer.id);
   if (dm) paintE2ee(ch);
   if (chatOpen) { stickToBottom($('#msgs')); loadChannel(ch.id); }
+  if (post) paintLocked();
+  if (post && openedPost !== ch.id) {
+    openedPost = postTop = ch.id; const box = $('#msgs'), free = () => { postTop = null; };
+    for (const ev of ['wheel', 'touchmove', 'pointerdown', 'keydown']) box.addEventListener(ev, free, { once: true, passive: true });
+    if (S.loaded.get(ch.id)) renderMessages();
+  } else if (!post) openedPost = postTop = null;
   renderMembers(); if (vc || inCall) renderVoiceUI();
 }
 // ---------- criptografia de ponta a ponta da conversa direta (public/e2ee.js) ----------
@@ -1814,6 +1844,7 @@ async function loadChannel(cid) {
   };
 }
 function welcomeBlock(ch) {
+  if (ch.type === 11) return postHead(ch); // post de fórum: o post inteiro no topo dos comentários
   if (ch.type === 1) { const p = user(dmPeer(ch).id); return h('div.welcome', avatar(p, 80, { status: false }), h('h1', p.display_name), h('p', `Este é o início do seu histórico de mensagens diretas com ${p.display_name}.`)); }
   return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `Bem-vindo(a) a #${chName(ch)}!`), h('p', 'Este é o começo do canal.'));
 }
@@ -1832,6 +1863,7 @@ function renderMessages(keepPos) {
   if (S.pending.length) renderPending();
   box.stick = !(keepPos && !near);
   box.scrollTop = box.stick ? box.scrollHeight : old;
+  if (ch.type === 11 && postTop === ch.id) { box.stick = false; box.scrollTop = 0; } // post aberto agora: fica no topo (o post) até a pessoa rolar ou comentar // post aberto agora: começa pelo post (como no Reddit), não pelo último comentário
 }
 // Histórico mais antigo chegou (rolou até o topo): põe só as mensagens novas no começo. Antes o chat inteiro era montado de
 // novo a cada página (50, 100, 150… mensagens), travando a rolagem num PC fraco (quadro de ~650 ms com 350 mensagens).
@@ -2492,7 +2524,7 @@ const flushDraft = () => { const ta = $('#composer textarea'); if (ta?.dataset.c
 for (const ev of ['pagehide', 'freeze']) addEventListener(ev, flushDraft, { capture: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushDraft(); });
 function composer(ch, label) {
-  const ta = h('textarea', { placeholder: `Conversar em ${label}`, rows: 1, maxLength: 4000, value: readDrafts()[ch.id]?.t || '' });
+  const ta = h('textarea', { placeholder: label == null ? 'Escreva um comentário…' : `Conversar em ${label}`, rows: 1, maxLength: 4000, value: readDrafts()[ch.id]?.t || '' });
   ta.dataset.cid = ch.id; ta.addEventListener('blur', flushDraft);
   const grow = () => { ta.style.height = '0'; ta.style.height = Math.min(ta.scrollHeight, 400) + 'px'; };
   let lastTyping = 0;
@@ -2628,6 +2660,7 @@ function optimistic(cid, body) {
     attachments: body.attachments || [], reactions: [], reply_to: body.reply_to || null };
   const el = msgEl(m, prev && prev.author_id === S.me.id && sameDay(prev.created_at, m.created_at) ? prev : null);
   el.classList.add('sending'); el.removeAttribute('data-mid'); el.querySelector('.toolbar')?.remove();
+  postTop = null; // comentou: segue o fim, como num chat
   box.append(el); box.stick = true; box.scrollTop = box.scrollHeight;
   const g = { cid, content: body.content, el }; ghosts.push(g); return g;
 }
@@ -3607,6 +3640,7 @@ function setupDesktop() {
 
 // gancho de depuração/testes automatizados
 initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
+initForum({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
 initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });

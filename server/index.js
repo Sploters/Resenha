@@ -27,6 +27,7 @@ import { mountUploads } from './uploads.js';
 import { mountMedia } from './media.js';
 import { createReputation } from './reputation.js';
 import { mountDesktopUpdate } from './desktopupdate.js';
+import { mountForum } from './forum.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
@@ -215,7 +216,7 @@ function guildFull(gid, { users = true } = {}) {
     timeout_until: m.timeout_until > now ? m.timeout_until : null, softmute_until: m.softmute_until > now ? m.softmute_until : null, roles: rolesOf.get(m.user_id) || [] }));
   return { ...g,
     roles: all('SELECT * FROM roles WHERE guild_id=? ORDER BY position DESC', gid),
-    channels: all('SELECT * FROM channels WHERE guild_id=? ORDER BY position, created_at', gid),
+    channels: all('SELECT * FROM channels WHERE guild_id=? AND type<>11 ORDER BY position, created_at', gid), // posts de fórum (11) vêm sob demanda
     members,
     emojis: all('SELECT id,name,url FROM emojis WHERE guild_id=?', gid),
     sounds: all('SELECT id,name,emoji,url,volume FROM sounds WHERE guild_id=? ORDER BY created_at', gid),
@@ -654,13 +655,14 @@ app.delete('/api/roles/:id', auth, wrap((req, res) => {
 app.post('/api/guilds/:id/channels', auth, wrap((req, res) => {
   const gid = req.params.id;
   if (!can(gid, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
-  const type = [0, 2, 4].includes(+req.body.type) ? +req.body.type : 0;
+  const type = [0, 2, 4, 15].includes(+req.body.type) ? +req.body.type : 0;
   let name = clean(req.body.name, 100);
-  if (type === 0) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-');
+  if (type === 0 || type === 15) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-');
   name = name || 'novo-canal';
   const id = newId(), pos = (get('SELECT MAX(position) m FROM channels WHERE guild_id=?', gid).m ?? 0) + 1;
   const parent = get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id ?? ''), gid) ? String(req.body.parent_id) : null;
   run('INSERT INTO channels(id,guild_id,type,name,position,parent_id,created_at) VALUES(?,?,?,?,?,?,?)', id, gid, type, name, pos, parent, Date.now());
+  if (type === 15) run('UPDATE channels SET forum=? WHERE id=?', JSON.stringify({ tags: [['Discussão', '💬'], ['Dúvida', '❓'], ['Mídia', '🎬'], ['Jogatina', '🎮']].map(([n, e], i) => ({ id: 't' + (i + 1), name: n, emoji: e, color: forum.TAG_COLORS[i] })), guidelines: '' }), id); // fórum novo já vem com tags
   dispatch(guildMemberIds(gid), 'CHANNEL_CREATE', get('SELECT * FROM channels WHERE id=?', id));
   audit(gid, req.uid, 'channel_create', id, name);
   res.json({ id });
@@ -677,6 +679,7 @@ app.delete('/api/channels/:id', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
   if (!ch || !ch.guild_id || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
   if (voice.has(ch.id)) for (const u of [...voice.get(ch.id).keys()]) leaveVoice(u, ch.id);
+  if (ch.type === 15) forum.dropForum(ch.id); // os posts vão junto
   run('UPDATE channels SET parent_id=NULL WHERE parent_id=?', ch.id);
   run('DELETE FROM channels WHERE id=?', ch.id);
   audit(ch.guild_id, req.uid, 'channel_delete', ch.id, ch.name);
@@ -935,7 +938,8 @@ function saveMentions(m, ch, mn) { // grava quem deve ver esta mensagem na caixa
 }
 app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
-  if (ch.type === 4) return bad(res, 'Canal não aceita mensagens');
+  if (ch.type === 4 || ch.type === 15) return bad(res, 'Canal não aceita mensagens');
+  if (!forum.canReply(ch, req.uid)) return bad(res, 'Este post está trancado: só a moderação comenta', 403);
   if (timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
   if (!rateOk(req.uid)) return bad(res, 'Você está enviando mensagens rápido demais', 429);
   { const wait = reputation.slowWait(ch.guild_id, req.uid); // soft-mute da reputação: 1 mensagem a cada N segundos
@@ -972,7 +976,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   recordClipShares(row, req.uid);
   const rep = row.reply_to && get('SELECT author_id FROM messages WHERE id=? AND channel_id=?', row.reply_to, ch.id);
   if (rep && rep.author_id !== req.uid) run('INSERT OR REPLACE INTO mentions VALUES(?,?,?)', id, rep.author_id, 'reply');
-  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mn.ids };
+  const msg = { ...messageObj(row), guild_id: ch.guild_id, mentions: mn.ids, ...(ch.type === 11 ? { forum_id: ch.parent_id } : {}) }; // comentário de post: o app conta sem tratar como canal
   dispatch(channelAudience(ch), 'MESSAGE_CREATE', msg);
   uxFirst(req.uid, 'message');
   dispatch([req.uid], 'READ_STATE', { channel_id: ch.id, last_id: id, latest: true, tab: req.get('x-lc-tab') || null }); // respondeu num aparelho: lido em todos
@@ -1471,6 +1475,7 @@ mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload: MAX_UPLOAD });
 reputation.mount(app, { auth, wrap, bad, channelFor });
 // apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
 mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
+const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk });
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });

@@ -22,7 +22,7 @@ function parts(t) {
   const ch = D.channelById(t.cid);
   if (!ch) return [null, 'Canal removido'];
   if (ch.type === 1) return [null, '@' + D.user(D.dmPeer(ch).id).display_name];
-  return [ch.type === 2 ? 'voice' : 'hash', chName(ch)];
+  return [ch.type === 2 ? 'voice' : ch.type === 15 || ch.type === 11 ? 'forum' : 'hash', ch.type === 11 ? ch.name : chName(ch)];
 }
 const label = (t) => parts(t)[1];
 const labelEl = (t) => { const [ic, txt] = parts(t); return [ic && h('span.ct-ico', icon(ic, 14)), h('span.ct-txt', txt)]; };
