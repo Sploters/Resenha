@@ -23,7 +23,7 @@ export const activityOf = (uid) => { let pc = null; for (const a of S.activities
 export function onActivityUpdate(d) {
   const k = d.user_id + ':' + d.platform;
   if (d.activity) S.activities.set(k, d.activity); else S.activities.delete(k);
-  ctx.renderActiveNow?.(); ctx.renderMembers?.(); scheduleFeed();
+  ctx.renderActiveNow?.(); ctx.renderMembers?.(); scheduleFeed(); dispatchEvent(new Event('rs-activity')); // cartões da Steam no chat (steamcard.js)
   if (S.voice.has(d.user_id)) ctx.renderSide?.(); // ícone do jogo ao lado do nome na sala de voz
 }
 export function onIntegrationUpdate(d) {
@@ -44,6 +44,8 @@ export const playingLine = (a) => `Jogando ${a.game.title}`;
 // 2) arte oficial da Steam (Steam vinculada, ou jogo instalado pela Steam): endereço resolvido pelo servidor (/api/steam-art)
 // 3) ícone genérico de controle
 const steamIdOf = (a) => (a.platform === 'steam' ? a.game.id : a.game.steam) || null;
+// quem está jogando agora um jogo da Steam (pelo appid), para o cartão de link da loja
+export const playingSteam = (appid) => [...new Set([...S.activities.values()].filter(a => String(steamIdOf(a)) === String(appid)).map(a => a.user_id))];
 const iconUrl = (a) => (a.game.icon && /^[a-f0-9]{64}$/.test(a.game.icon) ? `/game-icons/${a.game.icon}.png` : null);
 const art = new Map(); let artQ = new Set(), artTimer = null;
 function steamArt(id) { // Promise<{ image, thumb } | null>, em lote (vários cartões ao mesmo tempo = 1 pedido)

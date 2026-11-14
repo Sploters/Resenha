@@ -13,6 +13,8 @@
 // No discover.json: "tournaments": false desliga; "cmFeed" troca o endereço do feed (testes).
 // Região: o feed não diz o país, então cada torneio ganha uma região pelo nome, organizador e prêmio (Brasil, América
 // Latina, outra) e o organizador "herda" a região dos torneios dele. "hostRegions": { "Organizador": "br" } corrige.
+//   GET /api/steam-apps?ids=1,2 -> { appid: { title, url, image, price, old, discount, ends, reviews, tags, desc, dev, soon, when,
+// released, early, platforms, deck } }: cartão de links da loja da Steam no chat (public/steamcard.js).
 //   GET /api/discover/charts -> { playing, sellers }: pelas APIs públicas da própria Steam (as mesmas que o SteamDB
 // usa): mais jogados agora e mais vendidos da semana no país.
 import fs from 'node:fs';
@@ -231,14 +233,14 @@ export function mountDiscover(app, { auth, dataDir }) {
     const miss = ids.filter(id => { const c = cache.get('sitem:' + id); return !c || Date.now() - c.at > 6 * 3600e3; });
     for (let i = 0; i < miss.length; i += 50) {
       const r = await sapi('IStoreBrowseService/GetItems', { ids: miss.slice(i, i + 50).map(appid => ({ appid })), context: ctx(),
-        data_request: { include_assets: true, include_reviews: true, include_all_purchase_options: true, include_tag_count: 3 } }).catch(() => null);
+        data_request: { include_assets: true, include_reviews: true, include_all_purchase_options: true, include_tag_count: 3, include_basic_info: true, include_release: true, include_platforms: true } }).catch(() => null);
       for (const it of r?.response?.store_items || []) if (it.success === 1 && it.appid) cache.set('sitem:' + it.appid, { at: Date.now(), v: it });
     }
     const tags = await tagNames().catch(() => ({}));
     const out = {};
     for (const id of ids) {
       const it = cache.get('sitem:' + id)?.v; if (!it) continue;
-      const a = it.assets || {}, img = (f) => (f && a.asset_url_format ? ASSETS + a.asset_url_format.replace('${FILENAME}', f) : '');
+      const a = it.assets || {}, img = (f) => (f && a.asset_url_format ? (conf().steamAssets || ASSETS) + a.asset_url_format.replace('${FILENAME}', f) : '');
       const bp = it.best_purchase_option, rv = it.reviews?.summary_filtered;
       out[id] = { appid: id, title: it.name, url: `https://store.steampowered.com/app/${id}/`, image: img(a.header), thumb: img(a.small_capsule) || img(a.header),
         free: !!it.is_free, price: it.is_free ? 'Gratuito' : bp?.formatted_final_price || '', old: bp?.discount_pct ? bp.formatted_original_price || '' : '', discount: bp?.discount_pct || 0,
@@ -246,6 +248,18 @@ export function mountDiscover(app, { auth, dataDir }) {
         tags: (it.tagids || []).slice(0, 3).map(t => tags[t]).filter(Boolean) };
     }
     return out;
+  }
+  // dados extras do cartão de link (descrição, lançamento, plataformas, fim da promoção), do mesmo item guardado
+  function cardInfo(id, base) {
+    const it = cache.get('sitem:' + id)?.v || {}, bi = it.basic_info || {}, rl = it.release || {}, pf = it.platforms || {}, bp = it.best_purchase_option || {};
+    const soon = !!rl.is_coming_soon, ts = (rl.steam_release_date || rl.original_release_date || 0) * 1000;
+    const end = Math.max(0, ...(bp.active_discounts || []).map(d => +d.discount_end_date || 0)) * 1000;
+    return { ...base, desc: cut(decode(String(bi.short_description || '')).replace(/\s+/g, ' ').trim(), 300),
+      dev: (bi.developers || []).map(d => d.name).filter(Boolean).slice(0, 2).join(', '),
+      soon, released: !soon && ts ? ts : null, when: soon ? (rl.custom_release_date_message || (ts && rl.coming_soon_display === 'date_full' ? ts : null) || 'Em breve') : null,
+      early: !!(rl.is_early_access || it.is_early_access), ends: base.discount && end ? end : null,
+      platforms: [pf.windows && 'windows', pf.mac && 'mac', pf.steamos_linux && 'linux'].filter(Boolean),
+      deck: ({ 3: 'verified', 2: 'playable', 1: 'unsupported' })[pf.steam_deck_compat_category] || null };
   }
   async function charts() {
     if (conf().steam === false) return { off: true, items: [] };
@@ -276,6 +290,16 @@ export function mountDiscover(app, { auth, dataDir }) {
   app.get('/api/discover/upcoming', auth, send(async () => ({ items: await steamUpcoming() })));
   app.get('/api/discover/tournaments', auth, send(tournaments));
   app.get('/api/discover/charts', auth, send(charts));
+  // cartão de link da loja (store.steampowered.com/app/<id>) no chat: até 10 jogos por pedido, guardados por 6 h
+  app.get('/api/steam-apps', auth, async (req, res) => {
+    const ids = [...new Set(String(req.query.ids || '').split(',').filter(x => /^\d{1,10}$/.test(x)))].slice(0, 10);
+    if (!ids.length || off() || conf().steam === false) return res.json({});
+    try {
+      const it = await storeItems(ids.map(Number));
+      res.set('Cache-Control', 'private, max-age=1800');
+      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, cardInfo(x.appid, x)])));
+    } catch { res.json({}); }
+  });
   // arte oficial de jogos da Steam para a atividade "Jogando X" (endereço certo vem da loja: jogos novos não têm o caminho antigo)
   app.get('/api/steam-art', auth, async (req, res) => {
     const ids = [...new Set(String(req.query.ids || '').split(',').filter(x => /^\d{1,10}$/.test(x)))].slice(0, 20);

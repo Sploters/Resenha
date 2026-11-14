@@ -6,6 +6,7 @@ import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
+import { steamCard, steamApp } from './steamcard.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
@@ -1989,6 +1990,7 @@ function msgEl(m, prev) {
     if (gifOnly && S.prefs.embedLinks !== false) body.append(gifEl(m.content.trim(), (u) => lightbox(u))); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));
     if (S.prefs.embedLinks !== false) for (const url of (shown.match(/https?:\/\/\S+/g) || []).filter(isImageUrl).slice(0, 3)) body.append(h('div.attach', h('img', { src: url, loading: 'lazy', referrerPolicy: 'no-referrer', onclick: () => lightbox(url) })));
     if (S.prefs.embedLinks !== false) for (const card of [...new Set((shown.match(/https?:\/\/[^\s<>)]+/g) || []))].slice(0, 6).map(socialCard).filter(Boolean).slice(0, 3)) body.append(card); // YouTube/Shorts/TikTok/Reels (media.js)
+    if (S.prefs.embedLinks !== false) { const seen = new Set(); for (const url of (shown.match(/https?:\/\/[^\s<>)]+/g) || []).slice(0, 10)) { const id = steamApp(url); if (id && !seen.has(id) && seen.size < 3) { seen.add(id); body.append(steamCard(url)); } } } // loja da Steam (steamcard.js)
     body.querySelectorAll('.spoiler').forEach(s => (s.onclick = () => s.classList.add('shown')));
     body.querySelectorAll('.mention[data-uid]').forEach(s => { s.onclick = () => profile(s, s.dataset.uid, gid); const u = S.users.get(s.dataset.uid); if (u) s.prepend(mentionAvatar(u)); });
     el.append(body);

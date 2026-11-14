@@ -1655,3 +1655,45 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .ux-tiles.mini { margin-bottom: 10px; } .ux-tiles.mini .ux-tile { background: var(--bg-tert); padding: 10px 12px; } .ux-tiles.mini .ux-tile b { font-size: 22px; }
 #callrate .cr-btn span { font-size: 13px; font-weight: 600; white-space: nowrap; } #callrate .cr-btn.bad { background: var(--bg-mod-sel, #404249); color: var(--header); }
 #callrate .cr-hint { display: block; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+
+/* ---------- cartão de link da loja da Steam (steamcard.js) ---------- */
+.steamcard { margin-top: 6px; width: min(440px, 100%); border-radius: 10px; overflow: hidden; background: var(--bg-sec); border: 1px solid var(--bg-mod-sel); color: var(--text); display: flex; flex-direction: column; }
+.steamcard .sc-hero { position: relative; display: block; aspect-ratio: 460 / 215; background: linear-gradient(135deg, var(--bg-tert), var(--bg-mod-sel)); }
+.steamcard .sc-hero img { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter .15s; }
+.steamcard .sc-hero:hover img { filter: brightness(1.08); }
+.steamcard .sc-ends { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.72); color: #fff; font-size: 12px; font-weight: 600; }
+.steamcard .sc-ends .icon { fill: currentColor; }
+.steamcard .sc-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.steamcard .sc-top { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-muted); min-width: 0; }
+.steamcard .sc-store { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+.steamcard .sc-dev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steamcard .sc-title { font-size: 16px; font-weight: 700; color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
+.steamcard .sc-title:hover { text-decoration: underline; }
+.steamcard .sc-desc { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.steamcard .sc-tags { display: flex; flex-wrap: wrap; gap: 5px; } .steamcard .sc-tags:empty { display: none; }
+.steamcard .sc-tag { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: var(--bg-tert); color: var(--text); }
+.steamcard .sc-tag.early { background: color-mix(in srgb, var(--yellow) 22%, transparent); color: var(--header); }
+.steamcard .sc-tag.deck-ok { background: color-mix(in srgb, var(--green) 22%, transparent); color: var(--header); }
+.steamcard .sc-tag.deck-mid { background: color-mix(in srgb, var(--yellow) 18%, transparent); color: var(--header); }
+.steamcard .sc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; color: var(--text-muted); } .steamcard .sc-meta:empty { display: none; }
+.steamcard .sc-meta > span { display: inline-flex; align-items: center; gap: 4px; } .steamcard .sc-meta .icon { fill: currentColor; flex: none; }
+.steamcard .sc-rev.good { color: var(--link); } .steamcard .sc-rev.mixed { color: var(--yellow); } .steamcard .sc-rev.bad { color: var(--red); }
+.steamcard .sc-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.steamcard .sc-price { display: inline-flex; align-items: stretch; border-radius: 6px; overflow: hidden; background: var(--bg-tert); font-variant-numeric: tabular-nums; }
+.steamcard .sc-off { display: flex; align-items: center; padding: 0 8px; background: var(--green); color: #fff; font-weight: 800; font-size: 15px; }
+.steamcard .sc-cost { display: flex; flex-direction: column; justify-content: center; padding: 4px 10px; line-height: 1.15; }
+.steamcard .sc-cost s { font-size: 11.5px; color: var(--text-muted); } .steamcard .sc-cost b { font-size: 14px; color: var(--header); }
+.steamcard .sc-price.sale .sc-cost b { color: var(--green); }
+.steamcard .sc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.steamcard .sc-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--bg-mod-sel); color: var(--header); font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.steamcard .sc-btn:hover { background: var(--bg-mod-hover); filter: brightness(1.15); } .steamcard .sc-btn .icon { fill: currentColor; flex: none; }
+.steamcard .sc-btn.primary { background: var(--brand); color: #fff; } .steamcard .sc-btn.primary:hover { background: var(--brand-hover); filter: none; }
+.steamcard .sc-now { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--bg-mod-sel); font-size: 12.5px; color: var(--text-muted); } .steamcard .sc-now:empty { display: none; }
+.steamcard .sc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+.steamcard .sc-avs { display: inline-flex; } .steamcard .sc-avs .avatar + .avatar { margin-left: -6px; } .steamcard .sc-avs .avatar { box-shadow: 0 0 0 2px var(--bg-sec); }
+.steamcard.loading .sc-body { gap: 8px; }
+.steamcard .sc-sk { height: 12px; border-radius: 6px; background: var(--bg-mod-sel); animation: scpulse 1.2s ease-in-out infinite alternate; }
+.steamcard .sc-sk.w40 { width: 40%; } .steamcard .sc-sk.w60 { width: 60%; } .steamcard .sc-sk.w70 { width: 70%; height: 16px; } .steamcard .sc-sk.w90 { width: 90%; }
+@keyframes scpulse { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .steamcard .sc-sk { animation: none; } }
+@media (max-width: 520px) { .steamcard .sc-app { display: none; } .steamcard .sc-acts { margin-left: 0; } }
