@@ -78,14 +78,16 @@ try {
   ok((await call(c.tok, 'POST', `/call-invites/${r.invite.id}/accept`)).status === 404, 'terceiros não aceitam o convite de outro');
   // cartão na DM do bob
   const dm = await B.evaluate(() => [...window.__lc.S.dms.values()][0]?.id);
-  await B.evaluate((cid) => window.__lc.go('@me', cid), dm); await sleep(800);
+  await B.evaluate((cid) => window.__lc.go('@me', cid), dm);
+  await B.waitForFunction(() => document.querySelectorAll('.callcard .btn').length >= 2, { timeout: 10000 }).catch(() => { }); // o cartão busca o convite antes de desenhar os botões
   const card = await B.evaluate(() => ({ t: document.querySelector('.callcard')?.textContent || '', btn: [...document.querySelectorAll('.callcard .btn')].map(x => x.textContent) }));
   ok(card.t.includes('Convite para a chamada') && card.btn.includes('Entrar no servidor e na chamada') && card.btn.includes('Recusar'), 'cartão na DM com "Entrar no servidor e na chamada" e "Recusar": ' + card.btn.join(' | '));
   ok(await B.evaluate(() => !document.querySelector('#msgs')?.textContent.includes('/call/')), 'o link cru não aparece no chat, só o cartão');
   await B.screenshot({ path: `${SHOTS}/callinv-card.png` });
   // aceitar pelo aviso: entra no servidor e na sala
   await B.evaluate(() => [...document.querySelectorAll('#call-banner .btn')].find(x => x.textContent === 'Entrar').click());
-  await B.waitForFunction((cid) => window.__lc.voice?.channelId === cid, { timeout: 15000 }, vch.id).catch(() => { });
+  // espera as três coisas (entrar na chamada e abrir a sala acontecem quase juntos, em qualquer ordem)
+  await B.waitForFunction((gid, cid) => window.__lc.S.guilds.has(gid) && window.__lc.voice?.channelId === cid && window.__lc.S.view.cid === cid, { timeout: 15000 }, g.id, vch.id).catch(() => { });
   ok(await B.evaluate((gid, cid) => window.__lc.S.guilds.has(gid) && window.__lc.voice?.channelId === cid && window.__lc.S.view.cid === cid, g.id, vch.id), 'aceitar: bob entra no servidor, abre a sala e entra na chamada');
   const seen = (re) => A.waitForFunction((re) => new RegExp(re).test(document.getElementById('toast')?.textContent || ''), { timeout: 4000 }, re).then(() => true, () => false);
   await seen('bob aceitou');
@@ -101,8 +103,10 @@ try {
   ok(await seen('carol recusou'), 'alice fica sabendo que a carol recusou');
   // cartão da alice (DM com a carol) mostra o resultado
   const dmC = await A.evaluate((cid) => [...window.__lc.S.dms.values()].find(x => x.recipients?.some(u => u.id === cid) || x.recipient_ids?.includes(cid))?.id, c.id);
-  if (dmC) { await A.evaluate((id) => window.__lc.go('@me', id), dmC); await sleep(800); }
-  ok(await A.evaluate(() => /carol recusou/.test(document.querySelector('.callcard[data-state="declined"] .ccstate')?.textContent || '')), 'cartão de quem convidou mostra "carol recusou"');
+  if (dmC) await A.evaluate((id) => window.__lc.go('@me', id), dmC);
+  const recusou = () => /carol recusou/.test(document.querySelector('.callcard[data-state="declined"] .ccstate')?.textContent || '');
+  ok(await A.waitForFunction(recusou, { timeout: 10000 }).then(() => true, () => false), 'cartão de quem convidou mostra "carol recusou"');
+  if (process.env.DIAG) console.log('DIAG', dmC, JSON.stringify(await A.evaluate(() => ({ view: window.__lc.S.view, cards: [...document.querySelectorAll('.callcard')].map(c => [c.dataset.state, c.querySelector('.ccstate')?.textContent, c.textContent.slice(0, 80)]), dms: [...window.__lc.S.dms.values()].map(d => d.recipients?.map(u => u.username)) }))));
   await A.screenshot({ path: `${SHOTS}/callinv-declined.png` });
 
   // cancelar: alice convida de novo e cancela; aceitar depois falha

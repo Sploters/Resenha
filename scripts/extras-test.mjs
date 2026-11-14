@@ -280,8 +280,8 @@ try {
     return A.$$eval('.menu .it', i => i.map(x => x.textContent));
   };
   const items3 = await openMenuOnBob();
-  const want = ['Fixar', 'Perfil', 'Iniciar Ligação', 'Convidar para Servidor', 'Adicionar Amizade', 'Bloquear', 'Mute'];
-  ok(JSON.stringify(items3.slice(0, 7)) === JSON.stringify(want), 'menu do usuário na ordem pedida: ' + items3.slice(0, 7).join(' · '));
+  const want = ['Fixar', 'Perfil', 'Iniciar Ligação', 'Convidar para Servidor', 'Jogos e wishlist', 'Adicionar Amizade', 'Bloquear', 'Mute']; // "Jogos e wishlist" entrou com a biblioteca/wishlist de cada pessoa
+  ok(JSON.stringify(items3.slice(0, want.length)) === JSON.stringify(want), 'menu do usuário na ordem pedida: ' + items3.slice(0, want.length).join(' · '));
   await A.screenshot({ path: `${SHOTS}/x9-menu-usuario.png` });
   // fixar
   await clickText(A, '.menu .it', 'Fixar'); await sleep(600);
