@@ -1756,3 +1756,28 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .deal-acts .sc-btn { display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 6px; background: var(--bg-mod-sel); color: var(--header); font-weight: 600; text-decoration: none; cursor: pointer; }
 .deal-acts .sc-btn .icon { fill: currentColor; } .deal-acts .sc-btn.primary { background: var(--brand); color: #fff; } .deal-acts .deal-x { margin-left: auto; background: none; color: var(--text-muted); }
 @media (max-width: 520px) { .deal-img { width: 96px; } }
+/* "O que jogar hoje?" (games.js → openGameNight) */
+.gn { display: flex; flex-direction: column; gap: 12px; }
+.gn-people { display: flex; flex-wrap: wrap; gap: 10px; }
+.gn-person { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; text-align: center; }
+.gn-person small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--header); font-weight: 600; font-size: 12px; }
+.gn-person i { font-style: normal; font-size: 11px; color: var(--text-muted); } .gn-person.off { opacity: .5; }
+.gn-bar .ctabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 8px; background: var(--bg-sec); }
+.gn-bar .ctab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 6px; background: none; color: var(--text-muted); font-weight: 600; font-size: 13px; cursor: pointer; }
+.gn-bar .ctab.on { background: var(--bg-mod-sel); color: var(--header); } .gn-n { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--bg-tert); }
+.gn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; max-height: min(46vh, 440px); overflow-y: auto; padding: 2px; }
+.gn-tile { display: flex; flex-direction: column; gap: 3px; padding: 0 0 8px; border: 2px solid transparent; border-radius: 9px; overflow: hidden; background: var(--bg-sec); color: var(--text); text-align: left; cursor: pointer; }
+.gn-tile:hover { border-color: var(--bg-mod-hover); } .gn-tile.on { border-color: var(--brand); }
+.gn-tile b { padding: 0 8px; font-size: 13px; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gn-tile small { padding: 0 8px; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gn-img { position: relative; aspect-ratio: 460 / 215; background: var(--bg-tert); } .gn-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gn-check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: #fff; } .gn-check .icon { fill: currentColor; }
+.gn-price { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--header); } .gn-price:empty { display: none; }
+.gn-price .sc-off { padding: 1px 5px; border-radius: 4px; background: var(--green); color: #fff; font-weight: 800; }
+.gn-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+.gn-foot .gn-hint { margin-right: auto; font-size: 12.5px; color: var(--text-muted); }
+.gn-foot .btn { display: inline-flex; align-items: center; gap: 6px; } .gn-foot .btn .icon { fill: currentColor; } .gn-foot .btn:disabled { opacity: .5; cursor: not-allowed; }
+.gn-result:empty { display: none; }
+.gn-rollbox { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px; border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 30%, var(--bg-sec)), var(--bg-sec)); }
+.gn-rollbox small { color: var(--text-muted); } .gn-roll { font-size: 22px; color: var(--header); text-align: center; }
+.gn-rollbox.done .gn-roll { color: var(--green); }

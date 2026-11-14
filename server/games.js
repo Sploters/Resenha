@@ -18,6 +18,7 @@
 //   POST   /api/games/sync                -> sincroniza a Steam agora (1 vez a cada 2 min)
 //   PUT    /api/wishlist/:appid           -> põe na wishlist da Resenha        DELETE /api/wishlist/:appid -> tira (só os da Resenha)
 //   GET    /api/users/:id/games           -> { wishlist: [{ appid, added_at }], top: [{ appid, title, minutes }], count } (se pode ver)
+//   GET    /api/voice/:cid/games          -> "O que jogar hoje?": { people, pool, all, almost, wish } de quem está na chamada
 //   GET    /api/deals                     -> { alerts: [{ id, appid, title, discount, price, old, ends, others: [uids], at, seen }], unseen, users }
 //   POST   /api/deals/seen                -> marca os alertas como vistos     DELETE /api/deals/:id -> apaga um
 //   (alerta de promoção: veja checkDeals; aviso em tempo real pelo evento GAME_DEAL; preferência deal_alerts em /api/games/me)
@@ -29,7 +30,7 @@ export const DEALS = ['all', 'big', 'off']; // avisar de promoção: qualquer de
 const SYNC_EVERY = 12 * 3600e3, MANUAL_GAP = 120e3;
 const appidOk = (x) => /^\d{1,10}$/.test(String(x || ''));
 
-export function mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store = null, log = console.log, now = () => Date.now() }) {
+export function mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store = null, roomOf = () => null, log = console.log, now = () => Date.now() }) {
   db.exec(`CREATE TABLE IF NOT EXISTS game_library(
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, platform TEXT NOT NULL, appid TEXT NOT NULL, title TEXT,
     minutes INTEGER NOT NULL DEFAULT 0, last_played INTEGER, PRIMARY KEY(user_id, platform, appid));
@@ -245,6 +246,35 @@ export function mountGames(app, { auth, wrap, bad, db, all, get, run, newId, get
   const dealPub = (a) => ({ id: a.id, appid: a.appid, title: a.title, discount: a.discount, price: a.price, old: a.old, ends: a.ends, others: JSON.parse(a.others || '[]'), at: a.created_at, seen: !!a.seen });
   const scheduleDeals = () => { if (stopped) return; dealTimer = setTimeout(async () => { await checkDeals().catch(e => log('[jogos] promoções: ' + e.message)); scheduleDeals(); }, DEALS_MS()); dealTimer.unref?.(); };
   if (process.env.DEALS !== '0') { setTimeout(() => checkDeals().catch(() => { }), +process.env.DEALS_FIRST_MS || 60000).unref?.(); scheduleDeals(); }
+
+  // ---- "O que jogar hoje?" (sala de voz) ----
+  // Cruza as bibliotecas de quem está na chamada (só de quem compartilha os jogos com quem pergunta):
+  //   all    = jogos que todos (com biblioteca) têm, os mais jogados pelo grupo primeiro
+  //   almost = falta só 1 pessoa (com 3+ bibliotecas)    wish = jogos que 2+ pessoas da chamada querem
+  app.get('/api/voice/:cid/games', auth, wrap((req, res) => {
+    const room = roomOf(req.params.cid); if (!room || !room.includes(req.uid)) return bad(res, 'Entre na chamada primeiro', 403);
+    const see = seer(req.uid), shared = room.filter(see);
+    const counts = new Map(shared.map(u => [u, get('SELECT COUNT(*) n FROM game_library WHERE user_id=?', u).n]));
+    const pool = shared.filter(u => counts.get(u) > 0);
+    const people = room.map(u => ({ user_id: u, shared: shared.includes(u), games: shared.includes(u) ? counts.get(u) : null }));
+    const by = new Map();
+    if (pool.length) for (const r of all(`SELECT appid, user_id, MAX(minutes) minutes, MAX(last_played) last, MAX(title) title FROM game_library WHERE user_id IN (${pool.map(() => '?').join(',')}) GROUP BY appid, user_id`, ...pool)) {
+      if (!by.has(r.appid)) by.set(r.appid, { appid: r.appid, title: r.title, owners: [], minutes: 0, last: 0 });
+      const g = by.get(r.appid); g.owners.push(r.user_id); g.minutes += r.minutes || 0; g.last = Math.max(g.last, r.last || 0); if (!g.title && r.title) g.title = r.title;
+    }
+    const rank = (a, b) => b.minutes - a.minutes || b.last - a.last;
+    const list = [...by.values()];
+    const allHave = pool.length >= 2 ? list.filter(g => g.owners.length === pool.length).sort(rank).slice(0, 40) : [];
+    const almost = pool.length >= 3 ? list.filter(g => g.owners.length === pool.length - 1).sort(rank).slice(0, 24).map(g => ({ ...g, missing: pool.filter(u => !g.owners.includes(u)) })) : [];
+    const wishBy = new Map();
+    if (shared.length >= 2) for (const r of all(`SELECT DISTINCT appid, user_id FROM wishlist WHERE user_id IN (${shared.map(() => '?').join(',')})`, ...shared)) {
+      if (!wishBy.has(r.appid)) wishBy.set(r.appid, []); wishBy.get(r.appid).push(r.user_id);
+    }
+    const wish = [...wishBy].filter(([, w]) => w.length >= 2).map(([appid, w]) => ({ appid, wish: w, owners: by.get(appid)?.owners || [] }))
+      .sort((a, b) => b.wish.length - a.wish.length).slice(0, 16);
+    res.set('Cache-Control', 'private, no-cache');
+    res.json({ people, pool: pool.length, all: allHave, almost, wish, users: room.map(userPub).filter(Boolean) });
+  }));
 
   app.get('/api/deals', auth, wrap((req, res) => {
     const list = all('SELECT * FROM deal_alerts WHERE user_id=? AND created_at>? ORDER BY created_at DESC LIMIT 60', req.uid, now() - 30 * 864e5).map(dealPub);

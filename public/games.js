@@ -232,3 +232,72 @@ export function gamesBlock() {
   return [section('Biblioteca e wishlist'), box];
 }
 function openMyGames() { ctx.openSettings?.('connections'); }
+
+// ---------------------------------------------------------------- "O que jogar hoje?" (botão na sala de voz)
+// Cruza as bibliotecas de quem está na chamada: o que todo mundo tem, onde falta só 1 e o que vários querem. Marque
+// jogos e sorteie (o resultado vai para o chat da sala, com o cartão da Steam) ou abra uma votação (enquete no chat).
+const TABS = [['all', 'Todo mundo tem'], ['almost', 'Falta só 1'], ['wish', 'Querem juntos']];
+const pickRandom = (n) => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+export async function openGameNight(cid) {
+  const st = { tab: 'all', sel: new Map(), data: null, rolling: false };
+  const body = h('div.gn', skeleton('cards', 4));
+  const m = modal('O que jogar hoje?', 'Cruzando as bibliotecas de quem está na chamada', body, [], { width: 'min(760px, 96vw)' });
+  const md = m.el.querySelector('.modal'); md.classList.add('gpmodal', 'gnmodal'); md.querySelector('.mf')?.remove();
+  md.querySelector('.mh').append(h('button.inv-x.gp-x', { title: 'Fechar', 'aria-label': 'Fechar', onclick: m.close }, icon('x', 20)));
+  const r = await tryApi('GET', `/voice/${cid}/games`);
+  if (!r) return m.close();
+  keepUsers(r.users); st.data = r;
+  if (!r.all.length && r.almost.length) st.tab = 'almost'; else if (!r.all.length && !r.almost.length && r.wish.length) st.tab = 'wish';
+  const items = () => r[st.tab] || [];
+  const titleOf = (g) => g.title || steamInfo.cached(g.appid)?.title || 'Jogo ' + g.appid;
+  const result = h('div.gn-result');
+  const draw = () => {
+    const people = h('div.gn-people', r.people.map(p => h('div.gn-person' + (p.shared && p.games ? '' : '.off'), { title: !p.shared ? 'Não compartilha os jogos com você' : !p.games ? 'Sem biblioteca da Steam na Resenha' : `${p.games} jogos` },
+      avatar(uOf(p.user_id), 32, { status: false }), h('small', nameOf(p.user_id)), h('i', !p.shared ? 'escondido' : !p.games ? 'sem biblioteca' : p.games + ' jogos'))));
+    const tabs = h('div.ctabs', TABS.map(([k, l]) => h('button.ctab' + (st.tab === k ? '.on' : ''), { type: 'button', onclick: () => { st.tab = k; draw(); } }, l, h('span.gn-n', String(r[k].length)))));
+    const list = items();
+    const grid = list.length ? h('div.gn-grid', list.map(tile)) : h('p.gm-none', r.pool < 2 && st.tab !== 'wish'
+      ? 'Para cruzar as bibliotecas, pelo menos 2 pessoas da chamada precisam ter a Steam vinculada (com "Detalhes do jogo" públicos) e mostrar os jogos. Configurações → Contas vinculadas.'
+      : st.tab === 'all' ? 'Nenhum jogo em comum entre todo mundo.' : st.tab === 'almost' ? 'Nenhum jogo em que falte só uma pessoa.' : 'Nenhum jogo que 2 ou mais pessoas daqui querem.');
+    const n = st.sel.size, pool = n ? [...st.sel.values()] : list.slice(0, 40);
+    const foot = h('div.gn-foot',
+      h('span.gn-hint', n ? `${n} ${n === 1 ? 'escolhido' : 'escolhidos'} (até 10)` : 'Clique nos jogos para escolher; sem escolher, o sorteio usa a aba inteira'),
+      n ? h('button.btn.link', { type: 'button', onclick: () => { st.sel.clear(); draw(); } }, 'Limpar') : null,
+      h('button.btn.grey', { type: 'button', disabled: pool.length < 2 || st.rolling, onclick: () => roll(pool) }, icon('shuffle', 16), 'Sortear'),
+      h('button.btn', { type: 'button', disabled: n < 2, title: n < 2 ? 'Escolha de 2 a 10 jogos' : 'Abre uma enquete no chat da sala (1 hora)', onclick: () => vote() }, icon('poll', 16), 'Votar no chat'));
+    body.replaceChildren(people, h('div.gn-bar', tabs), result, grid, foot);
+  };
+  function tile(g) {
+    const on = st.sel.has(g.appid);
+    const sub = st.tab === 'all' ? (g.minutes ? hours(Math.round(g.minutes)) + ' no grupo' : 'ninguém jogou ainda')
+      : st.tab === 'almost' ? 'falta ' + g.missing.map(nameOf).join(', ')
+      : `${g.wish.length} querem` + (g.owners.length ? ` · ${g.owners.length} ${g.owners.length === 1 ? 'tem' : 'têm'}` : '');
+    const t = h('button.gn-tile' + (on ? '.on' : ''), { type: 'button', 'data-app': g.appid, 'aria-pressed': on ? 'true' : 'false',
+      onclick: () => { if (on) st.sel.delete(g.appid); else if (st.sel.size >= 10) return toast('No máximo 10 jogos.'); else st.sel.set(g.appid, g); draw(); } },
+      h('div.gn-img', on ? h('span.gn-check', icon('check', 16)) : null), h('b', titleOf(g)), h('small', sub), h('span.gn-price'));
+    steamInfo(g.appid).then(i => {
+      if (!i) return;
+      if (!g.title) { g.title = i.title; t.querySelector('b').textContent = i.title; }
+      if (i.image) t.querySelector('.gn-img').prepend(h('img', { src: i.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() }));
+      if (st.tab !== 'all') t.querySelector('.gn-price').replaceChildren(...[i.discount ? h('span.sc-off', '-' + i.discount + '%') : null, h('span', i.free ? 'Gratuito' : i.price || '')].filter(Boolean));
+    });
+    return t;
+  }
+  async function roll(pool) {
+    if (st.rolling || pool.length < 2) return; st.rolling = true; draw();
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches, win = pool[pickRandom(pool.length)];
+    const name = h('b.gn-roll'); result.replaceChildren(h('div.gn-rollbox', h('small', 'Sorteando…'), name));
+    if (!reduce) for (let i = 0, d = 50; i < 18; i++, d *= 1.13) { name.textContent = titleOf(pool[(pickRandom(pool.length))]); await new Promise(r => setTimeout(r, d)); }
+    name.textContent = titleOf(win);
+    const sent = await tryApi('POST', `/channels/${cid}/messages`, { content: `Sorteio do "O que jogar hoje?" entre ${pool.length} jogos: ${titleOf(win)}\nhttps://store.steampowered.com/app/${win.appid}/` });
+    result.replaceChildren(h('div.gn-rollbox.done', h('small', sent ? 'Saiu (e foi para o chat da sala):' : 'Saiu:'), h('b.gn-roll', titleOf(win))));
+    st.rolling = false; draw(); // o resultado continua no topo (mesmo elemento)
+  }
+  async function vote() {
+    const opts = [...st.sel.values()].map(g => titleOf(g).slice(0, 80));
+    const seen = new Set(), uniq = opts.map(o => { let x = o, k = 2; while (seen.has(x.toLowerCase())) x = `${o.slice(0, 76)} (${k++})`; seen.add(x.toLowerCase()); return x; });
+    const ok = await tryApi('POST', `/channels/${cid}/polls`, { question: 'O que jogar hoje?', options: uniq, multi: true, duration_h: 1 });
+    if (ok) { toast('Votação aberta no chat da sala (1 hora).'); m.close(); }
+  }
+  draw();
+}

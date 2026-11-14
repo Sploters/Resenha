@@ -7,7 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { socialCard, prepVideo } from './media.js';
 import { steamCard, steamApp } from './steamcard.js';
-import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal, onGameDeal, onDealsSeen, dealsUnseen, dealsList, markDealsSeen, loadDeals } from './games.js';
+import { initGames, onGamesUpdate, renderGuildWishlist, userGamesModal, openGameNight, onGameDeal, onDealsSeen, dealsUnseen, dealsList, markDealsSeen, loadDeals } from './games.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
@@ -3187,6 +3187,7 @@ function renderVoiceUI(speakOnly) {
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
+    abtn('gamepad', 'O que jogar hoje? (jogos que todo mundo da chamada tem)', false, () => openGameNight(voice.channelId)),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
     btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
