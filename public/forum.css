@@ -67,6 +67,7 @@
 .fo-acts { display: flex; align-items: center; gap: 2px; margin-top: 6px; flex-wrap: wrap; }
 .fo-act { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 999px; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 13px; font-weight: 600; }
 button.fo-act { cursor: pointer; } button.fo-act:hover { background: var(--bg-mod-hover); color: var(--header); }
+.fo-act.on { color: var(--yellow, #f0b232); }
 .fo-act.muted { font-weight: 400; padding-left: 0; }
 .fo-acts .fo-act:first-child { padding-left: 4px; }
 .fo-more { align-self: center; margin-top: 4px; }

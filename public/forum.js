@@ -45,13 +45,14 @@ const postOf = (id) => S.posts.get(id)?.post;
 // ---------- eventos ----------
 export function onForumEvent(t, d) {
   if (t === 'FORUM_POST_DELETE') {
-    S.posts.delete(d.id); view.posts = view.posts.filter(p => p.id !== d.id);
+    S.posts.delete(d.id); view.posts = view.posts.filter(p => p.id !== d.id); ctx.favPostChanged?.(d.id, null);
     if (S.view.cid === d.id) { toast('Este post foi apagado.'); ctx.go(d.guild_id, d.forum_id); return; }
     if (S.view.cid === d.forum_id) drawFeed();
     return;
   }
   const mine = d.voter === S.me.id;
   const ch = rememberPost(mine ? { ...d, voted: d.vote } : d);
+  if (d.title) ctx.favPostChanged?.(d.id, d.title);
   const i = view.posts.findIndex(p => p.id === d.id);
   if (i >= 0) view.posts[i] = ch.post; else if (t === 'FORUM_POST_CREATE' && view.fid === d.forum_id && !view.tag && !view.q) view.posts.splice(view.posts.findIndex(p => !p.pinned) < 0 ? view.posts.length : view.posts.findIndex(p => !p.pinned), 0, ch.post);
   if (S.view.cid === d.forum_id) drawFeed();
@@ -181,6 +182,7 @@ function postMenu(e, p) {
   menu(e, [
     { label: 'Abrir post', fn: () => { rememberPost(p); ctx.go(p.guild_id, p.id); } },
     { label: 'Copiar link', icon: 'link', fn: () => copyLink(p) },
+    { label: ctx.isFav?.(p.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos', icon: 'star', fn: () => { ctx.toggleFavPost?.(p); paintPostHead(); } },
     (mine || mod) && { label: 'Editar post', icon: 'edit', fn: () => newPostModal(channelById(p.forum_id), p) },
     mod && '-',
     mod && { label: p.pinned ? 'Desafixar' : 'Fixar no topo', icon: 'pin', fn: () => tryApi('PATCH', `/posts/${p.id}`, { pinned: !p.pinned }) },
@@ -281,6 +283,7 @@ export function paintPostHead(chArg) {
       h('div.fo-acts',
         h('span.fo-act', icon('dm', 16), `${p.replies} ${p.replies === 1 ? 'comentário' : 'comentários'}`),
         h('button.fo-act', { type: 'button', onclick: () => copyLink(p) }, icon('link', 16), 'Compartilhar'),
+        h('button.fo-act' + (ctx.isFav?.(p.id) ? '.on' : ''), { type: 'button', 'aria-pressed': String(!!ctx.isFav?.(p.id)), onclick: () => { ctx.toggleFavPost?.(p); paintPostHead(); } }, icon('star', 16), ctx.isFav?.(p.id) ? 'Nos favoritos' : 'Favoritar'),
         h('button.fo-act.fo-more-btn', { type: 'button', title: 'Mais opções', 'aria-label': 'Mais opções', onclick: (e) => postMenu(e, p) }, icon('more', 16))))),
     h('div.fo-csep', h('span', 'Comentários')));
 }

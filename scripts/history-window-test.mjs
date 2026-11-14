@@ -27,6 +27,12 @@ try {
   await p.waitForFunction(() => document.querySelectorAll('#msgs .msg').length >= 50, { timeout: 60000 }); await sleep(1500);
   const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   const ids = () => p.evaluate(() => [...document.querySelectorAll('#msgs > [data-mid]')].map(e => e.dataset.mid));
+  // a linha que liga mensagens seguidas do mesmo autor (classe .tnext, threadWatch) marca exatamente o que o seletor
+  // antigo com :has() marcava, depois de montar, subir, descer e chegar mensagem nova
+  const thread = (when) => p.evaluate(() => { const q = (s) => [...document.querySelectorAll(s)].map(e => e.dataset.mid).join();
+    return { a: q('#msgs .msg.first:has(+ .msg.cont)') === q('#msgs .msg.first.tnext'), b: q('#msgs .msg.cont:not(:has(+ .msg.cont))') === q('#msgs .msg.cont:not(.tnext)'), n: document.querySelectorAll('#msgs .msg.tnext').length, conts: document.querySelectorAll('#msgs .msg.cont').length }; })
+    .then(r => ok(r.a && r.b, `linha das mensagens seguidas certa (${when})`, r));
+  await thread('ao abrir');
   const contiguous = (list) => { const i = all.findIndex(m => m.id === list[0]); return i >= 0 && list.every((id, k) => all[i + k]?.id === id); };
   // sobe: cada página espera o "carregando" terminar e mede a tarefa do topo
   const times = [];
@@ -37,6 +43,7 @@ try {
     if ((await ids())[0] === n0) break;
   }
   const up = await ids();
+  await thread('depois de subir');
   const st = await p.evaluate(() => ({ bar: document.querySelector('#detached-bar')?.textContent || null, els: document.querySelectorAll('#msgs *').length }));
   console.log(`  subindo: ${times.length} páginas, ${up.length} mensagens na tela, ${st.els} elementos; página no topo ${times.slice(0, 3).join('/')} … ${times.slice(-3).join('/')} ms`);
   ok(up.length <= 300, 'depois de 800 mensagens para cima, o chat guarda no máximo 300', up.length);
@@ -55,9 +62,11 @@ try {
   const down = await ids();
   ok(down.at(-1) === all.at(-1).id, 'descendo chega à mensagem mais nova', { ultima: down.at(-1) === all.at(-1).id, voltas: guard });
   ok(contiguous(down) && down.length <= 360, 'e o chat termina em ordem e limitado', down.length);
+  await thread('depois de descer');
   // mensagem nova chegando no presente aparece
   await fetch(`${BASE}/api/channels/${CID}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer load-1' }, body: JSON.stringify({ content: 'chegou agora' }) });
   await sleep(1500);
   ok(await p.evaluate(() => document.querySelector('#msgs .msg:last-child .body')?.textContent?.trim()) === 'chegou agora', 'no presente, a mensagem nova aparece no fim');
+  await thread('com a mensagem nova');
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); srv.kill(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

@@ -46,7 +46,8 @@ O que precisa mudar por causa disso:
 - `guildObj` (`server/index.js`, `SELECT * FROM channels WHERE guild_id=?`) **não manda** os `type = 11` no READY
   (seriam centenas). Os posts vêm sob demanda pela API abaixo.
 - `guildChOrder`, a lista de canais, reordenar e favoritos ignoram o `type = 11`. Um post pode virar favorito à parte
-  (com o fórum de origem), o que fica para depois.
+  (com o fórum de origem): **feito em 2026-11-14**, pelo botão "Favoritar" no post ou no menu dele; o favorito guarda o
+  servidor, o fórum e o título (os posts não vêm no READY) e some quando o post ou o fórum é apagado.
 - As não lidas do READY (`chIds`, só `type 0/2`) não incluem os posts. O fórum mostra a bolinha quando algum post
   **seguido** tem novidade (ver *Seguir*).
 - Apagar o fórum apaga os posts (`ON DELETE CASCADE` não pega `parent_id`: apagar à mão `WHERE parent_id=?`).

@@ -126,6 +126,16 @@ try {
   ok(await B.evaluate(() => document.querySelector('.fo-posthead .fo-title').textContent) === 'Qual o melhor mapa do Valorant?', 'link direto do post abre o post depois de recarregar');
   ok(await B.evaluate((fid) => !!document.querySelector(`#side-list [data-cid="${fid}"] .ch.active, #side-list .ch.active[data-cid="${fid}"]`), created.id), 'na lista de canais, o fórum fica marcado com o post aberto');
 
+  // ---- post nos favoritos (com o fórum de origem) ----
+  await B.evaluate(() => [...document.querySelectorAll('.fo-posthead .fo-act')].find(b => b.textContent === 'Favoritar').click()); await sleep(400);
+  ok(await B.evaluate(() => [...document.querySelectorAll('.fo-posthead .fo-act')].some(b => b.textContent === 'Nos favoritos' && b.classList.contains('on'))) && await B.evaluate(() => !!document.querySelector('.fav-btn')), 'favoritar o post: botão aceso e estrela dos favoritos na barra');
+  await B.evaluate(() => document.querySelector('#topbar .fo-crumb').click()); await sleep(500);
+  await B.evaluate(() => document.querySelector('.fav-btn').click()); await B.waitForSelector('.fo-posthead .fo-title', { timeout: 8000 }); await sleep(400);
+  const fav = await B.evaluate(() => { const r = document.querySelector('#side-list.favlist .favrow'); return { t: r?.querySelector('.fn')?.textContent, sub: r?.querySelector('small')?.textContent, active: r?.classList.contains('active'), title: document.querySelector('.fo-posthead .fo-title')?.textContent }; });
+  ok(fav.t === 'Qual o melhor mapa do Valorant?' && /ideias-e-discussões/.test(fav.sub) && fav.active && fav.title === fav.t, 'favoritos: o post aparece com o fórum de origem e abre o post', fav);
+  await B.reload(); await B.waitForSelector('.fav-btn', { timeout: 15000 });
+  ok(await B.evaluate(() => !!document.querySelector('.fav-btn')), 'o favorito do post continua depois de recarregar (fica na conta)');
+
   // ---- moderação: trancar e fixar (beto não é moderador) ----
   const notMod = await call(tb, 'PATCH', `/posts/${p2.id}`, { pinned: true });
   ok(notMod.status === 403, 'quem não é moderador não fixa', notMod.status);
@@ -152,6 +162,7 @@ try {
   await call(ta, 'DELETE', `/channels/${created.id}`); await sleep(500);
   ok((await call(ta, 'GET', `/posts/${pid}`)).status === 404, 'apagar o fórum apaga os posts');
   ok((await call(ta, 'GET', `/channels/${pid}/messages`)).status === 404, 'e os comentários');
+  await sleep(300); ok(await B.evaluate(() => !document.querySelector('.fav-btn')), 'fórum apagado: o post sai dos favoritos');
   const errs = [...A.errors, ...B.errors];
   ok(!errs.length, 'sem erros na página', errs);
   ok(!/Error|TypeError/.test(srvErr), 'sem erros no servidor', srvErr.slice(0, 400));

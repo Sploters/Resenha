@@ -1180,7 +1180,22 @@ function vuserRow(g, v) {
 // Canais de qualquer servidor reunidos num lugar só (estrela na barra dos servidores), na ordem que você quiser e em
 // grupos seus (ex.: "Campanha" com canais de servidores diferentes). Arrastar reordena e muda de grupo. Fica na conta
 // (S.prefs.favs: [{ c: id do canal, g: grupo }], S.prefs.favGroups: ordem dos grupos) e sincroniza com os outros aparelhos.
-const favList = () => (S.prefs.favs || []).filter(f => { const c = channelById(f.c); return c && c.guild_id && guild(c.guild_id); });
+// Post de fórum também pode ser favorito: { c: id do post, g, p: 1, gid, f: id do fórum, n: título }. Os posts não vêm no
+// READY, então o favorito guarda o servidor, o fórum e o título; abrir carrega o post (go → loadPost).
+const favList = () => (S.prefs.favs || []).filter(f => { if (f.p) return guild(f.gid) && channelById(f.f); const c = channelById(f.c); return c && c.guild_id && guild(c.guild_id); });
+const favGid = (f) => (f.p ? f.gid : channelById(f.c)?.guild_id);
+function toggleFavPost(p) {
+  const list = S.prefs.favs ||= [];
+  if (isFav(p.id)) { S.prefs.favs = list.filter(f => f.c !== p.id); if (S.favMode && !favList().length) S.favMode = false; toast('Post removido dos favoritos'); }
+  else { list.push({ c: p.id, g: '', p: 1, gid: p.guild_id, f: p.forum_id, n: String(p.title || '').slice(0, 120) }); toast(`"${p.title}" está nos favoritos (estrela na barra dos servidores)`); }
+  savePrefs(); renderRail(); renderSide();
+}
+// post apagado ou título mudado: o favorito acompanha
+function favPostChanged(id, title) {
+  const f = (S.prefs.favs || []).find(x => x.c === id && x.p); if (!f) return;
+  if (title == null) S.prefs.favs = S.prefs.favs.filter(x => x !== f); else if (f.n !== title) f.n = String(title).slice(0, 120); else return;
+  savePrefs(); if (S.favMode) renderSide(); renderRail();
+}
 const isFav = (cid) => (S.prefs.favs || []).some(f => f.c === cid);
 function toggleFav(c) {
   const list = S.prefs.favs ||= [];
@@ -1190,12 +1205,12 @@ function toggleFav(c) {
 }
 function openFavs() {
   const fl = favList(); if (!fl.length) return;
-  const f = fl.find(x => x.c === S.prefs.favLast) || fl[0], c = channelById(f.c);
-  S.favMode = true; go(c.guild_id, c.id); renderRail(); renderSide();
+  const f = fl.find(x => x.c === S.prefs.favLast) || fl[0];
+  S.favMode = true; go(favGid(f), f.c); renderRail(); renderSide();
 }
 const favGroups = () => { const used = new Set(favList().map(f => f.g).filter(Boolean)); return [...new Set([...(S.prefs.favGroups || []).filter(g => used.has(g)), ...used])]; };
 function moveFav(cid, group, beforeCid) {
-  const list = (S.prefs.favs || []).filter(f => f.c !== cid), item = { c: cid, g: group || '' };
+  const old = (S.prefs.favs || []).find(f => f.c === cid), list = (S.prefs.favs || []).filter(f => f.c !== cid), item = { ...old, c: cid, g: group || '' }; // ...old: post de fórum guarda servidor, fórum e título
   const i = beforeCid ? list.findIndex(f => f.c === beforeCid) : -1;
   if (i >= 0) list.splice(i, 0, item); else { let j = -1; list.forEach((f, k) => { if ((f.g || '') === item.g) j = k; }); list.splice(j >= 0 ? j + 1 : list.length, 0, item); }
   S.prefs.favs = list; if (group && !(S.prefs.favGroups || []).includes(group)) (S.prefs.favGroups ||= []).push(group);
@@ -1230,7 +1245,20 @@ function favSide() {
     el.addEventListener('drop', (e) => { e.preventDefault(); el.classList.remove('fav-over'); if (dragId && dragId !== before) moveFav(dragId, group, before); dragId = null; });
     return el;
   };
+  const postRow = (f) => {
+    const g = guild(f.gid), forum = channelById(f.f), title = S.posts.get(f.c)?.name || f.n || 'Post';
+    const el = h('div.ch.favrow' + (S.view.cid === f.c ? '.active' : ''), {
+      draggable: true, title: `${title} — ${forum.name} (${g.name})`,
+      onclick: () => { S.favMode = true; go(g.id, f.c); },
+      oncontextmenu: (e) => menu(e, [{ label: 'Abrir post', fn: () => { S.favMode = true; go(g.id, f.c); } }, { label: 'Remover dos favoritos', fn: () => toggleFavPost({ id: f.c }) }, favGroupMenuItem(f.c)]),
+      ondragstart: (e) => { dragId = f.c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f.c); el.classList.add('dragging'); },
+      ondragend: () => { dragId = null; el.classList.remove('dragging'); } },
+      h('span.fav-g', g.icon ? h('img', { src: imgUrl(g.icon, 32), alt: '' }) : initialsOf(g.name)), icon('forum', 20),
+      h('span.name', h('span.fn', title), h('small', `${chName(forum)} · ${g.name}`)));
+    return h('div', drop(el, f.g || '', f.c));
+  };
   const row = (f) => {
+    if (f.p) return postRow(f);
     const c = channelById(f.c), g = guild(c.guild_id), vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
     const el = h('div.ch.favrow' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''), {
       draggable: true, title: `#${chName(c)} — ${g.name}`,
@@ -1728,7 +1756,7 @@ function renderMain() {
       vc && h('div#vcall', top, h('div#stage')),
       chatOpen && h('div#chat' + (vc ? '.side' : '') + (post ? '.fo-chat' : ''),
         vc && h('div.vchead', h('span.vcico', icon('dm', 20)), h('span.vctitle', { title: ch.name }, chName(ch)), h('button.ibtn', { title: 'Fechar chat', onclick: () => toggleVcChat(ch) }, icon('x'))),
-        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), h('div#msgs'), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : post ? null : (vc ? 'chat de ' : '#') + chName(ch))),
+        inCall && h('div#stage.dmstage'), dm && h('div#e2-bar.hidden'), threadWatch(h('div#msgs')), h('div#typing'), composer(ch, dm ? '@' + user(peer.id).display_name : post ? null : (vc ? 'chat de ' : '#') + chName(ch))),
       !dm && !vc && S.membersOpen && h('div#members'),
       dm && S.prefs.dmPanel !== false && h('div#dmpanel'))].filter(Boolean));
   if (dm && S.prefs.dmPanel !== false) renderDmPanel(peer.id);
@@ -1885,6 +1913,23 @@ function welcomeBlock(ch) {
   if (ch.type === 11) return postHead(ch); // post de fórum: o post inteiro no topo dos comentários
   if (ch.type === 1) { const p = user(dmPeer(ch).id); return h('div.welcome', avatar(p, 80, { status: false }), h('h1', p.display_name), h('p', `Este é o início do seu histórico de mensagens diretas com ${p.display_name}.`)); }
   return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `Bem-vindo(a) a #${chName(ch)}!`), h('p', 'Este é o começo do canal.'));
+}
+// linha fina que liga as mensagens seguidas do mesmo autor: marca com classe quem tem uma .cont logo depois (.tnext) em
+// vez de .msg.first:has(+ .msg.cont) no CSS, que o navegador reavaliava a cada recálculo de estilo do chat (~26 ms
+// no teste com a CPU 4x mais lenta). Um observador no #msgs remarca só os vizinhos do que entrou ou saiu.
+const isCont = (el) => !!(el?.classList?.contains('cont') && el.classList.contains('msg'));
+function threadMark(el) { if (el?.classList?.contains('msg')) { const n = isCont(el.nextElementSibling); if (el.classList.contains('tnext') !== n) el.classList.toggle('tnext', n); } }
+function threadWatch(box) {
+  new MutationObserver((recs) => {
+    const touched = new Set();
+    for (const r of recs) {
+      if (r.addedNodes.length > 40) { for (const el of box.children) threadMark(el); return; } // montou o chat inteiro
+      touched.add(r.previousSibling?.nodeType === 1 ? r.previousSibling : r.previousSibling?.previousElementSibling);
+      for (const n of r.addedNodes) if (n.nodeType === 1) { touched.add(n); touched.add(n.previousElementSibling); }
+    }
+    for (const el of touched) threadMark(el);
+  }).observe(box, { childList: true });
+  return box;
 }
 function renderMessages(keepPos) {
   const box = $('#msgs'); if (!box) return;
@@ -3729,7 +3774,7 @@ function setupDesktop() {
 
 // gancho de depuração/testes automatizados
 initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
-initForum({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
+initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p), favPostChanged: (id, t) => favPostChanged(id, t), renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
 initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });

@@ -36,7 +36,9 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       (`#auth:not(.hidden) ~ #layer`), classe (`#app.ct-on`, posta por `plugins.js`) e `:has(> …)` só com filhos diretos
       (`#home`, `#chat.side`, `#lightbox`, menus do `#layer`). Casando seletores **676 → 280 ms**; recálculo de estilo
       **~2,69 → ~2,42 s** nos 12 s (−10%). Fica caro: o recálculo em si (~780 por 60 mensagens, ~3 ms cada a 4x) e
-      `.msg.first:has(+ .msg.cont)` (~26 ms; trocar por classe exige marcar a mensagem anterior a cada envio).
+      `.msg.first:has(+ .msg.cont)` (~26 ms). **Trocado por classe em 2026-11-14:** `threadWatch` (`app.js`) observa o `#msgs` e
+      marca `.tnext` só nos vizinhos do que entrou ou saiu; `history-window-test` confere que a classe marca o mesmo que o seletor
+      antigo ao abrir, subir, descer e com mensagem nova.
       Cobertura numa volta pelo app (chat, perfil, emojis, configurações, Descobrir, conversas): 3.108 de 3.575 regras não
       casaram (~300 dos 360 KB) — candidatas, não prova: estados raros existem e há classes montadas no código
       (`'ff-' + fonte`, `'n' + quantidade`); 139 citam um nome que não aparece em nenhum JS, mas parte disso é montada.
