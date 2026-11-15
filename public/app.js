@@ -476,8 +476,10 @@ function onEvent(t, d) {
 // esconder a presença vai como offline nesses dados genéricos; quem pode ver não perde o status certo que já tem.
 const mergeUser = (u) => { if (!u?.id) return; const old = S.users.get(u.id); S.users.set(u.id, old ? { ...old, ...u, status: old.status, platforms: old.platforms ?? u.platforms } : u); };
 const detached = new Set(); // canais em que estou vendo o início do histórico (sem as mensagens recentes)
+const arriving = new Map(); // canal -> mensagens que chegaram enquanto a lista dele carregava (loadChannel)
 function onMessage(m) {
   const list = S.messages.get(m.channel_id), gap = detached.has(m.channel_id);
+  if (!list) arriving.get(m.channel_id)?.push(m);
   if (list && !gap && !list.some(x => x.id === m.id)) list.push(m);
   mergeUser(m.author);
   const mine = m.author_id === S.me.id, viewing = S.view.cid === m.channel_id && document.hasFocus() && !vcChatHidden(channelById(m.channel_id));
@@ -1880,7 +1882,15 @@ async function loadChannel(cid) {
   let netMs = 0; // telemetria: quanto da troca foi esperando o servidor
   if (!S.messages.has(cid)) {
     box.replaceChildren(skeleton('msgs', 9));
-    const tf = performance.now(), list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); netMs = performance.now() - tf; if (!list) return;
+    // mensagens que chegam ao vivo enquanto a lista vem do servidor: sem lista ainda, onMessage as descartava, e a resposta
+    // (montada antes delas) também não as trazia. Sumiam até reabrir o canal. Agora ficam guardadas e entram no fim.
+    const early = []; arriving.set(cid, early);
+    const tf = performance.now(), list = await tryApi('GET', `/channels/${cid}/messages?limit=50`); netMs = performance.now() - tf;
+    if (arriving.get(cid) === early) arriving.delete(cid);
+    if (!list) return;
+    if (S.messages.has(cid)) return loadChannel(cid); // outra carga do mesmo canal terminou antes: usa a dela
+    const last = list[list.length - 1]?.id, newer = (a, b) => a.length !== b.length ? a.length > b.length : a > b; // ids numéricos em texto
+    for (const m of early) if ((!last || newer(m.id, last)) && !list.some(x => x.id === m.id)) list.push(m);
     list.forEach(m => mergeUser(m.author));
     S.messages.set(cid, list); S.loaded.set(cid, list.length < 50);
   }

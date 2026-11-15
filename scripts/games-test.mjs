@@ -98,10 +98,22 @@ try {
   const P = await browser.newPage(); P.setDefaultTimeout(15000); await P.setViewport({ width: 1280, height: 900, deviceScaleFactor: 2 });
   P.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await P.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, ana.tok);
+  // a 1ª carga do canal demora: o servidor responde (sem as mensagens novas) e elas chegam ao vivo antes da resposta.
+  // Era o que acontecia de vez em quando no GitHub: as mensagens que chegavam durante a carga sumiam (public/app.js, arriving)
+  let held = false;
+  await P.setRequestInterception(true);
+  P.on('request', async (q) => {
+    if (held || q.method() !== 'GET' || !/\/channels\/\d+\/messages\?limit=50$/.test(q.url())) return q.continue();
+    held = true; const r = await fetch(q.url(), { headers: q.headers() }), body = await r.text(); snapped = true; await sleep(2000);
+    q.respond({ status: r.status, contentType: 'application/json', body });
+  });
+  let snapped = false;
   await P.goto(BASE); await P.waitForSelector('#rail .rail-wrap');
   const cid = await P.evaluate((gid) => { const c = window.__lc.S.guilds.get(gid).channels.find(x => x.type === 0); window.__lc.go(gid, c.id); return c.id; }, g.id);
+  for (let i = 0; i < 50 && !snapped; i++) await sleep(100);
   await call(beto.tok, 'POST', `/channels/${cid}/messages`, { content: 'joguei 120 h disso https://store.steampowered.com/app/7001/' });
   await call(beto.tok, 'POST', `/channels/${cid}/messages`, { content: 'bora jogar esse? https://store.steampowered.com/app/7002/' });
+  ok(snapped, 'mensagens enviadas enquanto o canal carregava');
   try { await P.waitForFunction(() => document.querySelectorAll('.steamcard .sc-social').length >= 2); }
   catch (e) { // diagnóstico: o que havia na tela (mensagens, cartões e a linha de pessoas de cada um) e o que o servidor responde
     console.log('  DIAG tela', JSON.stringify(await P.evaluate(() => ({ chan: window.__lc.S.channelId, cards: [...document.querySelectorAll('.steamcard')].map(c => [c.dataset.app, c.className, c.querySelector('.sc-people')?.innerHTML.slice(0, 120)]), tail: document.body.innerText.slice(-400) }))));
