@@ -102,7 +102,13 @@ try {
   const cid = await P.evaluate((gid) => { const c = window.__lc.S.guilds.get(gid).channels.find(x => x.type === 0); window.__lc.go(gid, c.id); return c.id; }, g.id);
   await call(beto.tok, 'POST', `/channels/${cid}/messages`, { content: 'joguei 120 h disso https://store.steampowered.com/app/7001/' });
   await call(beto.tok, 'POST', `/channels/${cid}/messages`, { content: 'bora jogar esse? https://store.steampowered.com/app/7002/' });
-  await P.waitForFunction(() => document.querySelectorAll('.steamcard .sc-social').length >= 2); await sleep(500);
+  try { await P.waitForFunction(() => document.querySelectorAll('.steamcard .sc-social').length >= 2); }
+  catch (e) { // diagnóstico: o que havia na tela (mensagens, cartões e a linha de pessoas de cada um) e o que o servidor responde
+    console.log('  DIAG tela', JSON.stringify(await P.evaluate(() => ({ chan: window.__lc.S.channelId, cards: [...document.querySelectorAll('.steamcard')].map(c => [c.dataset.app, c.className, c.querySelector('.sc-people')?.innerHTML.slice(0, 120)]), tail: document.body.innerText.slice(-400) }))));
+    console.log('  DIAG api', JSON.stringify(await call(ana.tok, 'GET', '/games/people?ids=7001,7002')), JSON.stringify(await P.evaluate(() => fetch('/api/games/people?ids=7001,7002', { headers: { authorization: 'Bearer ' + localStorage.lc_token } }).then(r => r.status + ' ' + r.statusText))));
+    throw e;
+  }
+  await sleep(500);
   const soc = await P.evaluate(() => Object.fromEntries([...document.querySelectorAll('.steamcard')].map(c => [c.dataset.app, c.querySelector('.sc-social')?.textContent || ''])));
   ok(/2 têm/.test(soc['7001']) && /2 querem/.test(soc['7002']), 'cartões: "2 têm" e "2 querem" (beto e carla)', soc);
   await P.evaluate(() => document.querySelector('.steamcard[data-app="7002"] .wishbtn').click());
