@@ -275,6 +275,26 @@ export function perms(gid) {
   return p & PERM.ADMIN ? 0xffffff : p;
 }
 export const can = (gid, bit) => (perms(gid) & bit) !== 0;
+// permissões por canal/categoria (espelho de server/chperms.js): canal sincronizado segue a categoria; post de fórum segue o fórum
+export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8 }, CH_ALL = 15;
+export const CH_LABELS = [[CH.SEND, 'Enviar mensagens', 'Escrever no chat (e criar posts, num fórum)'], [CH.ATTACH, 'Enviar arquivos', 'Anexar imagens, vídeos e outros arquivos'],
+  [CH.REACT, 'Adicionar reações', 'Sem ela, ainda dá para somar a uma reação que já está lá'], [CH.CONNECT, 'Conectar', 'Entrar na sala de voz']];
+export function permSource(g, ch) {
+  if (!g || !ch) return ch;
+  if (ch.type === 11 && ch.parent_id) ch = g.channels.find(c => c.id === ch.parent_id) || ch;
+  if (ch.type !== 4 && ch.parent_id && ch.perm_sync !== 0) return g.channels.find(c => c.id === ch.parent_id && c.type === 4) || ch;
+  return ch;
+}
+export function chPerms(ch) {
+  const g = ch && guild(ch.guild_id); if (!g) return CH_ALL;
+  if (can(g.id, PERM.ADMIN) || can(g.id, PERM.MANAGE_CHANNELS)) return CH_ALL;
+  const ows = g.channel_perms?.[permSource(g, ch)?.id] || []; if (!ows.length) return CH_ALL;
+  let p = CH_ALL; const ev = ows.find(o => o.target === 'everyone'); if (ev) p = (p & ~ev.deny) | ev.allow;
+  const mine = new Set(g.members.get(S.me.id)?.roles || []); let a = 0, d = 0;
+  for (const o of ows) if (mine.has(o.target)) { a |= o.allow; d |= o.deny; }
+  return ((p & ~d) | a) & CH_ALL;
+}
+export const chCan = (ch, bit) => (chPerms(ch) & bit) !== 0;
 export const dmPeer = (dm) => dm.recipients.find(r => r.id !== S.me.id) || dm.recipients[0];
 export function relType(uid) { return S.rels.get(uid)?.type || 0; }
 // política de notificação por servidor/canal (salva nas preferências)
@@ -383,19 +403,44 @@ function emojiChunks(nodes) {
   }
   return out;
 }
+// favoritos (clique direito no emoji) e usados recentemente: ficam na conta (S.prefs) e sincronizam entre aparelhos.
+// Emoji do servidor é guardado como <:nome:id>; o que não está mais disponível some da lista sem apagar o favorito.
+const emojiFavs = () => (Array.isArray(S.prefs.emojiFavs) ? S.prefs.emojiFavs : []);
+const emojiRecent = () => (Array.isArray(S.prefs.emojiRecent) ? S.prefs.emojiRecent : []);
+function noteEmojiUse(code) { S.prefs.emojiRecent = [code, ...emojiRecent().filter(x => x !== code)].slice(0, 24); savePrefs(); }
+function toggleEmojiFav(code) {
+  const on = emojiFavs().includes(code);
+  S.prefs.emojiFavs = on ? emojiFavs().filter(x => x !== code) : [code, ...emojiFavs()].slice(0, 60); savePrefs();
+  toast(on ? 'Emoji tirado dos favoritos' : 'Emoji nos favoritos');
+}
 export function emojiPicker(anchor, onPick, opts = {}) {
   closeFloating();
   const grid = h('div.emoji-grid'), q = h('input', { placeholder: 'Pesquisar emoji ou categoria' });
+  const customs = () => (opts.noCustom ? [] : allEmojis());
+  const pick = (code, e) => { noteEmojiUse(code); onPick(code, e); closeFloating(); };
+  // um emoji (unicode ou <:nome:id>) como botão: clique escolhe, clique direito favorita
+  const cell = (code) => {
+    const m = /^<:(\w+):(\d+)>$/.exec(code), ce = m && customs().find(e => e.id === m[2]);
+    if (m && !ce) return null;
+    const fav = emojiFavs().includes(code), tip = (ce ? ':' + ce.name + ':' : code) + (fav ? ' · ★ favorito' : '') + ' — clique direito: ' + (fav ? 'tirar dos favoritos' : 'favoritar');
+    return h('span' + (fav ? '.efav' : ''), { title: tip, onclick: () => pick(code, ce || undefined), oncontextmenu: (ev) => { ev.preventDefault(); toggleEmojiFav(code); draw(); } },
+      ce ? h('img', { src: ce.url, loading: 'lazy', decoding: 'async', style: { width: '32px', height: '32px', objectFit: 'contain' } }) : code);
+  };
   const draw = () => {
     grid.replaceChildren(); const f = q.value.toLowerCase();
+    if (!f) {
+      const favs = emojiFavs().map(cell).filter(Boolean), rec = emojiRecent().filter(c => !emojiFavs().includes(c)).map(cell).filter(Boolean).slice(0, 16);
+      grid.append(h('div.cap', 'Favoritos'), ...(favs.length ? emojiChunks(favs) : [h('div.emoji-hint', 'Clique com o botão direito num emoji para favoritar')]));
+      if (rec.length) grid.append(h('div.cap', 'Usados recentemente'), ...emojiChunks(rec));
+    }
     if (!opts.noCustom) {
       const byGuild = new Map();
       for (const e of allEmojis()) if (!f || e.name.toLowerCase().includes(f)) (byGuild.get(e.guild) || byGuild.set(e.guild, []).get(e.guild)).push(e);
-      for (const [g, list] of byGuild) grid.append(h('div.cap', g), ...emojiChunks(list.map(e => h('span', { title: ':' + e.name + ':', onclick: () => { onPick(`<:${e.name}:${e.id}>`, e); closeFloating(); } }, h('img', { src: e.url, loading: 'lazy', decoding: 'async', style: { width: '32px', height: '32px', objectFit: 'contain' } })))));
+      for (const [g, list] of byGuild) grid.append(h('div.cap', g), ...emojiChunks(list.map(e => cell(`<:${e.name}:${e.id}>`)).filter(Boolean)));
     }
     for (const [cat, list] of Object.entries(EMOJIS)) {
       if (f && !cat.toLowerCase().includes(f)) continue;
-      grid.append(h('div.cap', cat), ...emojiChunks(list.map(e => h('span', { onclick: () => { onPick(e); closeFloating(); } }, e))));
+      grid.append(h('div.cap', cat), ...emojiChunks(list.map(cell)));
     }
   };
   q.oninput = draw; draw();

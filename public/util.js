@@ -275,11 +275,13 @@ export function imgUrl(url, size) {
   return `/thumbs/${m[1]}?s=${px}`;
 }
 // foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
+// nome do status no passar do mouse (a forma da bolinha já diferencia sem depender da cor)
+const STATUS_LABEL = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', offline: 'Offline', invisible: 'Invisível' };
 export function avatar(u, size = 40, opts = {}) {
   if (u?.bot) return h('div.avatar.botav', { style: { width: size + 'px', height: size + 'px' }, title: 'Bot de música' }, icon('musicbot', Math.round(size * .56)));
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.color || '#5865f2' } });
   if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
-  if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { style: { borderColor: opts.ring || '' } }));
+  if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { title: STATUS_LABEL[u.status] || 'Offline', style: opts.ring ? { borderColor: opts.ring, '--st-hole': opts.ring } : null }));
   return el;
 }
 
@@ -385,6 +387,7 @@ export function md(src, ctx = {}) {
   s = esc(s);
   // <t:1731350000:R> etc.: horário que cada um vê no próprio fuso e formato (relativo se atualiza sozinho)
   s = s.replace(/&lt;t:(-?\d{1,12})(?::([tTdDfFR]))?&gt;/g, (_, sec, f = 'f') => keep(tsHtml(+sec, f)));
+  s = s.replace(/&lt;@&amp;(\d+)&gt;/g, (_, id) => { const r = ctx.roleOf?.(id); if (!r) return '<span class="mention">@cargo-apagado</span>'; const c = /^#[0-9a-f]{3,8}$/i.test(r.color || '') && r.color.toLowerCase() !== '#99aab5' ? r.color : ''; return `<span class="mention role-mention"${c ? ` style="--rc:${c}"` : ''}>@${esc(r.name)}</span>`; });
   s = s.replace(/&lt;@(\d+)&gt;/g, (_, id) => { const n = ctx.userName?.(id); return n ? `<span class="mention" data-uid="${id}">@${esc(n)}</span>` : '<span class="mention">@desconhecido</span>'; });
   s = s.replace(/&lt;:(\w+):(\d+)&gt;/g, (_, name, id) => { const u = ctx.emojiUrl?.(id); return u ? `<img class="cemoji" src="${esc(u)}" alt=":${name}:" title=":${name}:">` : `:${name}:`; });
   s = s.replace(/:([a-z0-9_+-]+):/g, (m, n) => SHORT[n] || m);

@@ -8,7 +8,7 @@ const TITLE_MAX = 120, BODY_MAX = 8000, TAGS_MAX = 5, FORUM_TAGS_MAX = 20, PAGE 
 const TAG_COLORS = ['#5865f2', '#23a55a', '#f0b232', '#da373c', '#eb459e', '#00a8fc', '#9b59b6', '#e67e22'];
 
 export function mountForum(app, d) {
-  const { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk } = d;
+  const { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk, canSend } = d;
 
   db.exec(`
 CREATE TABLE IF NOT EXISTS forum_posts(
@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS forum_votes(post_id TEXT NOT NULL REFERENCES forum_po
   app.post('/api/forums/:fid/posts', auth, wrap((req, res) => {
     const f = forumFor(req, res); if (!f) return;
     if (timedOut(f.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
+    if (canSend && !canSend(f, req.uid)) return bad(res, 'Você não tem permissão para criar posts neste fórum', 403);
     if (!rateOk(req.uid)) return bad(res, 'Você está postando rápido demais', 429);
     const recent = get('SELECT COUNT(*) n FROM forum_posts WHERE author_id=? AND created_at>?', req.uid, Date.now() - 3600e3).n;
     if (recent >= 10 && !isMod(f.guild_id, req.uid)) return bad(res, 'Limite de 10 posts por hora. Tente mais tarde.', 429);

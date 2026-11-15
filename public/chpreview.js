@@ -40,7 +40,7 @@ function hide() {
   clearTimeout(hideT); box?.remove(); dim?.remove(); box = dim = cur = null;
 }
 
-const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), emojiUrl });
+const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), roleOf: (id) => S.guilds.get(gid)?.roles.find(r => r.id === id), emojiUrl });
 function msgRow(m, prev, gid) {
   if (m.type === 1) return h('div.pmsg.sys', h('span.arrow', icon('arrowr', 14)), h('b', nameOf(m.author_id, gid)), ' ' + m.content);
   const grouped = prev && prev.type !== 1 && prev.author_id === m.author_id && m.created_at - prev.created_at < 420000 && !m.reply;

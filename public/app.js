@@ -13,7 +13,7 @@ import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -229,6 +229,7 @@ function connect() {
 }
 
 // lista inteira de um servidor grande chegou: redesenha o que mostra membros (nomes, cores, lista)
+document.addEventListener('join-btn-changed', () => { if (channelById(S.view.cid)?.type === 2 || channelById(S.view.cid)?.type === 1) renderMain(); });
 document.addEventListener('members-loaded', (e) => { if (S.view.gid !== e.detail) return; renderMembers(); renderSide(); if (S.view.cid) renderMessages(true); });
 function ingestGuild(g) {
   const old = S.guilds.get(g.id);
@@ -362,7 +363,14 @@ function onEvent(t, d) {
     case 'MEMBER_REMOVE': { const g = guild(d.guild_id); if (g) { g.members.delete(d.user_id); renderMembers(); } break; }
     case 'MEMBER_UPDATE': { const g = guild(d.guild_id); if (g) { g.members.set(d.user_id, { user_id: d.user_id, nickname: d.nickname, roles: d.roles, joined_at: d.joined_at, timeout_until: d.timeout_until, softmute_until: d.softmute_until }); renderMembers(); renderSide(); refreshAuthors(d.user_id); if (d.user_id === S.me.id && S.view.gid === d.guild_id) renderSoftmute(); } break; }
     case 'ROLE_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.roles.findIndex(r => r.id === d.role.id); if (i >= 0) g.roles[i] = d.role; else g.roles.push(d.role); g.roles.sort((a, b) => b.position - a.position); renderMembers(); } break; }
-    case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
+    case 'CHANNEL_PERMS': { // ajustes de permissão de um canal/categoria (server/chperms.js)
+      const g = guild(d.guild_id); if (!g) break;
+      (g.channel_perms ||= {})[d.channel_id] = d.overwrites || [];
+      const c = g.channels.find(x => x.id === d.channel_id); if (c) c.perm_sync = d.perm_sync;
+      renderSide(); const cur = channelById(S.view.cid); if (cur?.guild_id === g.id) renderMain();
+      break;
+    }
+    case 'ROLE_DELETE': { const g = guild(d.guild_id); if (g) { for (const k in g.channel_perms || {}) g.channel_perms[k] = g.channel_perms[k].filter(o => o.target !== d.id); g.roles = g.roles.filter(r => r.id !== d.id); for (const m of g.members.values()) m.roles = m.roles.filter(r => r !== d.id); renderMembers(); } break; }
     case 'FRIEND_LOST': {
       mergeUser(d.user);
       S.friendLosses = [d, ...(S.friendLosses || []).filter(x => x.user.id !== d.user.id)];
@@ -502,7 +510,7 @@ function onMessage(m) {
   }
   if (mine) return;
   const ch = channelById(m.channel_id), isDM = ch?.type === 1, pol = notifPolicy(ch);
-  const text = m.content || '', direct = text.includes(`<@${S.me.id}>`);
+  const text = m.content || '', myRoles = ch?.guild_id ? guild(ch.guild_id)?.members.get(S.me.id)?.roles || [] : [], direct = text.includes(`<@${S.me.id}>`) || myRoles.some(r => text.includes(`<@&${r}>`)); // @cargo seu conta como menção direta
   const isMention = isDM ? !pol.muted && pol.level !== 'none' : ((m.mentions || []).includes(S.me.id) && (direct || !pol.noEveryone)); // DM silenciada ainda conta como não lida, mas sem som nem aviso
   const counts = isDM || (isMention && pol.level !== 'none') || (!pol.muted && pol.level === 'all');
   if (!viewing) {
@@ -873,7 +881,7 @@ function globalSearchPanel() {
   return { head, list: h('div.gs-list', filters, body) };
 }
 function gsMsg(m, inGuild) {
-  const ch = channelById(m.channel_id), txt = stripInvites(m.content || '').replace(/<@!?(\d+)>/g, (x, id) => '@' + (S.users.get(id)?.display_name || 'alguém')).replace(/[*_~`>|]/g, '') || (m.attachments?.length ? 'Anexo' : '');
+  const ch = channelById(m.channel_id), txt = stripInvites(m.content || '').replace(/<@&(\d+)>/g, (x, id) => '@' + (guild(ch?.guild_id)?.roles.find(r => r.id === id)?.name || 'cargo')).replace(/<@!?(\d+)>/g, (x, id) => '@' + (S.users.get(id)?.display_name || 'alguém')).replace(/[*_~`>|]/g, '') || (m.attachments?.length ? 'Anexo' : '');
   return h('button.gs-msg', { type: 'button', onclick: () => { rememberSearch(GS.q); gsNarrowClose(); go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } },
     avatar(user(m.author_id), 24, { status: false }),
     h('span.gs-mt', h('span.gs-mh', h('b', nameOf(m.author_id, ch?.guild_id)), inGuild && ch && h('small', '#' + chName(ch)), h('small', shortWhen(m.created_at))), h('span.gs-mb', gsMark(txt.slice(0, 220)))));
@@ -1052,11 +1060,11 @@ function renderSide() {
       const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
       return h('div', h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
-        chIcon(c), h('span.name', chName(c)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
+        chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
     };
-    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
+    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { title: c.topic || null, onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
       h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
@@ -1288,18 +1296,78 @@ function channelMenu(e, g, c) {
       ? { label: c.type === 4 ? 'Silenciar a categoria de novo' : 'Silenciar de novo (seguir o servidor)', fn: () => { setChannelUnmuted(c.id, false); renderSide(); toast(c.type === 4 ? 'A categoria voltou a seguir o servidor silenciado' : `#${chName(c)} voltou a seguir o servidor silenciado`); } }
       : { label: c.type === 4 ? 'Reativar esta categoria' : 'Reativar este canal', hint: 'O servidor continua silenciado', fn: () => { setChannelUnmuted(c.id, true); renderSide(); toast(c.type === 4 ? 'Categoria reativada: o resto do servidor continua silenciado' : `#${chName(c)} reativado: o resto do servidor continua silenciado`); } })
       : c.type !== 4 && { label: channelMuted(c.id) ? 'Reativar canal' : 'Silenciar canal', fn: () => { const n = (S.prefs.notifyCfg ||= {}); const ch = (n.channels ||= {}); channelMuted(c.id) ? delete ch[c.id] : (ch[c.id] = true); savePrefs(); renderSide(); } },
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Editar canal', fn: () => channelSettings(g, c) },
+    can(g.id, PERM.MANAGE_CHANNELS) && { label: c.type === 4 ? 'Editar categoria' : 'Editar canal', hint: can(g.id, PERM.MANAGE_ROLES) ? 'Nome, descrição e permissões' : null, fn: () => channelSettings(g, c) },
+    can(g.id, PERM.MANAGE_CHANNELS) && c.type !== 4 && { label: 'Duplicar canal', hint: 'Mesma categoria, tópico e permissões', fn: () => duplicateChannel(g, c) },
+    can(g.id, PERM.MANAGE_CHANNELS) && can(g.id, PERM.MANAGE_ROLES) && c.type === 4 && g.channels.some(k => k.parent_id === c.id && k.perm_sync === 0) && { label: 'Sincronizar canais com a categoria', hint: 'Os canais com permissões próprias voltam a seguir a categoria', fn: () => syncChildren(g, c) },
     can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
     c.type === 0 && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },
     can(g.id, PERM.MANAGE_CHANNELS) && '-',
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Excluir canal', danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
+    can(g.id, PERM.MANAGE_CHANNELS) && { label: c.type === 4 ? 'Excluir categoria' : 'Excluir canal', hint: c.type === 4 ? 'Os canais dela ficam sem categoria' : null, danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
   ]);
 }
+async function duplicateChannel(g, c) {
+  const n = await promptBox(`Duplicar ${c.type === 2 ? c.name : '#' + chName(c)}`, 'Nome do canal novo', c.name, 'Duplicar'); if (n == null) return;
+  const r = await tryApi('POST', `/channels/${c.id}/duplicate`, { name: n || c.name });
+  if (r?.id) { toast('Canal duplicado'); if (c.type !== 2) setTimeout(() => go(g.id, r.id), 100); }
+}
+async function syncChildren(g, cat) {
+  const n = g.channels.filter(k => k.parent_id === cat.id && k.perm_sync === 0).length;
+  if (!await confirmBox('Sincronizar canais', `${n === 1 ? '1 canal tem' : n + ' canais têm'} permissões próprias em ${cat.name}. Eles voltam a seguir as permissões da categoria (as próprias são apagadas).`, 'Sincronizar')) return;
+  const r = await tryApi('POST', `/channels/${cat.id}/sync-children`); if (r) toast(r.synced === 1 ? '1 canal sincronizado' : `${r.synced} canais sincronizados`);
+}
+// Configurações do canal ou da categoria: nome, tópico/descrição, categoria e permissões por cargo (permitir / seguir / negar).
+// Canal sincronizado mostra (e edita) as permissões da categoria; mudar algo aqui tira a sincronia e o canal passa a ter as próprias.
 function channelSettings(g, c) {
-  const name = h('input', { value: c.name, maxLength: 100 }), topic = h('input', { value: c.topic || '', maxLength: 1024 });
-  modal('Configurações do canal', c.name, h('div', h('label.f', 'Nome do canal', name), c.type === 0 && h('label.f', 'Tópico', topic)),
-    [{ label: 'Excluir', cls: 'red', fn: async () => { if (await confirmBox('Excluir canal', `Excluir ${c.name}?`, 'Excluir')) await tryApi('DELETE', `/channels/${c.id}`); } }, { label: 'Cancelar', cls: 'link' }, { label: 'Salvar', fn: () => tryApi('PATCH', `/channels/${c.id}`, { name: name.value, topic: topic.value }) }]);
+  const cat = c.type === 4, name = h('input', { value: c.name, maxLength: 100 }), topic = h('textarea', { value: c.topic || '', maxLength: 1024, rows: 2, placeholder: cat ? 'Para que serve esta categoria (aparece ao passar o mouse)' : 'Sobre o que é este canal' });
+  const cats = g.channels.filter(x => x.type === 4);
+  const parentSel = !cat && c.type !== 11 && h('select', h('option', { value: '' }, 'Sem categoria'), cats.map(x => h('option', { value: x.id, selected: x.id === c.parent_id }, x.name)));
+  const manageRoles = can(g.id, PERM.MANAGE_ROLES);
+  const parentCat = () => g.channels.find(x => x.id === (parentSel ? parentSel.value || null : c.parent_id) && x.type === 4);
+  let synced = !cat && !!c.parent_id && c.perm_sync !== 0, dirty = false, wantSync = false;
+  const load = (id) => new Map((g.channel_perms?.[id] || []).map(o => [o.target, { allow: o.allow, deny: o.deny }]));
+  let ows = load(synced ? c.parent_id : c.id), target = 'everyone';
+  const bits = CH_LABELS.filter(([b]) => cat || (c.type === 2 ? true : b !== CH.CONNECT));
+  const targets = () => [{ id: 'everyone', name: '@everyone', color: '' }, ...g.roles.filter(r => r.name !== '@everyone').map(r => ({ id: r.id, name: r.name, color: r.color }))];
+  const permBox = h('div.chp');
+  const draw = () => {
+    const pc = parentCat();
+    const syncLine = !cat && (pc ? h('div.chp-sync' + (synced ? '.on' : ''), icon(synced ? 'link' : 'warn', 16),
+        h('span', synced ? `Sincronizado com a categoria ${pc.name}. Mudar algo aqui dá a este canal permissões próprias (a categoria não muda).` : `Permissões próprias: não segue a categoria ${pc.name}.`),
+        !synced && h('button.btn.grey.sm', { type: 'button', onclick: () => { synced = true; wantSync = true; dirty = false; ows = load(pc.id); draw(); } }, 'Sincronizar agora'))
+      : h('div.chp-sync', icon('info', 16), h('span', 'Sem categoria: as permissões valem só para este canal.')));
+    const o = ows.get(target) || { allow: 0, deny: 0 };
+    const set = (bit, v) => { // v: 1 permitir, 0 seguir, -1 negar
+      const n = { allow: o.allow & ~bit, deny: o.deny & ~bit }; if (v > 0) n.allow |= bit; if (v < 0) n.deny |= bit;
+      if (synced) { synced = false; wantSync = false; } // editar um sincronizado: copia o da categoria e passa a ter o próprio
+      ows.set(target, n); dirty = true; draw();
+    };
+    const tri = (bit) => { const v = o.allow & bit ? 1 : o.deny & bit ? -1 : 0;
+      return h('div.chp-tri', [[-1, 'x', 'Negar'], [0, 'slash', target === 'everyone' ? 'Padrão (liberado)' : 'Seguir (@everyone e outros cargos)'], [1, 'check', 'Permitir']].map(([k, ic, t]) =>
+        h('button.chp-b' + (v === k ? '.sel.v' + (k + 1) : ''), { type: 'button', title: t, 'aria-label': t, 'aria-pressed': String(v === k), onclick: () => set(bit, k) }, ic === 'slash' ? '/' : icon(ic, 14)))); };
+    permBox.replaceChildren(syncLine || '',
+      h('div.chp-grid',
+        h('div.chp-roles', targets().map(t => { const has = ows.get(t.id), mark = has && (has.allow || has.deny);
+          return h('button.chp-role' + (t.id === target ? '.sel' : ''), { type: 'button', onclick: () => { target = t.id; draw(); } }, h('i.dot', { style: { background: t.color && t.color !== '#99aab5' ? t.color : 'var(--text-muted)' } }), h('span', t.name), mark && h('small', '•')); })),
+        h('div.chp-perms', h('div.chp-h', 'Permissões de ', h('b', targets().find(t => t.id === target)?.name || '')),
+          bits.map(([bit, label, hint]) => h('div.chp-row', h('div', h('b', label), h('small', hint)), tri(bit))),
+          h('small.mut', 'Dono, administradores e quem gerencia canais nunca são barrados. O permitir de um cargo vence o negar de outro.'))));
+  };
+  if (manageRoles) draw();
+  const body = h('div', h('label.f', cat ? 'Nome da categoria' : 'Nome do canal', name),
+    (cat || c.type === 0 || c.type === 15 || c.type === 2) && h('label.f', cat ? 'Descrição' : 'Tópico', topic),
+    parentSel && h('label.f', 'Categoria', parentSel),
+    manageRoles && h('div.f', h('div.chp-title', 'Permissões'), cat && h('small.mut', { style: { display: 'block', marginBottom: '8px' } }, 'Valem para todos os canais sincronizados desta categoria.'), permBox));
+  if (parentSel) parentSel.addEventListener('change', () => { if (synced) { const pc = parentCat(); if (pc) ows = load(pc.id); else { synced = false; ows = load(c.id); } draw(); } });
+  const dlg = modal(cat ? 'Configurações da categoria' : 'Configurações do canal', c.name, body,
+    [{ label: 'Excluir', cls: 'red', fn: async () => { if (await confirmBox(cat ? 'Excluir categoria' : 'Excluir canal', `Excluir ${c.name}?${cat ? ' Os canais dela ficam sem categoria.' : ''}`, 'Excluir')) await tryApi('DELETE', `/channels/${c.id}`); } }, { label: 'Cancelar', cls: 'link' },
+     { label: 'Salvar', fn: async () => {
+       const patch = { name: name.value, topic: topic.value }; if (parentSel) patch.parent_id = parentSel.value || null;
+       if (!await tryApi('PATCH', `/channels/${c.id}`, patch)) return false;
+       if (manageRoles && wantSync && parentCat()) { if (!await tryApi('PUT', `/channels/${c.id}/perms`, { sync: true })) return false; }
+       else if (manageRoles && dirty) { if (!await tryApi('PUT', `/channels/${c.id}/perms`, { overwrites: [...ows].map(([t, v]) => ({ target: t, ...v })) })) return false; }
+     } }], { width: manageRoles ? '620px' : undefined });
+  dlg.el.querySelector('.modal')?.classList.add('chset');
 }
 
 function voicePanel() {
@@ -1429,6 +1497,7 @@ function rejoinPanel() {
 }
 function joinVoice(cid) {
   if (voice.channelId === cid) return;
+  { const c = channelById(cid); if (c?.guild_id && !chCan(c, CH.CONNECT)) return toast('Você não tem permissão para entrar nesta sala de voz', true); }
   startTimer('voice_connect', cid); // telemetria: para quando o áudio conecta (voice.js) ou quando a sala aceita sem servidor de mídia
   voice.join(cid).then(() => { if (voice.error) { track('voice_fail', 'join_error'); cancelTimer('voice_connect'); toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }
@@ -1739,7 +1808,9 @@ function renderMain() {
       dm ? [h('span.hash', '@'), h('span', user(peer.id).display_name), h('div.status.s-' + user(peer.id).status, { style: { position: 'static', borderColor: 'transparent', width: '10px', height: '10px', minWidth: 0, minHeight: 0 } })]
         : post ? [h('button.ibtn.fo-back', { title: 'Voltar ao fórum', 'aria-label': 'Voltar ao fórum', onclick: () => go(ch.guild_id, ch.parent_id) }, icon('arrowr', 20)), h('span.hash', icon('forum', 22)),
           h('button.fo-crumb', { onclick: () => go(ch.guild_id, ch.parent_id) }, forumOfPost(ch) ? chName(forumOfPost(ch)) : 'Fórum'), h('span.fo-crumbsep', '›'), h('span.fo-crumbt', { title: ch.name }, ch.name)]
-        : [h('span.hash', icon(vc ? 'voice' : 'hash', 24)), h('span', { title: ch.name }, chName(ch)), ch.topic && h('span.topic', ch.topic)],
+        : [h('span.hash', icon(vc ? 'voice' : 'hash', 24)), h('span', { title: ch.name }, chName(ch)),
+          vc && voice.channelId !== ch.id && h('button.btn.green.sm.vc-join-top', { title: chCan(ch, CH.CONNECT) ? 'Entrar na sala de voz' : 'Você não tem permissão para entrar nesta sala', disabled: !chCan(ch, CH.CONNECT), onclick: () => joinVoice(ch.id) }, icon('voice', 14), 'Entrar'),
+          ch.topic && h('span.topic', ch.topic)],
       h('div.spacer'),
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
       vc && h('div#vc-layout-slot'),
@@ -2039,7 +2110,7 @@ const PRESENCE_KEYS = new Set(['status', 'platforms']);
 function presenceOnly(a, b) { for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (!PRESENCE_KEYS.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false; return true; }
 function refreshAuthors(uid) { if ($('#msgs') && S.view.cid && S.messages.get(S.view.cid)?.some(m => m.author_id === uid)) renderMessages(true); }
 
-const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), emojiUrl });
+const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), roleOf: (id) => S.guilds.get(gid)?.roles.find(r => r.id === id), emojiUrl });
 function msgEl(m, prev) {
   const ch = channelById(m.channel_id), gid = ch?.guild_id, mine = m.author_id === S.me.id;
   const grouped = prev && prev.author_id === m.author_id && m.created_at - prev.created_at < 600000 && !m.reply && !S.prefs.compact && prev.type !== 1;
@@ -2056,6 +2127,7 @@ function msgEl(m, prev) {
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
     m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', plainTs(inviteText(themeText(m.reply.content))) || 'Clique para ver o anexo')]));
   if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
+  if (m.forwarded) el.append(h('div.fwd-tag', icon('arrowr', 14), 'Encaminhada'));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
     const ta = h('textarea', { value: m.content, rows: 1, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m, ta.value); } if (e.key === 'Escape') { S.editing = null; renderMessages(true); } } });
@@ -2091,6 +2163,8 @@ function msgEl(m, prev) {
     if (tr) el.append(tr);
   }
   appendAttachments(el, m, mine || (gid && can(gid, PERM.MANAGE_MESSAGES)));
+  if (m.forwarded) { const f = m.forwarded, src = channelById(f.channel_id); // de onde veio: abre a original se você também vê aquele canal
+    el.append(h(src ? 'button.fwd-from' : 'div.fwd-from', src ? { type: 'button', title: 'Ir para a mensagem original', onclick: () => { go(src.guild_id || '@me', src.id); setTimeout(() => jumpTo(f.message_id), 600); } } : null, f.from || 'Outra conversa', ' · ', shortWhen(f.created_at))); }
   if (S.editing !== m.id && spoiled(m) && !spoilShown.has(m.id)) coverSpoiler(el, spoilFrom, m);
   if (m.reactions?.length) el.append(h('div.reactions', m.reactions.map(r => h('div.react' + (r.users.includes(S.me.id) ? '.me' : ''), { title: r.users.map(u => nameOf(u, gid)).join(', '), onclick: () => react(m, r.emoji, !r.users.includes(S.me.id)) }, reactionFace(r.emoji), h('span', r.users.length)))));
   el.append(h('div.toolbar',
@@ -2290,6 +2364,44 @@ function attachEl(f) {
   if (/^(mp3|ogg|wav|m4a)$/.test(ext)) return h('div.attach', h('audio', { src: url, controls: true, preload: 'none' }));
   return h('div.file', icon('file', 32), h('div', h('a.fn', { href: dl, download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: dl, download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
 }
+// ---------- encaminhar mensagem ----------
+// copia o texto e os anexos (os mesmos arquivos, sem subir de novo) para até 5 conversas/canais, com um recado opcional
+// mandado logo depois. Vai pelo envio normal: numa DM protegida, o app cifra como qualquer mensagem. Protegidas, enquetes
+// e eventos não são encaminhados; a encaminhada não marca ninguém de novo.
+const canForward = (m) => m.type !== 1 && !m.poll && !m.event && !m.e2ee && !(m.attachments || []).some(a => a.enc || a.e2ee || a.expired) && !!(m.content || m.attachments?.length);
+const idCmp = (a = '', b = '') => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+function forwardModal(m) {
+  const hasAtt = !!m.attachments?.length, dests = [];
+  for (const dm of [...S.dms.values()].sort((a, b) => idCmp(b.last_message?.id || b.id, a.last_message?.id || a.id))) {
+    const others = dm.recipients.filter(r => r.id !== S.me.id), u = others[0] && user(others[0].id);
+    const label = dm.type === 1 ? (u?.display_name || 'Conversa') : (dm.name || others.map(r => user(r.id).display_name).join(', ') || 'Grupo');
+    dests.push({ id: dm.id, label, sub: dm.type === 1 ? '@' + (u?.username || '') : 'Grupo', av: dm.type === 1 && u ? avatar(u, 28, { status: false }) : h('span.fwd-ic', icon('dm', 16)) });
+  }
+  for (const g of S.guilds.values()) for (const c of guildChOrder(g)) if ((c.type === 0 || c.type === 2) && chCan(c, CH.SEND) && (!hasAtt || chCan(c, CH.ATTACH)))
+    dests.push({ id: c.id, label: (c.type === 2 ? '' : '#') + chName(c), sub: g.name, av: h('span.fwd-ic', chIcon(c)) });
+  const picked = new Set(), q = h('input', { type: 'search', placeholder: 'Buscar conversas e canais', autocomplete: 'off' }), list = h('div.fwd-list'), note = h('input', { placeholder: 'Recado (opcional)', maxLength: 2000 });
+  const count = h('small.mut');
+  const draw = () => {
+    const t = q.value.trim().toLowerCase(), rows = dests.filter(d => !t || d.label.toLowerCase().includes(t) || d.sub.toLowerCase().includes(t)).slice(0, 60);
+    list.replaceChildren(...(rows.length ? rows.map(d => h('label.fwd-row' + (picked.has(d.id) ? '.on' : ''), d.av, h('span.fwd-t', h('b', d.label), h('small', d.sub)),
+      h('input', { type: 'checkbox', checked: picked.has(d.id), disabled: !picked.has(d.id) && picked.size >= 5, onchange: (e) => { e.target.checked ? picked.add(d.id) : picked.delete(d.id); draw(); } }))) : [h('div.dm-empty', 'Nada encontrado')]));
+    count.textContent = picked.size ? `${picked.size} de 5 escolhidos` : 'Escolha até 5';
+  };
+  q.addEventListener('input', draw); draw();
+  const preview = h('div.fwd-prev', icon('arrowr', 14), h('span', (m.content || '').replace(/<@&?\d+>/g, '@…').slice(0, 140) || (m.attachments.length === 1 ? m.attachments[0].name : `${m.attachments.length} anexos`)));
+  modal('Encaminhar mensagem', null, h('div.fwd', preview, q, list, count, h('label.f', 'Recado', note)),
+    [{ label: 'Cancelar', cls: 'link' }, { label: 'Encaminhar', fn: async () => {
+      if (!picked.size) { toast('Escolha para onde encaminhar', true); return false; }
+      const body = { content: m.content || '', forward: { channel_id: m.channel_id, message_id: m.id },
+        attachments: (m.attachments || []).map(({ url, name, size, type, voice, duration, waveform }) => ({ url, name, size, type, ...(voice ? { voice, duration, waveform } : {}) })) };
+      let ok = 0;
+      for (const cid of picked) {
+        try { await api('POST', `/channels/${cid}/messages`, body); ok++; if (note.value.trim()) await api('POST', `/channels/${cid}/messages`, { content: note.value.trim() }); }
+        catch (e) { const d = dests.find(x => x.id === cid); toast(`${d?.label || 'Destino'}: ${e.message}`, true); }
+      }
+      if (ok) toast(ok === 1 ? 'Mensagem encaminhada' : `Encaminhada para ${ok} lugares`);
+    } }]);
+}
 function msgMenu(e, m) {
   const ch = channelById(m.channel_id), gid = ch.guild_id, mine = m.author_id === S.me.id, mod = gid && can(gid, PERM.MANAGE_MESSAGES) || (!gid && false);
   menu(e, [
@@ -2297,6 +2409,7 @@ function msgMenu(e, m) {
     { label: 'Responder', fn: () => setReply(m) },
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
+    canForward(m) && { label: 'Encaminhar', hint: 'Para outras conversas e canais', fn: () => forwardModal(m) },
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
     m.content && !m.e2ee && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) }, // protegida: traduzir mandaria o texto para fora
     mine && !m.poll && !m.event && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
@@ -2621,6 +2734,8 @@ const flushDraft = () => { const ta = $('#composer textarea'); if (ta?.dataset.c
 for (const ev of ['pagehide', 'freeze']) addEventListener(ev, flushDraft, { capture: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushDraft(); });
 function composer(ch, label) {
+  // sem permissão de enviar (canal só leitura para os seus cargos): no lugar do campo, um aviso
+  if (ch.guild_id && !chCan(ch, CH.SEND)) return h('div#composer-wrap', h('div.composer-locked', { role: 'status' }, icon('lock', 18), h('span', 'Você não tem permissão para enviar mensagens neste canal.')));
   const ta = h('textarea', { placeholder: label == null ? 'Escreva um comentário…' : `Conversar em ${label}`, rows: 1, maxLength: 4000, value: readDrafts()[ch.id]?.t || '' });
   ta.dataset.cid = ch.id; ta.addEventListener('blur', flushDraft);
   const grow = () => { ta.style.height = '0'; ta.style.height = Math.min(ta.scrollHeight, 400) + 'px'; };
@@ -2710,6 +2825,7 @@ async function compressImage(file) {
   } catch { return file; }
 }
 async function addFile(file) {
+  { const c = channelById(S.view.cid); if (c?.guild_id && !chCan(c, CH.ATTACH)) return toast('Você não tem permissão para enviar arquivos neste canal', true); }
   const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }, cid = S.view.cid; S.pending.push(item); renderPendingPrev();
   const pct = (stage) => (f) => { const p = Math.floor(f * 100); if (p !== item.pct || item.stage !== stage) { item.pct = p; item.stage = stage; renderPendingPrev(); } };
   try {
@@ -2805,11 +2921,17 @@ function autocomplete(ta) {
   const pool = ch.guild_id ? [...guild(ch.guild_id).members.keys()] : ch.recipients.map(r => r.id);
   const found = pool.map(id => user(id)).filter(u => u.username.toLowerCase().includes(q) || u.display_name.toLowerCase().includes(q)).slice(0, 8);
   const extra = 'everyone'.startsWith(q) && ch.guild_id ? [{ id: 'everyone', display_name: '@everyone', username: 'Notifica todos' }] : [];
-  const all = [...extra, ...found]; if (!all.length) return;
+  // cargos do servidor (menos @everyone): marca todo mundo que tem o cargo
+  const g = ch.guild_id && guild(ch.guild_id);
+  const roles = g ? g.roles.filter(r => r.name && r.name !== '@everyone' && r.name.toLowerCase().includes(q)).slice(0, 5).map(r => {
+    const n = [...g.members.values()].filter(mm => mm.roles?.includes(r.id)).length;
+    return { id: '&' + r.id, role: r, display_name: r.name, username: `Cargo · ${n} ${n === 1 ? 'pessoa' : 'pessoas'}` };
+  }) : [];
+  const all = [...extra, ...found, ...roles]; if (!all.length) return;
   const box = h('div.ac', all.map((u, i) => h('div.it' + (i ? '' : '.sel'), { onmousedown: (e) => {
     e.preventDefault?.(); const start = ta.selectionStart - m[1].length - 1, ins = u.id === 'everyone' ? '@everyone ' : `@${u.display_name} `; if (u.id !== 'everyone') addMention(ta, u.display_name, u.id);
     ta.setRangeText(ins, start, ta.selectionStart, 'end'); box.remove(); ta.focus();
-  } }, u.id !== 'everyone' && avatar(u, 24, { status: false }), h('b', u.display_name), h('small', u.username))));
+  } }, u.role ? h('span.ac-role', { style: { background: u.role.color && u.role.color !== '#99aab5' ? u.role.color : 'var(--brand)' } }, '@') : u.id !== 'everyone' && avatar(u, 24, { status: false }), h('b', u.display_name), h('small', u.username))));
   $('#chat').append(box);
 }
 function renderTyping() {
@@ -3280,7 +3402,10 @@ function renderVoiceUI(speakOnly) {
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
     voice.screen && h('span.bar-gap', { 'aria-hidden': 'true' }), // distância entre "Parar transmissão" e "Sair da chamada": não clica um achando que é o outro
     btn('phoneoff', voice.screen ? 'Sair da chamada (também encerra a transmissão)' : 'Sair da chamada', false, () => voice.leave(), '.red'),
-  ] : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
+  ] : !dm && !chCan(ch, CH.CONNECT) ? h('div.vc-noconnect', icon('lock', 16), 'Você não tem permissão para entrar nesta sala')
+    : S.prefs.joinBtn === 'compact' ? h('button.btn.green.sm.join-compact', { onclick: () => joinVoice(ch.id) }, icon(dm ? 'callstart' : 'voice', 16), dm ? 'Atender' : 'Entrar')
+    : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
+  document.querySelector('.vc-join-top')?.classList.toggle('hidden', !!inRoom); // dentro da sala: some o "Entrar" do topo
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
   if (slot) slot.replaceChildren(...(inRoom && tiles.length > 1 ? [h('button#vc-layout' + (document.querySelector('.layoutpop') ? '.open' : ''), { title: 'Mudar o layout do palco', onclick: layoutMenu }, icon('layout', 18), h('span', STAGE_LAYOUTS.find(l => l.id === layout).label), icon('chevdown', 14))] : []));

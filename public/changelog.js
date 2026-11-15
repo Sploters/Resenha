@@ -6,6 +6,18 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-15-1', title: 'Permissões por categoria, encaminhar e mais',
+    items: [
+      { i: 'lock', t: 'Permissões por categoria e por canal', d: 'Clique direito numa categoria → Editar categoria: escolha, por cargo, quem pode enviar mensagens, arquivos, reagir e entrar nas salas de voz. Os canais da categoria seguem junto (sincronizados); um canal pode ter as próprias e voltar a seguir a categoria quando quiser. A categoria também ganhou descrição.' },
+      { i: 'arrowr', t: 'Encaminhar mensagens', d: 'Clique direito numa mensagem → Encaminhar: escolha até 5 conversas ou canais e, se quiser, um recado. A mensagem chega marcada "Encaminhada", com o link para a original.' },
+      { i: 'users', t: 'Marcar um cargo com @', d: 'Digite @ e o nome de um cargo para avisar todo mundo que tem aquele cargo (Tab completa).' },
+      { i: 'star', t: 'Emojis favoritos', d: 'No seletor de emoji, clique com o botão direito para favoritar. Favoritos e usados recentemente ficam no topo, em todos os aparelhos.' },
+      { i: 'file', t: 'Duplicar canal', d: 'Clique direito num canal → Duplicar canal: mesma categoria, tópico e permissões.' },
+      { i: 'eye', t: 'Status com forma, não só cor', d: 'Ausente é uma lua, Não perturbe tem um traço e Offline/Invisível é um anel vazio: dá para distinguir sem depender das cores.' },
+      { i: 'voice', t: 'Botão de entrar menor', d: 'As salas de voz têm um "Entrar" pequeno no topo, ao lado do nome. O botão grande do palco pode ficar compacto em Configurações → Voz e vídeo.', try: 'voice' },
+    ],
+  },
+  {
     id: '2026-11-14-1', title: 'Transmissão mais clara e eventos com capa',
     items: [
       { i: 'live', t: '"Ao vivo" sempre à vista', d: 'Enquanto você transmite, o painel de voz mostra uma faixa AO VIVO com o tempo, quantas pessoas estão assistindo e o botão Parar, em qualquer tela do app. No palco, o botão virou um selo "AO VIVO · Parar transmissão", com outra cor e mais longe do "Sair da chamada".' },

@@ -74,6 +74,7 @@ addCol('guilds', 'banner', 'TEXT');
 addCol('guilds', 'description', "TEXT DEFAULT ''");
 addCol('guilds', 'accent', 'TEXT');
 addCol('messages', 'type', 'INTEGER DEFAULT 0');
+addCol('messages', 'fwd', 'TEXT'); // encaminhada: de onde veio (JSON: canal, servidor, mensagem, data, rótulo)
 addCol('messages', 'spoiler_by', 'TEXT'); // marcada como spoiler (por quem): conteúdo e anexos escondidos até clicar
 db.exec(`CREATE TABLE IF NOT EXISTS emojis(id TEXT PRIMARY KEY, guild_id TEXT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE, name TEXT NOT NULL, url TEXT NOT NULL, creator_id TEXT, created_at INTEGER);`);
 addCol('users', 'friend_policy', "TEXT DEFAULT 'all'");

@@ -38,6 +38,7 @@ import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFa
 import { mountDiscover } from './discover.js';
 import { mountGames } from './games.js';
 import { mountEvents } from './events.js';
+import { createChPerms, CH } from './chperms.js';
 import { translate, translateEnabled, engineName } from './translate.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 
@@ -110,7 +111,7 @@ function send(ws, type, d) { if (ws.readyState === 1) ws.send(JSON.stringify({ t
 // dispatch e descarta o guardado; por segurança, nada vale mais que 30 s (servidor) / 60 s (pessoa).
 // Quem está em cada sala de voz, não lidas, DMs e status (online/ausente) são calculados na hora, a cada abertura.
 const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'ROLE_UPDATE', 'ROLE_DELETE',
-  'MEMBER_ADD', 'MEMBER_REMOVE', 'MEMBER_UPDATE', 'EMOJIS_UPDATE', 'SOUNDS_UPDATE']);
+  'MEMBER_ADD', 'MEMBER_REMOVE', 'MEMBER_UPDATE', 'EMOJIS_UPDATE', 'SOUNDS_UPDATE', 'CHANNEL_PERMS']);
 const guildCache = new Map(), userCache = new Map();
 function invalidateFor(type, d) {
   if (GUILD_EVENTS.has(type)) { const gid = d?.guild_id || (type.startsWith('GUILD_') ? d?.id : null); if (gid) guildCache.delete(gid); else guildCache.clear(); }
@@ -163,6 +164,7 @@ function memberPerms(gid, uid) {
   return (p & P.ADMIN) ? 0xffffff : p;
 }
 const can = (gid, uid, bit) => (memberPerms(gid, uid) & bit) !== 0;
+const chp = createChPerms({ db, all, get, run, memberPerms, P }); // permissões por canal/categoria (server/chperms.js)
 // castigo: não fala, não reage, não entra em voz
 const timedOut = (gid, uid) => !!gid && (get('SELECT timeout_until t FROM members WHERE guild_id=? AND user_id=?', gid, uid)?.t || 0) > Date.now();
 function audit(gid, actor, action, target = null, details = '') {
@@ -222,6 +224,7 @@ function guildFull(gid, { users = true } = {}) {
     members,
     emojis: all('SELECT id,name,url FROM emojis WHERE guild_id=?', gid),
     sounds: all('SELECT id,name,emoji,url,volume FROM sounds WHERE guild_id=? ORDER BY created_at', gid),
+    channel_perms: chp.guildOverwrites(gid),
     users: users ? all('SELECT u.* FROM users u JOIN members m ON m.user_id=u.id WHERE m.guild_id=?', gid).map(pubUser) : [],
     voice_states: voiceStatesFor(gid) };
 }
@@ -234,6 +237,7 @@ function messageObj(m) {
   return { id: m.id, channel_id: m.channel_id, author_id: m.author_id, author: userPub(m.author_id),
     content: m.content, type: m.type || 0, created_at: m.created_at, edited_at: m.edited_at, pinned: !!m.pinned,
     ...(m.spoiler_by ? { spoiler: true, spoiler_by_mod: m.spoiler_by !== m.author_id } : {}),
+    ...(m.fwd ? { forwarded: JSON.parse(m.fwd) } : {}),
     attachments: JSON.parse(m.attachments || '[]'),
     reply: reply ? { id: reply.id, content: isE2ee(reply.content) ? reply.content : (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
     reactions: Object.entries(rx).map(([emoji, users]) => ({ emoji, users })),
@@ -651,6 +655,7 @@ app.delete('/api/roles/:id', auth, wrap((req, res) => {
   const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
   if (!r || !can(r.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
   run('DELETE FROM roles WHERE id=?', r.id);
+  run('DELETE FROM channel_perms WHERE target=?', r.id); // ajustes de canal do cargo apagado
   audit(r.guild_id, req.uid, 'role_delete', r.id, r.name);
   dispatch(guildMemberIds(r.guild_id), 'ROLE_DELETE', { guild_id: r.guild_id, id: r.id });
   res.json({});
@@ -675,6 +680,11 @@ app.patch('/api/channels/:id', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
   if (!ch || !ch.guild_id || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
   run('UPDATE channels SET name=?,topic=?,position=? WHERE id=?', clean(req.body.name, 100) || ch.name, req.body.topic !== undefined ? clean(req.body.topic, 1024) : ch.topic, Number.isFinite(+req.body.position) && req.body.position !== undefined ? +req.body.position : ch.position, ch.id);
+  // mudar de categoria (null: sem categoria). Sincronizado continua sincronizado: passa a seguir a categoria nova
+  if (req.body.parent_id !== undefined && ch.type !== 4 && ch.type !== 11) {
+    const np = req.body.parent_id && get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id), ch.guild_id)?.id || null;
+    if (np !== (ch.parent_id || null)) run('UPDATE channels SET parent_id=? WHERE id=?', np, ch.id);
+  }
   dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_UPDATE', get('SELECT * FROM channels WHERE id=?', ch.id));
   if (req.body.name !== undefined || req.body.topic !== undefined) audit(ch.guild_id, req.uid, 'channel_update', ch.id, get('SELECT name FROM channels WHERE id=?', ch.id).name);
   res.json({});
@@ -689,6 +699,55 @@ app.delete('/api/channels/:id', auth, wrap((req, res) => {
   audit(ch.guild_id, req.uid, 'channel_delete', ch.id, ch.name);
   dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_DELETE', { id: ch.id, guild_id: ch.guild_id });
   res.json({});
+}));
+// permissões do canal ou da categoria: { overwrites: [{ target: cargo|'everyone', allow, deny }] } ou { sync: true }
+// (volta a seguir a categoria). Ajustar um canal sincronizado tira a sincronia; na categoria, vale para os sincronizados.
+const chPermsEvent = (ch) => dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_PERMS', { guild_id: ch.guild_id, channel_id: ch.id, overwrites: chp.overwrites(ch.id), perm_sync: ch.perm_sync ?? 1 });
+app.put('/api/channels/:id/perms', auth, wrap((req, res) => {
+  const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
+  if (!ch || !ch.guild_id || ch.type === 11 || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS) || !can(ch.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  if (req.body?.sync === true) {
+    if (ch.type === 4 || !ch.parent_id) return bad(res, 'O canal não está numa categoria');
+    run('DELETE FROM channel_perms WHERE channel_id=?', ch.id); run('UPDATE channels SET perm_sync=1 WHERE id=?', ch.id);
+    audit(ch.guild_id, req.uid, 'channel_perms', ch.id, ch.name + ' · sincronizado com a categoria');
+  } else {
+    chp.setOverwrites(ch, req.body?.overwrites);
+    if (ch.type !== 4) run('UPDATE channels SET perm_sync=0 WHERE id=?', ch.id);
+    audit(ch.guild_id, req.uid, 'channel_perms', ch.id, ch.name);
+  }
+  chPermsEvent(get('SELECT * FROM channels WHERE id=?', ch.id));
+  res.json({});
+}));
+// categoria: todos os canais dela voltam a seguir a categoria
+app.post('/api/channels/:id/sync-children', auth, wrap((req, res) => {
+  const cat = get('SELECT * FROM channels WHERE id=? AND type=4', req.params.id);
+  if (!cat || !can(cat.guild_id, req.uid, P.MANAGE_CHANNELS) || !can(cat.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  const kids = all('SELECT * FROM channels WHERE parent_id=? AND guild_id=? AND type<>11 AND perm_sync=0', cat.id, cat.guild_id);
+  for (const k of kids) { run('DELETE FROM channel_perms WHERE channel_id=?', k.id); run('UPDATE channels SET perm_sync=1 WHERE id=?', k.id); chPermsEvent({ ...k, perm_sync: 1 }); }
+  if (kids.length) audit(cat.guild_id, req.uid, 'channel_perms', cat.id, `${cat.name} · ${kids.length} canais sincronizados`);
+  res.json({ synced: kids.length });
+}));
+// duplicar canal (ou categoria, sem os canais): mesmo tipo, categoria, tópico, permissões e config de fórum; logo abaixo do original
+app.post('/api/channels/:id/duplicate', auth, wrap((req, res) => {
+  const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
+  if (!ch || !ch.guild_id || ![0, 2, 4, 15].includes(ch.type) || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
+  let name = clean(req.body?.name, 100) || ch.name;
+  if (ch.type === 0 || ch.type === 15) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-') || ch.name;
+  const id = newId();
+  db.exec('BEGIN');
+  try {
+    run('UPDATE channels SET position=position+1 WHERE guild_id=? AND position>?', ch.guild_id, ch.position ?? 0);
+    run('INSERT INTO channels(id,guild_id,type,name,topic,position,parent_id,created_at,perm_sync) VALUES(?,?,?,?,?,?,?,?,?)', id, ch.guild_id, ch.type, name, ch.topic || '', (ch.position ?? 0) + 1, ch.parent_id, Date.now(), ch.perm_sync ?? 1);
+    if (ch.type === 15 && ch.forum) run('UPDATE channels SET forum=? WHERE id=?', ch.forum, id);
+    chp.copyOverwrites(ch.id, id);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  const ids = guildMemberIds(ch.guild_id);
+  for (const c of all('SELECT * FROM channels WHERE guild_id=? AND position>? AND id<>? AND type<>11', ch.guild_id, ch.position ?? 0, id)) dispatch(ids, 'CHANNEL_UPDATE', c);
+  dispatch(ids, 'CHANNEL_CREATE', get('SELECT * FROM channels WHERE id=?', id));
+  if (chp.overwrites(id).length) chPermsEvent(get('SELECT * FROM channels WHERE id=?', id));
+  audit(ch.guild_id, req.uid, 'channel_create', id, name + ' (cópia de ' + ch.name + ')');
+  res.json({ id });
 }));
 // Invites
 app.post('/api/guilds/:id/invites', auth, wrap((req, res) => {
@@ -930,7 +989,20 @@ function resolveMentions(content, ch, authorId, fresh = true) {
   const want = [...new Set([...content.matchAll(/<@(\d{1,24})>/g)].map(x => x[1]))].slice(0, 50);
   const isIn = ch.guild_id ? (id) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, id)
     : (id) => !!get('SELECT 1 x FROM dm_participants WHERE channel_id=? AND user_id=?', ch.id, id);
-  return { everyone: false, ids: want.filter(isIn) };
+  const ids = new Set(want.filter(isIn));
+  // @cargo (<@&id>): marca quem tem o cargo neste servidor. Quem não modera notifica cada cargo no máximo 1 vez a cada 5 min
+  // (mesma conta do @everyone: um cargo pode ter o servidor inteiro)
+  if (ch.guild_id) {
+    const mod = can(ch.guild_id, authorId, P.MANAGE_MESSAGES) || can(ch.guild_id, authorId, P.MODERATE);
+    for (const rid of [...new Set([...content.matchAll(/<@&(\d{1,24})>/g)].map(x => x[1]))].slice(0, 5)) {
+      if (!get('SELECT 1 x FROM roles WHERE id=? AND guild_id=?', rid, ch.guild_id)) continue;
+      const k = ch.guild_id + ':' + authorId + ':' + rid;
+      if (!mod && fresh && Date.now() - (everyoneAt.get(k) || 0) <= 300e3) continue;
+      if (fresh && !mod) everyoneAt.set(k, Date.now());
+      for (const r of all('SELECT user_id FROM member_roles WHERE guild_id=? AND role_id=?', ch.guild_id, rid)) ids.add(r.user_id);
+    }
+  }
+  return { everyone: false, ids: [...ids] };
 }
 function saveMentions(m, ch, mn) { // grava quem deve ver esta mensagem na caixa de entrada (uma transação: 5.000 linhas levam ms, não segundos)
   db.exec('BEGIN');
@@ -945,6 +1017,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   if (ch.type === 4 || ch.type === 15) return bad(res, 'Canal não aceita mensagens');
   if (!forum.canReply(ch, req.uid)) return bad(res, 'Este post está trancado: só a moderação comenta', 403);
   if (timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
+  if (!chp.chCan(ch, req.uid, CH.SEND)) return bad(res, 'Você não tem permissão para enviar mensagens neste canal', 403);
   if (!rateOk(req.uid)) return bad(res, 'Você está enviando mensagens rápido demais', 429);
   { const wait = reputation.slowWait(ch.guild_id, req.uid); // soft-mute da reputação: 1 mensagem a cada N segundos
     if (wait) return res.status(429).json({ error: `Envio limitado pela comunidade: espere ${wait >= 60 ? Math.ceil(wait / 60) + ' min' : wait + ' s'} para a próxima mensagem`, retry_after: wait, softmute: true }); }
@@ -964,18 +1037,31 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
       return o;
     });
   if (!content.trim() && !atts.length) return bad(res, 'Mensagem vazia');
+  if (atts.length && !chp.chCan(ch, req.uid, CH.ATTACH)) return bad(res, 'Você não tem permissão para enviar arquivos neste canal', 403);
   if (ch.type === 1) {
     const other = all('SELECT user_id FROM dm_participants WHERE channel_id=? AND user_id<>?', ch.id, req.uid)[0];
     if (other && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=2', other.user_id, req.uid)) return bad(res, 'Você não pode enviar mensagens para este usuário', 403);
   }
+  // encaminhada: a original tem de existir num canal que a pessoa vê, não ser protegida nem enquete/evento, e o texto
+  // tem de ser o mesmo (numa conversa protegida o servidor não lê: confia no app). Guarda só de onde veio, não o autor.
+  let fwd = null;
+  if (req.body.forward && typeof req.body.forward === 'object') {
+    const sc = get('SELECT * FROM channels WHERE id=?', String(req.body.forward.channel_id || ''));
+    const om = sc && canAccessChannel(req.uid, sc) && get('SELECT * FROM messages WHERE id=? AND channel_id=?', String(req.body.forward.message_id || ''), sc.id);
+    if (!om || (om.type || 0) !== 0 || isE2ee(om.content) || /^(📊|📅)/u.test(om.content || '')) return bad(res, 'Esta mensagem não pode ser encaminhada');
+    if (!mc.e2ee && content !== (om.content || '')) return bad(res, 'O texto encaminhado não confere com o original');
+    const sg = sc.guild_id && get('SELECT name FROM guilds WHERE id=?', sc.guild_id);
+    fwd = JSON.stringify({ channel_id: sc.id, guild_id: sc.guild_id || null, message_id: om.id, created_at: om.created_at,
+      from: sc.guild_id ? `#${sc.name}${sg ? ' · ' + sg.name : ''}` : sc.type === 1 ? 'Mensagem direta' : 'Grupo' });
+  }
   // resposta: só a uma mensagem que existe neste canal (antes qualquer texto era guardado, até 1 MB)
   const replyTo = req.body.reply_to && /^\d{1,24}$/.test(String(req.body.reply_to)) && get('SELECT 1 x FROM messages WHERE id=? AND channel_id=?', String(req.body.reply_to), ch.id) ? String(req.body.reply_to) : null;
   const id = newId();
-  run('INSERT INTO messages(id,channel_id,author_id,content,created_at,reply_to,attachments) VALUES(?,?,?,?,?,?,?)',
-    id, ch.id, req.uid, content, Date.now(), replyTo, JSON.stringify(atts));
+  run('INSERT INTO messages(id,channel_id,author_id,content,created_at,reply_to,attachments,fwd) VALUES(?,?,?,?,?,?,?,?)',
+    id, ch.id, req.uid, content, Date.now(), fwd ? null : replyTo, JSON.stringify(atts), fwd);
   run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ch.id, id);
   const row = get('SELECT * FROM messages WHERE id=?', id);
-  const mn = resolveMentions(content, ch, req.uid);
+  const mn = fwd ? { everyone: false, ids: [] } : resolveMentions(content, ch, req.uid); // encaminhada não marca ninguém de novo
   saveMentions(row, ch, mn);
   recordClipShares(row, req.uid);
   const rep = row.reply_to && get('SELECT author_id FROM messages WHERE id=? AND channel_id=?', row.reply_to, ch.id);
@@ -1260,6 +1346,8 @@ function reaction(req, res, add) {
   if (!m) return bad(res, 'Mensagem não encontrada', 404);
   const emoji = clean(req.params.emoji, 64);
   if (add && timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
+  // sem permissão de reagir: ainda pode somar a uma reação que já existe (como no Discord), não criar uma nova
+  if (add && !chp.chCan(ch, req.uid, CH.REACT) && !get('SELECT 1 x FROM reactions WHERE message_id=? AND emoji=?', m.id, emoji)) return bad(res, 'Você não tem permissão para reagir neste canal', 403);
   if (add) run('INSERT OR IGNORE INTO reactions VALUES(?,?,?)', m.id, req.uid, emoji);
   else run('DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?', m.id, req.uid, emoji);
   dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
@@ -1482,7 +1570,7 @@ reputation.mount(app, { auth, wrap, bad, channelFor });
 // apagar as próprias mensagens em massa, com prévia e cópia antes (server/mymessages.js)
 mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
 eventsSvc = mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut, uploadDir: UPLOAD_DIR, artPrivate: process.env.EVENT_ART_PRIVATE === '1' }); // eventos do servidor com Vou/Talvez/Não vou e lembretes
-const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk });
+const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk, canSend: (ch, uid) => chp.chCan(ch, uid, CH.SEND) });
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
@@ -1888,6 +1976,7 @@ wss.on('connection', (ws) => {
           const ch = get('SELECT * FROM channels WHERE id=?', String(d.channel_id));
           if (!ch || (ch.type !== 2 && ch.type !== 1) || !canAccessChannel(uid, ch)) return;
           if (timedOut(ch.guild_id, uid)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, reason: 'Você está de castigo neste servidor' });
+          if (!chp.chCan(ch, uid, CH.CONNECT) && currentVoice(uid) !== ch.id) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'no_connect', reason: 'Você não tem permissão para entrar nesta sala de voz' });
           { const min = desktopMin(); if (min && ws.app && olderVer(ws.app, min)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'outdated', min, reason: `Seu app está na versão ${ws.app}. Para entrar nas calls, atualize para a ${min} ou mais nova.` }); }
           // ligação numa DM: começar a chamada (sala vazia) toca para a outra pessoa — só se ela aceita ligações de quem liga
           if (ch.type === 1 && !(voice.get(ch.id)?.size)) {
