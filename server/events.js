@@ -104,7 +104,7 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     if (get('SELECT COUNT(*) n FROM events WHERE guild_id=? AND cancelled_at IS NULL AND starts_at>?', gid, now()).n >= 50) return bad(res, 'Este servidor já tem 50 eventos marcados');
     let v; try { v = read(req.body || {}, gid); } catch (e) { return bad(res, e.message); }
     const ann = req.body?.announce_id ? get('SELECT * FROM channels WHERE id=? AND guild_id=?', req.body.announce_id, gid) : null;
-    if (req.body?.announce_id && (!ann || ann.type !== 0)) return bad(res, 'Canal de texto não encontrado');
+    if (req.body?.announce_id && (!ann || ![0, 5].includes(ann.type))) return bad(res, 'Canal de texto não encontrado');
     const id = newId(), t = now();
     run(`INSERT INTO events(id,guild_id,author_id,title,description,game,appid,channel_id,announce_id,starts_at,duration_min,slots,created_at,banner,banner_link) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, gid, req.uid, v.title, v.description || '', v.game || '', v.appid || null, v.channel_id || null, ann?.id || null, v.starts_at, v.duration_min, v.slots || 0, t, v.banner || null, v.banner_link || null);

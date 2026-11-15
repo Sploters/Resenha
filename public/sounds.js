@@ -64,6 +64,7 @@ export function playSound(name, { force = false } = {}) {
   try {
     const cfg = soundCfg(name);
     if (!force && (!cfg.on || S.prefs.soundsMuted)) return;
+    if (!force && S.prefs.notifSound === false && SOUND_DEFS[name]?.[1] === 'chat') return; // Notificações → "Som com o aviso" desligado
     const vol = (S.prefs.soundVolume ?? 80) / 100 * groupVol(name) * (cfg.vol ?? 100) / 100;
     if (vol <= 0) return;
     if (cfg.url) {

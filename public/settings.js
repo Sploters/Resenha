@@ -536,6 +536,13 @@ function accessibilityPage() {
       { on: S.prefs.highContrast, label: 'Alto contraste', desc: 'Bordas e textos mais fortes.', prev: h('span.ac-contrast', h('span.lo', 'Aa'), h('span.hi', 'Aa')), fn: set('highContrast') },
       { on: S.prefs.underlineLinks, label: 'Sublinhar links', desc: 'Todo link no chat aparece sublinhado.', prev: h('span.ac-link', 'veja ', h('u', 'este link')), fn: set('underlineLinks') }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Saturação das cores', slider(0, 100, S.prefs.saturation, 5, (v) => { set('saturation')(v); paintSat(); }, v => v + '%')), sat),
+    // ideia "Spoiler Button and GIF Freeze Option" (Stoat #1374): para epilepsia fotossensível e sensibilidade à luz
+    section('Imagens, vídeos e GIFs'),
+    card(h('p.mut', 'Esconder mídia até clicar: fotos, vídeos, GIFs e prévias de links aparecem como um bloco "Mídia escondida" (sem carregar nada por baixo) até você clicar. As suas nunca são escondidas. Quem envia também pode marcar um anexo como spoiler (o olho na prévia do anexo).'),
+      choiceCards([['off', 'Mostrar tudo', h('span.ms-prev', h('i.ms-img', icon('image', 22)))], ['servers', 'Esconder nos servidores', h('span.ms-prev', h('i.ms-img.hid', icon('eyeoff', 20)), h('small', 'DMs normais'))], ['all', 'Esconder em todo lugar', h('span.ms-prev', h('i.ms-img.hid', icon('eyeoff', 20)))]],
+        S.prefs.mediaHide || 'off', (v) => { S.prefs.mediaHide = v; save(); window.__lc?.renderMessages?.(true); }),
+      toggleCards([{ on: !!S.prefs.gifFreeze, label: 'GIFs parados', desc: 'GIFs mostram só o primeiro quadro e animam com o mouse em cima ou ao tocar. Vale no chat, na galeria e nos seletores.',
+        prev: h('span.ac-gif', h('b', 'GIF'), icon('pause', 16)), fn: (v) => { S.prefs.gifFreeze = v; save(); window.__lc?.renderMessages?.(true); } }])),
     hint('Dica: em Aparência há uma fonte legível para dislexia e o tamanho da interface.'));
 }
 
@@ -712,6 +719,20 @@ function notificationsPage() {
           h('div.np-toast' + (S.prefs.desktopNotif ? '' : '.off'), h('div.np-ic', icon('dm', 18)), h('div', h('b', 'Ana Clara'), h('span', preview ? 'bora jogar hoje? 🎮' : 'Nova mensagem')))))),
       card(h('label.f.np-vol', 'Volume das notificações', h('small.mut', 'Mensagens, menções, mensagens diretas, chamadas e pedidos de amizade. Os sons da chamada têm o volume deles, em Sons.'),
         slider(0, 100, S.prefs.notifVolume ?? 100, 5, v => { S.prefs.notifVolume = v; save(); }, v => v + '%', () => playSound('mention', { force: true })))),
+      // ideia "notification settings" (Stoat #1254): número no ícone e o ícone piscando na barra de tarefas
+      section('Ícone e barra de tarefas'),
+      card(h('div.np-badge',
+        h('p.mut', 'O que aparece no ícone da Resenha (aba do navegador, app instalado e barra de tarefas do app desktop) quando há algo novo.'),
+        choiceCards([
+          ['mentions', 'Número de menções', h('span.nb-prev', h('span.nb-ic', icon('dm', 22)), h('b.nb-num', '3'))],
+          ['unread', 'Menções e ponto para não lidas', h('span.nb-prev', h('span.nb-ic', icon('dm', 22)), h('b.nb-dot'))],
+          ['off', 'Nada no ícone', h('span.nb-prev', h('span.nb-ic', icon('dm', 22)))]], S.prefs.badgeMode || 'mentions',
+        (v) => { S.prefs.badgeMode = v; save(); window.__lc?.updateTitle?.(); }),
+        toggleCards([
+          { on: S.prefs.taskbarFlash !== false, label: 'Piscar quando chamarem você', desc: 'Menção, mensagem direta ou chamada com a Resenha em segundo plano: o ícone pisca na barra de tarefas (app desktop) ou o título da aba alterna (navegador) até você voltar.',
+            prev: h('span.nb-prev.blink', h('span.nb-ic', icon('dm', 22))), fn: (v) => { S.prefs.taskbarFlash = v; save(); } },
+          { on: S.prefs.notifSound !== false, label: 'Som com o aviso', desc: 'Toca o som de menção junto com o aviso (volume acima; os sons de cada tipo ficam em Sons).',
+            prev: h('span.nb-prev', icon('vol', 24)), fn: (v) => { S.prefs.notifSound = v; save(); } }]))),
       section('Modo foco'),
       card(h('div.np-focus',
         h('p.mut', 'Só mensagens diretas e chamadas para você tocam som e mostram aviso. Os servidores continuam marcando o que não foi lido, em silêncio. Seu status não muda: os amigos continuam te vendo online.'),

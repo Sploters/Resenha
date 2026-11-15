@@ -288,13 +288,18 @@ export function permSource(g, ch) {
 export function chPerms(ch) {
   const g = ch && guild(ch.guild_id); if (!g) return CH_ALL;
   if (can(g.id, PERM.ADMIN) || can(g.id, PERM.MANAGE_CHANNELS)) return CH_ALL;
-  const ows = g.channel_perms?.[permSource(g, ch)?.id] || []; if (!ows.length) return CH_ALL;
-  let p = CH_ALL; const ev = ows.find(o => o.target === 'everyone'); if (ev) p = (p & ~ev.deny) | ev.allow;
+  // anúncios (5) e documento (17): por padrão só quem gerencia mensagens escreve
+  const base = (ch.type === 5 || ch.type === 17) && !can(g.id, PERM.MANAGE_MESSAGES) ? CH_ALL & ~(CH.SEND | CH.ATTACH) : CH_ALL;
+  const ows = g.channel_perms?.[permSource(g, ch)?.id] || []; if (!ows.length) return base;
+  let p = base; const ev = ows.find(o => o.target === 'everyone'); if (ev) p = (p & ~ev.deny) | ev.allow;
   const mine = new Set(g.members.get(S.me.id)?.roles || []); let a = 0, d = 0;
   for (const o of ows) if (mine.has(o.target)) { a |= o.allow; d |= o.deny; }
   return ((p & ~d) | a) & CH_ALL;
 }
 export const chCan = (ch, bit) => (chPerms(ch) & bit) !== 0;
+// tipos de canal (ideia "Kinds of Channels", Stoat #1027): texto, anúncios e galeria têm conversa; documento é uma página
+export const CH_KINDS = { 0: ['hash', 'Texto'], 2: ['voice', 'Voz'], 5: ['megaphone', 'Anúncios'], 15: ['forum', 'Fórum'], 16: ['image', 'Galeria'], 17: ['doc', 'Documento'] };
+export const isChatCh = (c) => !!c && (c.type === 0 || c.type === 5 || c.type === 16);
 export const dmPeer = (dm) => dm.recipients.find(r => r.id !== S.me.id) || dm.recipients[0];
 export function relType(uid) { return S.rels.get(uid)?.type || 0; }
 // política de notificação por servidor/canal (salva nas preferências)
@@ -356,8 +361,9 @@ function place(el, x, y) {
   originAt(el, x, y); // cresce a partir do clique
 }
 export const menuHooks = []; // telemetria (public/ux.js): menu aberto / fechado sem escolher nada
-export function menu(e, items) {
-  e.preventDefault(); closeFloating();
+// opts.keepFloat: menu aberto de dentro de um painel flutuante (ex.: mídia favorita) que deve continuar aberto
+export function menu(e, items, opts = {}) {
+  e.preventDefault(); if (opts.keepFloat) layer().querySelectorAll('.menu:not(.leaving)').forEach(m => leave(m, 120)); else closeFloating();
   let picked = false;
   // item: { label, fn, danger, icon (nome do ícone, à esquerda), checked (caixa marcável), sub: [itens] (submenu ao passar o mouse) }
   const build = (list, depth) => h('div.menu', { 'data-depth': depth }, list.filter(Boolean).map(i => {

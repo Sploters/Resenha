@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   onAppAudio: (() => { let cb = null; ipcRenderer.on('app-audio-data', (_e, b, slot) => cb?.(b, slot | 0)); return (f) => { cb = f; }; })(), // slot: um programa no áudio "só desta tela"
   appAudioScreen: true, // sabe o modo 'screen' (áudio só dos programas da tela transmitida)
   setBadge: (n) => ipcRenderer.send('set-badge', n),
+  flashFrame: () => ipcRenderer.send('flash-frame'), // ícone piscando na barra de tarefas (desde a 1.0.40)
   clipFlash: (o) => ipcRenderer.send('clip-flash', o), // aviso de clipe por cima do jogo (desde a 1.0.24)
   onHotkey: (cb) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
   // push-to-talk global (apps com esta função; a página testa se pttSet existe): code = e.code da tecla ou Mouse3/4/5; null desliga. Devolve { ok, reason?, global }

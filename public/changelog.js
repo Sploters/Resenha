@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-15-2', title: 'Galeria, documento, mídia favorita e importar do Discord',
+    items: [
+      { i: 'image', t: 'Novos tipos de canal', d: 'Ao criar um canal: Anúncios (só a moderação escreve), Galeria (fotos e vídeos em grade, com comentários) e Documento (uma página para regras e listas de tarefas com caixinhas).' },
+      { i: 'star', t: 'Mídia favorita com categorias', d: 'Passe o mouse numa foto, vídeo ou arquivo e clique na estrela. No botão de GIF/emoji do campo, "Mídia favorita" tem abas (GIFs, Imagens, Vídeos, Áudios, Emojis, Outros) e categorias com o nome que você quiser.' },
+      { i: 'eye', t: 'Spoiler no anexo e GIFs parados', d: 'Clique no olho da prévia do anexo para mandar como spoiler. Em Acessibilidade: esconder imagens e vídeos até clicar e deixar GIFs parados até passar o mouse.', try: 'accessibility' },
+      { i: 'inbox', t: 'Importar conversa do Discord', d: 'Exporte a conversa com o DiscordChatExporter e importe pelo + do campo de mensagem: as mensagens entram com a data original. A outra pessoa da conversa pode desfazer.' },
+      { i: 'bell', t: 'Número no ícone e barra de tarefas piscando', d: 'Em Notificações → Ícone e barra de tarefas: número de menções, ponto para não lidas ou nada; e o ícone pisca quando chamam você.', try: 'notifications' },
+    ],
+  },
+  {
     id: '2026-11-15-1', title: 'Permissões por categoria, encaminhar e mais',
     items: [
       { i: 'lock', t: 'Permissões por categoria e por canal', d: 'Clique direito numa categoria → Editar categoria: escolha, por cargo, quem pode enviar mensagens, arquivos, reagir e entrar nas salas de voz. Os canais da categoria seguem junto (sincronizados); um canal pode ter as próprias e voltar a seguir a categoria quando quiser. A categoria também ganhou descrição.' },

@@ -28,9 +28,11 @@ export function createChPerms({ db, all, get, run, memberPerms, P }) {
     if (!ch?.guild_id) return CH_ALL; // DM e grupo: sem cargos
     const gp = memberPerms(ch.guild_id, uid);
     if (gp & (P.ADMIN | P.MANAGE_CHANNELS)) return CH_ALL;
+    // anúncios (5) e documento (17): por padrão só quem gerencia mensagens escreve; os ajustes do canal podem liberar
+    const base = (ch.type === 5 || ch.type === 17) && !(gp & P.MANAGE_MESSAGES) ? CH_ALL & ~(CH.SEND | CH.ATTACH) : CH_ALL;
     const src = source(ch), ows = overwrites(src.id);
-    if (!ows.length) return CH_ALL;
-    let p = CH_ALL;
+    if (!ows.length) return base;
+    let p = base;
     const ev = ows.find(o => o.target === 'everyone');
     if (ev) p = (p & ~ev.deny) | ev.allow;
     const mine = new Set(all('SELECT role_id FROM member_roles WHERE guild_id=? AND user_id=?', ch.guild_id, uid).map(r => r.role_id));

@@ -43,7 +43,7 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
     if (q.guild) {
       const gid = String(q.guild);
       if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid)) return null;
-      const chs = all('SELECT id, name FROM channels WHERE guild_id=? AND type IN (0,2)', gid);
+      const chs = all('SELECT id, name FROM channels WHERE guild_id=? AND type IN (0,2,5,16)', gid);
       return q.channel ? chs.filter(c => c.id === String(q.channel)) : chs;
     }
     if (q.channel) {

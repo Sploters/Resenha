@@ -2,12 +2,13 @@
 // O GIF vai como o próprio link na mensagem; o servidor só busca a lista (KLIPY ou GIPHY) e guarda os favoritos.
 import { h, icon } from './util.js';
 import { S, api, toast, closeFloating, savePrefs } from './state.js';
-import { liteOn } from './lite.js';
+import { gifFrozen, still } from './mediasafe.js';
 
 let meta = null, favs = null; // favs: Map url -> gif
 const loadMeta = async () => (meta ||= await api('GET', '/gifs/meta').catch(() => ({ provider: null })));
 const loadFavs = async () => { if (!favs) { const r = await api('GET', '/gifs/favs').catch(() => ({ gifs: [] })); favs = new Map(r.gifs.map(g => [g.url, g])); } return favs; };
 export const isFav = (url) => !!favs?.has(url);
+export const gifFavList = async () => [...(await loadFavs()).values()]; // aba GIFs da mídia favorita (mediafavs.js)
 export async function toggleFav(g) {
   await loadFavs();
   if (favs.has(g.url)) { favs.delete(g.url); await api('DELETE', '/gifs/favs', { url: g.url }).catch(e => toast(e.message, true)); toast('Tirado dos favoritos'); return false; }
@@ -19,17 +20,7 @@ export async function toggleFav(g) {
 export const GIF_ONLY = /^https?:\/\/[^\s"'<>]+\.(gif|webp)(\?[^\s"'<>]*)?$/i;
 export const isGifMessage = (content) => GIF_ONLY.test((content || '').trim());
 
-// quadro parado de um GIF (para o modo leve / animações desligadas): precisa de CORS; sem ele, anima normalmente
-const stills = new Map();
-function still(src) {
-  if (!stills.has(src)) stills.set(src, new Promise((res) => {
-    const im = new Image(); im.crossOrigin = 'anonymous';
-    im.onload = () => { try { const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; c.getContext('2d').drawImage(im, 0, 0); res(c.toDataURL('image/jpeg', 0.8)); } catch { res(null); } };
-    im.onerror = () => res(null); im.src = src;
-  }));
-  return stills.get(src);
-}
-const calm = () => liteOn() || S.prefs.animMode === 'never';
+const calm = gifFrozen; // modo leve, animações desligadas ou "GIFs parados" (Acessibilidade)
 
 // o GIF dentro da mensagem: estrela para favoritar; no modo leve fica parado e anima com o mouse em cima
 export function gifEl(url, onOpen) {
@@ -41,7 +32,7 @@ export function gifEl(url, onOpen) {
   if (calm()) {
     still(url).then(s => { if (s && calm()) { img.src = s; box.classList.add('paused'); } });
     box.addEventListener('mouseenter', () => { img.src = url; box.classList.remove('paused'); });
-    box.addEventListener('mouseleave', () => { const s = stills.get(url); s?.then(x => { if (x && calm()) { img.src = x; box.classList.add('paused'); } }); });
+    box.addEventListener('mouseleave', () => { still(url).then(x => { if (x && calm()) { img.src = x; box.classList.add('paused'); } }); });
   }
   return box;
 }

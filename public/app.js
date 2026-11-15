@@ -5,6 +5,10 @@ import { openFxPicker, fxBadge } from './fxui.js';
 import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { gifPicker, gifEl, isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
+import { coverMedia, coverReason, freezeGif, isGifName } from './mediasafe.js';
+import { initKinds, renderGallery, renderDoc, onKindsEvent } from './chkinds.js';
+import { mediaFavPicker, favStarFor, favMenuItems, onMediaFavs } from './mediafavs.js';
+import { importModal, undoImportModal } from './importer.js';
 import { socialCard, prepVideo } from './media.js';
 import { steamCard, steamApp } from './steamcard.js';
 import { initEvents, eventCard, renderGuildEvents, eventModal, onEventUpdate, onEventReminder } from './events.js';
@@ -13,7 +17,7 @@ import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -452,7 +456,10 @@ function onEvent(t, d) {
       let m = S.typing.get(d.channel_id); if (!m) S.typing.set(d.channel_id, m = new Map());
       m.set(d.user_id, Date.now() + 8000); renderTyping(); previewTyping(); setTimeout(() => { renderTyping(); previewTyping(); }, 8100); break;
     }
-    case 'MESSAGE_CREATE': onMessage(d); break;
+    case 'MESSAGE_CREATE': onMessage(d); onKindsEvent(t, d); break;
+    case 'MEDIA_FAVS': onMediaFavs(d); break;
+    case 'CHANNEL_DOC': onKindsEvent(t, d); break;
+    case 'MESSAGES_IMPORTED': onImported(d); break;
     case 'FORUM_POST_CREATE': case 'FORUM_POST_UPDATE': case 'FORUM_POST_DELETE': onForumEvent(t, d); break;
     case 'E2EE_KEY': onE2eeKey(d); break;
     case 'READ_STATE': onReadState(d); break; // lido em outro aparelho (ou nesta conta por outra aba)
@@ -462,9 +469,11 @@ function onEvent(t, d) {
     case 'MESSAGE_UPDATE': {
       const list = S.messages.get(d.channel_id); const i = list?.findIndex(m => m.id === d.id);
       if (i >= 0) { list[i] = d; if (S.view.cid === d.channel_id) { const el = $(`[data-mid="${d.id}"]`); if (el) { const prev = list[i - 1]; el.replaceWith(msgEl(d, prev)); } } }
+      onKindsEvent(t, d);
       break;
     }
     case 'MESSAGE_DELETE': {
+      onKindsEvent(t, d);
       const list = S.messages.get(d.channel_id); if (!list) break;
       const i = list.findIndex(m => m.id === d.id); if (i >= 0) list.splice(i, 1);
       if (S.view.cid === d.channel_id) renderMessages(true);
@@ -521,15 +530,49 @@ function onMessage(m) {
     if (isMention && pol.level !== 'none') {
       S.mentions[m.channel_id] = (S.mentions[m.channel_id] || 0) + 1;
       if (!quiet) playSound('mention');
+      if (!quiet) attention(isDM ? m.author.display_name : `${m.author.display_name} em #${ch?.name}`);
       if (!quiet) notify(isDM ? m.author.display_name : `${m.author.display_name} (#${ch?.name})`, S.prefs.notifPreview === false ? 'Nova mensagem' : (inviteText(themeText(text)) || 'Anexo'), () => go(ch.guild_id || '@me', ch.id), m.channel_id);
     } else if (counts && !isDM && !quiet) playSound('message');
     renderRail(); renderSide(); updateTitle();
   } else ack(m.channel_id);
 }
+// número no ícone (ideia "notification settings", Stoat #1254): título da aba, ícone da aba (favicon), ícone do app
+// instalado (PWA) e barra de tarefas do app desktop. Notificações → "Ícone e barra de tarefas": só menções (padrão),
+// menções + ponto para mensagens não lidas, ou nada.
+const unreadCounts = () => Object.keys(S.unread).some(cid => { if (!S.unread[cid]) return false; const ch = channelById(cid); if (!ch || channelMuted(cid)) return false; return !ch.guild_id || !serverMuted(ch.guild_id) || channelUnmuted(ch); });
+const favLink = document.querySelector('link[rel="icon"]'), favBase = favLink?.getAttribute('href');
+let favKey = '';
+function setFavicon(n, dot) {
+  const key = n ? 'n' + Math.min(n, 10) : dot ? 'dot' : ''; if (!favLink || key === favKey) return; favKey = key;
+  if (!key) { favLink.setAttribute('href', favBase); return; }
+  const img = new Image();
+  img.onload = () => {
+    if (favKey !== key) return;
+    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); x.drawImage(img, 0, 0, 64, 64);
+    x.fillStyle = '#f23f43'; x.beginPath(); x.arc(46, 18, n ? 18 : 12, 0, Math.PI * 2); x.fill();
+    if (n) { x.fillStyle = '#fff'; x.font = 'bold 26px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(n > 9 ? '9+' : String(n), 46, 20); }
+    favLink.setAttribute('href', c.toDataURL('image/png'));
+  };
+  img.src = favBase;
+}
+// menção ou mensagem direta com a janela em segundo plano: o ícone pisca na barra de tarefas (app desktop) ou o título da
+// aba alterna com "Nova menção" (navegador) até voltar para a Resenha
+let blinkTimer = 0;
+function attention(who) {
+  if (S.prefs.taskbarFlash === false || document.hasFocus()) return;
+  if (desktop?.flashFrame) return desktop.flashFrame();
+  if (blinkTimer || S.prefs.titleBlink === false) return;
+  let on = false;
+  blinkTimer = setInterval(() => { if (document.hasFocus()) { clearInterval(blinkTimer); blinkTimer = 0; return updateTitle(); } on = !on; document.title = on ? `🔔 ${who || 'Nova menção'}` : baseTitle(); }, 1200);
+}
+const mentionTotal = () => Object.values(S.mentions).reduce((a, b) => a + b, 0);
+const baseTitle = () => { const mode = S.prefs.badgeMode || 'mentions', n = mentionTotal(); return mode === 'off' ? 'Resenha' : (n ? `(${n}) ` : mode === 'unread' && unreadCounts() ? '• ' : '') + 'Resenha'; };
 function updateTitle() {
-  const n = Object.values(S.mentions).reduce((a, b) => a + b, 0);
-  document.title = (n ? `(${n}) ` : '') + 'Resenha';
-  desktop?.setBadge?.(n);
+  const mode = S.prefs.badgeMode || 'mentions', n = mode === 'off' ? 0 : mentionTotal(), dot = mode === 'unread' && !n && unreadCounts();
+  if (!blinkTimer) document.title = baseTitle();
+  desktop?.setBadge?.(n || (dot ? -1 : 0));
+  setFavicon(n, dot);
+  try { if (n || dot) navigator.setAppBadge?.(n || undefined)?.catch?.(() => { }); else navigator.clearAppBadge?.()?.catch?.(() => { }); } catch { }
   for (const btn of document.querySelectorAll('.inbox-btn')) { btn.querySelector('.ibadge')?.remove(); const b = inboxBadge(); if (b) btn.append(b); }
 }
 function ack(cid) {
@@ -1004,16 +1047,28 @@ async function inviteModal(g) {
   dlg.el.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
   draw(); q.focus();
 }
+// galeria vista como conversa (só nesta abertura): o botão de grade volta
+const galleryChat = new Set();
+function setGalleryChat(cid, on) { if (on) galleryChat.add(cid); else galleryChat.delete(cid); renderMain(); }
 function channelModal(g, type, parent) {
   const name = h('input', { placeholder: type === 2 ? 'Sala de voz' : type === 4 ? 'Nova categoria' : type === 15 ? 'ideias-e-discussões' : 'novo-canal', maxLength: 100 });
   let t = type;
-  const typeSel = type === 4 ? null : h('select', { onchange: (e) => (t = +e.target.value) }, h('option', { value: 0 }, 'Texto'), h('option', { value: 2, selected: type === 2 }, 'Voz'), h('option', { value: 15, selected: type === 15 }, 'Fórum (posts com votos e comentários)'));
-  modal(type === 4 ? 'Criar categoria' : 'Criar canal', '', h('div', typeSel && h('label.f', 'Tipo de canal', typeSel), h('label.f', 'Nome', name)),
+  // tipos de canal em cartões (ideia "Kinds of Channels", Stoat #1027)
+  const KINDS = [[0, 'Texto', 'Conversa normal: mensagens, fotos, GIFs e enquetes'], [2, 'Voz', 'Chamada de voz e vídeo, com transmissão de tela'],
+    [5, 'Anúncios', 'Só a moderação escreve; todos leem e reagem. Libere um cargo nas permissões do canal'],
+    [15, 'Fórum', 'Posts com título, tags, votos e comentários'], [16, 'Galeria', 'Cada post é uma foto ou vídeo; abre em grade'],
+    [17, 'Documento', 'Uma página para regras, guias e listas de tarefas, editada pela moderação']];
+  const PH = { 2: 'Sala de voz', 5: 'anúncios', 15: 'ideias-e-discussões', 16: 'fotos-e-vídeos', 17: 'regras' };
+  const typeSel = type === 4 ? null : h('div.chkinds', { role: 'radiogroup' });
+  const drawKinds = () => typeSel?.replaceChildren(...KINDS.map(([k, l, d]) => h('button.chkind' + (t === k ? '.on' : ''), { type: 'button', role: 'radio', 'aria-checked': String(t === k),
+    onclick: () => { t = k; name.placeholder = PH[k] || 'novo-canal'; drawKinds(); } }, h('span.ck-ic', icon(CH_KINDS[k][0], 22)), h('span.ck-t', h('b', l), h('small', d)))));
+  drawKinds();
+  modal(type === 4 ? 'Criar categoria' : 'Criar canal', '', h('div', typeSel && h('div.f', h('span', 'Tipo de canal'), typeSel), h('label.f', 'Nome', name)),
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Criar', fn: async () => { const r = await tryApi('POST', `/guilds/${g.id}/channels`, { name: name.value, type: t, parent_id: parent }); if (!r) return false; if (t !== 4) setTimeout(() => go(g.id, r.id), 100); } }]);
 }
 
 // ---------- barra lateral ----------
-const chIcon = (c) => icon(c.type === 2 ? 'voice' : c.type === 15 ? 'forum' : 'hash', 20);
+const chIcon = (c, sz = 20) => icon(CH_KINDS[c.type]?.[0] || 'hash', sz);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
@@ -1057,8 +1112,8 @@ function renderSide() {
     if (sideCats.gid !== g.id) { sideCats.gid = g.id; sideCats.open.clear(); }
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
-      const pol = c.type === 0 ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
-      return h('div', h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
+      const pol = isChatCh(c) ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
+      return h('div', h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
         chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
@@ -1270,7 +1325,7 @@ function favSide() {
   const row = (f) => {
     if (f.p) return postRow(f);
     const c = channelById(f.c), g = guild(c.guild_id), vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
-    const el = h('div.ch.favrow' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && c.type === 0 ? '.unread' : ''), {
+    const el = h('div.ch.favrow' + (S.view.cid === c.id ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : ''), {
       draggable: true, title: `#${chName(c)} — ${g.name}`,
       onclick: () => { S.favMode = true; go(g.id, c.id); }, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c),
       ondragstart: (e) => { dragId = c.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.id); el.classList.add('dragging'); },
@@ -1300,7 +1355,8 @@ function channelMenu(e, g, c) {
     can(g.id, PERM.MANAGE_CHANNELS) && c.type !== 4 && { label: 'Duplicar canal', hint: 'Mesma categoria, tópico e permissões', fn: () => duplicateChannel(g, c) },
     can(g.id, PERM.MANAGE_CHANNELS) && can(g.id, PERM.MANAGE_ROLES) && c.type === 4 && g.channels.some(k => k.parent_id === c.id && k.perm_sync === 0) && { label: 'Sincronizar canais com a categoria', hint: 'Os canais com permissões próprias voltam a seguir a categoria', fn: () => syncChildren(g, c) },
     can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
-    c.type === 0 && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
+    isChatCh(c) && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
+    isChatCh(c) && can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Importar conversa do Discord…', fn: () => importModal(c) },
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },
     can(g.id, PERM.MANAGE_CHANNELS) && '-',
     can(g.id, PERM.MANAGE_CHANNELS) && { label: c.type === 4 ? 'Excluir categoria' : 'Excluir canal', hint: c.type === 4 ? 'Os canais dela ficam sem categoria' : null, danger: true, fn: async () => { if (await confirmBox(`Excluir ${c.name}`, 'Isto não pode ser desfeito.', 'Excluir')) tryApi('DELETE', `/channels/${c.id}`); } },
@@ -1355,7 +1411,7 @@ function channelSettings(g, c) {
   };
   if (manageRoles) draw();
   const body = h('div', h('label.f', cat ? 'Nome da categoria' : 'Nome do canal', name),
-    (cat || c.type === 0 || c.type === 15 || c.type === 2) && h('label.f', cat ? 'Descrição' : 'Tópico', topic),
+    (cat || [0, 2, 5, 15, 16, 17].includes(c.type)) && h('label.f', cat ? 'Descrição' : 'Tópico', topic),
     parentSel && h('label.f', 'Categoria', parentSel),
     manageRoles && h('div.f', h('div.chp-title', 'Permissões'), cat && h('small.mut', { style: { display: 'block', marginBottom: '8px' } }, 'Valem para todos os canais sincronizados desta categoria.'), permBox));
   if (parentSel) parentSel.addEventListener('change', () => { if (synced) { const pc = parentCat(); if (pc) ows = load(pc.id); else { synced = false; ows = load(c.id); } draw(); } });
@@ -1402,6 +1458,7 @@ const newsActions = {
   lfg: () => go('@me', 'lfg'),
   messages: () => openMessages(),
   notifications: () => openSettings('notifications', ctxSettings()),
+  accessibility: () => openSettings('accessibility', ctxSettings()),
   requests: () => { inboxTab = 'requests'; showInbox(); },
   servers: () => { const g = [...S.guilds.values()][0]; if (g) friendsInServer(g); else toast('Entre num servidor para ver quais amigos estão nele.'); },
   privacy: () => openSettings('privacy', ctxSettings()),
@@ -1539,7 +1596,7 @@ function statusMenu(e) {
 function quickSwitch() {
   const inp = h('input', { placeholder: 'Para onde você quer ir?', style: { width: '100%' } }), res = h('div');
   const items = [...[...S.dms.values()].map(d => ({ label: '@' + user(dmPeer(d).id).display_name, fn: () => go('@me', d.id) })),
-    ...[...S.guilds.values()].flatMap(g => g.channels.filter(c => c.type !== 4).map(c => ({ label: chName(c), ic: c.type === 2 ? 'voice' : c.type === 15 ? 'forum' : 'hash', alt: c.name, hint: g.name, fn: () => go(g.id, c.id) }))),
+    ...[...S.guilds.values()].flatMap(g => g.channels.filter(c => c.type !== 4).map(c => ({ label: chName(c), ic: CH_KINDS[c.type]?.[0] || 'hash', alt: c.name, hint: g.name, fn: () => go(g.id, c.id) }))),
     ...[...S.guilds.values()].map(g => ({ label: g.name, hint: 'servidor', fn: () => go(g.id) }))];
   const m = modal('Busca rápida', '', h('div', h('label.f', inp), res), [], {});
   const draw = () => { res.replaceChildren(...items.filter(i => (i.label + ' ' + (i.alt || '')).toLowerCase().includes(inp.value.toLowerCase())).slice(0, 10).map(i => h('div.role-row', { onclick: () => { m.close(); i.fn(); } }, i.ic && icon(i.ic, 18), i.label, h('small', { style: { marginLeft: 'auto', color: 'var(--text-muted)' } }, i.hint || '')))); };
@@ -1800,6 +1857,8 @@ function renderMain() {
   if (v.pendingPost) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('p', 'Abrindo o post…')));
   const ch = channelById(v.cid);
   if (ch?.type === 15) return renderForum(main, ch);
+  if (ch?.type === 17) return renderDoc(main, ch); // documento (chkinds.js)
+  if (ch?.type === 16 && !galleryChat.has(ch.id)) return renderGallery(main, ch); // galeria em grade; "Conversa" mostra o chat
   if (!ch) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('h2', 'Sem canais'), h('p', 'Este servidor ainda não tem canais.')));
   const dm = ch.type === 1, vc = ch.type === 2, post = ch.type === 11, peer = dm && dmPeer(ch);
   const inCall = dm && callActive(ch.id), chatOpen = !vcChatHidden(ch);
@@ -1808,7 +1867,7 @@ function renderMain() {
       dm ? [h('span.hash', '@'), h('span', user(peer.id).display_name), h('div.status.s-' + user(peer.id).status, { style: { position: 'static', borderColor: 'transparent', width: '10px', height: '10px', minWidth: 0, minHeight: 0 } })]
         : post ? [h('button.ibtn.fo-back', { title: 'Voltar ao fórum', 'aria-label': 'Voltar ao fórum', onclick: () => go(ch.guild_id, ch.parent_id) }, icon('arrowr', 20)), h('span.hash', icon('forum', 22)),
           h('button.fo-crumb', { onclick: () => go(ch.guild_id, ch.parent_id) }, forumOfPost(ch) ? chName(forumOfPost(ch)) : 'Fórum'), h('span.fo-crumbsep', '›'), h('span.fo-crumbt', { title: ch.name }, ch.name)]
-        : [h('span.hash', icon(vc ? 'voice' : 'hash', 24)), h('span', { title: ch.name }, chName(ch)),
+        : [h('span.hash', chIcon(ch, 24)), h('span', { title: ch.name }, chName(ch)),
           vc && voice.channelId !== ch.id && h('button.btn.green.sm.vc-join-top', { title: chCan(ch, CH.CONNECT) ? 'Entrar na sala de voz' : 'Você não tem permissão para entrar nesta sala', disabled: !chCan(ch, CH.CONNECT), onclick: () => joinVoice(ch.id) }, icon('voice', 14), 'Entrar'),
           ch.topic && h('span.topic', ch.topic)],
       h('div.spacer'),
@@ -1818,6 +1877,7 @@ function renderMain() {
         dm && h('button#e2-btn.ibtn.e2-off', { title: 'Criptografia de ponta a ponta', 'aria-label': 'Criptografia de ponta a ponta', onclick: () => e2eeClick(ch) }, icon('lock')),
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),
+        ch.type === 16 && h('button.ibtn', { title: 'Ver em grade', 'aria-label': 'Ver em grade', onclick: () => setGalleryChat(ch.id, false) }, icon('grid')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
         !post && h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('toppin')),
         !post && h('button.ibtn.files-btn', { title: dm ? 'Mídia, arquivos e links desta conversa' : 'Mídia, arquivos e links deste canal', 'aria-label': 'Arquivos', onclick: () => { if (dm) location.hash = `#/@me/${ch.id}/files`; else { filesPreset({ channel: ch.id }); go(ch.guild_id, 'files'); } } }, icon('file')),
@@ -2113,20 +2173,23 @@ function refreshAuthors(uid) { if ($('#msgs') && S.view.cid && S.messages.get(S.
 const ctxFor = (gid) => ({ userName: (id) => (S.users.has(id) ? nameOf(id, gid) : null), roleOf: (id) => S.guilds.get(gid)?.roles.find(r => r.id === id), emojiUrl });
 function msgEl(m, prev) {
   const ch = channelById(m.channel_id), gid = ch?.guild_id, mine = m.author_id === S.me.id;
-  const grouped = prev && prev.author_id === m.author_id && m.created_at - prev.created_at < 600000 && !m.reply && !S.prefs.compact && prev.type !== 1;
-  const a = user(m.author_id), col = roleColor(gid, m.author_id);
+  const grouped = prev && prev.author_id === m.author_id && (prev.imported?.n || '') === (m.imported?.n || '') && m.created_at - prev.created_at < 600000 && !m.reply && !S.prefs.compact && prev.type !== 1;
+  // importada do Discord com o nome original (ninguém daqui): nome e inicial dele, sem perfil (server/importer.js)
+  const impName = m.imported?.n, a = impName ? { id: 'imp', display_name: impName, color: impColor(impName) } : user(m.author_id), col = impName ? null : roleColor(gid, m.author_id);
   const mentioned = m.mentions?.includes(S.me.id) || (m.content || '').includes(`<@${S.me.id}>`);
-  if (m.type === 1) return h('div.msg.system', { 'data-mid': m.id }, h('span.arrow', icon('arrowr', 18)), h('span', h('b', { style: { color: col || 'var(--header)' } }, nameOf(m.author_id, gid)), ' ' + m.content), h('span.ts', stamp(m.created_at)),
-    h('button.btn.grey.wave', { onclick: () => tryApi('POST', `/channels/${m.channel_id}/messages`, { content: `👋 Bem-vindo(a), <@${m.author_id}>!` }) }, icon('smile', 18), 'Dar boas-vindas'));
+  if (m.type === 1) return h('div.msg.system', { 'data-mid': m.id }, h('span.arrow', icon(/^importou /.test(m.content) ? 'inbox' : 'arrowr', 18)), h('span', h('b', { style: { color: col || 'var(--header)' } }, nameOf(m.author_id, gid)), ' ' + m.content), h('span.ts', stamp(m.created_at)),
+    /^importou /.test(m.content) ? h('button.btn.link.sm', { onclick: () => undoImportModal(ch) }, 'Ver importações')
+      : h('button.btn.grey.wave', { onclick: () => tryApi('POST', `/channels/${m.channel_id}/messages`, { content: `👋 Bem-vindo(a), <@${m.author_id}>!` }) }, icon('smile', 18), 'Dar boas-vindas'));
   if (flaggedMap.has(m.id) && !m._show) return h('div.msg.flagged', { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m) }, icon('shield', 16),
     h('span', `Você marcou esta mensagem de ${nameOf(m.author_id, gid)} como ${flaggedMap.get(m.id) === 'spam' ? 'spam' : 'ofensiva'}. `),
     h('button.btn.link.sm', { onclick: () => { m._show = true; refreshMsg(m); } }, 'Mostrar'));
   const el = h('div.msg' + (grouped ? '.cont' : '.first') + (mentioned ? '.mentioned' : '') + (S.editing === m.id ? '.editing' : '') + (S.replyTo?.id === m.id ? '.qr-target' : ''), { 'data-mid': m.id, oncontextmenu: (e) => msgMenu(e, m), ondblclick: (e) => msgDblClick(e, m) });
-  if (!grouped) el.append(h('div.av', { onclick: (e) => profile(e.currentTarget, m.author_id, gid) }, avatar(a, 40, { status: false })));
+  if (!grouped) el.append(h('div.av', { onclick: (e) => !impName && profile(e.currentTarget, m.author_id, gid) }, avatar(a, 40, { status: false })));
   else el.append(h('div.time-s', clock(m.created_at)));
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
     m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', plainTs(inviteText(themeText(m.reply.content))) || 'Clique para ver o anexo')]));
-  if (!grouped) el.append(h('div.head', styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
+  if (!grouped) el.append(h('div.head', impName ? h('span.author.imp-author', impName) : styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style),
+    m.imported && h('span.imp-tag', { title: `Importada do Discord por ${user(m.imported.by)?.display_name || 'alguém'}${m.imported.re ? ' · respondia a ' + m.imported.re : ''}` }, icon('inbox', 11), 'Discord'), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
   if (m.forwarded) el.append(h('div.fwd-tag', icon('arrowr', 14), 'Encaminhada'));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
   if (S.editing === m.id) {
@@ -2152,9 +2215,9 @@ function msgEl(m, prev) {
     for (const id of clipIds) body.append(clipEmbed(id));
     if (m.poll) body.append(pollCard(m));
     if (m.event) body.append(eventCard(m.event));
-    if (gifOnly && S.prefs.embedLinks !== false) body.append(gifEl(m.content.trim(), (u) => lightbox(u))); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));
-    if (S.prefs.embedLinks !== false) for (const url of (shown.match(/https?:\/\/\S+/g) || []).filter(isImageUrl).slice(0, 3)) body.append(h('div.attach', h('img', { src: url, loading: 'lazy', referrerPolicy: 'no-referrer', onclick: () => lightbox(url) })));
-    if (S.prefs.embedLinks !== false) for (const card of [...new Set((shown.match(/https?:\/\/[^\s<>)]+/g) || []))].slice(0, 6).map(socialCard).filter(Boolean).slice(0, 3)) body.append(card); // YouTube/Shorts/TikTok/Reels (media.js)
+    if (gifOnly && S.prefs.embedLinks !== false) body.append(coverMedia(gifEl(m.content.trim(), (u) => lightbox(u)), coverReason(m), m.id + ':gif')); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));
+    if (S.prefs.embedLinks !== false) for (const url of (shown.match(/https?:\/\/\S+/g) || []).filter(isImageUrl).slice(0, 3)) { const im = h('img', { src: url, loading: 'lazy', referrerPolicy: 'no-referrer', onclick: () => lightbox(url) }), box = h('div.attach', im); if (isGifName(url)) freezeGif(im, url, box); body.append(coverMedia(box, coverReason(m), m.id + ':' + url)); }
+    if (S.prefs.embedLinks !== false) for (const card of [...new Set((shown.match(/https?:\/\/[^\s<>)]+/g) || []))].slice(0, 6).map(socialCard).filter(Boolean).slice(0, 3)) body.append(coverMedia(card, coverReason(m), m.id + ':social')); // YouTube/Shorts/TikTok/Reels (media.js)
     if (S.prefs.embedLinks !== false) { const seen = new Set(); for (const url of (shown.match(/https?:\/\/[^\s<>)]+/g) || []).slice(0, 10)) { const id = steamApp(url); if (id && !seen.has(id) && seen.size < 3) { seen.add(id); body.append(steamCard(url)); } } } // loja da Steam (steamcard.js)
     body.querySelectorAll('.spoiler').forEach(s => (s.onclick = () => s.classList.add('shown')));
     body.querySelectorAll('.mention[data-uid]').forEach(s => { s.onclick = () => profile(s, s.dataset.uid, gid); const u = S.users.get(s.dataset.uid); if (u) s.prepend(mentionAvatar(u)); });
@@ -2174,6 +2237,17 @@ function msgEl(m, prev) {
     (mine || (gid && can(gid, PERM.MANAGE_MESSAGES))) && h('button.tdel', { title: 'Excluir (Shift: sem confirmar)', onclick: (e) => deleteMenu(e, m) }, icon('trash', 18)),
     h('button', { title: 'Mais', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); msgMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom }, m); } }, icon('more', 18))));
   return el;
+}
+// cor fixa por nome para quem veio na importação (a mesma pessoa sempre com a mesma cor)
+const IMP_COLORS = ['#5865f2', '#3ba55d', '#faa61a', '#ed4245', '#eb459e', '#9b59b6', '#1abc9c', '#e67e22'];
+const impColor = (n) => { let x = 0; for (const c of String(n)) x = (x * 31 + c.codePointAt(0)) | 0; return IMP_COLORS[Math.abs(x) % IMP_COLORS.length]; };
+// importação terminou ou foi desfeita: recarrega o canal (as mensagens antigas entraram no meio da conversa)
+function onImported(d) {
+  onKindsEvent('MESSAGES_IMPORTED', d);
+  if (!S.messages.has(d.channel_id)) return;
+  S.messages.delete(d.channel_id); S.loaded.delete(d.channel_id);
+  if (S.view.cid === d.channel_id && $('#msgs')) loadChannel(d.channel_id);
+  if (d.by?.id !== S.me.id) toast(d.removed != null ? `${d.by?.display_name || 'Alguém'} desfez uma importação do Discord (${d.removed} mensagens)` : `${d.by?.display_name || 'Alguém'} importou ${d.count} mensagens do Discord nesta conversa`);
 }
 // lixeira da barra da mensagem: apaga a mensagem; com áudio/arquivo junto de outro conteúdo, pergunta o que remover
 const removeAtt = (m, i) => tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}/attachments/${i}`);
@@ -2248,12 +2322,14 @@ function shareThemePicker(ch) {
 }
 function plusMenu(e, ch, fileIn) {
   const r = e.currentTarget.getBoundingClientRect();
-  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - 157 }, [
+  const imp = !ch.guild_id || can(ch.guild_id, PERM.MANAGE_CHANNELS);
+  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - (imp ? 190 : 157) }, [
     { label: 'Enviar arquivo', fn: () => fileIn.click() },
     { label: 'Criar enquete', fn: () => pollModal(ch) },
     ch.guild_id && { label: 'Marcar evento', fn: () => eventModal(ch.guild_id) },
     { label: 'Inserir horário', fn: () => { const ta = $('#composer textarea'); if (ta) timestampModal(ta); } },
     { label: 'Compartilhar tema', fn: () => shareThemePicker(ch) },
+    (!ch.guild_id || can(ch.guild_id, PERM.MANAGE_CHANNELS)) && { label: 'Importar conversa do Discord…', fn: () => importModal(ch) },
   ]);
 }
 
@@ -2285,10 +2361,19 @@ function appendAttachments(el, m, canDel) {
     if (e.shiftKey || await confirmBox('Remover anexo', `Remover "${f.name}" desta mensagem?`, 'Remover')) tryApi('DELETE', `/channels/${m.channel_id}/messages/${m.id}/attachments/${i}`);
   } }, icon('trash', 16));
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
-  if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) =>
-    h('div.mtile', h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) }), del(f, i)))));
+  // cada foto pode vir coberta (spoiler no envio ou "Esconder mídia até clicar") e GIF fica parado com "GIFs parados" (mediasafe.js)
+  if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) => {
+    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
+    const tile = h('div.mtile' + (f.spoiler ? '.spoilfile' : ''), coverMedia(im, coverReason(m, f), m.id + ':' + i), del(f, i), favStarFor(f));
+    if (isGifName(f.name)) { tile.classList.add('giftile'); tile.append(h('span.gtag', 'GIF')); freezeGif(im, f.url, tile); }
+    return tile;
+  })));
   if (m.clip) el.append(clipMsgCard(m)); // clipe: cartão leve no lugar do player (o vídeo fica na galeria)
-  for (const { f } of atts.filter(a => (!isImg(a.f) || a.f.expired) && !(m.clip && a.f.url === m.clip.url))) { const a = attachEl(f); a.classList.add('mtile'); el.append(a); } // áudio/arquivo: excluir fica na barra da mensagem
+  for (const { f, i } of atts.filter(a => (!isImg(a.f) || a.f.expired) && !(m.clip && a.f.url === m.clip.url))) {
+    const a = attachEl(f); a.classList.add('mtile');
+    const media = !f.expired && !f.voice && /\.(mp4|webm|mov|m4v)$/i.test(f.name);
+    el.append(media ? coverMedia(a, coverReason(m, f), m.id + ':' + i) : a);
+  } // áudio/arquivo: excluir fica na barra da mensagem
 }
 // cartão do clipe no chat: miniatura pequena + título; o vídeo só carrega ao clicar em assistir
 function clipMsgCard(m, full) {
@@ -2325,7 +2410,7 @@ function shareClipModal(c) {
   const note = h('input', { placeholder: 'Comentário (opcional)', maxLength: 300, 'aria-label': 'Comentário' });
   const list = h('div.share-list');
   const dms = [...S.dms.values()].filter(d => dmPeer(d)).sort((a, b) => lastTime(b) - lastTime(a)).map(d => ({ id: d.id, label: user(dmPeer(d).id).display_name, sub: 'Mensagem direta', av: avatar(user(dmPeer(d).id), 32) }));
-  const chans = [...S.guilds.values()].flatMap(g => g.channels.filter(ch => ch.type === 0).map(ch => ({ id: ch.id, label: '#' + chName(ch), sub: g.name, av: h('span.share-ic', icon('hash', 18)) })));
+  const chans = [...S.guilds.values()].flatMap(g => g.channels.filter(ch => isChatCh(ch) && chCan(ch, CH.SEND)).map(ch => ({ id: ch.id, label: '#' + chName(ch), sub: g.name, av: h('span.share-ic', chIcon(ch, 18)) })));
   const sent = new Set();
   const draw = () => {
     const t = q.value.trim().toLowerCase();
@@ -2377,7 +2462,7 @@ function forwardModal(m) {
     const label = dm.type === 1 ? (u?.display_name || 'Conversa') : (dm.name || others.map(r => user(r.id).display_name).join(', ') || 'Grupo');
     dests.push({ id: dm.id, label, sub: dm.type === 1 ? '@' + (u?.username || '') : 'Grupo', av: dm.type === 1 && u ? avatar(u, 28, { status: false }) : h('span.fwd-ic', icon('dm', 16)) });
   }
-  for (const g of S.guilds.values()) for (const c of guildChOrder(g)) if ((c.type === 0 || c.type === 2) && chCan(c, CH.SEND) && (!hasAtt || chCan(c, CH.ATTACH)))
+  for (const g of S.guilds.values()) for (const c of guildChOrder(g)) if ((isChatCh(c) || c.type === 2) && chCan(c, CH.SEND) && (!hasAtt || chCan(c, CH.ATTACH)))
     dests.push({ id: c.id, label: (c.type === 2 ? '' : '#') + chName(c), sub: g.name, av: h('span.fwd-ic', chIcon(c)) });
   const picked = new Set(), q = h('input', { type: 'search', placeholder: 'Buscar conversas e canais', autocomplete: 'off' }), list = h('div.fwd-list'), note = h('input', { placeholder: 'Recado (opcional)', maxLength: 2000 });
   const count = h('small.mut');
@@ -2410,11 +2495,13 @@ function msgMenu(e, m) {
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
     canForward(m) && { label: 'Encaminhar', hint: 'Para outras conversas e canais', fn: () => forwardModal(m) },
+    ...favMenuItems(m),
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
     m.content && !m.e2ee && { label: isTranslated(m) ? 'Mostrar original' : 'Traduzir', fn: () => toggleTranslation(m, refreshMsg) }, // protegida: traduzir mandaria o texto para fora
     mine && !m.poll && !m.event && { label: 'Editar mensagem', fn: () => { S.editing = m.id; renderMessages(true); } },
     (mod || !gid) && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', fn: () => tryApi(m.pinned ? 'DELETE' : 'PUT', `/channels/${m.channel_id}/pins/${m.id}`) },
     ...(m.type === 1 ? [] : spoilerItems(m, mine, mod)),
+    m.imported && { label: 'Importações do Discord…', hint: 'Ver ou desfazer', fn: () => undoImportModal(ch) },
     S.prefs.devMode && { label: 'Copiar ID da mensagem', fn: () => navigator.clipboard?.writeText(m.id) },
     // reputação: sinal da comunidade (esconde para mim; várias pessoas em pouco tempo limitam o envio do autor)
     gid && !mine && m.type !== 1 && '-',
@@ -2770,6 +2857,7 @@ function composer(ch, label) {
     const body = h('div.cx-pop', { role: 'menu' },
       opt('cxgif', 'GIF', () => gifPicker(extrasBtn, (url) => sendGif(ch, url))),
       opt('cxemoji', 'Emoji', () => emojiPicker(extrasBtn, insertEmoji)),
+      opt('star', 'Mídia favorita', () => mediaFavPicker(extrasBtn, { pick: (it) => sendFavMedia(ch, it), emoji: insertEmoji })),
       opt('cxmic', 'Gravar mensagem de voz', () => recordVoiceMessage(ch, extrasBtn.closest('#composer'), { onSent: () => { S.replyTo = null; renderReplyBar(); } })));
     const el = cxEl = popout(extrasBtn, body, 'up'); el.classList.add('cx-popout'); cxAt = Date.now();
     el.addEventListener('mouseenter', () => clearTimeout(cxTimer)); el.addEventListener('mouseleave', cxLater);
@@ -2852,10 +2940,20 @@ const upLabel = (p) => p.wait ? 'Sem conexão — continua quando voltar' : p.st
 function renderPendingPrev() {
   const box = $('#attach-prev'); if (!box) return;
   box.classList.toggle('hidden', !S.pending.length);
-  box.replaceChildren(...S.pending.map(p => h('div.prev-item', p.preview ? h('img', { src: p.preview }) : icon('file', 40), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
+  // olho: marca o anexo como spoiler (borrado para todos até clicarem; mediasafe.js)
+  box.replaceChildren(...S.pending.map(p => h('div.prev-item' + (p.spoiler ? '.spoil' : ''), p.preview ? h('img', { src: p.preview }) : icon('file', 40),
+    h('button.pv-spoil' + (p.spoiler ? '.on' : ''), { type: 'button', title: p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-label': p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-pressed': String(!!p.spoiler), onclick: () => { p.spoiler = !p.spoiler; renderPendingPrev(); } }, icon(p.spoiler ? 'eyeoff' : 'eye', 14)), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
     h('button.x', { onclick: () => { p.ctrl?.abort(); freePending([p]); S.pending = S.pending.filter(x => x !== p); renderPendingPrev(); } }, icon('x', 14)))));
 }
 const renderPending = () => { };
+// mídia favorita (mediafavs.js): arquivo daqui vai como anexo (o mesmo arquivo, sem subir de novo); link vai como link
+async function sendFavMedia(ch, it) {
+  if (!it.url.startsWith('/files/')) return sendGif(ch, it.url);
+  if (!chCan(ch, CH.ATTACH)) return toast('Você não tem permissão para enviar arquivos aqui', true);
+  const body = { content: '', reply_to: S.replyTo?.id, attachments: [{ url: it.url, name: it.name || 'arquivo', size: it.size || 0, type: it.type || '' }] };
+  S.replyTo = null; renderReplyBar();
+  try { await api('POST', `/channels/${ch.id}/messages`, body); } catch (e) { toast(e.message, true); }
+}
 // GIF escolhido no seletor: vai como o próprio link (respeita a resposta em andamento)
 async function sendGif(ch, url) {
   const body = { content: url, reply_to: S.replyTo?.id };
@@ -2890,7 +2988,7 @@ async function sendMsg(ta, ch) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
   ta.value = ''; clearTimeout(ta._dt); saveDraft(ch.id, ''); $('.ac')?.remove();
-  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee }) => ({ url, name, size, type, ...(e2ee ? { _e2ee: e2ee } : {}) })) };
+  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee, spoiler }) => ({ url, name, size, type, ...(spoiler ? { spoiler: true } : {}), ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {
@@ -3847,7 +3945,7 @@ function incomingCall(dm, uid) {
   const el = h('div#call-banner', avatar(u, 48, { status: false }), h('div', { style: { flex: 1 } }, h('b', u.display_name), h('div', { style: { fontSize: '13px', color: 'var(--text-muted)' } }, 'está te ligando…')),
     h('button.btn.green', { onclick: () => { el.remove(); go('@me', dm.id); joinVoice(dm.id); } }, 'Atender'), h('button.btn.red', { onclick: () => el.remove() }, 'Recusar'));
   document.body.append(el); playSound('ring');
-  notify(`${u.display_name} está te ligando`, 'Chamada de voz', () => { go('@me', dm.id); });
+  notify(`${u.display_name} está te ligando`, 'Chamada de voz', () => { go('@me', dm.id); }); attention(`${u.display_name} está ligando`);
   setTimeout(() => el.remove(), 30000);
 }
 
@@ -3909,6 +4007,8 @@ function setupDesktop() {
 
 // gancho de depuração/testes automatizados
 initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
+initKinds({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), mdCtx: (gid) => ctxFor(gid), chName, attachEl: (f) => attachEl(f), jumpTo: (mid) => jumpTo(mid),
+  react: (m, e, add) => react(m, e, add), reactionFace: (e) => reactionFace(e), galleryChat: (cid, on) => setGalleryChat(cid, on) });
 initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p), favPostChanged: (id, t) => favPostChanged(id, t), renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
 initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
@@ -3920,7 +4020,7 @@ initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openS
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
-window.__lc = { S, savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

@@ -196,7 +196,7 @@ function createWindow(forceShow) {
     win.webContents.send('win-state', { hidden, covered: !!front?.covered });
   };
   for (const ev of ['show', 'hide', 'minimize', 'restore']) win.on(ev, winState);
-  win.on('focus', () => { front?.focused(); winState(); }); // a Resenha veio para a frente: não espera a próxima leitura
+  win.on('focus', () => { front?.focused(); winState(); win.flashFrame(false); }); // a Resenha veio para a frente: não espera a próxima leitura
   win.webContents.on('did-finish-load', () => winState(true));
   const helper = process.platform === 'win32' ? appAudio.helperPath() : null;
   frontWatch?.stop(); frontWatch = null;
@@ -273,15 +273,17 @@ function registerHotkeys() {
   const reg = (acc, k) => { acc = fix(acc); try { if (acc && !globalShortcut.register(acc, () => send(k))) log('atalho em uso por outro app:', acc); } catch (e) { log('atalho inválido', acc, e.message); } };
   reg(cfg.hotkeyMute, 'mute'); reg(cfg.hotkeyDeafen, 'deafen'); reg(cfg.hotkeyClip, 'clip'); reg(cfg.hotkeyShare, 'share');
 }
+// n > 0: menções (número); -1: só mensagens não lidas (ponto, sem número); 0: nada
 function setBadge(n) {
   badge = n | 0;
-  tray?.setToolTip(badge ? `Resenha — ${badge} não lida(s)` : 'Resenha');
+  tray?.setToolTip(badge > 0 ? `Resenha — ${badge} menção(ões)` : badge < 0 ? 'Resenha — mensagens não lidas' : 'Resenha');
+  if (process.platform !== 'win32') try { app.setBadgeCount(Math.max(0, badge)); } catch { /* sem suporte */ }
   if (process.platform === 'win32' && win) {
     if (!badge) return win.setOverlayIcon(null, '');
     // ponto vermelho 16x16 desenhado em memória (BGRA)
     const s = 16, buf = Buffer.alloc(s * s * 4);
     for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) { const d = (x - 7.5) ** 2 + (y - 7.5) ** 2, i = (y * s + x) * 4; if (d <= 49) { buf[i] = 67; buf[i + 1] = 63; buf[i + 2] = 242; buf[i + 3] = 255; } }
-    win.setOverlayIcon(nativeImage.createFromBitmap(buf, { width: s, height: s }), `${badge} não lida(s)`);
+    win.setOverlayIcon(nativeImage.createFromBitmap(buf, { width: s, height: s }), badge > 0 ? `${badge} menção(ões)` : 'mensagens não lidas');
   }
 }
 
@@ -402,6 +404,8 @@ if (process.platform === 'win32') appAudio.watchWindows(async (list) => {
   if (st && k !== lastSrcState) { lastSrcState = k; win.webContents.send('source-state', st); }
 });
 ipcMain.on('set-badge', (_e, n) => setBadge(n));
+// menção ou mensagem direta com a janela em segundo plano: o ícone pisca na barra de tarefas até a Resenha voltar para a frente
+ipcMain.on('flash-frame', () => { if (win && !win.isFocused()) win.flashFrame(true); });
 // aviso de clipe capturado por cima do jogo (desktop/clipflash.js)
 ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120), kind: o.kind === 'share' ? 'share' : undefined }, appAudio.getHelper()); });
 // controle remoto (desktop/remote.js): o renderer só chama start depois que o dono aceitou

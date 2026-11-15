@@ -28,6 +28,9 @@ import { mountMedia } from './media.js';
 import { createReputation } from './reputation.js';
 import { mountDesktopUpdate } from './desktopupdate.js';
 import { mountForum } from './forum.js';
+import { mountDocChannel } from './docchannel.js';
+import { mountMediaFavs } from './mediafavs.js';
+import { mountImporter } from './importer.js';
 import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
@@ -136,7 +139,10 @@ function userJson(u, viewer) {
 }
 
 // o mesmo evento para muita gente: vira texto (JSON) uma vez só, não uma vez por pessoa (1000 pessoas no servidor = 1000x)
+// o texto do canal de documento vai só no GET /doc e no CHANNEL_DOC (não pesa na abertura nem a cada mudança do canal)
+const noDoc = (c) => { if (!c || c.doc === undefined) return c; const { doc, ...rest } = c; return rest; };
 function dispatch(userIds, type, d) {
+  if (type === 'CHANNEL_CREATE' || type === 'CHANNEL_UPDATE') d = noDoc(d);
   invalidateFor(type, d);
   // já em bytes (UTF-8) uma vez só: mandar texto fazia a biblioteca converter de novo para cada pessoa; pequenas não
   // passam pela compressão (fila do zlib) — com 1000 pessoas, ~30 mil envios por segundo (teste de carga, scripts/load)
@@ -220,7 +226,7 @@ function guildFull(gid, { users = true } = {}) {
     timeout_until: m.timeout_until > now ? m.timeout_until : null, softmute_until: m.softmute_until > now ? m.softmute_until : null, roles: rolesOf.get(m.user_id) || [] }));
   return { ...g,
     roles: all('SELECT * FROM roles WHERE guild_id=? ORDER BY position DESC', gid),
-    channels: all('SELECT * FROM channels WHERE guild_id=? AND type<>11 ORDER BY position, created_at', gid), // posts de fórum (11) vêm sob demanda
+    channels: all('SELECT * FROM channels WHERE guild_id=? AND type<>11 ORDER BY position, created_at', gid).map(noDoc), // posts de fórum (11) vêm sob demanda
     members,
     emojis: all('SELECT id,name,url FROM emojis WHERE guild_id=?', gid),
     sounds: all('SELECT id,name,emoji,url,volume FROM sounds WHERE guild_id=? ORDER BY created_at', gid),
@@ -238,6 +244,7 @@ function messageObj(m) {
     content: m.content, type: m.type || 0, created_at: m.created_at, edited_at: m.edited_at, pinned: !!m.pinned,
     ...(m.spoiler_by ? { spoiler: true, spoiler_by_mod: m.spoiler_by !== m.author_id } : {}),
     ...(m.fwd ? { forwarded: JSON.parse(m.fwd) } : {}),
+    ...(m.imp ? { imported: { ...JSON.parse(m.imp), batch: m.imp_batch } } : {}), // importada do Discord (server/importer.js)
     attachments: JSON.parse(m.attachments || '[]'),
     reply: reply ? { id: reply.id, content: isE2ee(reply.content) ? reply.content : (reply.content || '').slice(0, 120), author: userPub(reply.author_id) } : (m.reply_to ? { id: m.reply_to, deleted: true } : null),
     reactions: Object.entries(rx).map(([emoji, users]) => ({ emoji, users })),
@@ -661,12 +668,15 @@ app.delete('/api/roles/:id', auth, wrap((req, res) => {
   res.json({});
 }));
 // Channels
+// tipos: 0 texto, 2 voz, 4 categoria, 5 anúncios (só a moderação escreve, por padrão), 15 fórum, 16 galeria (cada post é
+// uma foto ou vídeo; o canal abre em grade), 17 documento (uma página em markdown: server/docchannel.js)
+const CH_TYPES = [0, 2, 4, 5, 15, 16, 17], SLUG_TYPES = [0, 5, 15, 16, 17];
 app.post('/api/guilds/:id/channels', auth, wrap((req, res) => {
   const gid = req.params.id;
   if (!can(gid, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
-  const type = [0, 2, 4, 15].includes(+req.body.type) ? +req.body.type : 0;
+  const type = CH_TYPES.includes(+req.body.type) ? +req.body.type : 0;
   let name = clean(req.body.name, 100);
-  if (type === 0 || type === 15) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-');
+  if (SLUG_TYPES.includes(type)) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-');
   name = name || 'novo-canal';
   const id = newId(), pos = (get('SELECT MAX(position) m FROM channels WHERE guild_id=?', gid).m ?? 0) + 1;
   const parent = get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id ?? ''), gid) ? String(req.body.parent_id) : null;
@@ -730,9 +740,9 @@ app.post('/api/channels/:id/sync-children', auth, wrap((req, res) => {
 // duplicar canal (ou categoria, sem os canais): mesmo tipo, categoria, tópico, permissões e config de fórum; logo abaixo do original
 app.post('/api/channels/:id/duplicate', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
-  if (!ch || !ch.guild_id || ![0, 2, 4, 15].includes(ch.type) || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
+  if (!ch || !ch.guild_id || !CH_TYPES.includes(ch.type) || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
   let name = clean(req.body?.name, 100) || ch.name;
-  if (ch.type === 0 || ch.type === 15) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-') || ch.name;
+  if (SLUG_TYPES.includes(ch.type)) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-') || ch.name;
   const id = newId();
   db.exec('BEGIN');
   try {
@@ -1014,7 +1024,7 @@ function saveMentions(m, ch, mn) { // grava quem deve ver esta mensagem na caixa
 }
 app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
-  if (ch.type === 4 || ch.type === 15) return bad(res, 'Canal não aceita mensagens');
+  if (ch.type === 4 || ch.type === 15 || ch.type === 17) return bad(res, 'Canal não aceita mensagens');
   if (!forum.canReply(ch, req.uid)) return bad(res, 'Este post está trancado: só a moderação comenta', 403);
   if (timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
   if (!chp.chCan(ch, req.uid, CH.SEND)) return bad(res, 'Você não tem permissão para enviar mensagens neste canal', 403);
@@ -1027,6 +1037,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
     .filter(a => a && isFileUrl(a.url))
     .map(a => {
       const o = { url: a.url, name: clean(a.name, 200), size: +a.size || 0, type: clean(a.type, 100) };
+      if (a.spoiler === true) o.spoiler = true; // anexo marcado como spoiler no envio: fica borrado para todos até clicar
       if (a.enc === true) o.enc = true; // arquivo cifrado no aparelho (conversa protegida): nome e tipo de verdade vão dentro da mensagem cifrada
       if (a.voice === true) { // mensagem de voz: forma de onda (base64, até 256 barras) e duração
         o.voice = true; o.duration = Math.max(0, Math.min(3600, +a.duration || 0));
@@ -1037,6 +1048,8 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
       return o;
     });
   if (!content.trim() && !atts.length) return bad(res, 'Mensagem vazia');
+  // galeria: post novo precisa de foto ou vídeo; comentário (resposta a um post) pode ser só texto
+  if (ch.type === 16 && !req.body.reply_to && !atts.some(a => /^(image|video)\//.test(a.type) || /\.(png|jpe?g|gif|webp|avif|mp4|webm|mov|m4v)$/i.test(a.name || a.url))) return bad(res, 'Na galeria, cada post precisa de uma foto ou vídeo (para comentar, responda a um post)');
   if (atts.length && !chp.chCan(ch, req.uid, CH.ATTACH)) return bad(res, 'Você não tem permissão para enviar arquivos neste canal', 403);
   if (ch.type === 1) {
     const other = all('SELECT user_id FROM dm_participants WHERE channel_id=? AND user_id<>?', ch.id, req.uid)[0];
@@ -1310,7 +1323,7 @@ function unlinkIfUnused(url) {
   const like = '%' + fname.replace(/[%_\\]/g, '\\$&') + '%', used = (sql) => get(sql + " LIKE ? ESCAPE '\\'", like);
   const usedOpt = (sql) => { try { return used(sql); } catch { return true; } }; // tabela de um módulo que pode não existir ainda: na dúvida, não apaga
   if (fname && !used('SELECT 1 x FROM messages WHERE attachments') && !used('SELECT 1 x FROM users WHERE avatar') && !used('SELECT 1 x FROM users WHERE banner') && !used('SELECT 1 x FROM users WHERE settings')
-    && !used('SELECT 1 x FROM emojis WHERE url') && !used('SELECT 1 x FROM sounds WHERE url') && !used('SELECT 1 x FROM guilds WHERE icon') && !used('SELECT 1 x FROM guilds WHERE banner') && !used('SELECT 1 x FROM clips WHERE url') && !usedOpt('SELECT 1 x FROM events WHERE banner')) { fs.unlink(path.join(UPLOAD_DIR, fname), () => { }); thumbs.remove(fname); }
+    && !used('SELECT 1 x FROM emojis WHERE url') && !used('SELECT 1 x FROM sounds WHERE url') && !used('SELECT 1 x FROM guilds WHERE icon') && !used('SELECT 1 x FROM guilds WHERE banner') && !used('SELECT 1 x FROM clips WHERE url') && !usedOpt('SELECT 1 x FROM events WHERE banner') && !usedOpt('SELECT 1 x FROM media_favs WHERE url')) { fs.unlink(path.join(UPLOAD_DIR, fname), () => { }); thumbs.remove(fname); }
 }
 function setPin(req, res, v) {
   const ch = channelFor(req, res); if (!ch) return;
@@ -1571,6 +1584,9 @@ reputation.mount(app, { auth, wrap, bad, channelFor });
 mountE2ee(app, { auth, wrap, bad, all, get, run, db, dispatch }); // chaves da criptografia de ponta a ponta das DMs
 eventsSvc = mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, can, P, userPub, clean, messageObj, timedOut, uploadDir: UPLOAD_DIR, artPrivate: process.env.EVENT_ART_PRIVATE === '1' }); // eventos do servidor com Vou/Talvez/Não vou e lembretes
 const forum = mountForum(app, { auth, wrap, bad, all, get, run, db, newId, can, P, dispatch, guildMemberIds, userPub, clean, audit, isFileUrl, timedOut, rateOk, canSend: (ch, uid) => chp.chCan(ch, uid, CH.SEND) });
+mountDocChannel(app, { auth, wrap, bad, db, get, run, dispatch, guildMemberIds, canAccessChannel, chCan: chp.chCan, CH, userPub, audit }); // canal de documento
+mountMediaFavs(app, { auth, wrap, bad, db, all, get, run, clean, isFileUrl, dispatch, unlinkIfUnused }); // mídia favorita com categorias
+mountImporter(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, channelAudience, canAccessChannel, can, P, userPub, clean, audit }); // histórico do Discord
 mountMyMessages(app, { auth, wrap, bad, all, get, run, db, dispatch, channelAudience, unlinkIfUnused, dropClipsOfMessage, clean });
 mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, db, uploadDir: UPLOAD_DIR,
   isAdmin: (uid) => reportAdmin()?.id === uid, removeDerived: (f) => thumbs.remove(f) });
@@ -1795,7 +1811,7 @@ function buildReadyRaw(uid, extra) {
   const small = gcs.filter(c => !big.has(c.obj.id)).map(c => c.obj.id), bigIds = [...new Set([...big.values()].flatMap(ms => ms.map(m => m.user_id)))];
   const users = all(`SELECT ${PUB_COLS} FROM users WHERE id IN (SELECT m.user_id FROM members m WHERE m.guild_id IN (SELECT value FROM json_each(?))) OR id IN (SELECT value FROM json_each(?))`, JSON.stringify(small), JSON.stringify(bigIds));
   const dms = all('SELECT c.* FROM channels c JOIN dm_participants p ON p.channel_id=c.id WHERE p.user_id=? AND c.type=1', uid).map(dmChannelObj);
-  const chIds = [...guilds.flatMap(g => g.channels.filter(c => c.type === 0 || c.type === 2).map(c => c.id)), ...dms.map(d => d.id)];
+  const chIds = [...guilds.flatMap(g => g.channels.filter(c => [0, 2, 5, 16].includes(c.type)).map(c => c.id)), ...dms.map(d => d.id)];
   const dmVoice = [];
   for (const d of dms) for (const [uid, s] of voice.get(d.id) || []) dmVoice.push(vsObj(d.id, uid, s));
   // não lidas de todos os canais numa consulta só (antes: 2 consultas por canal)
