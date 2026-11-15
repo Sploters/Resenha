@@ -53,6 +53,9 @@ const opusHi = (sdp) => {
 // ~48 fps, docs/PASSO0-DIAGNOSTICO-FPS.md). Com "max" igual ao pedido, o Chromium descartava todo quadro que chegava um
 // nada antes do intervalo (16,1 ms < 16,7 ms; 32,2 ms < 33,3 ms): pedindo 60 saíam ~32 fps e pedindo 30, ~21 (medido).
 // Com 25% de folga no teto passam os quadros da grade, e o limite exato fica com o codificador (maxFramerate, sfuTuneScreen).
+// motivo (código curto) do "não" do app desktop para o programa nativo; o app novo manda `code`, os antigos só o texto
+const nativeWhy = (c) => c.code || (/Só no app/.test(c.reason || '') ? 'web' : /Windows 10.*borda|borda amarela/.test(c.reason || '') ? 'win10'
+  : /não encontrado/.test(c.reason || '') ? 'noexe' : /captura de tela necessária/.test(c.reason || '') ? 'nocap' : /codificador/.test(c.reason || '') ? 'nohw' : 'other');
 export const capFps = (fps) => ({ ideal: +fps, max: Math.ceil(+fps * 1.25) });
 const bitrateFor = (res, fps, mbps) => {
   if (+mbps > 0) return Math.round(Math.min(+mbps, 64) * 1e6); // taxa escolhida (até 64 Mbps)
@@ -1127,12 +1130,19 @@ export class Voice {
   // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
   // e comprime na placa de vídeo. Chamada protegida (VP8 cifrado) e PC sem codificador de hardware seguem pelo Chromium.
   async nativeCapable() {
-    const d = window.lcDesktop; if (!d?.nativeCapable) return { ok: false, reason: 'Só no app desktop para Windows.' };
+    const d = window.lcDesktop; if (!d?.nativeCapable) return { ok: false, code: 'web', reason: 'Só no app desktop para Windows.' };
     if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap;
   }
   // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por 10 min
-  async wantNative(o) { return !this.e2ee && +o.fps >= NATIVE_MIN_FPS && !!this.sfu?.ready && Date.now() - (this._natNoUdp || 0) > 10 * 60e3 && !!(await this.nativeCapable()).ok; }
+  // _natWhy: por que esta transmissão não saiu pelo programa nativo (telemetria da chamada, public/callqual.js NATIVE_WHY)
+  async wantNative(o) {
+    const why = this.e2ee ? 'e2ee' : +o.fps < NATIVE_MIN_FPS ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
+    if (why) { this._natWhy = why; return false; }
+    const c = await this.nativeCapable();
+    this._natWhy = c.ok ? null : nativeWhy(c);
+    return !!c.ok;
+  }
   // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
   // esta trilha): aí fica em 30 fps até 1080p, para o clipe não sair pior do que pelo caminho do Chromium
   previewSpec() {
@@ -1202,6 +1212,7 @@ export class Voice {
   // o caminho nativo falhou: segue transmitindo pelo Chromium (até ~48 fps), sem derrubar a transmissão
   nativeFallback(why) {
     if (!this.native) return;
+    this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail';
     this.stopNative();
     const vt = this.screen?.getVideoTracks()[0];
     if (!vt) return;
@@ -1263,8 +1274,18 @@ export class Voice {
     const pcs = this.sfu ? [this.sfu.send, this.sfu.recv].filter(Boolean) : [...this.peers.values()].map(p => p.pc).filter(Boolean);
     if (!pcs.length) return;
     this._cqBusy = true;
-    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up, this.videoKinds()); }
+    try { const reps = []; for (const pc of pcs) { try { reps.push(await pc.getStats()); } catch { } } const up = this.sfu ? await this.upStats() : null; if (this._cq === q) q.add(reps, this.sfu ? 'sfu' : 'p2p', up, this.videoKinds(), this.screenSample()); }
     finally { this._cqBusy = false; }
+  }
+  // sua transmissão nesta amostra (telemetria): caminho, motivo de não ser o nativo, altura pedida e, no nativo, o enviado
+  screenSample() {
+    const vt = this.screen?.getVideoTracks()[0]; if (!vt || vt.readyState !== 'live') return null;
+    const o = this.screenOpts || {}, n = this.native;
+    let want = o.res === 'source' ? 0 : +o.res || 0;
+    if (!want) { const st = vt.getSettings?.() || {}; want = n ? 0 : st.height || 0; } // "Fonte": a altura que a captura entrega
+    if (n && !n.pending) return { path: 'native', want: want || n.h || 0, h: n.stats?.h || n.h || 0, fps: n.stats?.fps ?? null };
+    if (n) return null; // nativo ainda começando
+    return { path: 'chromium', why: this._natWhy || (window.lcDesktop?.nativeCapable ? 'other' : 'web'), want };
   }
   // de que tipo é cada vídeo (id da faixa -> 'cam' | 'screen'), recebidos e os seus: a qualidade separa câmera de transmissão
   videoKinds() {

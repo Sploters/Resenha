@@ -9,6 +9,9 @@
 // painel à parte, com os quadros por segundo recebidos e, do lado de quem transmite, os quadros capturados/enviados e o
 // que limitou o envio (CPU, banda ou nada). (No Chromium, tela parada por 20 s não gerou travada falsa:
 // scripts/callqual-video-test.mjs.)
+// Sua transmissão (com 20 s+ medidos): por onde saiu (spath:native|chromium), por que não foi pelo programa nativo
+// (snat:motivo), quem comprimiu (senc:hw = placa de vídeo, sw = processador), a resolução enviada (send_res) e se ela ficou
+// abaixo da pedida (sshrink:yes|no; o codificador encolhe a imagem quando o processador não dá conta dos fps).
 //   call_rating_q resposta:nota (cruza "Teve algum problema?" com o que a rede mediu: problema com rede boa = aparelho/app)
 // Nada de quem, com quem ou em que sala: só as faixas. Chamada sem voz chegando de ninguém (sozinho na sala) não conta.
 import { track } from './ux.js';
@@ -26,6 +29,7 @@ export const QB = {
   freeze_scr: [0, 1, 3], // travadas por minuto assistido: transmissão de tela
   scr_fps: [5, 15, 30, 50], // quadros por segundo da transmissão recebida (mediana)
   send_fps: [5, 15, 30, 50], // quadros por segundo da SUA transmissão saindo (mediana)
+  send_res: [360, 540, 720, 1080], // altura (p) da camada mais alta da SUA transmissão saindo (mediana)
   drop: [0, 1], // quedas da conexão (0, 1, 2 ou mais)
 };
 // mínimo de pacotes de voz para calcular perda: num momento (5 s; voz falando = 50/s) e na chamada toda (~10 s de fala)
@@ -37,6 +41,10 @@ export function levelOf(s) {
   for (const [lim, lv] of [[POOR, 2], [FAIR, 1]]) for (const k of Object.keys(lim)) if (s[k] != null && s[k] > lim[k]) return [lv, k];
   return [0, null];
 }
+// motivos de a transmissão não sair pelo programa nativo (placa de vídeo, 60+ fps)
+export const NATIVE_WHY = ['win10', 'nohw', 'nocap', 'noexe', 'web', 'e2ee', 'lowfps', 'nosfu', 'udp', 'fail', 'other'];
+// codificador do Chromium: placa de vídeo (hw) ou processador (sw: libvpx, OpenH264, libaom…)
+export const encKind = (enc) => /libvpx|openh264|libaom|dav1d|svt|software/i.test(enc) && !/mediafoundation|nvenc|amf|qsv|vaapi|videotoolbox|external|accelerat/i.test(enc) ? 'sw' : 'hw';
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 const newVid = () => ({ freezes: 0, freezeMs: 0, watchMs: 0, fps: [] });
@@ -45,13 +53,15 @@ const rate = (v) => (v.watchMs >= 30e3 ? v.freezes / (v.watchMs / 60e3) : null);
 
 export class CallQuality {
   constructor(mode) { this.mode = mode; this.samples = []; this.prev = new Map(); this.drops = 0; this.freezes = 0;
-    this.vid = { cam: newVid(), screen: newVid() }; this.sent = { ms: 0, lim: { none: 0, cpu: 0, bandwidth: 0, other: 0 }, fps: [], cap: [] }; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.padGaps = 0; this.rxAll = 0; this.proto = null; this.relay = false; }
+    this.vid = { cam: newVid(), screen: newVid() }; this.sent = { ms: 0, lim: { none: 0, cpu: 0, bandwidth: 0, other: 0 }, fps: [], cap: [] }; this.scr = { n: 0, native: 0, why: {}, hw: 0, sw: 0, h: [], shrink: 0, full: 0 }; this.inPk = 0; this.inLost = 0; this.upPk = 0; this.upLost = 0; this.upPrev = null; this.padGaps = 0; this.rxAll = 0; this.proto = null; this.relay = false; }
   // reps: relatórios de getStats() de cada conexão (SFU: envio e recebimento; malha: uma por pessoa)
   // up (só SFU): { count, lost } acumulados da voz que você envia, contados pelo servidor (op 'upstats' em server/sfu.js).
   // No SFU o fractionLost do RTCP NÃO é a sua perda: com a correção de erros do Opus, o mediasoup põe nele a pior perda
   // entre quem te ouve (a internet ruim de um ouvinte virava "perda saindo" sua). Sem `up`, no SFU a perda saindo fica sem medida.
   // kinds (opcional): Map trackId -> 'cam' | 'screen' dos vídeos (recebidos e os seus), para separar câmera de transmissão
-  add(reps, mode = this.mode, up = null, kinds = null) {
+  // scr (opcional, só enquanto você transmite): { path: 'native'|'chromium', why: motivo de não ser o nativo, want: altura
+  // pedida, h/fps: o que o programa nativo enviou (no nativo não há outbound-rtp) }
+  add(reps, mode = this.mode, up = null, kinds = null, scr = null) {
     this.mode = mode;
     let rtt = null, sendLoss = null, lost = 0, recv = 0, jit = null, conc = 0, tot = 0;
     const outSeen = new Map();
@@ -91,6 +101,7 @@ export class CallQuality {
       }
     }
     for (const o of outSeen.values()) if (!o.first && o.fps != null) this.sent.fps.push(o.fps);
+    if (scr) this.addScreen(scr, outSeen);
     this.inPk += recv; this.inLost += lost;
     if (mode === 'sfu' && up && Number.isFinite(up.count) && Number.isFinite(up.lost)) {
       const p = this.upPrev; this.upPrev = up;
@@ -127,14 +138,28 @@ export class CallQuality {
     const src = byId.get(r.mediaSourceId), kind = src && kinds?.get(src.trackIdentifier);
     if (kind !== 'screen') return;
     const k = 'o:' + r.mediaSourceId, cur = seen.get(k);
-    if (cur) { if (r.framesPerSecond != null) cur.fps = Math.max(cur.fps ?? 0, r.framesPerSecond); return; }
+    if (cur) { if (r.framesPerSecond != null) cur.fps = Math.max(cur.fps ?? 0, r.framesPerSecond); if (r.frameHeight > (cur.h || 0)) cur.h = r.frameHeight; if (r.encoderImplementation) cur.enc ||= r.encoderImplementation; return; }
     const p = this.prev.get(k), lim = r.qualityLimitationDurations || {};
     this.prev.set(k, { lim: { ...lim } });
-    seen.set(k, { fps: r.framesPerSecond ?? null, first: !p });
+    seen.set(k, { fps: r.framesPerSecond ?? null, first: !p, h: r.frameHeight || 0, enc: r.encoderImplementation || '' });
     if (!p) return;
     let tot = 0; for (const x of Object.keys(this.sent.lim)) { const d = Math.max(0, (lim[x] || 0) - (p.lim[x] || 0)) * 1000; this.sent.lim[x] += d; tot += d; }
     this.sent.ms += tot;
     if (src.framesPerSecond != null) this.sent.cap.push(src.framesPerSecond);
+  }
+  // uma amostra da sua transmissão: caminho, motivo, codificador e resolução da camada mais alta
+  addScreen(scr, outSeen) {
+    let h = 0, enc = '';
+    if (scr.path === 'native') { h = scr.h || 0; if (scr.fps != null && h) this.sent.fps.push(scr.fps); }
+    else for (const o of outSeen.values()) if (!o.first && o.h > h) { h = o.h; enc = o.enc; }
+    if (!h) return; // ainda sem quadro saindo
+    const S = this.scr; S.n++;
+    if (scr.path === 'native') { S.native++; S.hw++; } else {
+      if (scr.why) S.why[scr.why] = (S.why[scr.why] || 0) + 1;
+      if (enc) encKind(enc) === 'hw' ? S.hw++ : S.sw++;
+    }
+    S.h.push(h);
+    if (scr.want > 0) h < scr.want * 0.9 ? S.shrink++ : S.full++;
   }
   // nota do vídeo da câmera: pela fração do tempo assistido que ficou travada e por travadas/minuto (precisa de 1 min assistido)
   camLevel() {
@@ -162,6 +187,7 @@ export class CallQuality {
       loss_in: this.inPk + this.inLost >= MIN_PK_CALL ? (this.inLost / (this.inPk + this.inLost)) * 100 : null, // da chamada toda
       conceal: med('conceal'), freeze: this.freezes, drop: this.drops,
       freeze_cam: rate(this.vid.cam), freeze_scr: rate(this.vid.screen), scr_fps: median(this.vid.screen.fps), send_fps: median(this.sent.fps),
+      send_res: this.scr.n >= 4 ? median(this.scr.h) : null,
     };
     const net = Object.entries(m).filter(([, v]) => v != null).map(([k, v]) => k + ':' + bucket(v, QB[k]));
     net.push('mode:' + (this.mode === 'sfu' ? 'sfu' : 'p2p'));
@@ -169,6 +195,14 @@ export class CallQuality {
     net.push('route:' + (this.relay ? 'relay' : 'direct'));
     // sua transmissão: o que mais limitou o envio (com pelo menos 20 s medidos)
     const L = this.sent.lim; if (this.sent.ms >= 20e3) net.push('slim:' + Object.keys(L).reduce((a, b) => (L[b] > L[a] ? b : a), 'none'));
+    const sc = this.scr;
+    if (sc.n >= 4) { // 20 s+ de transmissão medidos
+      const nat = sc.native * 2 >= sc.n;
+      net.push('spath:' + (nat ? 'native' : 'chromium'));
+      const why = Object.entries(sc.why).sort((a, b) => b[1] - a[1])[0]?.[0]; if (!nat && why) net.push('snat:' + why);
+      if (sc.hw + sc.sw) net.push('senc:' + (sc.hw >= sc.sw ? 'hw' : 'sw'));
+      if (sc.shrink + sc.full) net.push('sshrink:' + (sc.shrink > sc.full ? 'yes' : 'no'));
+    }
     const v = (x) => ({ freezes: x.freezes, freezeMs: Math.round(x.freezeMs), watchMs: Math.round(x.watchMs), fps: median(x.fps) });
     const video = { cam: v(this.vid.cam), screen: v(this.vid.screen), sent: { ms: Math.round(this.sent.ms), lim: L, fps: median(this.sent.fps), captured: median(this.sent.cap) } };
     return { grade, cause, net, m, samples: n, video };

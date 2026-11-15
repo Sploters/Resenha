@@ -22,13 +22,14 @@ function sample(i, { cam, scr, out, rtt = 20, lossIn = 0 } = {}) {
     r.push({ id: 'ms', type: 'media-source', kind: 'video', trackIdentifier: 'mine', framesPerSecond: out.cap });
     // três camadas (simulcast) da mesma captura: mesmo tempo de limitação, quadros diferentes
     const t = (i * STEP) / 1000;
-    for (const [rid, fps] of [['l', out.fps / 4], ['m', out.fps / 2], ['h', out.fps]])
-      r.push({ id: 'o' + rid, type: 'outbound-rtp', kind: 'video', rid, mediaSourceId: 'ms', framesPerSecond: fps, qualityLimitationDurations: { none: t * (1 - out.cpu), cpu: t * out.cpu, bandwidth: 0, other: 0 }, timestamp: ts });
+    const H = out.h || 1080, enc = out.enc || 'SimulcastEncoderAdapter (MediaFoundationVideoEncodeAccelerator, MediaFoundationVideoEncodeAccelerator, MediaFoundationVideoEncodeAccelerator)';
+    for (const [rid, fps, h] of [['l', out.fps / 4, H / 4], ['m', out.fps / 2, H / 2], ['h', out.fps, H]])
+      r.push({ id: 'o' + rid, type: 'outbound-rtp', kind: 'video', rid, mediaSourceId: 'ms', framesPerSecond: fps, frameHeight: h, encoderImplementation: enc, qualityLimitationDurations: { none: t * (1 - out.cpu), cpu: t * out.cpu, bandwidth: 0, other: 0 }, timestamp: ts });
   }
   return new Map(r.map(x => [x.id, x]));
 }
 const kinds = new Map([['tcam', 'cam'], ['tscr', 'screen'], ['mine', 'screen']]);
-function call(n, opts) { const q = new CallQuality(); for (let i = 0; i < n; i++) q.add([sample(i, opts)], 'sfu', { count: 250 * (i + 1), lost: 0 }, kinds); return q.summary(n * STEP); }
+function call(n, opts, mine = null) { const q = new CallQuality(); for (let i = 0; i < n; i++) q.add([sample(i, opts)], 'sfu', { count: 250 * (i + 1), lost: 0 }, kinds, mine); return q.summary(n * STEP); }
 const has = (q, d) => q.net.includes(d);
 
 // 1) só a transmissão "travando" (tela parada: 12 travadas em 2 min) e rede limpa: nota boa, mas aparece no painel
@@ -62,5 +63,20 @@ const has = (q, d) => q.net.includes(d);
   ok(q.video.sent.fps === 24 && q.video.sent.captured === 60 && has(q, 'send_fps:2'), 'quadros enviados = camada mais alta; capturados à parte', q.video.sent);
   const q2 = call(12, { out: { cap: 60, fps: 12, cpu: 1 } });
   ok(has(q2, 'slim:cpu') && has(q2, 'send_fps:1'), 'CPU limitando o tempo todo: "slim:cpu" e poucos quadros', q2.net);
+}
+// 6) por onde a transmissão saiu, quem comprimiu, resolução enviada e se encolheu
+{
+  // modo normal no Windows 10, VP8 pelo processador, pediu 1080p e o codificador encolheu para 540p
+  const q = call(12, { out: { cap: 48, fps: 48, cpu: 0.9, h: 540, enc: 'SimulcastEncoderAdapter (libvpx, libvpx, libvpx)' } }, { path: 'chromium', why: 'win10', want: 1080 });
+  for (const d of ['spath:chromium', 'snat:win10', 'senc:sw', 'send_res:1', 'sshrink:yes']) ok(has(q, d), 'modo normal, processador, 540p de 1080p: ' + d, q.net);
+  // placa de vídeo no modo normal, sem encolher
+  const q2 = call(12, { out: { cap: 48, fps: 48, cpu: 0, h: 1080 } }, { path: 'chromium', why: 'udp', want: 1080 });
+  ok(has(q2, 'senc:hw') && has(q2, 'sshrink:no') && has(q2, 'send_res:3') && has(q2, 'snat:udp'), 'placa de vídeo, 1080p como pedido, portas UDP fechadas', q2.net);
+  // programa nativo: sem outbound-rtp; altura e fps vêm do programa
+  const q3 = call(12, {}, { path: 'native', want: 1080, h: 1080, fps: 60 });
+  ok(has(q3, 'spath:native') && has(q3, 'senc:hw') && has(q3, 'send_res:3') && has(q3, 'send_fps:4') && !q3.net.some(d => d.startsWith('snat:')), 'nativo: caminho, placa, 1080p e 60 fps', q3.net);
+  // transmissão curta (menos de 20 s): nada
+  const q4 = call(12, {}, null);
+  ok(!q4.net.some(d => /^(spath|senc|sshrink|send_res)/.test(d)), 'sem transmissão: nenhuma medida dela', q4.net);
 }
 process.exit(fails ? 1 : 0);

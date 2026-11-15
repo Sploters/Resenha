@@ -156,6 +156,9 @@ function netq(q) {
       h('div', h('h4.ux-sub', 'Nota da rede'), bars(Object.keys(GRADE).map(g => [GRADE[g], { total: q.notas[g], tip: tips(g) }]))),
       h('div', h('h4.ux-sub', 'O que mais pesou nas chamadas médias e ruins'), q.causas.length ? bars(q.causas.map(k => [k.nome, { total: k.n }])) : empty('Nenhuma chamada média ou ruim.'))),
     Object.values(c.limite || {}).some(v => v.n) ? h('div', h('h4.ux-sub', 'O que limitou a transmissão de quem transmitiu'), bars(Object.values(c.limite).map(v => [v.nome, { total: v.n }]))) : null,
+    // sua transmissão: por onde saiu, por que não foi pelo nativo, quem comprimiu e se a resolução ficou abaixo da pedida
+    h('div.ux-grid', [['caminho', 'Por onde a transmissão saiu'], ['sem_nativo', 'Por que não saiu pelo programa nativo'], ['codificador', 'Quem comprimiu o vídeo'], ['resolucao_vs_pedida', 'Resolução enviada × pedida']]
+      .filter(([k]) => Object.values(c[k] || {}).some(v => v.n)).map(([k, t]) => h('div', h('h4.ux-sub', t), bars(Object.values(c[k]).filter(v => v.n).map(v => [v.nome, { total: v.n }]))))),
     h('div.ux-grid', Object.values(I).filter(v => v.medidas).map(v => h('div', h('h4.ux-sub', v.nome), bars(v.faixas.map(f => [f.faixa, { total: f.n }]), { text: (o) => nf(o.total) + ' · ' + pct(o.total, v.medidas) + '%' })))));
 }
 

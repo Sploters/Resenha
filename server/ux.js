@@ -60,11 +60,18 @@ export const UX_NET = { // indicador: [nome, rótulos das faixas]
   freeze_scr: ['Travadas da transmissão (por minuto assistido)', ['nenhuma', 'até 1 por min', '1–3 por min', 'mais de 3 por min']],
   scr_fps: ['Quadros por segundo da transmissão recebida', ['até 5', '5–15', '15–30', '30–50', 'mais de 50'], 'low'],
   send_fps: ['Quadros por segundo da transmissão enviada', ['até 5', '5–15', '15–30', '30–50', 'mais de 50'], 'low'],
+  send_res: ['Resolução da transmissão enviada', ['até 360p', '361–540p', '541–720p', '721–1080p', 'acima de 1080p'], 'low'],
 };
 // o que mais limitou a transmissão de quem transmitiu (qualityLimitationReason do WebRTC)
 export const UX_SEND_LIMITS = { none: 'Nada (enviou o que capturou)', cpu: 'Processador (CPU)', bandwidth: 'Internet (banda)', other: 'Outro motivo' };
+// sua transmissão (public/callqual.js): por onde saiu, por que não foi pelo programa nativo, quem comprimiu, se encolheu
+export const UX_SEND_PATH = { native: 'Programa nativo (placa de vídeo, 60+ FPS)', chromium: 'Modo normal (Chromium, até ~48 FPS)' };
+export const UX_NATIVE_WHY = { win10: 'Windows 10 (borda amarela)', nohw: 'Sem codificador na placa de vídeo', nocap: 'Windows sem a captura necessária', noexe: 'App desktop antigo ou sem o componente',
+  web: 'Navegador (fora do app desktop)', e2ee: 'Chamada protegida', lowfps: 'Pediu menos de 60 FPS', nosfu: 'Servidor sem SFU', udp: 'Portas UDP da transmissão fechadas', fail: 'O programa falhou e voltou', other: 'Outro motivo' };
+export const UX_SEND_ENC = { hw: 'Placa de vídeo', sw: 'Processador (CPU)' };
+export const UX_SEND_SHRINK = { yes: 'Abaixo da pedida (o codificador encolheu)', no: 'A pedida' };
 export const UX_NET_CAUSES = { rtt: 'Atraso alto', jitter: 'Oscilação', loss_in: 'Perda chegando', loss_out: 'Perda saindo', conceal: 'Voz picotada', freeze: 'Vídeo travando', drop: 'Conexão caiu' };
-const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay)|slim:(${Object.keys(UX_SEND_LIMITS).join('|')}))$`);
+const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay)|slim:(${Object.keys(UX_SEND_LIMITS).join('|')})|spath:(${Object.keys(UX_SEND_PATH).join('|')})|snat:(${Object.keys(UX_NATIVE_WHY).join('|')})|senc:(hw|sw)|sshrink:(yes|no))$`);
 export const UX_STEPS = { avatar: 'Pôs uma foto', friend: 'Fez um amigo', message: 'Mandou a 1ª mensagem', voice: 'Entrou na voz' };
 
 const free = (max) => (d) => d.length <= max;
@@ -255,6 +262,9 @@ function netQuality(eventos) {
   const via = (a, b, key) => ({ [a]: n(key + ':' + a), [b]: n(key + ':' + b) });
   const conexao = { modo: via('sfu', 'p2p', 'mode'), protocolo: via('udp', 'tcp', 'proto'), rota: via('direct', 'relay', 'route') };
   conexao.limite = Object.fromEntries(Object.entries(UX_SEND_LIMITS).map(([k, nome]) => [k, { nome, n: n('slim:' + k) }]));
+  const cat = (names, key) => Object.fromEntries(Object.entries(names).map(([k, nome]) => [k, { nome, n: n(key + ':' + k) }]));
+  conexao.caminho = cat(UX_SEND_PATH, 'spath'); conexao.sem_nativo = cat(UX_NATIVE_WHY, 'snat');
+  conexao.codificador = cat(UX_SEND_ENC, 'senc'); conexao.resolucao_vs_pedida = cat(UX_SEND_SHRINK, 'sshrink');
   conexao.tcp = pctOf(conexao.protocolo.tcp, conexao.protocolo.tcp + conexao.protocolo.udp); conexao.relay = pctOf(conexao.rota.relay, conexao.rota.relay + conexao.rota.direct);
   const causas = Object.entries(det('call_qcause')).map(([k, v]) => ({ k, nome: UX_NET_CAUSES[k] || k, n: v.total })).sort((a, b) => b.n - a.n);
   // cruzamento: de quem relatou problema, quantos tinham a rede ruim/média (o resto aponta para microfone, fone ou o app)

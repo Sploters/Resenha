@@ -52,6 +52,19 @@ corrigidas sem medição no Windows (falta conferir na próxima jogatina):
 Para conferir: painel "Transmissão ao vivo" de quem assiste (fps, oscilação, perda) antes e depois. Se seguir baixo
 com o nativo e sem perda, olhar os fps enviados pelo programa no painel de quem transmite.
 
+## Transmissão a ~48 FPS e 960x540 (2026-11-15)
+
+Relato: depois da correção acima, quem assiste vê 48-52 FPS (nunca 60) e 960x540 em vez de 1080p.
+- **FPS:** 48 é o teto do capturador do Chromium (`PASSO0-DIAGNOSTICO-FPS.md`), ou seja, a transmissão saiu pelo modo
+  normal e não pelo programa nativo.
+- **960x540:** reproduzido aqui (VP8 pelo processador, 1080p60 pedido): o servidor manda a camada Alta, mas o
+  codificador de quem transmite encolhe a imagem (1080p -> 720p -> 540p, limite "cpu") para segurar os fps. Com mais
+  quadros chegando (correção do `capFps`) o processador deixou de dar conta. Mantendo a resolução, cai para ~25 fps.
+- **Medição nova** (cartão "Qualidade técnica das chamadas"): por onde a transmissão saiu, por que não foi pelo nativo
+  (Windows 10, sem codificador na placa, portas UDP, chamada protegida, menos de 60 FPS…), quem comprimiu (placa ou
+  processador), a resolução enviada e se ficou abaixo da pedida. Se dominar "Windows 10" + "Processador", a saída é
+  deixar o nativo rodar no Windows 10 (com a borda amarela, ou capturando por DXGI, que não tem borda).
+
 ## O que olhar no painel depois da próxima jogatina
 
 1. **"Entrar na voz" por etapa:** preparar o microfone, resposta do servidor e conectar o áudio.

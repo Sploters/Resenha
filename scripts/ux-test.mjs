@@ -242,8 +242,9 @@ try {
   r = await api(eu, 'POST', '/ux', { device: 'mobile', events: [{ e: 'call_quality', d: 'good', n: 6 }, { e: 'call_quality', d: 'poor', n: 2 }, { e: 'call_quality', d: 'fair', n: 2 }, { e: 'call_net', d: 'rtt:0', n: 6 }, { e: 'call_net', d: 'rtt:4', n: 2 }, { e: 'call_net', d: 'rtt:3', n: 2 },
     { e: 'call_net', d: 'proto:udp', n: 9 }, { e: 'call_net', d: 'proto:tcp', n: 1 }, { e: 'call_net', d: 'route:direct', n: 10 }, { e: 'call_net', d: 'mode:sfu', n: 10 }, { e: 'call_qcause', d: 'loss_in', n: 3 }, { e: 'call_qcause', d: 'rtt', n: 1 },
     { e: 'call_rating_q', d: 'bad:good', n: 1 }, { e: 'call_rating_q', d: 'bad:poor', n: 3 }, { e: 'call_rating_q', d: 'ignored:good', n: 4 },
+    { e: 'call_net', d: 'spath:chromium', n: 3 }, { e: 'call_net', d: 'spath:native', n: 1 }, { e: 'call_net', d: 'snat:win10', n: 2 }, { e: 'call_net', d: 'senc:sw', n: 2 }, { e: 'call_net', d: 'sshrink:yes', n: 2 }, { e: 'call_net', d: 'send_res:1', n: 2 },
     { e: 'call_net', d: 'rtt:9', n: 1 }, { e: 'call_net', d: 'ip:1.2.3.4', n: 1 }, { e: 'call_quality', d: 'otima', n: 1 }, { e: 'call_rating_q', d: 'bad:x', n: 1 }] });
-  ok(r.data.kept === 15, 'qualidade: o servidor aceita só nota, faixas e causas conhecidas (nada de IP ou valor solto)', r.data);
+  ok(r.data.kept === 21, 'qualidade: o servidor aceita só nota, faixas e causas conhecidas (nada de IP ou valor solto)', r.data);
   // a avaliação cruza com a nota da rede da mesma chamada
   await Q.evaluate(() => localStorage.setItem('lc_callrate_force', '1'));
   await Q.evaluate(() => { const S = window.__lc.S; S.voice.set('fake', { user_id: 'fake', channel_id: 'sala-q' }); document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: 'sala-q', ms: 60e3, quality: { grade: 'fair' } } })); });
@@ -258,6 +259,7 @@ try {
   ok(dq.linhas.some(l => l.tipo === 'rede' && /ruim em 20% de 10/.test(l.texto) && /Perda chegando/.test(l.texto) && /acima de 200 ms em 40%/.test(l.texto) && l.tom === 'ruim'), 'resumo da semana: linha da rede medida nas chamadas', dq.linhas);
   await A.evaluate(() => window.__lc.openSettings('uxstats')); await sleep(1800);
   ok(await A.evaluate(() => { const c = [...document.querySelectorAll('.ux-card')].find(x => x.querySelector('h3')?.textContent === 'Qualidade técnica das chamadas'); return !!c && /20%/.test(c.textContent) && /Perda chegando/.test(c.textContent) && /Atraso \(ida e volta\)/.test(c.textContent) && !/\bfalse\b|undefined|NaN|null/.test(c.textContent); }), 'painel mostra a qualidade técnica das chamadas (nota, causas e faixas)');
+  ok(await A.evaluate(() => { const c = [...document.querySelectorAll('.ux-card')].find(x => x.querySelector('h3')?.textContent === 'Qualidade técnica das chamadas')?.textContent || ''; return /Por onde a transmissão saiu/.test(c) && /Windows 10 \(borda amarela\)/.test(c) && /Processador \(CPU\)/.test(c) && /Abaixo da pedida/.test(c) && /Resolução da transmissão enviada/.test(c) && /361–540p/.test(c); }), 'painel mostra por onde a transmissão saiu, por que não foi o nativo, quem comprimiu e a resolução');
   if (process.env.SHOTS) { const y = await A.evaluate(() => { const c = [...document.querySelectorAll('.ux-card')].find(x => x.querySelector('h3')?.textContent === 'Qualidade técnica das chamadas'); c.scrollIntoView(); const r = c.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: Math.min(r.height, 980) }; }); await A.screenshot({ path: process.env.SHOTS + '/ux-qualidade.png', clip: y }); }
   // chave geral no servidor: UX_TELEMETRY=0
   { const P3 = 3243, B3 = `http://localhost:${P3}`, D3 = './.testdata-ux-off'; fs.rmSync(D3, { recursive: true, force: true });

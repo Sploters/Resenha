@@ -15,14 +15,14 @@ const helperPath = () => {
 
 // Há codificador H.264 de hardware e captura WGC? (resultado guardado: o programa só lista, não captura nada)
 function capable() {
-  if (process.platform !== 'win32') return Promise.resolve({ ok: false, reason: 'Só no app para Windows.' });
-  const exe = helperPath(); if (!exe) return Promise.resolve({ ok: false, reason: 'Componente de transmissão nativa não encontrado. Atualize o app.' });
-  if (winBuild && winBuild < 20348) return Promise.resolve({ ok: false, reason: BORDER_MSG });
+  if (process.platform !== 'win32') return Promise.resolve({ ok: false, code: 'web', reason: 'Só no app para Windows.' });
+  const exe = helperPath(); if (!exe) return Promise.resolve({ ok: false, code: 'noexe', reason: 'Componente de transmissão nativa não encontrado. Atualize o app.' });
+  if (winBuild && winBuild < 20348) return Promise.resolve({ ok: false, code: 'win10', reason: BORDER_MSG });
   if (probed) return probed;
   probed = new Promise((res) => execFile(exe, ['--probe'], { windowsHide: true, timeout: 10000 }, (err, out) => {
     let j = null; try { j = JSON.parse(String(out).trim().split(/\r?\n/).pop()); } catch { }
-    if (!j) { probed = null; return res({ ok: false, reason: 'Não consegui testar a placa de vídeo' + (err ? ': ' + err.message : '') }); }
-    res(j.ok ? { ok: true, encoders: j.encoders } : { ok: false, reason: j.error || (j.wgc === false ? 'Este Windows não tem a captura de tela necessária (Windows 10 1903 ou mais novo).' : 'Nenhum codificador de vídeo de hardware (NVIDIA, AMD ou Intel) encontrado.') });
+    if (!j) { probed = null; return res({ ok: false, code: 'other', reason: 'Não consegui testar a placa de vídeo' + (err ? ': ' + err.message : '') }); }
+    res(j.ok ? { ok: true, encoders: j.encoders } : { ok: false, code: j.wgc === false ? 'nocap' : 'nohw', reason: j.error || (j.wgc === false ? 'Este Windows não tem a captura de tela necessária (Windows 10 1903 ou mais novo).' : 'Nenhum codificador de vídeo de hardware (NVIDIA, AMD ou Intel) encontrado.') });
   }));
   return probed;
 }
