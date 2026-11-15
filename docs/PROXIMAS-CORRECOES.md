@@ -63,7 +63,8 @@ Relato: depois da correção acima, quem assiste vê 48-52 FPS (nunca 60) e 960x
 - **Medição nova** (cartão "Qualidade técnica das chamadas"): por onde a transmissão saiu, por que não foi pelo nativo
   (Windows 10, sem codificador na placa, portas UDP, chamada protegida, menos de 60 FPS…), quem comprimiu (placa ou
   processador), a resolução enviada e se ficou abaixo da pedida. Se dominar "Windows 10" + "Processador", a saída é
-  deixar o nativo rodar no Windows 10 (com a borda amarela, ou capturando por DXGI, que não tem borda).
+  investigar a captura nativa sem borda. Plano, critérios e riscos em `CAPTURA-WINDOWS10.md` (nada da captura muda
+  antes dos dados).
 
 ## O que olhar no painel depois da próxima jogatina
 
