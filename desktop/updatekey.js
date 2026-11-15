@@ -4,7 +4,7 @@
 const crypto = require('node:crypto');
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAzj+8LERgzSxivjCd1kWbIEg1M0l2Ntm93NSKfFHIIUM=
+MCowBQYDK2VwAyEApl+jjeg12dfDOThcQ10nUh6d8CSUmQ44rLX4dbbcKyE=
 -----END PUBLIC KEY-----`;
 
 // o que é assinado: nome do arquivo, versão, tamanho e SHA-256. A versão entra na assinatura para ninguém conseguir
