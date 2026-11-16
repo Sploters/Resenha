@@ -205,15 +205,70 @@ Chat de comunidades open-source (AGPL-3.0, cliente e servidor), feito por volunt
 
 ---
 
+## 5. Discourse
+Fórum open-source com tópicos em tempo real e salas de chat. Dos EUA, usado por mais de 22 mil comunidades (algumas com milhões de pessoas); ~50 milhões de usuários, nota 3,1. Não é concorrente de voz: é a referência em **fórum**.
+
+**Pontos fortes**
+- **Tópicos ao vivo**: post novo e "digitando…" aparecem sem recarregar.
+- Salas de chat em tempo real, parecidas com as do Discord.
+- Auto-hospedável, com controle total dos dados.
+- **Temas totalmente personalizáveis.**
+- Funciona bem no celular e no computador.
+- **Muitos plugins gratuitos** (e os pagos saem de graça se hospedar sozinho: SSO, votação etc.).
+- Controle de acesso detalhado por cargo.
+- **Moderação robusta**: níveis de confiança automáticos, fila de aprovação, sinalizações, silenciar, histórico de punições.
+- IA opcional (plugin): **resumo de tópicos**, sugestão de resposta, busca por significado.
+
+**Pontos fracos**
+- **Qualquer moderador vê o IP** das pessoas.
+- Chat escondido para visitantes: quem não está logado não descobre.
+- Padrões que desencorajam posts rápidos e curtos (precisa ajustar).
+- Sem voz, vídeo nem tela.
+- Hospedagem oficial cara ($20 a $500/mês).
+- Lento em navegadores antigos de celular.
+- **Pede muita RAM no servidor.**
+- Sem E2EE.
+
+**Comparando com a Resenha**
+| Item | Discourse | Resenha |
+|---|---|---|
+| Fórum | Completo | **Já tem** a etapa 1 (`docs/FORUM.md`): posts, votos, tags, ordem, fixar/trancar |
+| Atualização ao vivo no fórum | Sim | Comentários sim (são um chat); lista de posts a conferir |
+| Seguir tópico / não lidas de post | Sim | Não (pendente no `FORUM.md`) |
+| "Resolvido" / melhor resposta | Sim (plugin) | Não (pendente) |
+| Feed geral dos fóruns | Sim ("Últimos") | Não (pendente: seção Fóruns) |
+| Voz, vídeo, tela | Não | **Já tem** |
+| Níveis de confiança automáticos | Sim | Parcial (Reputação conta contas novas e falsos alarmes) |
+| Temas personalizáveis | Total | 4 temas + ajustes |
+| Plugins | Muitos | Não ("Recursos extras" embutidos) |
+| Resumo por IA | Plugin | Não |
+| IP visível para moderadores | Sim | Não mostra (manter assim) |
+| RAM | Alta | A medir (alvo: rodar bem no Umbrel) |
+
+**Vale trazer**
+1. **Terminar o fórum** com o que o Discourse faz de melhor: seguir post e não lidas de post, **melhor resposta / "Resolvido"**, feed geral dos fóruns ("Últimos", "Em alta"), lista de posts que atualiza ao vivo ("3 posts novos — mostrar") e **transformar uma conversa do chat em post** (selecionar mensagens → "Criar post").
+2. **Níveis de confiança automáticos**: quem é novo começa com limites (sem links, sem anexos grandes, sem convidar, ritmo menor) e sobe sozinho com tempo e participação. Encaixa com a Reputação, que já existe.
+3. **Fila de aprovação** opcional por canal (posts de quem é novo esperam um moderador) e **sinalização com motivo** que vai para uma fila única de moderação.
+4. **"O que eu perdi?"**: resumo das mensagens não lidas de um canal ou post. Se tiver IA, opcional, desligada por padrão, e de preferência com modelo local; sem IA, um resumo simples (mais reagidas, fixadas, links, quem falou mais).
+5. **Temas personalizáveis**: reforça a ideia 2 (CSS personalizado), agora com temas para compartilhar entre servidores.
+
+**Erros a evitar**
+- **Mostrar IP para moderadores**: na Resenha, IP só para o administrador da instalação, se tanto.
+- Peso de RAM: continuar medindo (`docs/AUDITORIA-DESEMPENHO.md`) para rodar em máquina modesta.
+- Padrões que travam conversa rápida: limites só para quem é novo, nunca para todos.
+- Esconder recursos de quem chega: a primeira tela deve mostrar o que existe.
+
+---
+
 <!-- Próximos concorrentes entram aqui, no mesmo formato. -->
 
 ## Lista consolidada (prioridades)
 | # | Ideia | Origem | Status na Resenha |
 |---|---|---|---|
 | 1 | API de bots + tokens | Fluxer, TeamSpeak, Matrix, Valour | Não tem |
-| 2 | CSS personalizado / temas da comunidade | Fluxer | Não tem |
+| 2 | CSS personalizado / temas da comunidade | Fluxer, Discourse | Não tem |
 | 3 | Voz em vários aparelhos ao mesmo tempo | Fluxer | A conferir |
-| 4 | Automod / moderação granular | Fluxer | Parcial |
+| 4 | Automod / moderação granular | Fluxer, Discourse | Parcial |
 | 5 | Whisper / sussurro para pessoas, cargos ou salas | TeamSpeak | Não tem |
 | 6 | Modo de voz competitivo (baixa latência) + ping por pessoa | TeamSpeak | Parcial (diagnóstico de conexão) |
 | 7 | Hierarquia de cargos para mover/mutar/expulsar | TeamSpeak | A conferir |
@@ -226,5 +281,10 @@ Chat de comunidades open-source (AGPL-3.0, cliente e servidor), feito por volunt
 | 14 | Multi-janela: canal/DM ao lado ou em janela separada | Valour | Não tem |
 | 15 | Economia do servidor (pontos, loja de cargos/cores/sons) | Valour | Não tem |
 | 16 | Modo de demonstração para testar sem instalar | Valour | Não tem |
+| 17 | Fórum completo: seguir post, melhor resposta, feed geral, lista ao vivo, chat → post | Discourse | Parcial (etapa 1) |
+| 18 | Níveis de confiança automáticos para contas novas | Discourse | Parcial (Reputação) |
+| 19 | Fila de aprovação e sinalização com motivo | Discourse | Parcial |
+| 20 | "O que eu perdi?" (resumo das não lidas, IA opcional e local) | Discourse | Não tem |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
 | ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
+| ✗ | IP visível para moderadores | Discourse (evitar) | Não fazer |
