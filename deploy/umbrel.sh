@@ -14,7 +14,7 @@ TARGET=${1:-$SERVIDOR}
 IP=${2:-${TARGET#*@}}
 FORCAR=${FORCAR:-0}; ESPERA_MAX=${ESPERA_MAX:-120}
 cd "$(dirname "$0")/.."
-tar czf - Dockerfile README.md package.json package-lock.json .gitignore deploy public server scripts | ssh "$TARGET" "
+tar czf - Dockerfile README.md PRIVACIDADE.md SECURITY.md package.json package-lock.json .gitignore deploy public server scripts | ssh "$TARGET" "
   set -e
   # troca de nome (LocalCord -> Resenha), só na primeira vez: para o container antigo e renomeia as pastas.
   # O banco localcord.db vira resenha.db sozinho quando o servidor novo abre.
