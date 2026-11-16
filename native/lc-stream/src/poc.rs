@@ -1065,3 +1065,127 @@ fn test_game(exclusive: bool, secs: u64, file: &str) -> R<J> {
     unsafe { let _ = DestroyWindow(hw); }
     Ok(summary!())
 }
+
+// ---------------------------------------------------------------------------------------------------------------- autoteste
+/// Autoteste da transmissão para quem não entende de computador: dois cliques no .exe (Teste-Transmissao-Resenha.exe),
+/// ~30 s sem mexer em nada, resultado na Área de Trabalho e a pasta abre sozinha. Sem argumentos, sem perguntas.
+/// Abre o Jogo de Teste (este mesmo .exe com --jogo-teste --comandos) em tela cheia exclusiva e sem bordas e mede as
+/// capturas que a transmissão usa (WGC da janela, WGC do monitor, DXGI) com o jogo na frente, MINIMIZADO (Alt+Tab
+/// simulado: o caso do "Could not start video source") e depois de voltar.
+pub fn autoteste() {
+    unsafe { let _ = RoInitialize(RO_INIT_MULTITHREADED); let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL); }
+    let dpi = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }.is_ok();
+    println!();
+    println!("  ==========================================================");
+    println!("     TESTE DA TRANSMISSAO - RESENHA");
+    println!();
+    println!("     NAO MEXA NO MOUSE NEM NO TECLADO (uns 30 segundos)");
+    println!("     A tela vai ficar azul com uma barra andando: e o teste.");
+    println!("  ==========================================================");
+    println!();
+    let t0 = Instant::now();
+    let mut out = match auto_run(dpi) { Ok(v) => v, Err(x) => json!({ "erro": x }) };
+    out["kit"] = json!("autoteste-transmissao-v2"); out["duracaoSegundos"] = json!(t0.elapsed().as_secs());
+    let pc = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into()).chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect::<String>();
+    let name = format!("Resenha-teste-{pc}.json");
+    let text = serde_json::to_string_pretty(&out).unwrap_or_default();
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = unsafe { windows::Win32::UI::Shell::SHGetKnownFolderPath(&windows::Win32::UI::Shell::FOLDERID_Desktop, windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0), None) } {
+        if let Ok(s) = unsafe { p.to_string() } { dirs.push(s.into()); }
+    }
+    if let Ok(u) = std::env::var("USERPROFILE") { dirs.push(std::path::Path::new(&u).join("Desktop")); }
+    if let Some(d) = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) { dirs.push(d); }
+    let saved = dirs.iter().map(|d| d.join(&name)).find(|f| std::fs::write(f, &text).is_ok());
+    println!();
+    match &saved {
+        Some(f) => {
+            println!("  PRONTO! Valeu!");
+            println!("  Mande o arquivo {name} no chat da Resenha.");
+            println!("  Ele esta na Area de Trabalho (a pasta vai abrir).");
+            let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", f.display())).spawn();
+            let msg = HSTRING::from(format!("Pronto, valeu!\n\nMande o arquivo {name} no chat da Resenha.\nEle esta na sua Area de Trabalho (a pasta ja abriu)."));
+            unsafe { MessageBoxW(None, &msg, w!("Teste da transmissao - Resenha"), MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST); }
+        }
+        None => {
+            println!("  Nao consegui salvar o arquivo. Tire um print desta janela e mande no chat.");
+            println!("{text}");
+            let mut l = String::new(); let _ = std::io::stdin().read_line(&mut l);
+        }
+    }
+}
+
+/// mede uma captura por `secs`: abriu? quantos quadros, preta?
+fn measure(kind: &str, g: &Gpu, m: &Mon, hw: Option<HWND>, probe: &Probe, clk: &mut GpuClock, secs: f64) -> J {
+    let t = Instant::now();
+    let mut src = match open_src(kind, g, m, hw) { Ok(s) => s, Err(x) => return json!({ "abriu": false, "erro": x, "ms": r2(t.elapsed().as_secs_f64() * 1000.0) }) };
+    let open_ms = r2(t.elapsed().as_secs_f64() * 1000.0);
+    let (mut frames, mut first, mut samples, mut black, mut lumas, mut errs) = (0u32, None::<f64>, 0u32, 0u32, Vec::<f64>::new(), Vec::<String>::new());
+    let (mut size, mut last_sample) = ((0u32, 0u32), Instant::now() - Duration::from_secs(1));
+    let ts = Instant::now();
+    while ts.elapsed().as_secs_f64() < secs {
+        pump();
+        match src.next(g, clk) {
+            Ok(Some(f)) => {
+                frames += 1; if first.is_none() { first = Some(r2(t.elapsed().as_secs_f64() * 1000.0)); } size = (f.w, f.h);
+                if last_sample.elapsed() >= Duration::from_millis(250) { last_sample = Instant::now();
+                    if let Ok(c) = probe.read(g, &f.tex, full(&f).unwrap()) { samples += 1; if c.black > 0.97 { black += 1; } lumas.push(r2(c.luma)); } }
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(1)),
+            Err(SrcErr::Lost(w)) => { errs.push(format!("perdido: {w}")); if errs.len() > 20 { break; } let _ = src.recreate(g); }
+            Err(SrcErr::Fatal(x)) => { errs.push(x); break; }
+        }
+    }
+    let el = ts.elapsed().as_secs_f64().max(0.1);
+    json!({ "abriu": true, "abrirMs": open_ms, "primeiroQuadroMs": first, "fps": r2(frames as f64 / el), "quadros": frames, "tamanho": format!("{}x{}", size.0, size.1),
+        "amostras": samples, "pretas": black, "luma": lumas, "erros": errs })
+}
+
+fn auto_run(dpi: bool) -> R<J> {
+    let g = gpu()?;
+    let (mons, adapters) = monitors();
+    let m = pick_monitor(&mons).ok_or("nenhum monitor")?;
+    let (mw, mh) = ((m.rect.right - m.rect.left) as u32, (m.rect.bottom - m.rect.top) as u32);
+    let mut out = json!({ "env": env_json(&g, &mons, adapters, dpi), "monitor": mon_json(&m, g.luid), "codificador": crate::win::probe(), "rodadas": [] });
+    let probe = Probe::new(&g, mw, mh)?; let mut clk = GpuClock::new(&g.device)?;
+    let exe = std::env::current_exe().map_err(|x| x.to_string())?;
+    let tmp = std::env::temp_dir().join("resenha-autoteste"); let _ = std::fs::create_dir_all(&tmp);
+    let mut rounds = Vec::new();
+    for (i, modo) in ["tela-cheia", "sem-bordas"].iter().enumerate() {
+        println!("  [{}/2] jogo de teste em {} ...", i + 1, if *modo == "tela-cheia" { "TELA CHEIA" } else { "JANELA SEM BORDAS" });
+        let jf = tmp.join(format!("jogo-teste-{modo}.json")); let _ = std::fs::remove_file(&jf);
+        let mut child = match std::process::Command::new(&exe).args(["--poc-captura", "--jogo-teste", "--modo", modo, "--secs", "60", "--comandos"])
+            .current_dir(&tmp).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+            Ok(c) => c, Err(x) => { rounds.push(json!({ "modo": modo, "erro": format!("nao abriu o jogo de teste: {x}") })); continue; } };
+        let mut stdin = child.stdin.take();
+        let mut cmd = |c: &str| { if let Some(s) = stdin.as_mut() { use std::io::Write; let _ = writeln!(s, "{c}"); let _ = s.flush(); } };
+        // espera a janela do jogo
+        let tw = Instant::now(); let mut hw = None;
+        while tw.elapsed() < Duration::from_secs(10) { if let Ok(h) = unsafe { FindWindowW(w!("LcJogoTeste"), None) } { if !h.is_invalid() { hw = Some(h); break; } } wait_ms(100); }
+        let mut r = json!({ "modo": modo });
+        if let Some(h) = hw {
+            cmd("frente"); wait_ms(if *modo == "tela-cheia" { 2500 } else { 1200 });
+            let fs_state = || unsafe { SHQueryUserNotificationState() }.map(|x| x.0).unwrap_or(0);
+            let mut t = serde_json::Map::new();
+            t.insert("estadoWindows_frente".into(), json!(fs_state()));
+            for k in ["wgc_janela", "wgc_monitor", "dxgi_proprio"] { println!("        {k}"); t.insert(format!("frente_{k}"), measure(k, &g, &m, Some(h), &probe, &mut clk, 2.0)); }
+            if *modo == "tela-cheia" {
+                println!("        Alt+Tab simulado (jogo minimizado)");
+                cmd("minimizar"); wait_ms(1200);
+                t.insert("minimizado_iconic".into(), json!(unsafe { IsIconic(h) }.as_bool()));
+                for k in ["wgc_janela", "dxgi_proprio"] { t.insert(format!("minimizado_{k}"), measure(k, &g, &m, Some(h), &probe, &mut clk, 1.5)); }
+                println!("        voltando para o jogo");
+                cmd("frente"); wait_ms(2500);
+                t.insert("estadoWindows_voltou".into(), json!(fs_state()));
+                for k in ["wgc_janela", "dxgi_proprio"] { t.insert(format!("voltou_{k}"), measure(k, &g, &m, Some(h), &probe, &mut clk, 2.0)); }
+            }
+            r["testes"] = Value::Object(t);
+        } else { r["erro"] = json!("a janela do jogo de teste nao apareceu"); }
+        cmd("sair"); drop(stdin);
+        let tq = Instant::now(); while tq.elapsed() < Duration::from_secs(3) { if let Ok(Some(_)) = child.try_wait() { break; } wait_ms(50); }
+        let _ = child.kill(); let _ = child.wait(); wait_ms(300);
+        if let Ok(s) = std::fs::read_to_string(&jf) { r["jogo"] = serde_json::from_str(&s).unwrap_or(Value::Null); }
+        rounds.push(r);
+    }
+    out["rodadas"] = json!(rounds);
+    Ok(out)
+}

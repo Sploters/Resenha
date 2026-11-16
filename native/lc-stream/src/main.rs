@@ -104,6 +104,9 @@ fn main() {
     if flag("--probe") { return probe(); }
     #[cfg(all(windows, feature = "poc"))]
     if flag("--poc-captura") { return poc::main_poc(); }
+    // autoteste da transmissão: o .exe renomeado para Teste-Transmissao-Resenha.exe roda sozinho com dois cliques
+    #[cfg(all(windows, feature = "poc"))]
+    if flag("--autoteste") || std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())).is_some_and(|n| n.contains("teste-transmiss")) { return poc::autoteste(); }
     let stop = Arc::new(AtomicBool::new(false));
     let o = if flag("--stdin") {
         let mut line = String::new();

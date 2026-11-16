@@ -17,14 +17,15 @@ Detalhes técnicos e limitações: `docs/CAPTURA-WGC-DXGI.md` (Fase 2).
 Se algo der muito errado durante a live: no mesmo painel, Método de captura = **Clássico (versão anterior)** ou
 **Forçar Chromium**. Troca na hora, sem sair da sala.
 
-## Jeito mais fácil (para quem não entende de computador): `Teste-Transmissao-Resenha.exe`
+## Jeito mais fácil (para quem não entende de computador): `Teste-Transmissao-Resenha.exe` (~4 MB)
 Dois cliques, ~30 s sem mexer em nada, e o arquivo `Resenha-teste-<PC>.json` aparece na Área de Trabalho (a pasta abre
-sozinha). Não precisa de jogo, de sala, de servidor nem de ninguém assistindo. É um programa à parte
-(`desktop/autoteste.js`, montado por `desktop/build-autoteste.sh`); o instalador da Resenha não muda.
-Ele abre o Jogo de Teste (abaixo) e captura pelo **mesmo Chromium e as mesmas opções do app**: a janela do jogo em tela
-cheia, a tela inteira, a janela **minimizada** (Alt+Tab simulado: é onde dava "Could not start video source"), a janela
-depois de voltar, e o mesmo em janela sem bordas. Para cada uma: abriu ou o erro, quadros/s, imagem preta, imagem mudando.
-Não testa o caminho nativo (lc-stream) nem a transmissão de ponta a ponta; isso continua no kit e no roteiro abaixo.
+sozinha e um aviso diz o que mandar). Não precisa de jogo, sala, servidor nem de alguém assistindo.
+É o lc-stream da PoC (fora do instalador) com esse nome: `sh native/autoteste/montar.sh <pasta>`.
+Abre o Jogo de Teste (abaixo) em tela cheia exclusiva e sem bordas e mede WGC da janela, WGC do monitor e DXGI com o
+jogo na frente, **minimizado** (Alt+Tab simulado, o caso do "Could not start video source") e depois de voltar: abriu
+ou o erro, quadros/s, imagem preta. Não usa o Chromium (o .exe com Electron tinha 110 MB e não dava para baixar):
+o comportamento do Chromium com janela minimizada foi conferido à parte (recusa com "Could not start video source").
+Não testa a transmissão de ponta a ponta; isso continua no kit e no roteiro abaixo.
 
 ## Jeito rápido (sem jogo): kit `teste-captura-resenha.zip`
 O kit (`native/pacote-captura`, montado por `montar.sh`) traz o **Jogo de Teste (Resenha)**: `lc-stream-poc.exe
