@@ -260,18 +260,63 @@ Fórum open-source com tópicos em tempo real e salas de chat. Dos EUA, usado po
 
 ---
 
-<!-- Próximos concorrentes entram aqui, no mesmo formato. -->
+## 6. Stoat (ex-Revolt)
+Clone open-source do Discord (o antigo Revolt, renomeado no fim de 2025), escrito em Rust para ser rápido e leve. Do Reino Unido, ~1 milhão de usuários, nota 2,3. Cresceu muito em 2026 com quem saiu do Discord pelas mudanças de política.
+
+**Pontos fortes**
+- Privacidade: sem anúncios nem rastreadores, GDPR, base na Europa.
+- Sem verificação de identidade.
+- Auto-hospedável.
+- **Termos de uso abertos e transparentes**, junto com o código.
+- Coleta mínima de dados.
+- Canais, permissões, **bots** e voz já funcionando.
+- Leve e rápido (Rust).
+- Estrutura de servidor igual à do Discord, fácil para quem migra.
+
+**Pontos fracos**
+- **Vídeo e tela ainda não lançados** (precisam de muito servidor).
+- **Apps de celular presos ao servidor oficial**: para usar o seu, tem que recompilar o app.
+- Federação limitada: instâncias próprias não falam com a oficial.
+- Instância principal sofre com picos de acesso.
+- Bloqueado por uma operadora (Verizon).
+- Sem E2EE.
+- Nota baixa (2,3): a experiência ainda decepciona quem vem do Discord.
+
+**Comparando com a Resenha**
+| Item | Stoat | Resenha |
+|---|---|---|
+| Vídeo e tela | Em desenvolvimento | **Já tem** (SFU, 120 FPS nativo, controle remoto) |
+| E2EE | Não | **Já tem** (DMs 1:1) |
+| App aponta para o seu servidor | Não (precisa recompilar) | **Já tem**: o app desktop pergunta o endereço (`desktop/connect.html`) |
+| Picos de acesso | Instância central sofre | Cada grupo tem a sua; não há instância central |
+| Bloqueio por operadora | Sim (Verizon) | Passa pela VPN (Tailscale/Hamachi/Radmin) |
+| Bots | Sim | Não |
+| Termos de uso / política de privacidade públicos | Sim | Não (o README explica o que é guardado, mas não há um documento) |
+| Leveza | Rust | Node + nativos em Rust (`lc-input`, `lc-audio`); modo leve automático |
+
+**Vale trazer**
+1. **Bots**: quinto concorrente em seis com API de bots. Confirma a prioridade 1.
+2. **Termos e política de privacidade abertos**: um `PRIVACIDADE.md` curto e honesto (o que o servidor guarda, quem vê, por quanto tempo, o que vai para terceiros como KLIPY e Steam), com link nas Configurações. O dono de cada instalação pode ajustar.
+3. **Facilitar a migração do Discord**: o Stoat cresceu porque pegou quem fugiu do Discord. A Resenha já importa conversas; dá para ir além: **importar a estrutura de um servidor** (canais, categorias, cargos, permissões e emojis, a partir de um modelo de servidor do Discord ou de um export) e uma página "Vindo do Discord?" mostrando onde fica cada coisa.
+
+**Erros a evitar**
+- Lançar sem vídeo e tela: a Resenha já tem; manter a qualidade como diferencial.
+- App de celular preso a um servidor: se vier app nativo, ele precisa pedir o endereço, como o desktop já faz.
+- Uma instância central que cai nos picos: o modelo "cada grupo tem a sua" é vantagem.
+- Experiência abaixo do Discord para quem migra: a nota 2,3 do Stoat mostra que só ter os recursos não basta; acabamento importa.
+
+---
 
 ## Lista consolidada (prioridades)
 | # | Ideia | Origem | Status na Resenha |
 |---|---|---|---|
-| 1 | API de bots + tokens | Fluxer, TeamSpeak, Matrix, Valour | Não tem |
+| 1 | API de bots + tokens | Fluxer, TeamSpeak, Matrix, Valour, Stoat | Não tem |
 | 2 | CSS personalizado / temas da comunidade | Fluxer, Discourse | Não tem |
-| 3 | Voz em vários aparelhos ao mesmo tempo | Fluxer | A conferir |
+| 3 | Voz em vários aparelhos ao mesmo tempo | Fluxer | Não tem (uma conexão de voz por conta, `dropStaleVoice`) |
 | 4 | Automod / moderação granular | Fluxer, Discourse | Parcial |
 | 5 | Whisper / sussurro para pessoas, cargos ou salas | TeamSpeak | Não tem |
 | 6 | Modo de voz competitivo (baixa latência) + ping por pessoa | TeamSpeak | Parcial (diagnóstico de conexão) |
-| 7 | Hierarquia de cargos para mover/mutar/expulsar | TeamSpeak | A conferir |
+| 7 | Hierarquia de cargos para mover/mutar/expulsar | TeamSpeak | Não encontrada no servidor |
 | 8 | Sala de voz: limite de pessoas, senha, orador prioritário, pedir a vez | TeamSpeak | Não tem |
 | 9 | Threads (tópicos a partir de uma mensagem) | Matrix | Não tem |
 | 10 | E2EE em DMs de grupo / canais protegidos, sigilo futuro, verificação por emoji/QR | Matrix | Parcial (só DM 1:1) |
@@ -285,6 +330,27 @@ Fórum open-source com tópicos em tempo real e salas de chat. Dos EUA, usado po
 | 18 | Níveis de confiança automáticos para contas novas | Discourse | Parcial (Reputação) |
 | 19 | Fila de aprovação e sinalização com motivo | Discourse | Parcial |
 | 20 | "O que eu perdi?" (resumo das não lidas, IA opcional e local) | Discourse | Não tem |
+| 21 | `PRIVACIDADE.md` / termos abertos, com link nas Configurações | Stoat | Não tem |
+| 22 | Importar a estrutura de um servidor do Discord + guia "Vindo do Discord?" | Stoat | Parcial (importa conversas) |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
 | ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
 | ✗ | IP visível para moderadores | Discourse (evitar) | Não fazer |
+| ✗ | App preso a um servidor / instância central única | Stoat (evitar) | Não fazer |
+
+## Onde a Resenha já ganha de todos
+- **Voz, vídeo e tela completos**: o Stoat ainda não lançou, o Discourse não tem, o Element não manda áudio da tela, o TeamSpeak não tem canais de vídeo. A Resenha tem SFU, 120 FPS nativo, áudio só do jogo, clipes e controle remoto.
+- **E2EE nas DMs**: só o Matrix tem algo melhor; Fluxer (em desenvolvimento), Valour, Stoat, Discourse e TeamSpeak (desconhecido) não.
+- **Auto-hospedar fácil** (Docker/Umbrel) e app que aponta para qualquer servidor.
+- **Recursos para gamers** que nenhum deles tem: Steam (cartões, biblioteca, wishlist, promoções), "O que jogar hoje?", LFG, eventos, "Jogando…", modo leve automático, push-to-talk com o jogo em foco.
+- **Cara de Discord** com texto rico (o Element parece Slack; o TeamSpeak tem texto pobre).
+
+## Ranking sugerido (por impacto × quantos concorrentes têm)
+1. **API de bots com token** (#1): 5 de 6 concorrentes têm; é a maior lacuna e abre espaço para a comunidade criar o resto.
+2. **Threads** (#9) e **terminar o fórum** (#17): Matrix e Discourse; o Discord também tem.
+3. **Moderação**: automod, níveis de confiança, fila de aprovação e hierarquia de cargos (#4, #7, #18, #19).
+4. **Recursos de voz para gamers**: sussurro, modo competitivo, limite/senha/orador prioritário na sala (#5, #6, #8). Reforça onde a Resenha já é forte.
+5. **Migração do Discord**: importar a estrutura do servidor e o guia (#22).
+6. **Personalização**: CSS e temas da comunidade (#2), multi-janela (#14).
+7. **E2EE mais ampla** (#10, #12).
+8. **Confiança**: `SECURITY.md` e `PRIVACIDADE.md` (#13, #21). Baratos; dá para fazer já.
+9. **Extras**: economia do servidor (#15), "O que eu perdi?" (#20), voz em vários aparelhos (#3), ponte entre instalações (#11), modo demonstração (#16).
