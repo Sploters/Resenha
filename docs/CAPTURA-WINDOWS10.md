@@ -164,6 +164,11 @@ Fora do produto, como os Spikes A e B:
 4. Só então: o app usa DXGI para tela inteira no Windows 10; janela segue como hoje; a opção da borda (Caminho 2)
    fica disponível para quem quiser transmitir janela a 60 FPS.
 
+## Atualização (Fase 2, 2026-11-15)
+- A medida combinada (opção B) existe: `scombo:` no cartão "Transmissões por combinação".
+- O modo normal não encolhe mais para 540p: controle da transmissão (M2/M3).
+- Kit de testes para Windows 10 e 11: `native/pacote-captura/` (`docs/FASE2-CAPTURA.md`, seção 8).
+
 ## O que precisa de quem tem Windows 10
 
 - Dizer a versão do Windows e se apareceu o aviso "Transmissão pela placa de vídeo indisponível".

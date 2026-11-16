@@ -23,7 +23,7 @@ Quem assiste não muda nada: recebe um producer de tela H.264 comum.
 ## Ao vivo
 - Mudar para menos de 60 fps: o programa para e o vídeo volta para o Chromium (mesma transmissão, sem parar).
 - Voltar para 60/120 fps, ou mudar resolução/fps/taxa no modo nativo: reinicia o programa (1-2 s).
-- O programa falhou ou fechou: aviso e a transmissão continua pelo modo normal.
+- O programa falhou ou fechou: reinicia sozinho (até 3 vezes em 30 s, 1 s depois da falha; quem assiste perde a imagem por ~1-2 s). Na 4ª falha, ou com janela fechada/sem codificador, aviso e a transmissão continua pelo modo normal (`docs/FASE2-CAPTURA.md`, M4).
 - O servidor encerrou a sessão (reconexão): tenta de novo até 2 vezes, depois volta ao modo normal.
 - Painel "Transmissão ao vivo": mostra os fps enviados pelo programa e o codificador.
 

@@ -1,0 +1,21 @@
+TESTE DA CAPTURA DE JOGOS - RESENHA (Fase 2)
+
+O que este teste faz
+- Le a versao do Windows, a placa de video e o monitor.
+- Pergunta ao Windows, segundo a segundo, se o jogo esta em "tela cheia exclusiva"
+  (a mesma consulta que o Discord usa). NAO abre, NAO injeta e NAO mexe no jogo.
+- Faz perguntas sobre uma transmissao de verdade na Resenha.
+- Nao instala nada e nao muda nenhuma configuracao.
+
+Como rodar (uns 10 minutos)
+1. Clique com o botao direito no .zip > Extrair tudo.
+2. Abra a pasta extraida e clique duas vezes em "TESTAR (clique duas vezes)".
+   Se o Windows avisar sobre o arquivo, clique em "Mais informacoes" > "Executar assim mesmo".
+3. Siga as instrucoes na janela preta.
+4. No fim, mande o arquivo resultado-captura-<NOME DO PC>.json que aparece na pasta.
+
+Anti-cheat (Valorant/Vanguard e outros)
+- O teste so consulta o estado do Windows (como o Discord e a Xbox Game Bar fazem). Ele nao toca no processo do jogo.
+- Mesmo assim, se preferir, rode a parte 2 com o jogo no menu principal, fora de partida.
+
+Precisamos de dois PCs: um com Windows 10 e outro com Windows 11.
