@@ -666,3 +666,45 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .cd-hist li { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 3px 0; border-top: 1px solid var(--bg-mod, rgba(127,127,127,.15)); } .cd-hist li span { flex: 1 1 100%; color: var(--text-muted); overflow-wrap: anywhere; }
 .cd-hist time { color: var(--text-muted); font-variant-numeric: tabular-nums; } .cd-hist li.m b { color: var(--text-normal, inherit); }
 .cd-sub { margin-top: 6px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
+
+/* ---- Transmitir tela / Ajustes da transmissão: rótulos em caixa alta, linhas e cards escuros, segmentos de largura cheia ---- */
+.ss-modal .mh { text-align: center; padding-bottom: 4px; } .ss-modal .mh h2 { font-size: 22px; }
+.ss-modal:not(.ss-live) .mf { display: none; }
+.ss-modal .mb { padding-bottom: 0; }
+.ss-lbl { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--header-sec, var(--text-muted)); margin: 18px 0 8px; }
+.ss-lbl:first-child { margin-top: 6px; }
+.ss-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px 6px 12px; background: var(--bg-sec); border: 1px solid var(--divider); border-radius: 8px; }
+.ss-row .ss-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-row .ss-ic { display: inline-flex; width: 28px; justify-content: center; color: var(--text-muted); } .ss-row .ss-ic img { width: 22px; height: 22px; object-fit: contain; }
+.ss-row .ss-thumb { width: 56px; height: 32px; object-fit: cover; border-radius: 4px; background: #000; flex: none; }
+.ss-row .ss-tag { background: #23a55a; color: #fff; font-size: 10.5px; font-weight: 800; letter-spacing: .04em; padding: 2px 7px; border-radius: 4px; }
+.ss-row .btn { min-height: 32px; padding: 0 16px; font-size: 14px; }
+.ss-card { background: var(--bg-sec); border: 1px solid var(--divider); border-radius: 8px; padding: 12px; }
+.ss-card .qinfo { margin: 8px 0 0; font-size: 12.5px; }
+.ssq .ss-select { width: 100%; height: 44px; padding: 0 12px; border-radius: 6px; border: none; background: var(--bg-tert, #1e1f22); color: var(--text-normal); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; }
+.ssq-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.ssq-cols .ss-lbl { margin: 0 0 6px; font-size: 11px; }
+.ssq-cols .seg, .ss .ss-aud .seg, .ss-more .seg { display: flex; width: 100%; margin-top: 0; padding: 0; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--divider); background: var(--bg-tert); flex-wrap: nowrap; }
+.ssq-cols .seg button, .ss .ss-aud .seg button, .ss-more .seg button { flex: 1 1 0; min-width: 0; padding: 7px 4px; border-radius: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ssq-cols .seg button + button, .ss .ss-aud .seg button + button, .ss-more .seg button + button { border-left: 1px solid var(--divider); }
+.ssq-note { display: flex; gap: 6px; align-items: flex-start; } .ssq-note .icon { flex: none; margin-top: 2px; }
+.ss-more { margin-top: 10px; } .ss-more summary { cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600; } .ss-more summary:hover { color: var(--text-normal); }
+.ss-more[open] summary { margin-bottom: 4px; } .ss-more label.f { margin-top: 10px; }
+.ss .ss-aud label.f { margin: 0; font-size: 0; } .ss .ss-aud label.f .seg { font-size: 14px; }
+.ss .ss-aud .seg button { flex: 1 1 auto; padding: 8px 10px; }
+.ss .ss-aud .qinfo { margin: 6px 0 0; font-size: 12.5px; }
+.ss-clip { display: flex; align-items: center; gap: 12px; } .ss-clipt { flex: 1; display: flex; flex-direction: column; gap: 3px; } .ss-clipt b { font-size: 15px; } .ss-clipt small { color: var(--text-muted); font-size: 12.5px; } .ss-clipt kbd { font-size: 11px; padding: 0 6px; }
+.ss-pick .seg { margin: 4px 0 12px; } .ss-pick .sources { max-height: 380px; }
+.ss-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; margin: 18px -24px 0; padding: 14px 24px; background: var(--bg-sec); }
+.ss-foot .ss-sp { flex: 1; } .ss-foot .btn { min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; gap: 6px; } .ss-foot [hidden] { display: none !important; }
+.ss [hidden] { display: none !important; }
+.ss-live .capdiag { margin-top: 14px; }
+.ss-more label.f > .seg, .ssq label.f > .seg { width: 100%; }
+
+/* opções dentro de "Mais opções": rótulo em cima, botões de largura igual ocupando a linha toda, texto centralizado */
+.ss-opt { margin-top: 12px; } .ss-opt .ss-lbl { margin: 0 0 6px; font-size: 11px; display: flex; align-items: baseline; gap: 8px; }
+.ss-opt .ss-lbl small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-muted); font-size: 12px; }
+.ss-more .ss-opt .seg { display: flex; width: 100%; flex-wrap: nowrap; }
+.ss-more .ss-opt .seg button { flex: 1 1 0; text-align: center; justify-content: center; padding: 7px 4px; }
+.ssq-cols .seg button, .ss .ss-aud .seg button { text-align: center; }

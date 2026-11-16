@@ -3556,6 +3556,10 @@ function noiseMenu(e) {
   const cur = S.prefs.noiseMode;
   menu(e, [['off', 'Nenhuma'], ['standard', 'Padrão (navegador)'], ['rnnoise', 'Alta — RNNoise (IA)'], ['gtcrn', 'Máxima — GTCRN (IA)']].map(([k, l]) => ({ label: 'Ruído: ' + l, radio: cur === k, fn: async () => { if ((cur || 'standard') === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })));
 }
+// método de captura (teste): rótulos curtos no seletor; o nome completo fica na dica
+const CAP_SHORT = { auto: 'Auto', wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium', classic: 'Clássico' };
+const capMethodOpt = (after) => h('div.ss-opt', { title: 'Automático escolhe sozinho; Clássico = a versão anterior' }, h('div.ss-lbl', 'Método de captura', h('small', 'teste')),
+  seg(Object.keys(CAPTURE_METHODS).map(k => [k, CAP_SHORT[k]]), captureMode(S.prefs), (v) => { S.prefs.captureMethod = v; savePrefs(); after(); }));
 async function startShare() {
   if (voice.screen) return liveShareModal();
   if (!voice.active) return toast('Entre em uma sala de voz primeiro.', true);
@@ -3581,7 +3585,7 @@ async function startShare() {
   const drawAudio = () => {
     if (!desktop || !appCap.ok) { // navegador / Windows antigo: só o áudio do sistema (como antes)
       return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })),
-        desktop && appCap.reason && h('div.qinfo', 'Áudio só do jogo indisponível: ' + appCap.reason));
+        desktop && appCap.reason && h('div.qinfo', { title: appCap.reason }, 'Áudio só do jogo indisponível.'));
     }
     const t = audTarget(), opts = {}, isScr = src?.type === 'screen' && scrCap();
     if (isScr) opts.screen = 'Só desta tela';
@@ -3593,9 +3597,7 @@ async function startShare() {
       else { audMode = v; if (v === 'game') audGamePicked = true; }
       drawAudio();
     })),
-      h('div.qinfo', mode === 'screen' ? 'Vai só o som dos programas abertos nesta tela (o jogo, o vídeo, o navegador que estão nela). O que estiver em outro monitor e a voz da call não entram.'
-        : mode === 'game' ? 'Como no Discord: vai só o som do jogo. Música, navegador e a voz da call não entram na transmissão.'
-        : mode === 'system' ? 'Vai o som de todos os programas abertos (música, navegador, outro monitor...), menos o da Resenha.' : 'A transmissão vai sem som.'));
+      h('div.qinfo', mode === 'screen' ? 'Só o som dos programas nesta tela.' : mode === 'game' ? 'Só o som do jogo.' : mode === 'system' ? 'Todo o som do PC, menos a Resenha.' : 'Sem som.'));
   };
   const drawSources = () => {
     tabs.replaceChildren(...[['screen', 'Telas'], ['window', 'Janelas / aplicativos']].map(([k, l]) => h('button' + (tab === k ? '.on' : ''), { onclick: () => { tab = k; drawSources(); } }, l)));
@@ -3623,17 +3625,39 @@ async function startShare() {
       drawSources();
     } catch (e) { loaded = true; drawSources(); toast('Não consegui listar as telas: ' + e.message, true); }
   };
-  const body = h('div', desktop && [h('label.f', 'O que compartilhar'), tabs, grid, h('div.qinfo', 'Jogo em tela cheia? Ele aparece em "Janelas" mesmo minimizado depois do alt+tab: selecione, clique em Transmitir e volte para o jogo — a imagem aparece quando ele volta para a tela.')], qualityPanel(o),
-    h('label.f', 'Cursor do mouse', seg({ 1: 'Mostrar o cursor', 0: 'Ocultar o cursor' }, o.cursor === false ? 0 : 1, v => (o.cursor = !!+v))),
-    audRow,
-    !desktop && h('div.qinfo', 'Ao clicar em Transmitir, o navegador abrirá o seletor de tela/janela/aba. Para escolher dentro do app, use o aplicativo desktop.'));
-  drawAudio();
-  if (desktop) {
-    drawSources(); refresh(); timer = setInterval(() => { if (!document.body.contains(body)) return clearInterval(timer); refresh(); }, 3000);
-    desktop.appAudioCapable?.().then(r => { appCap = r || { ok: false }; drawAudio(); }).catch(() => { });
-  }
-  modal('Transmitir tela', 'Escolha o que mostrar, a resolução e os quadros por segundo.', body, [{ label: 'Cancelar', cls: 'link', fn: () => clearInterval(timer) }, { label: 'Transmitir', cls: 'green', fn: async () => {
-    if (desktop) { if (!src) { toast('Selecione uma tela ou janela', true); return false; } await desktop.selectSource(src.id, src.name); }
+  // duas etapas no mesmo modal: escolher a tela/janela (grade) e depois um card compacto com a fonte, o canal, a qualidade,
+  // o áudio e os clipes. Clicar numa fonte já leva à configuração; "Trocar" volta para a grade.
+  let step = desktop ? 'pick' : 'cfg', m = null;
+  const chName = () => { const ch = channelById(voice.channelId); return ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || 'Sala de voz'); };
+  const srcRow = h('div.ss-row.ss-src');
+  const drawSrc = () => srcRow.replaceChildren(
+    src?.thumbnail ? h('img.ss-thumb', { src: src.thumbnail, alt: '' }) : h('span.ss-ic', src?.appIcon ? h('img', { src: src.appIcon, alt: '' }) : icon('screen', 20)),
+    h('span.ss-name', src ? src.name : desktop ? 'Nada escolhido' : 'Você escolhe ao clicar em Transmitir'),
+    src?.game && h('span.ss-tag', 'JOGO'),
+    desktop && h('button.btn.sm.grey', { type: 'button', onclick: () => go_('pick') }, 'Trocar'));
+  const clipRow = h('div.ss-card.ss-clip',
+    h('div.ss-clipt', h('b', 'Gravar clipes'), h('small', ['Últimos 60 s', clipKeyLabel() ? [' com ', h('kbd', clipKeyLabel())] : ''])),
+    uiToggle(S.prefs.clipsOn === true, (v) => { S.prefs.clipsOn = v; savePrefs(); }));
+  const capPick = window.lcDesktop?.nativeCapable ? capMethodOpt(() => { }) : null;
+  const cfg = h('div.ss-cfg',
+    h('div.ss-lbl', 'O que você vai transmitir'), srcRow,
+    h('div.ss-lbl', 'Canal da transmissão'), h('div.ss-row', h('span.ss-ic', icon('vol', 20)), h('span.ss-name', chName())),
+    h('div.ss-lbl', 'Qualidade da transmissão'), h('div.ss-card', qualityPanel(o, null, { extra: () => [h('div.ss-opt', h('div.ss-lbl', 'Cursor do mouse'), seg([[1, 'Mostrar'], [0, 'Ocultar']], o.cursor === false ? 0 : 1, v => (o.cursor = !!+v))), capPick] })),
+    h('div.ss-lbl', 'Áudio'), h('div.ss-aud', audRow),
+    h('div.ss-lbl', 'Clipes'), clipRow,
+    !desktop && h('div.qinfo', 'A tela é escolhida no navegador ao clicar em Transmitir.'));
+  const pick = desktop ? h('div.ss-pick', tabs, grid, h('div.qinfo', 'Jogo em tela cheia aparece em "Janelas", mesmo minimizado.')) : null;
+  const go_ = (st) => {
+    step = st;
+    if (pick) pick.hidden = st !== 'pick';
+    cfg.hidden = st !== 'cfg';
+    backBtn.hidden = st !== 'cfg' || !desktop; nextBtn.hidden = st !== 'pick'; goBtn.hidden = st !== 'cfg';
+    if (st === 'cfg') drawSrc();
+    const md = m?.el.querySelector('.modal'); if (md) md.style.width = st === 'pick' ? '780px' : '560px';
+  };
+  const cancel = () => { clearInterval(timer); m?.close(); };
+  const goLive = async () => {
+    if (desktop) { if (!src) { toast('Selecione uma tela ou janela', true); go_('pick'); return; } await desktop.selectSource(src.id, src.name); }
     clearInterval(timer);
     const t = audTarget(), mode = audEff() === 'game' && !(appCap.ok && t) ? 'system' : audEff();
     o.audio = mode !== 'none';
@@ -3642,8 +3666,25 @@ async function startShare() {
     const keep = mode === 'none' || mode === 'screen' || (mode !== audMode && src?.type === 'screen');
     const screenAudio = src?.type === 'screen' && scrCap() && (mode === 'screen' || mode === 'system') ? mode : (S.prefs.screen?.screenAudio || 'screen');
     S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, screenAudio, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
+    m?.close();
     voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
-  } }], { width: desktop ? '780px' : '560px' });
+  };
+  const backBtn = h('button.btn.grey', { type: 'button', onclick: () => go_('pick') }, 'Voltar');
+  const nextBtn = h('button.btn', { type: 'button', onclick: () => { if (!src) return toast('Selecione uma tela ou janela', true); go_('cfg'); } }, 'Continuar');
+  const goBtn = h('button.btn.green', { type: 'button', onclick: goLive }, icon('live', 16), 'Transmitir');
+  const foot = h('div.ss-foot', h('button.btn.link', { type: 'button', onclick: cancel }, 'Cancelar'), h('span.ss-sp'), backBtn, nextBtn, goBtn);
+  const body = h('div.ss', pick, cfg, foot);
+  // clicar numa fonte escolhe e já vai para a configuração (como os outros apps de chamada)
+  grid.addEventListener('click', (e) => { if (e.target.closest('.source')) setTimeout(() => go_('cfg'), 0); });
+  drawAudio();
+  if (desktop) {
+    drawSources(); refresh().then(() => { if (step === 'pick' && src?.game && !touched) go_('cfg'); });
+    timer = setInterval(() => { if (!document.body.contains(body)) return clearInterval(timer); refresh().then(() => { if (step === 'cfg') drawSrc(); }); }, 3000);
+    desktop.appAudioCapable?.().then(r => { appCap = r || { ok: false }; drawAudio(); }).catch(() => { });
+  }
+  m = modal('Transmitir tela', '', body, [], { width: desktop ? '780px' : '560px' });
+  m.el.querySelector('.modal')?.classList.add('ss-modal');
+  go_(step);
 }
 
 // durante a transmissão: mudar qualidade ao vivo, trocar fonte, parar
@@ -3815,7 +3856,7 @@ function clipButton(key, who, cls) {
 // compartilhado (parar fica no botão vermelho "Parar transmissão")
 function liveShareModal() {
   const o = { ...voice.screenOpts };
-  const blk = voice.captureBlack ? h('div.qinfo.warn', 'A transmissão está saindo PRETA. Se for um jogo (ex.: Valorant), coloque-o em "Janela sem bordas" nas opções de vídeo do jogo e transmita a tela inteira. Tela cheia exclusiva e alguns anti-cheats bloqueiam a captura, e a Resenha não contorna isso.') : null;
+  const blk = voice.captureBlack ? h('div.qinfo.warn', 'A transmissão está saindo PRETA. Em jogos, use "Janela sem bordas" e transmita a tela inteira.') : null;
   // tela cheia exclusiva confirmada: as saídas possíveis, sem parar nada sozinho (a Resenha não injeta nada no jogo)
   let m = null;
   const fse = voice.fse?.state === 'confirmed' ? h('div.qinfo.warn.fsebox',
@@ -3826,9 +3867,11 @@ function liveShareModal() {
     h('div.fsebtns', h('button.btn.sm', { onclick: () => { m?.close(); stopSharing(); setTimeout(() => startShare(), 300); } }, 'Escolher outra fonte'), h('button.btn.sm.link', { onclick: () => m?.close() }, 'Continuar assim'))) : null;
   const diag = captureDiag();
   // método de captura (teste): trocar aqui reinicia só o vídeo da transmissão (1-2 s); voz e sala seguem
-  const capSel = window.lcDesktop?.nativeCapable ? h('label.f', 'Método de captura (teste)', seg(CAPTURE_METHODS, captureMode(S.prefs), (v) => { S.prefs.captureMethod = v; savePrefs(); voice.applyCaptureMode(); })) : null;
-  const body = h('div', fse || blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }), capSel, diag.el);
-  m = modal('Ajustes da transmissão', 'Mudam na hora, sem interromper o que você está transmitindo.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
+  const capSel = window.lcDesktop?.nativeCapable ? capMethodOpt(() => voice.applyCaptureMode()) : null;
+  const body = h('div.ss', fse || blk, h('div.ss-lbl', 'Qualidade da transmissão'),
+    h('div.ss-card', qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, hint: n.hint, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true, extra: capSel })), diag.el);
+  m = modal('Ajustes da transmissão', 'Muda na hora, sem parar a transmissão.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
+  m.el.querySelector('.modal')?.classList.add('ss-modal', 'ss-live');
 }
 // diagnóstico da captura (M13): método em uso, quadros por método, fps efetivo, motivo de não estar no programa nativo,
 // reinícios, o que o controle da transmissão decidiu e o aviso de tela cheia exclusiva. Atualiza a cada 1 s enquanto aberto.
@@ -3853,8 +3896,8 @@ function capRows(c, row) {
   if (c.rebuilds) out.push(row('Placa de vídeo perdida', `${c.rebuilds}x (reconstruído sem derrubar a transmissão)`));
   if (c.info?.accessLost) out.push(row('DXGI recriado', `${c.info.accessLost}x (troca de resolução, tela cheia, Ctrl+Alt+Del)`));
   if (c.note) out.push(h('div.qinfo.warn', c.note));
-  if (c.active === 'dxgi' && c.overlap) out.push(h('div.qinfo.warn', 'DXGI capturando janela: ele grava a área da janela no monitor, então janelas, menus e notificações que ficarem POR CIMA aparecem na transmissão. Minimizada, a imagem para.'));
-  if (c.active === 'dxgi' && S.prefs.screen?.cursor !== false) out.push(h('div.qinfo', 'No DXGI o cursor do mouse não aparece na transmissão (limitação desta versão).'));
+  if (c.active === 'dxgi' && c.overlap) out.push(h('div.qinfo.warn', 'DXGI: janelas por cima desta aparecem na transmissão.'));
+  if (c.active === 'dxgi' && S.prefs.screen?.cursor !== false) out.push(h('div.qinfo', 'DXGI: o cursor não aparece.'));
   // para os testes: tudo isto em texto, para colar no chat e comparar entre PCs
   out.push(h('button.btn.sm.grey', { style: { marginTop: '8px' }, onclick: async (e) => { const x = await voice.captureInfo(); const t = JSON.stringify({ quando: new Date().toISOString(), app: navigator.userAgent.match(/Resenha\/[\d.]+|Electron\/[\d.]+/g)?.join(' ') || '', ...x }, null, 1); try { await navigator.clipboard.writeText(t); e.target.textContent = 'Copiado!'; } catch { e.target.textContent = 'Não consegui copiar'; } } }, 'Copiar relatório do teste'));
   if (c.history?.length) {

@@ -79,19 +79,31 @@ export const SHARE_PRESETS = [
 export const qualityLabel = (o) => `${o.res === 'source' ? 'Original' : o.res + 'p'} • ${o.fps} fps • ${o.hint === 'detail' ? 'nitidez' : 'movimento'}${o.audio ? ' • com áudio' : ''}`;
 export const estMbps = (o) => (+o.bitrate > 0 ? (+o.bitrate).toFixed(1) : (({ 720: 2.2, 1080: 4.5, 1440: 8, source: 9 })[o.res] * (o.fps >= 120 ? 2.4 : o.fps >= 60 ? 1.6 : o.fps <= 15 ? .6 : 1)).toFixed(1));
 
-// painel de qualidade da transmissão (antes e durante)
-export function qualityPanel(o, onChange, { live = false } = {}) { // live: durante a transmissão, só resolução, FPS e taxa de dados
-  const box = h('div.qpanel');
-  const draw = () => box.replaceChildren(
-    h('label.f', 'Resolução', seg(SCREEN_PRESETS.res, o.res, v => { o.res = v; draw(); onChange?.(o); })),
-    h('label.f', 'Taxa de quadros (FPS)', seg(SCREEN_PRESETS.fps, o.fps, v => { o.fps = v; draw(); onChange?.(o); })),
-    !live && h('label.f', 'Otimizar para'), !live && choiceCards([
-      ['motion', 'Movimento (jogos/vídeo)', h('span.opt-motion', h('i.om-ball'), h('i.om-trail'), h('i.om-trail.t2'), h('i.om-trail.t3'))],
-      ['detail', 'Nitidez (texto/apresentação)', h('span.opt-detail', h('b', 'Aa'), h('span.od-lines', h('i'), h('i'), h('i')))]], o.hint || 'motion', v => { o.hint = v; draw(); onChange?.(o); }),
-    h('label.f', 'Taxa de dados (bitrate)', seg({ 0: 'Automática', 8: '8 Mbps', 16: '16 Mbps', 24: '24 Mbps', 32: '32 Mbps', 50: '50 Mbps' }, +o.bitrate || 0, v => { o.bitrate = +v; draw(); onChange?.(o); })),
-    +o.fps >= 60 && (S.nativeOk ? h('div.qinfo.ok', `A partir de 60 FPS a imagem é capturada e comprimida pelo próprio app (placa de vídeo), sem o limite de ~48 FPS do navegador. O áudio e a prévia continuam como sempre. Quem tem internet mais fraca recebe automaticamente uma versão leve (${+o.res === 720 ? '360p' : '540p'} a 60 FPS). Em conversa protegida (criptografia de ponta a ponta) a transmissão segue pelo navegador.`)
-      : h('div.qinfo.warn', (S.nativeWhy ? `Transmissão pela placa de vídeo indisponível: ${S.nativeWhy} ` : 'Pelo navegador, ') + 'o capturador de tela do Chromium não passa de ~48 FPS, mesmo pedindo mais. Durante a transmissão o painel mostra os FPS realmente capturados.')),
-    h('div.qinfo', `Taxa de dados ${+o.bitrate > 0 ? 'fixa' : 'estimada'}: ~${estMbps(o)} Mbps por espectador${+o.bitrate >= 24 ? ' — exige upload e placa de vídeo fortes; quem assiste precisa de banda parecida' : ''}`));
+// painel de qualidade da transmissão (antes, durante e nas configurações): um card só, com o tipo de conteúdo num menu,
+// resolução e FPS lado a lado e o resto (taxa de dados, opções extras) recolhido em "Mais opções"
+const Q_RES = [['720', '720'], ['1080', '1080'], ['1440', '1440'], ['source', 'Original']];
+const Q_FPS = [['15', '15'], ['30', '30'], ['60', '60'], ['120', '120']];
+export function qualityPanel(o, onChange, { live = false, extra = null } = {}) { // live: durante a transmissão; extra: nós a mais em "Mais opções"
+  const box = h('div.qpanel.ssq');
+  let moreOpen = false;
+  const set = (k, v) => { o[k] = v; draw(); onChange?.(o); };
+  const draw = () => {
+    const sel = h('select.ss-select', { 'aria-label': 'Tipo de conteúdo', onchange: (e) => set('hint', e.target.value) },
+      h('option', { value: 'motion', selected: (o.hint || 'motion') === 'motion' }, 'Vídeo mais fluido (jogos e vídeos)'),
+      h('option', { value: 'detail', selected: o.hint === 'detail' }, 'Texto mais nítido (telas e apresentações)'));
+    const fps = +o.fps, nat = fps >= 60;
+    // só avisa quando o pedido não vai ser atendido (sem a placa de vídeo o navegador para em ~48 FPS)
+    const note = nat && !S.nativeOk ? h('div.qinfo.warn.ssq-note', { title: S.nativeWhy || '' }, icon('warn', 14), h('span', 'Sem placa de vídeo: máximo de ~48 FPS.')) : null;
+    const more = h('details.ss-more', { open: moreOpen, ontoggle: (e) => { moreOpen = e.target.open; } }, h('summary', 'Mais opções'),
+      h('div.ss-opt', h('div.ss-lbl', 'Taxa de dados', h('small', `~${estMbps(o)} Mbps por pessoa`)), seg([[0, 'Auto'], [8, '8'], [16, '16'], [24, '24'], [32, '32'], [50, '50 Mbps']], +o.bitrate || 0, v => set('bitrate', +v))),
+      ...(typeof extra === 'function' ? [extra()].flat() : extra ? [extra].flat() : []));
+    box.replaceChildren(
+      sel,
+      h('div.ssq-cols',
+        h('div', h('div.ss-lbl', 'Resolução (altura)'), seg(Q_RES.map(([k, l]) => [k === 'source' ? 'source' : +k, l]), o.res === 'source' ? 'source' : +o.res, v => set('res', v))),
+        h('div', h('div.ss-lbl', 'Quadros por segundo'), seg(Q_FPS.map(([k, l]) => [+k, l]), fps, v => set('fps', v)))),
+      note, more);
+  };
   draw(); return box;
 }
 

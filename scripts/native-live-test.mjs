@@ -83,9 +83,9 @@ try {
   await A.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(x => x.title.includes('Transmitir')).click()); await sleep(800);
   await A.evaluate(() => { const seg = (label) => [...document.querySelectorAll('.modal .seg button')].find(x => x.textContent.trim() === label)?.click(); seg('Janelas / aplicativos'); });
   await sleep(300); await A.evaluate(() => document.querySelector('.modal .source')?.click());
-  await A.evaluate(() => { for (const l of ['720p', '120 fps']) [...document.querySelectorAll('.modal .seg button')].find(x => x.textContent.trim() === l)?.click(); });
+  await A.evaluate(() => { const cols = document.querySelectorAll('.modal .ssq-cols .seg'); [...cols[0].querySelectorAll('button')].find(x => x.textContent.trim() === '720')?.click(); [...cols[1].querySelectorAll('button')].find(x => x.textContent.trim() === '120')?.click(); });
   await sleep(200);
-  ok(/capturada e comprimida pelo próprio app/.test(await A.evaluate(() => document.querySelector('.modal .qinfo.ok')?.textContent || '')), 'acima de 60 FPS o seletor explica o modo nativo');
+  ok(!(await A.evaluate(() => document.querySelector('.modal .ssq-note'))), 'com a placa de vídeo disponível, nenhum aviso sobre FPS no seletor');
   if (process.env.SHOTS) await A.screenshot({ path: `${OUT}/10-seletor-120.png` });
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => /^Transmitir$/.test(x.textContent.trim())).click());
   await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending && window.__lc.voice.sfu.producers.screenaudio, { timeout: 15000 }).catch(() => { });

@@ -620,13 +620,11 @@ function voicePage(ctx, reg) {
 function streamPage() {
   const o = { res: 1080, fps: 30, hint: 'motion', audio: true, ...S.prefs.screen };
   const commit = () => { S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio }; save(); };
-  return h('div', h('h2', 'Transmissão de tela'), hint('Esses são os valores iniciais ao clicar em "Transmitir tela". Você ainda escolhe a tela/janela e pode mudar a qualidade durante a transmissão.'),
+  return h('div', h('h2', 'Transmissão de tela'), hint('Valores iniciais de cada transmissão.'),
     card(qualityPanel(o, commit), row('Compartilhar áudio do sistema por padrão', null, toggle(o.audio, v => { o.audio = v; commit(); }))),
     section('Experimental'),
     card(h('label.f', 'Método de captura (teste)', seg(CAPTURE_METHODS, captureMode(S.prefs), v => { S.prefs.captureMethod = v; save(); })),
-      hint([h('b', 'Automático: '), 'Windows 11 começa no WGC e Windows 10 no DXGI; se a imagem ficar preta, parar de atualizar ou der erro, o app testa o outro método ao lado e só troca se ele mostrar imagem melhor. Último recurso: Chromium (até ~48 FPS). ',
-        h('b', 'Forçar WGC/DXGI: '), 'usa só aquele método (sem trocar); se falhar de vez, volta ao Chromium. ', h('b', 'Forçar Chromium: '), 'nunca usa o programa nativo. ', h('b', 'Clássico: '), 'o caminho da versão anterior (só WGC; no Windows 10 fica no Chromium). ',
-        'Vale a partir de 60 FPS, no app desktop para Windows. Durante a transmissão o painel "Ajustes da transmissão > Diagnóstico da captura" mostra o método em uso e o motivo de cada troca. O DXGI não isola janela: o que ficar por cima dela aparece na transmissão.'])),
+      hint('Automático troca sozinho entre WGC e DXGI se a imagem falhar. Clássico = versão anterior. Vale a partir de 60 FPS no app para Windows.')),
     card(row('Teste: transmissão a 120 FPS', 'A transmissão normal fica limitada a ~48 FPS pelo Windows. Este teste usa um programa à parte (pacote de teste) que captura sem esse limite, e mede aqui quantos quadros chegam. Entre numa sala de voz antes.',
       h('button.btn', { onclick: () => openNativeTest() }, 'Abrir teste'))));
 }

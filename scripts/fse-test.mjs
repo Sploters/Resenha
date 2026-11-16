@@ -79,7 +79,7 @@ try {
   const md = await A.evaluate(() => { const m = document.querySelector('.modal'); m?.querySelector('details.capdiag')?.setAttribute('open', ''); return { fse: m?.querySelector('.fsebox')?.textContent || '', btns: [...(m?.querySelectorAll('.fsebtns button') || [])].map(b => b.textContent), diag: m?.querySelector('.cd-body')?.textContent || '' }; });
   if (process.env.SHOTS) { await sleep(1200); await A.screenshot({ path: process.env.SHOTS + '/fse-modal.png' }); }
   ok(/Janela sem bordas/.test(md.fse) && /tela inteira/.test(md.fse) && md.btns.includes('Escolher outra fonte') && md.btns.includes('Continuar assim'), 'opções: Janela sem bordas, tela inteira, continuar assim', md);
-  ok(/Método em uso.*Modo normal/.test(md.diag) && /Chromium \(capturador do navegador\)[\d.]+ quadros/.test(md.diag) && /Programa nativo \(WGC\)não usado/.test(md.diag), 'diagnóstico: método em uso e quadros por método', md.diag);
+  ok(/Método em uso.*Modo normal/.test(md.diag) && /Chromium \(capturador do navegador\)[\d.]+ quadros/.test(md.diag) && /Programa nativo \(WGC\/DXGI\)não usado/.test(md.diag), 'diagnóstico: método em uso e quadros por método', md.diag);
   ok(/Por que não o nativo.*Windows 10/.test(md.diag) && /Tela cheia exclusivaconfirmada/.test(md.diag), 'diagnóstico: motivo de não estar no nativo e o estado da tela cheia', md.diag);
   await A.evaluate(() => [...document.querySelectorAll('.fsebtns button')].find(b => b.textContent === 'Continuar assim').click()); await sleep(600);
   ok(await A.evaluate(() => !document.querySelector('.modal') && !!window.__lc.voice.screen), '"Continuar assim" fecha e a transmissão segue');

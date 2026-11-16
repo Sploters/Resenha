@@ -40,14 +40,14 @@ try {
 
   // --- abre o seletor de transmissão ---
   await E.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(b => b.title.includes('Transmitir')).click()); const t0 = Date.now(); for (let i = 0; i < 60 && !(await E.evaluate(() => document.querySelectorAll('.modal .source').length)); i++) await sleep(500); console.log('  info seletor pronto em', Date.now() - t0, 'ms');
-  const modal = await E.evaluate(() => ({ sources: document.querySelectorAll('.modal .source').length, presets: [...document.querySelectorAll('.modal .seg button')].filter(b => /^(720p|1080p|1440p|Fonte|\d+ fps)/.test(b.textContent)).length, tabs: [...document.querySelectorAll('.modal .seg button')].map(b => b.textContent).slice(0, 2) }));
+  const modal = await E.evaluate(() => ({ sources: document.querySelectorAll('.modal .source').length, presets: document.querySelectorAll('.modal .ssq-cols .seg button').length, tabs: [...document.querySelectorAll('.modal .seg button')].map(b => b.textContent).slice(0, 2) }));
   ok(modal.sources > 0, `seletor lista telas/janelas (${modal.sources})`);
   ok(modal.presets >= 7, `escolhas de resolução e fps (${modal.presets})`);
   await E.screenshot({ path: '.testshots/20-electron-share-modal.png' });
   // escolhe "Telas" → primeira tela; 720p e 30 fps
   await E.evaluate(() => [...document.querySelectorAll('.modal .seg button')].find(b => /Telas/.test(b.textContent))?.click()); await sleep(300);
   await E.evaluate(() => document.querySelector('.modal .source')?.click()); await sleep(200);
-  await E.evaluate(() => { const pick = (t) => [...document.querySelectorAll('.modal .seg button')].find(b => b.textContent === t).click(); pick('720p'); pick('30 fps'); }); await sleep(200);
+  await E.evaluate(() => { const cols = document.querySelectorAll('.modal .ssq-cols .seg'); const pick = (i, t) => [...cols[i].querySelectorAll('button')].find(b => b.textContent === t).click(); pick(0, '720'); pick(1, '30'); }); await sleep(200);
   // Linux (tela virtual do teste/GitHub): não há servidor de som, e capturar o áudio do sistema falha ("Could not start audio source")
   if (process.platform === 'linux') await E.evaluate(() => [...document.querySelectorAll('.modal .seg button')].find(b => b.textContent === 'Sem áudio')?.click());
   await E.screenshot({ path: '.testshots/21-electron-share-choose.png' });
@@ -70,7 +70,7 @@ try {
   await E.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]').click(); [...document.querySelectorAll('.menu .it')].find(i => /Ajustes da transmissão/.test(i.textContent)).click(); }); await sleep(800);
   ok(await E.evaluate(() => !!document.querySelector('.modal h2')?.textContent.includes('Ajustes da transmissão') && ![...document.querySelectorAll('.modal .btn')].some(b => /Parar/.test(b.textContent))), 'painel "Ajustes da transmissão" abriu (sem botão de parar)');
   await E.screenshot({ path: '.testshots/23-electron-live-panel.png' });
-  await E.evaluate(() => { const pick = (t) => [...document.querySelectorAll('.modal .seg button')].find(b => b.textContent === t).click(); pick('1080p'); pick('60 fps'); }); await sleep(2500);
+  await E.evaluate(() => { const cols = document.querySelectorAll('.modal .ssq-cols .seg'); const pick = (i, t) => [...cols[i].querySelectorAll('button')].find(b => b.textContent === t).click(); pick(0, '1080'); pick(1, '60'); }); await sleep(2500);
   const st2 = await E.evaluate(() => window.__lc.voice.screenOpts);
   ok(st2.res === 1080 && st2.fps === 60, 'qualidade alterada ao vivo para 1080p/60');
   const br = await E.evaluate(() => window.__lc.voice.peers.values().next().value.senders.screenvideo?.getParameters().encodings[0].maxBitrate);
