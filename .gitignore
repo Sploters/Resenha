@@ -8,6 +8,7 @@ desktop/dist
 .testdata*
 spikes/*/target
 native/*/target
+native/*/target-poc
 .testdata-chat/
 
 # configuração local com o endereço do servidor (não versionar)

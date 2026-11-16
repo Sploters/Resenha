@@ -1,0 +1,44 @@
+PROVA DE CONCEITO: CAPTURA WGC x DXGI - RESENHA
+
+O que e
+- Um lc-stream de teste que compara os dois jeitos do Windows entregar a imagem da tela:
+  WGC (o que a Resenha usa hoje) e DXGI Desktop Duplication (o candidato a segunda opcao).
+- Os dois alimentam o MESMO codificador de video da placa (NVENC/AMF/QuickSync) usado na transmissao.
+- Nao transmite nada pela internet, nao instala nada, nao muda configuracao.
+- Nao injeta nada em jogos e nao toca no processo de jogo nenhum (seguro com anti-cheat).
+- NAO mexe na Resenha instalada: roda so desta pasta, com outro nome (lc-stream-poc.exe), e nao substitui
+  nem le o lc-stream da instalacao. Nao escreve no registro do Windows. O unico arquivo criado e o .json nesta pasta.
+  As prioridades que ele ajusta (processo e placa de video) valem so para ele e acabam quando ele fecha.
+- Pode deixar a Resenha aberta, mas NAO esteja transmitindo durante o teste (nem pelo Discord/OBS):
+  outra captura ao mesmo tempo atrapalha as medidas.
+- Para apagar: e so apagar esta pasta.
+- Se tiver mais de um monitor, os testes usam o principal. Para outro: lc-stream-poc.exe --poc-captura --monitor X,Y
+  (um ponto dentro dele, em pixels).
+
+PARTE 1 - automatico (2 minutos)
+1. Feche jogos e videos. Deixe a area de trabalho normal.
+2. Clique duas vezes em "1 - TESTE AUTOMATICO".
+3. NAO mexa no mouse nem nas janelas. Vao aparecer quadrados coloridos: e o teste
+   (janela por cima de janela, janela andando, mudando de tamanho, minimizando).
+4. Mande o poc-captura-resultado.json.
+
+PARTE 2 - manual (3 minutos, siga a ordem; a janela preta mostra o segundo atual)
+  0:00-0:20  nada (referencia)
+  0:20-0:40  abra um video do YouTube em tela cheia e depois saia
+  0:40-1:00  mude a resolucao do monitor (Configuracoes > Tela) e volte para a original
+  1:00-1:20  aperte Ctrl+Alt+Del e depois Esc
+  1:20-2:10  abra um jogo em TELA CHEIA (exclusiva). Fique no menu uns 15 s. Alt+Tab para fora e volte.
+             Depois troque o jogo para SEM BORDAS / JANELA SEM BORDAS e fique mais 15 s.
+  2:10-3:00  se quiser (opcional, avancado): simular queda da placa de video com
+             "dxcap -forcetdr" num prompt de administrador (precisa das Ferramentas de Graficos do Windows).
+             A tela pisca preta por 1-2 s; e normal.
+  Anote o nome do jogo e o modo (tela cheia / sem bordas). Mande o poc-captura-manual.json.
+
+PARTE 3 - so se pedirem (atalhos 3 e 4)
+  "3 - REFAZER RECORTE": refaz so o teste de janela por cima de janela (~40 s). Gera poc-captura-recorte.json.
+  "4 - TELA CHEIA SINTETICA": para quem nao tem jogo. Um "jogo" de teste pinta a tela em cores fortes que
+     PISCAM (nao rode se for sensivel a luzes piscando), primeiro sem bordas e depois em tela cheia exclusiva,
+     enquanto as duas capturas medem. ~25 s, sem mexer em nada. Gera poc-captura-tela-cheia.json.
+     Se a tela ficar presa preta/colorida: Alt+Tab ou Ctrl+Alt+Del fecham; o Windows volta ao normal sozinho.
+
+Precisamos de preferencia de um PC com Windows 10 e outro com Windows 11.

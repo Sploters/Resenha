@@ -33,6 +33,14 @@ windows = { version = "0.62", features = [
   "Win32_System_WinRT_Graphics_Capture",
 ] }
 windows-core = "0.62"
+# só na prova de conceito da captura DXGI (cargo build --features poc); o build normal não usa
+windows-capture = { version = "=2.0.1", optional = true }
+
+[features]
+# PoC WGC x DXGI (docs/CAPTURA-WGC-DXGI.md): lc-stream --poc-captura. Fora do instalador.
+poc = ["dep:windows-capture", "windows/Win32_UI_WindowsAndMessaging", "windows/Win32_Graphics_Dwm", "windows/Win32_UI_HiDpi",
+  "windows/Win32_System_LibraryLoader", "windows/Win32_Security", "windows/Win32_System_Registry", "windows/Win32_UI_Shell",
+  "windows/Foundation_Metadata"]
 
 [profile.release]
 opt-level = 3

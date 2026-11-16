@@ -28,7 +28,7 @@ use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDe
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
-type R<T> = Result<T, String>;
+pub(crate) type R<T> = Result<T, String>;
 
 /// Prioridades para a transmissão não perder quadros quando o jogo puxa CPU/GPU (o programa roda sem janela, em segundo
 /// plano, e o Windows 11 tende a tratá-lo como tarefa de fundo):
@@ -39,7 +39,7 @@ type R<T> = Result<T, String>;
 /// - prioridade de GPU um degrau acima do normal (o ajuste existe de -7 a 7; alguns drivers ignoram).
 /// Cada passo é independente; o resultado vai no evento "started" para o diagnóstico.
 const GPU_PRIORITY: i32 = 1;
-fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
+pub(crate) fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
     use windows::Win32::System::Threading::*;
     let eco = unsafe {
         let st = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, StateMask: 0 };
@@ -49,14 +49,14 @@ fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
     let gpu = unsafe { dxgi.SetGPUThreadPriority(GPU_PRIORITY).is_ok() };
     serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpu": gpu })
 }
-fn e<T>(r: windows::core::Result<T>, what: &str) -> R<T> { r.map_err(|x| format!("{what}: {} (0x{:08X})", x.message(), x.code().0 as u32)) }
+pub(crate) fn e<T>(r: windows::core::Result<T>, what: &str) -> R<T> { r.map_err(|x| format!("{what}: {} (0x{:08X})", x.message(), x.code().0 as u32)) }
 
-const NV12_RING: usize = 8;
+pub(crate) const NV12_RING: usize = 8;
 
-struct Encoder { mft: IMFTransform, events: IMFMediaEventGenerator, codec: Option<ICodecAPI>, provides: bool, out_size: u32, name: String }
+pub(crate) struct Encoder { pub(crate) mft: IMFTransform, pub(crate) events: IMFMediaEventGenerator, codec: Option<ICodecAPI>, provides: bool, out_size: u32, pub(crate) name: String }
 impl Encoder {
     /// SPS/PPS que alguns codificadores só põem no tipo de saída (e não nos quadros)
-    fn seq_header(&self) -> Option<Vec<u8>> { unsafe { let t = self.mft.GetOutputCurrentType(0).ok()?; let mut p: *mut u8 = std::ptr::null_mut(); let mut l = 0u32; t.GetAllocatedBlob(&MF_MT_MPEG_SEQUENCE_HEADER, &mut p, &mut l).ok()?; let v = std::slice::from_raw_parts(p, l as usize).to_vec(); CoTaskMemFree(Some(p as _)); Some(v) } }
+    pub(crate) fn seq_header(&self) -> Option<Vec<u8>> { unsafe { let t = self.mft.GetOutputCurrentType(0).ok()?; let mut p: *mut u8 = std::ptr::null_mut(); let mut l = 0u32; t.GetAllocatedBlob(&MF_MT_MPEG_SEQUENCE_HEADER, &mut p, &mut l).ok()?; let v = std::slice::from_raw_parts(p, l as usize).to_vec(); CoTaskMemFree(Some(p as _)); Some(v) } }
 }
 
 fn var_u32(v: u32) -> VARIANT { let mut x = VARIANT::default(); unsafe { let i = &mut *x.Anonymous.Anonymous; i.vt = VT_UI4; i.Anonymous.ulVal = v; } x }
@@ -163,7 +163,7 @@ fn init_encoder(device: &ID3D11Device, act: &IMFActivate, name: &str, w: u32, h:
 
 impl Encoder {
     /// Tira um quadro pronto do codificador (Annex-B) e o carimbo de tempo (100 ns).
-    fn take_output(&self) -> R<Option<(Vec<u8>, i64)>> {
+    pub(crate) fn take_output(&self) -> R<Option<(Vec<u8>, i64)>> {
         unsafe {
             let sample = if self.provides { None } else {
                 let s = e(MFCreateSample(), "MFCreateSample")?; let b = e(MFCreateMemoryBuffer(self.out_size), "MFCreateMemoryBuffer")?; e(s.AddBuffer(&b), "AddBuffer")?; Some(s)
@@ -190,7 +190,7 @@ impl Encoder {
             Ok(Some((v, t)))
         }
     }
-    fn force_key(&self) { if let Some(c) = &self.codec { set_u32(c, &CODECAPI_AVEncVideoForceKeyFrame, 1); } }
+    pub(crate) fn force_key(&self) { if let Some(c) = &self.codec { set_u32(c, &CODECAPI_AVEncVideoForceKeyFrame, 1); } }
 }
 
 /// Para o app: há codificador H.264 de hardware? (não abre captura)
@@ -213,7 +213,7 @@ pub fn probe() -> serde_json::Value {
 }
 
 /// Retângulo de destino que cabe em (ow, oh) mantendo a proporção de (w, h), centralizado.
-fn fit(w: u32, h: u32, ow: u32, oh: u32) -> RECT {
+pub(crate) fn fit(w: u32, h: u32, ow: u32, oh: u32) -> RECT {
     let (w, h) = (w.max(1) as f64, h.max(1) as f64);
     let s = (ow as f64 / w).min(oh as f64 / h);
     let (dw, dh) = ((w * s).round() as i32 & !1, (h * s).round() as i32 & !1);
@@ -222,14 +222,14 @@ fn fit(w: u32, h: u32, ow: u32, oh: u32) -> RECT {
 }
 
 /// Uma camada: conversor (escala + NV12) e codificador próprios, ritmo próprio.
-struct WinLayer {
-    enc: Encoder, vproc: ID3D11VideoProcessor, venum: ID3D11VideoProcessorEnumerator,
-    ring: Vec<(ID3D11Texture2D, ID3D11VideoProcessorOutputView)>, ow: u32, oh: u32, fps: u32,
-    need: u32, next_due: f64, slot: usize, last_slot: Option<usize>, last_input: f64, last_st: i64,
-    inflight: HashMap<i64, Instant>, inputs: u64,
+pub(crate) struct WinLayer {
+    pub(crate) enc: Encoder, pub(crate) vproc: ID3D11VideoProcessor, pub(crate) venum: ID3D11VideoProcessorEnumerator,
+    pub(crate) ring: Vec<(ID3D11Texture2D, ID3D11VideoProcessorOutputView)>, pub(crate) ow: u32, pub(crate) oh: u32, pub(crate) fps: u32,
+    pub(crate) need: u32, pub(crate) next_due: f64, pub(crate) slot: usize, pub(crate) last_slot: Option<usize>, pub(crate) last_input: f64, pub(crate) last_st: i64,
+    pub(crate) inflight: HashMap<i64, Instant>, pub(crate) inputs: u64,
 }
 
-fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: &ID3D11VideoContext, luid: u64, cw: u32, ch: u32, l: &Layer, verbose: bool) -> R<WinLayer> {
+pub(crate) fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: &ID3D11VideoContext, luid: u64, cw: u32, ch: u32, l: &Layer, verbose: bool) -> R<WinLayer> {
     let oh = (l.height.min(ch) / 2) * 2; let ow = ((cw as u64 * oh as u64 / ch as u64) as u32 / 2 * 2).max(2);
     let rate = DXGI_RATIONAL { Numerator: l.fps, Denominator: 1 };
     // o enumerador aceita entradas de outros tamanhos (a janela pode crescer): declara um teto generoso
@@ -262,12 +262,12 @@ fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: &ID3D11Vide
 }
 
 impl WinLayer {
-    fn set_rects(&self, vctx: &ID3D11VideoContext, w: u32, h: u32) { unsafe {
+    pub(crate) fn set_rects(&self, vctx: &ID3D11VideoContext, w: u32, h: u32) { unsafe {
         vctx.VideoProcessorSetStreamSourceRect(&self.vproc, 0, true, Some(&RECT { left: 0, top: 0, right: w as i32, bottom: h as i32 }));
         vctx.VideoProcessorSetStreamDestRect(&self.vproc, 0, true, Some(&fit(w, h, self.ow, self.oh)));
     } }
     /// entrega uma textura NV12 ao codificador
-    fn feed(&mut self, slot: usize, t: i64) -> windows::core::Result<()> { unsafe {
+    pub(crate) fn feed(&mut self, slot: usize, t: i64) -> windows::core::Result<()> { unsafe {
         let buf = MFCreateDXGISurfaceBuffer(&ID3D11Texture2D::IID, &self.ring[slot].0, 0, false)?;
         if let Ok(b2) = buf.cast::<IMF2DBuffer>() { if let Ok(l) = b2.GetContiguousLength() { let _ = buf.SetCurrentLength(l); } }
         let s = MFCreateSample()?; s.AddBuffer(&buf)?;

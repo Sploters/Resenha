@@ -11,6 +11,8 @@ mod rtp;
 mod srtp;
 #[cfg(windows)]
 mod win;
+#[cfg(all(windows, feature = "poc"))]
+mod poc;
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -89,6 +91,8 @@ fn parse_code(code: &str) -> Option<(String, u16, u32, u8, Option<(String, Strin
 
 fn main() {
     if flag("--probe") { return probe(); }
+    #[cfg(all(windows, feature = "poc"))]
+    if flag("--poc-captura") { return poc::main_poc(); }
     let stop = Arc::new(AtomicBool::new(false));
     let o = if flag("--stdin") {
         let mut line = String::new();
