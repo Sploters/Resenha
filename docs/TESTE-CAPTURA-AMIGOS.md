@@ -81,3 +81,27 @@ Preencher por PC (copiar a tabela):
 - Tela preta para quem assiste: anotar o método em uso e se o Windows estava em tela cheia; testar Forçar o outro método.
 - Voltar ao app de antes: fechar o portátil e abrir a Resenha instalada. Nada do teste fica no PC além das
   configurações da conta (a opção "Método de captura"; deixe em Automático ou Clássico).
+
+## Resultados recebidos
+
+### 2026-11-16 · Windows 11 25H2 (26200) · RTX 3080 · 1920x1080 a 144 Hz
+**Kit antigo, parte 2 (Valorant de verdade, sem transmitir):** em "Tela cheia" o Windows diz **tela cheia exclusiva**
+(estado 3) em 25 de 26 s com o jogo na frente. Em "Janela sem bordas" diz "ocupado" (2) e em "Janela", normal (5).
+Ou seja, a "Tela cheia" do Valorant é exclusiva de verdade e minimiza no Alt+Tab, como o Jogo de Teste. A parte 3
+(transmissões) não foi feita.
+
+**Autoteste (Jogo de Teste, 28 s):**
+| Situação | WGC janela | WGC monitor | DXGI |
+|---|---|---|---|
+| Tela cheia, jogo na frente | 143 fps | 143 fps | 144 fps |
+| Tela cheia, **minimizado** (Alt+Tab) | abre, **0 quadros** | — | entrega a área de trabalho (imagem parada, sem o jogo) |
+| Tela cheia, depois de voltar | 143 fps | — | 143 fps |
+| Sem bordas, na frente | 143 fps | 143 fps | 144 fps |
+Nenhuma imagem preta e nenhum erro. A volta para a tela cheia leva ~1 s (6 quadros no 1º segundo).
+
+**Conclusão:** neste PC a captura de jogo em tela cheia funciona (nativa, a 144 fps) enquanto o jogo está na tela.
+Só não existe imagem do jogo enquanto ele está minimizado, e é exatamente aí que o Chromium recusava começar
+("Could not start video source"). Isso confirma a correção (esperar o jogo voltar e então começar).
+Ainda falta: (1) transmitir o Valorant na Resenha com o servidor atualizado; (2) o mesmo autoteste num **Windows 10**.
+Não medido aqui: uma sessão de WGC aberta com o jogo minimizado volta a entregar quadros quando ele é restaurado?
+(o autoteste reabre a captura depois de voltar). Com a correção a transmissão só começa com o jogo na tela.
