@@ -152,12 +152,65 @@ Protocolo aberto e **federado** (como e-mail: cada um tem seu servidor, e todos 
 
 ---
 
+## 4. Valour
+Chat de comunidades open-source (AGPL-3.0, cliente e servidor), feito por voluntários, em Alpha (app.valour.gg). Dos EUA, ~21 mil usuários, nota 3,0. Diferenciais: **várias janelas de chat ao mesmo tempo** e **economia da comunidade**.
+
+**Pontos fortes**
+- Código aberto e auditável, sem dinheiro de empresa.
+- Testar na hora no Alpha hospedado, sem instalar nada.
+- Coleta mínima: sem anúncios, sem e-mail de marketing, **sem Google Analytics** ou rastreadores.
+- **Multi-janela**: vários canais e comunidades abertos lado a lado, em janelas redimensionáveis.
+- **Economia da comunidade**: moeda do servidor para recompensas, trocas e integrações.
+- Desenvolvimento ativo e equipe que responde.
+- **API oficial para bots.**
+- Apps nativos para Windows e Android.
+- Todos os recursos do Discord da lista (texto, voz, vídeo, cargos, permissões, emojis, tela, DMs).
+
+**Pontos fracos**
+- Alpha: bugs, mudanças que quebram, falta de acabamento.
+- **Auto-hospedar é difícil**: Postgres, Redis e configuração manual.
+- Depende de terceiros (SendGrid, Sentry, Stripe, Firebase, Tenor).
+- Servidores nos EUA (jurisdição americana); IP registrado.
+- Pede **data de nascimento** (para servidores NSFW).
+- Sem E2EE.
+- Android só por .apk, fora da Play Store.
+- Equipe voluntária pequena: futuro incerto.
+
+**Comparando com a Resenha**
+| Item | Valour | Resenha |
+|---|---|---|
+| Auto-hospedar | Difícil (Postgres, Redis, config manual) | **Fácil**: Docker/Umbrel, banco migra sozinho |
+| E2EE | Não | **Já tem** (DMs 1:1) |
+| Terceiros | SendGrid, Sentry, Stripe, Firebase, Tenor | Poucos: KLIPY (GIFs), APIs públicas da Steam, YouTube no bot de música |
+| Rastreadores / analytics | Nenhum | Nenhum (manter) |
+| Multi-janela / canais lado a lado | Sim | Não |
+| Economia / moeda do servidor | Sim | Não |
+| API de bots | Sim | Não |
+| App Windows | Sim | **Já tem** |
+| App Android | .apk | Navegador/PWA |
+| Testar sem instalar | Alpha hospedado | Navegador, mas precisa de uma instalação e da VPN |
+
+**Vale trazer**
+1. **Multi-janela / divisão de tela**: abrir um canal ou DM numa janela separada (app desktop) ou em painel lado a lado. A Resenha já tem o painel de busca que fica aberto ao trocar de canal; dá para generalizar: "Abrir ao lado" no clique direito de um canal, e "Abrir em janela" no app desktop (útil com dois monitores ou durante o jogo).
+2. **Economia do servidor**, adaptada ao público gamer da Resenha: pontos por presença em call, eventos ("Vou" cumprido), vitórias no "O que jogar hoje?", apostas de brincadeira em enquetes, loja do servidor com cargos/cores/sons do soundboard. Tudo opcional e por servidor, sem dinheiro real.
+3. **API de bots**: terceiro concorrente seguido que tem. Já é prioridade 1.
+4. **Instância de demonstração**: um modo "experimentar" (servidor de teste, só leitura ou que se apaga sozinho) para mostrar a Resenha a alguém sem pedir para instalar VPN.
+
+**Erros a evitar**
+- Auto-hospedagem complicada: manter o Docker de um comando, que é vantagem.
+- Encher de serviços de terceiros: cada um que entrar, documentar no README e permitir desligar.
+- Pedir data de nascimento ou dados sem necessidade.
+- Android por .apk solto: se houver app de celular, publicar na loja ou manter o PWA bem feito.
+- Economia que vira cobrança ou pay-to-win.
+
+---
+
 <!-- Próximos concorrentes entram aqui, no mesmo formato. -->
 
 ## Lista consolidada (prioridades)
 | # | Ideia | Origem | Status na Resenha |
 |---|---|---|---|
-| 1 | API de bots + tokens | Fluxer | Não tem |
+| 1 | API de bots + tokens | Fluxer, TeamSpeak, Matrix, Valour | Não tem |
 | 2 | CSS personalizado / temas da comunidade | Fluxer | Não tem |
 | 3 | Voz em vários aparelhos ao mesmo tempo | Fluxer | A conferir |
 | 4 | Automod / moderação granular | Fluxer | Parcial |
@@ -170,5 +223,8 @@ Protocolo aberto e **federado** (como e-mail: cada um tem seu servidor, e todos 
 | 11 | Ponte entre instalações da Resenha (ou com o Matrix) | Matrix | Não tem |
 | 12 | Chave de recuperação da E2EE (além da frase) | Matrix | Parcial |
 | 13 | `SECURITY.md` com canal para relatar falhas | Matrix (evitar o erro) | Não tem |
+| 14 | Multi-janela: canal/DM ao lado ou em janela separada | Valour | Não tem |
+| 15 | Economia do servidor (pontos, loja de cargos/cores/sons) | Valour | Não tem |
+| 16 | Modo de demonstração para testar sem instalar | Valour | Não tem |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
 | ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
