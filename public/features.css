@@ -228,6 +228,14 @@ body:has(> #lightbox) #layer { z-index: 130; } /* menus de clique direito por ci
 #vcall > #topbar { background: transparent; box-shadow: none; color: #fff; }
 #vcall > #topbar .hash, #vcall > #topbar .ibtn { color: rgba(255,255,255,.75); } #vcall > #topbar .ibtn:hover, #vcall > #topbar .ibtn.sel { color: #fff; }
 #vcall #vc-chat-btn.unread::after { box-shadow: 0 0 0 2px #000; }
+/* sala de voz: com o cursor fora do #vcall, a barra do topo e os botões de baixo somem (fade + deslocamento para a borda de onde vieram);
+   ficam à vista com foco de teclado dentro, com o painel de layout aberto e em telas sem hover (toque) */
+#vcall > #topbar, #vcall #stage > .bar { transition: opacity .25s ease, transform .25s ease; }
+@media (hover: hover) {
+  #vcall:not(:hover):not(:focus-within) > #topbar { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+  #vcall:not(:hover):not(:focus-within) #stage > .bar { opacity: 0; transform: translateY(100%); pointer-events: none; }
+  body:has(.layoutpop) #vcall > #topbar, body:has(.layoutpop) #vcall #stage > .bar { opacity: 1; transform: none; pointer-events: auto; }
+}
 
 /* botão do chat da sala de voz: bolinha quando chega mensagem com o chat fechado */
 #vc-chat-btn { position: relative; }
