@@ -1839,6 +1839,9 @@ app.patch('/api/activity/pc', auth, wrap((req, res) => {
 app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
 if (process.env.STATIC_OFF !== '1') mountStatic(app, path.join(__dirname, '..', 'public')); // comprimido, versionado e com modulepreload (server/static.js)
+// política de privacidade e de segurança desta instalação (o dono pode editar os arquivos na raiz do projeto)
+for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 'SECURITY.md']])
+  app.get(route, (req, res) => res.type('text/plain; charset=utf-8').sendFile(path.join(__dirname, '..', file), (e) => e && !res.headersSent && res.status(404).end()));
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 app.get(/^\/(?!api|files|gateway).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 

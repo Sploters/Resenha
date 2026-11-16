@@ -13,6 +13,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY server ./server
 COPY public ./public
+COPY PRIVACIDADE.md SECURITY.md ./
 COPY scripts/reset-password.mjs ./scripts/reset-password.mjs
 ENV DATA_DIR=/data PORT=3000 HTTPS_PORT=3443
 VOLUME /data

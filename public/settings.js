@@ -415,6 +415,9 @@ function privacyPage(reg) {
       factChips([['Envia', 'ok', [['pointer', 'Cliques em botões e abas'], ['info', 'Explicações abertas'], ['search', 'Buscas sem resultado'], ['clock', 'Tempos de carregamento'], ['warn', 'Erros do app'], ['users', 'Uso por dia (sem identificar)']]], ['Nunca', 'no', [['dm', 'Mensagens'], ['user', 'Quem fez'], ['file', 'Arquivos']]]]),
       h('button.btn.link.sm.uxv-open', { onclick: () => import('./uxview.js').then(m => m.openUxView()) }, icon('eye', 16), 'Ver o que é enviado')),
     section('Links'), card(toggleCards([{ on: !!S.prefs.confirmLinks, label: 'Confirmar antes de abrir links', sub: 'Mostra o endereço antes de abrir', prev: h('span.pv-link', h('u', 'site.com/…'), h('span.pv-dlg', h('b', 'Abrir link externo?'), h('i'))), fn: v => { S.prefs.confirmLinks = v; save(); } }])),
+    section('Como seus dados são tratados'), card(row('Política de privacidade desta instalação', 'O que o servidor guarda, quem vê e o que sai dele (GIFs, tradução, Steam). Nada é vendido nem usado para treinar IA.',
+      h('button.btn.grey', { onclick: () => window.open('/privacidade', '_blank', 'noopener') }, 'Ler')),
+      row('Achou uma falha de segurança?', 'Como relatar sem expor ninguém e o que esperar de resposta.', h('button.btn.grey', { onclick: () => window.open('/seguranca', '_blank', 'noopener') }, 'Como relatar'))),
     section('Dispositivos conectados'), card(hint('Encerre sessões que você não reconhece.'), sessions, h('button.btn.red', { style: { marginTop: '12px' }, onclick: async () => { if (await confirmBox('Sair de todos os outros dispositivos', 'Essas sessões precisarão entrar de novo.', 'Encerrar todas')) { await tryApi('DELETE', '/sessions'); draw(); } } }, 'Encerrar todas as outras sessões')));
 }
 

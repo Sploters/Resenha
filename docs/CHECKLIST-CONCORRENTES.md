@@ -19,9 +19,9 @@ Ordem de trabalho das ideias aprovadas em `docs/CONCORRENTES.md` (seção "Decis
 - [ ] Menu de clique direito na pessoa da sala; registro de auditoria.
 - [ ] Teste.
 
-## 3. Confiança (barato)
-- [ ] `SECURITY.md`: como relatar falha, o que esperar de resposta.
-- [ ] `PRIVACIDADE.md`: o que o servidor guarda, quem vê, terceiros (KLIPY, Steam, YouTube), que nada é vendido nem usado para treinar IA; link nas Configurações.
+## 3. Confiança (barato) — feito
+- [x] `SECURITY.md`: como relatar falha (relato privado do GitHub), resposta em até 7 dias, o que está dentro, dicas para quem hospeda.
+- [x] `PRIVACIDADE.md`: o que o servidor guarda, quem vê, terceiros e como desligar cada um, nada vendido nem usado para treinar IA; abre em Privacidade e segurança → Como seus dados são tratados (`/privacidade`, `/seguranca`; entram na imagem Docker).
 
 ## 4. Eventos → Raids e times
 - [ ] Composição por função (vagas por função, inscrição com função e reserva, quadro no cartão).
