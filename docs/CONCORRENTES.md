@@ -344,13 +344,47 @@ Clone open-source do Discord (o antigo Revolt, renomeado no fim de 2025), escrit
 - **Recursos para gamers** que nenhum deles tem: Steam (cartões, biblioteca, wishlist, promoções), "O que jogar hoje?", LFG, eventos, "Jogando…", modo leve automático, push-to-talk com o jogo em foco.
 - **Cara de Discord** com texto rico (o Element parece Slack; o TeamSpeak tem texto pobre).
 
-## Ranking sugerido (por impacto × quantos concorrentes têm)
-1. **API de bots com token** (#1): 5 de 6 concorrentes têm; é a maior lacuna e abre espaço para a comunidade criar o resto.
-2. **Threads** (#9) e **terminar o fórum** (#17): Matrix e Discourse; o Discord também tem.
-3. **Moderação**: automod, níveis de confiança, fila de aprovação e hierarquia de cargos (#4, #7, #18, #19).
-4. **Recursos de voz para gamers**: sussurro, modo competitivo, limite/senha/orador prioritário na sala (#5, #6, #8). Reforça onde a Resenha já é forte.
-5. **Migração do Discord**: importar a estrutura do servidor e o guia (#22).
-6. **Personalização**: CSS e temas da comunidade (#2), multi-janela (#14).
-7. **E2EE mais ampla** (#10, #12).
-8. **Confiança**: `SECURITY.md` e `PRIVACIDADE.md` (#13, #21). Baratos; dá para fazer já.
-9. **Extras**: economia do servidor (#15), "O que eu perdi?" (#20), voz em vários aparelhos (#3), ponte entre instalações (#11), modo demonstração (#16).
+## Decisões (16/11/2026)
+
+**Fora do plano**
+- **API de bots** (#1): não vai ser feita.
+- **Threads e terminar o fórum** (#9, #17): o grupo não usa nem threads nem fórum. Do fórum, só vale aproveitar ideias para outros lugares (ver Raids abaixo).
+- **Voz em vários aparelhos ao mesmo tempo** (#3): não.
+
+**Ver melhor depois**
+- **Personalização** (#2 CSS e temas, #14 multi-janela).
+
+**Aprovadas**
+1. **Hierarquia de cargos** (#7). **Importante.** Ver o diagnóstico abaixo.
+2. **Moderação**: automod, níveis de confiança para contas novas, fila de aprovação e denúncia com motivo (#4, #18, #19).
+3. **Voz para gamers**: sussurro, modo competitivo com ping por pessoa, sala com limite, senha, orador prioritário e pedir a vez (#5, #6, #8).
+4. **Migração do Discord**: importar a estrutura do servidor e o guia "Vindo do Discord?" (#22).
+5. **E2EE mais ampla**: DMs em grupo, canais protegidos, sigilo futuro, verificação por emoji/QR e chave de recuperação (#10, #12).
+6. **Confiança**: `SECURITY.md` e `PRIVACIDADE.md` (#13, #21).
+7. **Extras**: economia do servidor (#15), "O que eu perdi?" (#20), ponte entre instalações (#11), modo demonstração (#16).
+
+**Ideia nova: Eventos → Raids e montar times** (inspirada no fórum, mas dentro de Eventos)
+Hoje o evento tem vagas e Vou / Talvez / Não vou (`server/events.js`), e o LFG já conhece funções por jogo (`server/lfg.js`: Duelista/Controlador…, Topo/Selva/Meio…). A ideia é juntar os dois:
+- **Composição por função**: o evento define quantas vagas de cada função (WoW: 2 tanques, 5 healers, 13 DPS; Dota/LoL/Deadlock: uma de cada posição; Valorant: duelista, controlador…). Cada um se inscreve escolhendo a função (e uma reserva), e o cartão mostra o quadro: "Tanque 2/2 · Healer 3/5 · DPS 9/13".
+- **Vários times no mesmo evento**: Clash do LoL ou um 5v5 interno com Time A e Time B; arrastar pessoas entre times; botão "balancear" pelo elo do perfil de jogador do LFG.
+- **Lista de espera por função** e promoção automática quando alguém sai.
+- **Modelos por jogo**: WoW (raid de 10/20/25, masmorra de 5), Dota 2, Deadlock, LoL Clash, Valorant, Grand Line Adventures e "Personalizado". Os jogos e funções novos entram na mesma lista do LFG.
+- **Repetir toda semana** (raid fixa), com a escalação da semana anterior como ponto de partida.
+- **"Chamar quem falta"**: avisa quem joga aquele jogo (biblioteca da Steam, perfil do LFG ou "Jogando…") quando faltar uma função perto da hora.
+- Na hora do evento, **Entrar na sala** já leva cada time para a sua sala de voz.
+
+### Diagnóstico: hierarquia de cargos (`server/index.js`)
+Os cargos têm `position`, mas ela **não é usada em nenhuma checagem**. Só o dono é protegido. Consequências:
+- Quem tem **Expulsar** (`P.KICK`) expulsa qualquer um, inclusive administradores (`DELETE /api/guilds/:id/members/:uid`).
+- Quem tem **Banir** bane qualquer um menos o dono, inclusive administradores.
+- Quem tem **Moderar** põe qualquer um de castigo, inclusive administradores.
+- Quem tem **Gerenciar cargos** pode **dar a si mesmo um cargo de Administrador**, editar as permissões de cargos acima dele e apagá-los (`PATCH /api/guilds/:id/members/:uid` com `roles`, `PATCH`/`DELETE /api/roles/:id`). É escalada de privilégio: "Gerenciar cargos" hoje equivale a Administrador.
+- Mudar apelido de outra pessoa também não olha o cargo.
+- Não existe **moderação de voz**: mutar ou ensurdecer alguém para a sala, mover para outra sala ou desconectar da chamada.
+
+Regra proposta (como no Discord):
+- O "cargo mais alto" de alguém é o maior `position` entre os cargos dele. O dono está acima de todos.
+- Expulsar, banir, castigar, mudar apelido, mover, mutar e desconectar: só em quem tem o cargo mais alto **abaixo** do seu.
+- Gerenciar cargos: só criar, editar, apagar, dar ou tirar cargos **abaixo** do seu; e nunca dar uma permissão que você mesmo não tem.
+- Reordenar cargos (arrastar na lista), também só abaixo do seu.
+- O app esconde ou desativa a opção quando não pode (com o motivo: "cargo acima do seu"), e o servidor recusa sempre.
