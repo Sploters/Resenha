@@ -5,6 +5,7 @@
 import puppeteer from 'puppeteer-core';
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+fs.mkdirSync('.testshots', { recursive: true }); // o clone novo do CI não tem a pasta dos prints
 const PORT = 3297, BASE = `http://localhost:${PORT}`, SRC = './.testdata-churn', DIR = './.testdata-namefx', CPU = 6;
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

@@ -8,6 +8,7 @@ import puppeteer from 'puppeteer-core';
 import { spawn, execFileSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
+fs.mkdirSync('.testshots', { recursive: true }); // o clone novo do CI não tem a pasta dos prints
 import path from 'node:path';
 const PORT = 3295, BASE = `http://localhost:${PORT}`, DATA = './.testdata-music', MEDIA = path.join(DATA, '..', '.testmedia-music');
 const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';

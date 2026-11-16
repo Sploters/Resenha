@@ -2,6 +2,7 @@
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+fs.mkdirSync('.testshots', { recursive: true }); // o clone novo do CI não tem a pasta dos prints
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const electronPath = require('../desktop/node_modules/electron');
