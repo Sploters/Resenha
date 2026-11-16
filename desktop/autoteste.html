@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Teste da transmissão — Resenha</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: #1e1f22; color: #f2f3f5; font: 16px/1.4 "Segoe UI", system-ui, sans-serif; text-align: center; padding: 24px; user-select: none; }
+  h1 { font-size: 26px; margin: 0; }
+  .big { font-size: 56px; line-height: 1; }
+  .warn { font-size: 20px; font-weight: 700; color: #f0b232; }
+  .bar { width: 100%; max-width: 420px; height: 14px; border-radius: 7px; background: #2b2d31; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #5865f2; transition: width .5s; }
+  .step { color: #b5bac1; min-height: 22px; }
+  ul { list-style: none; padding: 0; margin: 0; text-align: left; font-size: 14px; color: #dbdee1; }
+  li { margin: 3px 0; }
+  button { font: inherit; font-size: 18px; font-weight: 600; padding: 12px 22px; border: 0; border-radius: 8px; background: #248046; color: #fff; cursor: pointer; }
+  .file { font-size: 13px; color: #b5bac1; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="run">
+    <div class="big">⏳</div>
+    <h1>Testando a transmissão…</h1>
+    <p class="warn">NÃO mexa no mouse nem no teclado</p>
+    <p>Leva uns 30 segundos. A tela vai ficar colorida: é o teste.</p>
+    <div class="bar"><i id="bar"></i></div>
+    <p class="step" id="step"></p>
+  </div>
+  <div id="end" hidden>
+    <div class="big">✅</div>
+    <h1>Pronto, valeu!</h1>
+    <p>Mande o arquivo <b id="fname"></b> no chat da Resenha.<br>Ele está na sua <b>Área de Trabalho</b> (a pasta já abriu).</p>
+    <button id="open">Abrir a pasta do arquivo</button>
+    <ul id="list"></ul>
+    <p class="file" id="fpath"></p>
+  </div>
+<script>
+const $ = (id) => document.getElementById(id);
+function step(txt, pct) { $('step').textContent = txt; $('bar').style.width = Math.min(100, pct) + '%'; }
+
+// captura uma fonte (janela/tela) pelo mesmo caminho de captura do Chromium que o app usa e mede o que chega
+async function capture(id, secs) {
+  const t0 = performance.now();
+  let s;
+  try {
+    s = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: id, maxWidth: 1920, maxHeight: 1080, maxFrameRate: 60 } } });
+  } catch (e) { return { ok: false, error: `${e.name}: ${e.message}`, ms: Math.round(performance.now() - t0) }; }
+  const startMs = Math.round(performance.now() - t0);
+  const track = s.getVideoTracks()[0]; let ended = false; track.onended = () => { ended = true; };
+  // leitor de quadros direto da trilha: não depende de a janela do teste estar visível (fica atrás do jogo)
+  const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+  const c = document.createElement('canvas'); c.width = 64; c.height = 36; const x = c.getContext('2d', { willReadFrequently: true });
+  let frames = 0, firstMs = null, samples = 0, black = 0, changed = 0, prev = null, lastSample = 0, w = 0, h = 0;
+  const t1 = performance.now(), until = t1 + secs * 1000;
+  const timeout = setTimeout(() => reader.cancel().catch(() => { }), secs * 1000 + 300); // sem quadro nenhum: não fica preso
+  while (!ended && performance.now() < until) {
+    let r; try { r = await reader.read(); } catch { break; }
+    if (r.done) break;
+    const f = r.value; frames++; if (firstMs === null) firstMs = Math.round(performance.now() - t0);
+    w = f.displayWidth; h = f.displayHeight;
+    if (performance.now() - lastSample >= 250) {
+      lastSample = performance.now();
+      try {
+        x.drawImage(f, 0, 0, 64, 36);
+        const d = x.getImageData(0, 0, 64, 36).data, cur = new Uint8Array(d.length >> 2); let sum = 0, max = 0, diff = 0;
+        for (let i = 0; i < d.length; i += 4) { const l = (d[i] * 2 + d[i + 1] * 5 + d[i + 2]) >> 3; cur[i >> 2] = l; sum += l; if (l > max) max = l; if (prev) diff += Math.abs(l - prev[i >> 2]); }
+        samples++; if (sum / cur.length < 6 && max < 24) black++; if (prev && diff / cur.length > 0.5) changed++; prev = cur;
+      } catch { }
+    }
+    f.close();
+  }
+  clearTimeout(timeout); reader.cancel().catch(() => { });
+  const el = Math.max(0.5, (performance.now() - t1) / 1000);
+  const st = track.getSettings ? track.getSettings() : {};
+  const r = { ok: true, startMs, firstFrameMs: firstMs, fps: Math.round(frames / el * 10) / 10, w, h,
+    amostras: samples, pretas: black, mudando: changed, terminou: ended, settings: { width: st.width, height: st.height, frameRate: st.frameRate } };
+  s.getTracks().forEach(t => t.stop());
+  return r;
+}
+
+const NOMES = { janela: 'janela do jogo', tela_inteira: 'tela inteira', janela_minimizada: 'jogo minimizado (Alt+Tab)', janela_depois_de_voltar: 'depois de voltar para o jogo' };
+function done({ out, file }) {
+  $('run').hidden = true; $('end').hidden = false;
+  $('fname').textContent = file ? file.split(/[\\/]/).pop() : '(não consegui salvar)';
+  $('fpath').textContent = file || '';
+  $('open').onclick = () => require('electron').ipcRenderer.send('abrir', file);
+  for (const r of out.rodadas || []) for (const [k, t] of Object.entries(r.testes || {})) {
+    // minimizado: não capturar é o esperado (a Resenha agora espera o jogo voltar)
+    const esperadoFalhar = k === 'janela_minimizada';
+    const bom = t.ok && t.fps >= 5 && t.pretas < t.amostras / 2;
+    const ic = esperadoFalhar ? (t.ok ? '✅' : 'ℹ️') : bom ? '✅' : t.ok ? '⚠️' : '❌';
+    const li = document.createElement('li'); li.textContent = `${ic} ${r.modo === 'tela-cheia' ? 'Tela cheia' : 'Sem bordas'}: ${NOMES[k] || k}`;
+    $('list').append(li);
+  }
+}
+</script>
+</body>
+</html>

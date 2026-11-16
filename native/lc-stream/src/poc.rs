@@ -982,8 +982,21 @@ fn test_game(exclusive: bool, secs: u64, file: &str) -> R<J> {
         "estadosWindows": states.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<String, J>>(),
         "codigosEstado": "1 normal, 2 ocupado/tela cheia, 3 D3D tela cheia exclusiva, 4 apresentacao, 5 normal, 6 app tela cheia, 7 quiet",
         "eventos": events, "porSegundo": per }) } }
+    // --comandos: linhas no stdin ("frente", "minimizar", "sair") — o autoteste simula o Alt+Tab sem ninguém mexer
+    let cmds = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    if flag("--comandos") { let c = cmds.clone(); std::thread::spawn(move || { let mut l = String::new(); while std::io::stdin().read_line(&mut l).map(|n| n > 0).unwrap_or(false) { c.lock().unwrap().push(l.trim().to_string()); l.clear(); } c.lock().unwrap().push("sair".into()); }); }
     let mut quit = false;
     while !quit && t0.elapsed().as_secs() < secs {
+        for c in std::mem::take(&mut *cmds.lock().unwrap()) {
+            match c.as_str() {
+                "sair" => quit = true,
+                // como o Alt+Tab num jogo em tela cheia: sai da tela cheia e minimiza
+                "minimizar" => { if exclusive { want_fs = false; if is_fs() { drop(rtv.take()); let _ = unsafe { sc.SetFullscreenState(false, None) }; } } unsafe { let _ = ShowWindow(hw, SW_MINIMIZE); } },
+                "frente" => unsafe { let _ = ShowWindow(hw, SW_RESTORE); SwitchToThisWindow(hw, true); let _ = SetForegroundWindow(hw); },
+                _ => {}
+            }
+            ev(&mut events, "comando", json!({ "c": c }));
+        }
         unsafe {
             let mut msg = MSG::default();
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {

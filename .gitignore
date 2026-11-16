@@ -4,6 +4,7 @@ data
 .testlog.txt
 desktop/node_modules
 desktop/dist
+desktop/dist-autoteste
 .testshots
 .testdata*
 spikes/*/target

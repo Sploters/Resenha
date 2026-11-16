@@ -17,6 +17,15 @@ Detalhes técnicos e limitações: `docs/CAPTURA-WGC-DXGI.md` (Fase 2).
 Se algo der muito errado durante a live: no mesmo painel, Método de captura = **Clássico (versão anterior)** ou
 **Forçar Chromium**. Troca na hora, sem sair da sala.
 
+## Jeito mais fácil (para quem não entende de computador): `Teste-Transmissao-Resenha.exe`
+Dois cliques, ~30 s sem mexer em nada, e o arquivo `Resenha-teste-<PC>.json` aparece na Área de Trabalho (a pasta abre
+sozinha). Não precisa de jogo, de sala, de servidor nem de ninguém assistindo. É um programa à parte
+(`desktop/autoteste.js`, montado por `desktop/build-autoteste.sh`); o instalador da Resenha não muda.
+Ele abre o Jogo de Teste (abaixo) e captura pelo **mesmo Chromium e as mesmas opções do app**: a janela do jogo em tela
+cheia, a tela inteira, a janela **minimizada** (Alt+Tab simulado: é onde dava "Could not start video source"), a janela
+depois de voltar, e o mesmo em janela sem bordas. Para cada uma: abriu ou o erro, quadros/s, imagem preta, imagem mudando.
+Não testa o caminho nativo (lc-stream) nem a transmissão de ponta a ponta; isso continua no kit e no roteiro abaixo.
+
 ## Jeito rápido (sem jogo): kit `teste-captura-resenha.zip`
 O kit (`native/pacote-captura`, montado por `montar.sh`) traz o **Jogo de Teste (Resenha)**: `lc-stream-poc.exe
 --poc-captura --jogo-teste --modo tela-cheia|sem-bordas`. Janela do tamanho do monitor com Direct3D próprio e animação
