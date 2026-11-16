@@ -13,6 +13,20 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { message, PUBLIC_KEY } = require('../desktop/updatekey.js');
+// O segredo colado no GitHub costuma chegar estragado: quebras de linha viradas em espaços ou em "\n" literal, só o miolo
+// sem as linhas BEGIN/END, a linha de comentário do keygen junto. O OpenSSL só diz "DECODER routines::unsupported".
+// Aqui o texto é remontado como PEM; o que não dá para consertar vira uma explicação. Nunca imprime a chave. A segurança
+// não muda: a chave remontada ainda precisa ser o par da pública embutida no app (conferido logo depois).
+export function readPrivateKey(raw) {
+  let t = String(raw || '').replace(/\\n/g, '\n').replace(/\r/g, '').split('\n').filter(l => !l.trim().startsWith('#')).join('\n').trim();
+  if (/-----BEGIN (RSA |EC )?PUBLIC KEY-----/.test(t)) throw new Error('o segredo tem a chave PÚBLICA; ele precisa da PRIVADA (a que começa com -----BEGIN PRIVATE KEY-----)');
+  const m = /-----BEGIN PRIVATE KEY-----([\s\S]*?)(-----END PRIVATE KEY-----|$)/.exec(t);
+  if (m && !m[2]) throw new Error('a chave está cortada: falta a linha -----END PRIVATE KEY----- no fim do segredo');
+  const body = (m ? m[1] : t).replace(/\s+/g, '');
+  if (!body || !/^[A-Za-z0-9+/]+=*$/.test(body)) throw new Error(`o segredo não parece uma chave PEM (${t.length} caracteres, ${t.split('\n').length} linha(s), BEGIN: ${/-----BEGIN/.test(t) ? 'sim' : 'não'}, END: ${/-----END/.test(t) ? 'sim' : 'não'})`);
+  const pem = `-----BEGIN PRIVATE KEY-----\n${body.match(/.{1,64}/g).join('\n')}\n-----END PRIVATE KEY-----\n`;
+  try { return crypto.createPrivateKey(pem); } catch (e) { throw new Error(`o conteúdo da chave não é válido (${body.length} caracteres de base64; uma chave Ed25519 tem 64). Copie de novo a chave inteira gerada pelo keygen. [${e.code || e.message}]`); }
+}
 const sha256File = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
 const [cmd, a, b] = process.argv.slice(2);
 
@@ -23,7 +37,7 @@ if (cmd === 'keygen') {
 } else if (cmd === 'sign') {
   const pem = (process.env.DESKTOP_UPDATE_KEY || '').trim();
   if (!pem) { console.error('DESKTOP_UPDATE_KEY vazio: crie o segredo no GitHub (Settings → Secrets and variables → Actions). Sem ele os apps recusam a atualização.'); process.exit(1); }
-  const key = crypto.createPrivateKey(pem);
+  let key; try { key = readPrivateKey(pem); } catch (e) { console.error('DESKTOP_UPDATE_KEY com problema: ' + e.message); process.exit(1); }
   // confere que a chave privada é o par da pública embutida no app (senão todos os apps recusariam esta versão)
   if (crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }).trim() !== PUBLIC_KEY.trim()) { console.error('DESKTOP_UPDATE_KEY não é o par da chave pública de desktop/updatekey.js'); process.exit(1); }
   const name = path.basename(a), size = fs.statSync(a).size, sha256 = sha256File(a);
