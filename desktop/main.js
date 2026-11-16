@@ -374,11 +374,15 @@ ipcMain.handle('foreground-source', async () => {
 ipcMain.handle('select-source', (_e, id, name) => { pickedSource = String(id || ''); pickedName = String(name || '').slice(0, 200); return true; });
 // áudio só do jogo (desktop/appaudio.js): o PCM vai direto para a página, que monta a trilha de áudio da transmissão
 ipcMain.handle('app-audio-capable', () => appAudio.capable());
-ipcMain.handle('app-audio-start', (e, o) => {
-  // 'screen': só os programas com janela no monitor transmitido (pixels reais do monitor da fonte "screen:<display_id>:0")
+ipcMain.handle('app-audio-start', async (e, o) => {
+  // 'screen': só os programas com janela no monitor transmitido (pixels reais do monitor da fonte "screen:N:0")
   if (o?.mode === 'screen') {
-    const id = /^screen:(\d+):/.exec(String(o.source || pickedSource || ''))?.[1];
-    const d = screen.getAllDisplays().find(x => String(x.id) === id);
+    // o número em "screen:N:0" NÃO é o id do monitor no Windows (é o índice interno do Chromium): o id certo vem em
+    // display_id da lista do desktopCapturer (o mesmo que desktop/native.js usa para a captura de 120 FPS)
+    const sid = String(o.source || pickedSource || '');
+    const ss = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
+    const all = screen.getAllDisplays(), did = ss.find(x => x.id === sid)?.display_id, num = /^screen:(\d+):/.exec(sid)?.[1];
+    const d = all.find(x => did && String(x.id) === String(did)) || all.find(x => String(x.id) === num) || (all.length === 1 ? all[0] : null);
     if (!d) return { ok: false, error: 'tela não encontrada' };
     const b = process.platform === 'win32' ? screen.dipToScreenRect(null, d.bounds) : d.bounds;
     return appAudio.startScreen([b.x, b.y, b.x + b.width, b.y + b.height], (buf, slot) => { if (!e.sender.isDestroyed()) e.sender.send('app-audio-data', buf, slot); });
