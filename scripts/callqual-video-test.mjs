@@ -73,13 +73,13 @@ try {
   ok(qb && qb.net.some(d => d.startsWith('freeze_scr:')) && qb.net.some(d => d.startsWith('scr_fps:')), 'travadas e fps da transmissão vão para a telemetria', qb?.net);
   ok(qa && qa.video.sent.ms >= SECS * 1000 && qa.video.sent.captured != null && qa.net.some(d => /^slim:(none|cpu|bandwidth|other)$/.test(d)), 'quem transmite mede o que limitou o envio e os quadros capturados', qa?.video?.sent);
   // por onde saiu (aqui: pediu 30 fps, então não vai pelo nativo), quem comprimiu (libvpx = processador), resolução enviada e se encolheu
-  for (const re of [/^spath:chromium$/, /^snat:lowfps$/, /^senc:sw$/, /^send_res:[0-4]$/, /^sshrink:(yes|no)$/]) ok(qa?.net.some(d => re.test(d)), 'quem transmite manda ' + re.source, qa?.net);
+  for (const re of [/^spath:chromium$/, /^snat:lowfps$/, /^senc:sw$/, /^send_res:[0-4]$/, /^sshrink:(yes|no)$/, /^scombo:chromium\.lowfps\.sw\.(yes|no)$/]) ok(qa?.net.some(d => re.test(d)), 'quem transmite manda ' + re.source, qa?.net);
   const qBq = await uxQueue(B);
   ok(qBq.some(x => x.e === 'call_net' && x.d.startsWith('freeze_scr:')), 'a fila de quem assiste leva freeze_scr', qBq.filter(x => x.e === 'call_net'));
   // o servidor aceita as medidas novas (as que ele não conhece seriam descartadas em silêncio)
   const tok = await B.evaluate(() => window.__lc.S.token ?? localStorage.lc_token);
-  const r = await api(tok, 'POST', '/ux', { version: 'test', device: 'app', events: [{ e: 'call_net', d: 'freeze_scr:2', n: 1 }, { e: 'call_net', d: 'scr_fps:1', n: 1 }, { e: 'call_net', d: 'slim:cpu', n: 1 }, { e: 'call_net', d: 'spath:chromium', n: 1 }, { e: 'call_net', d: 'snat:win10', n: 1 }, { e: 'call_net', d: 'senc:sw', n: 1 }, { e: 'call_net', d: 'send_res:1', n: 1 }, { e: 'call_net', d: 'sshrink:yes', n: 1 }, { e: 'call_net', d: 'snat:qualquer', n: 1 }, { e: 'timing', d: 'voice_mic:3', n: 1 }, { e: 'slow_switch', d: 'espera:chamada+assistindo', n: 1 }, { e: 'menu_pick', d: 'chamada › Mais opções › desenhar', n: 1 }, { e: 'slow_switch', d: 'qualquer coisa', n: 1 }] });
-  ok(r.kept === 11, 'servidor aceita as medidas novas e recusa detalhe fora do formato', r);
+  const r = await api(tok, 'POST', '/ux', { version: 'test', device: 'app', events: [{ e: 'call_net', d: 'freeze_scr:2', n: 1 }, { e: 'call_net', d: 'scr_fps:1', n: 1 }, { e: 'call_net', d: 'slim:cpu', n: 1 }, { e: 'call_net', d: 'spath:chromium', n: 1 }, { e: 'call_net', d: 'snat:win10', n: 1 }, { e: 'call_net', d: 'senc:sw', n: 1 }, { e: 'call_net', d: 'send_res:1', n: 1 }, { e: 'call_net', d: 'sshrink:yes', n: 1 }, { e: 'call_net', d: 'snat:qualquer', n: 1 }, { e: 'call_net', d: 'scombo:chromium.win10.sw.yes', n: 1 }, { e: 'timing', d: 'voice_mic:3', n: 1 }, { e: 'slow_switch', d: 'espera:chamada+assistindo', n: 1 }, { e: 'menu_pick', d: 'chamada › Mais opções › desenhar', n: 1 }, { e: 'slow_switch', d: 'qualquer coisa', n: 1 }] });
+  ok(r.kept === 12, 'servidor aceita as medidas novas e recusa detalhe fora do formato', r);
 } finally {
   await browser.close().catch(() => { }); srv.kill('SIGKILL'); fs.rmSync(DATA, { recursive: true, force: true });
 }

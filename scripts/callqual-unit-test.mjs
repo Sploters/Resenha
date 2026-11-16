@@ -68,15 +68,15 @@ const has = (q, d) => q.net.includes(d);
 {
   // modo normal no Windows 10, VP8 pelo processador, pediu 1080p e o codificador encolheu para 540p
   const q = call(12, { out: { cap: 48, fps: 48, cpu: 0.9, h: 540, enc: 'SimulcastEncoderAdapter (libvpx, libvpx, libvpx)' } }, { path: 'chromium', why: 'win10', want: 1080 });
-  for (const d of ['spath:chromium', 'snat:win10', 'senc:sw', 'send_res:1', 'sshrink:yes']) ok(has(q, d), 'modo normal, processador, 540p de 1080p: ' + d, q.net);
+  for (const d of ['spath:chromium', 'snat:win10', 'senc:sw', 'send_res:1', 'sshrink:yes', 'scombo:chromium.win10.sw.yes']) ok(has(q, d), 'modo normal, processador, 540p de 1080p: ' + d, q.net);
   // placa de vídeo no modo normal, sem encolher
   const q2 = call(12, { out: { cap: 48, fps: 48, cpu: 0, h: 1080 } }, { path: 'chromium', why: 'udp', want: 1080 });
   ok(has(q2, 'senc:hw') && has(q2, 'sshrink:no') && has(q2, 'send_res:3') && has(q2, 'snat:udp'), 'placa de vídeo, 1080p como pedido, portas UDP fechadas', q2.net);
   // programa nativo: sem outbound-rtp; altura e fps vêm do programa
   const q3 = call(12, {}, { path: 'native', want: 1080, h: 1080, fps: 60 });
-  ok(has(q3, 'spath:native') && has(q3, 'senc:hw') && has(q3, 'send_res:3') && has(q3, 'send_fps:4') && !q3.net.some(d => d.startsWith('snat:')), 'nativo: caminho, placa, 1080p e 60 fps', q3.net);
+  ok(has(q3, 'spath:native') && has(q3, 'senc:hw') && has(q3, 'send_res:3') && has(q3, 'send_fps:4') && !q3.net.some(d => d.startsWith('snat:')) && has(q3, 'scombo:native.-.hw.no'), 'nativo: caminho, placa, 1080p e 60 fps (e a combinação)', q3.net);
   // transmissão curta (menos de 20 s): nada
   const q4 = call(12, {}, null);
-  ok(!q4.net.some(d => /^(spath|senc|sshrink|send_res)/.test(d)), 'sem transmissão: nenhuma medida dela', q4.net);
+  ok(!q4.net.some(d => /^(spath|senc|sshrink|send_res|scombo)/.test(d)), 'sem transmissão: nenhuma medida dela', q4.net);
 }
 process.exit(fails ? 1 : 0);

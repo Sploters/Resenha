@@ -12,6 +12,8 @@
 // Sua transmissão (com 20 s+ medidos): por onde saiu (spath:native|chromium), por que não foi pelo programa nativo
 // (snat:motivo), quem comprimiu (senc:hw = placa de vídeo, sw = processador), a resolução enviada (send_res) e se ela ficou
 // abaixo da pedida (sshrink:yes|no; o codificador encolhe a imagem quando o processador não dá conta dos fps).
+// scombo:caminho.motivo.codificador.encolheu junta os quatro da MESMA transmissão (os códigos soltos não se cruzam no
+// painel: "6 com Windows 10" e "6 pelo processador" não diziam se eram as mesmas). '-' = sem dado.
 //   call_rating_q resposta:nota (cruza "Teve algum problema?" com o que a rede mediu: problema com rede boa = aparelho/app)
 // Nada de quem, com quem ou em que sala: só as faixas. Chamada sem voz chegando de ninguém (sozinho na sala) não conta.
 import { track } from './ux.js';
@@ -202,6 +204,8 @@ export class CallQuality {
       const why = Object.entries(sc.why).sort((a, b) => b[1] - a[1])[0]?.[0]; if (!nat && why) net.push('snat:' + why);
       if (sc.hw + sc.sw) net.push('senc:' + (sc.hw >= sc.sw ? 'hw' : 'sw'));
       if (sc.shrink + sc.full) net.push('sshrink:' + (sc.shrink > sc.full ? 'yes' : 'no'));
+      const enc = sc.hw + sc.sw ? (sc.hw >= sc.sw ? 'hw' : 'sw') : '-', shr = sc.shrink + sc.full ? (sc.shrink > sc.full ? 'yes' : 'no') : '-';
+      net.push(`scombo:${nat ? 'native' : 'chromium'}.${!nat && why ? why : '-'}.${enc}.${shr}`);
     }
     const v = (x) => ({ freezes: x.freezes, freezeMs: Math.round(x.freezeMs), watchMs: Math.round(x.watchMs), fps: median(x.fps) });
     const video = { cam: v(this.vid.cam), screen: v(this.vid.screen), sent: { ms: Math.round(this.sent.ms), lim: L, fps: median(this.sent.fps), captured: median(this.sent.cap) } };

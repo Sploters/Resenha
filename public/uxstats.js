@@ -159,6 +159,8 @@ function netq(q) {
     // sua transmissão: por onde saiu, por que não foi pelo nativo, quem comprimiu e se a resolução ficou abaixo da pedida
     h('div.ux-grid', [['caminho', 'Por onde a transmissão saiu'], ['sem_nativo', 'Por que não saiu pelo programa nativo'], ['codificador', 'Quem comprimiu o vídeo'], ['resolucao_vs_pedida', 'Resolução enviada × pedida']]
       .filter(([k]) => Object.values(c[k] || {}).some(v => v.n)).map(([k, t]) => h('div', h('h4.ux-sub', t), bars(Object.values(c[k]).filter(v => v.n).map(v => [v.nome, { total: v.n }]))))),
+    // as mesmas medidas juntas, por transmissão (ex.: "Modo normal · Windows 10 · Processador · imagem encolhida")
+    c.combinacoes?.length ? h('div', h('h4.ux-sub', 'Transmissões por combinação (caminho, motivo, codificador, resolução)'), bars(c.combinacoes.slice(0, 8).map(v => [v.nome, { total: v.n }]))) : null,
     h('div.ux-grid', Object.values(I).filter(v => v.medidas).map(v => h('div', h('h4.ux-sub', v.nome), bars(v.faixas.map(f => [f.faixa, { total: f.n }]), { text: (o) => nf(o.total) + ' · ' + pct(o.total, v.medidas) + '%' })))));
 }
 

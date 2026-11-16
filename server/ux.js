@@ -70,8 +70,11 @@ export const UX_NATIVE_WHY = { win10: 'Windows 10 (borda amarela)', nohw: 'Sem c
   web: 'Navegador (fora do app desktop)', e2ee: 'Chamada protegida', lowfps: 'Pediu menos de 60 FPS', nosfu: 'Servidor sem SFU', udp: 'Portas UDP da transmissão fechadas', fail: 'O programa falhou e voltou', other: 'Outro motivo' };
 export const UX_SEND_ENC = { hw: 'Placa de vídeo', sw: 'Processador (CPU)' };
 export const UX_SEND_SHRINK = { yes: 'Abaixo da pedida (o codificador encolheu)', no: 'A pedida' };
+// as quatro medidas acima da MESMA transmissão: caminho.motivo.codificador.encolheu ('-' = sem dado)
+const COMBO_RE = `(native|chromium)\\.(${Object.keys(UX_NATIVE_WHY).join('|')}|-)\\.(hw|sw|-)\\.(yes|no|-)`;
+export const comboName = (k) => { const [p, w, e, s] = k.split('.'); return [UX_SEND_PATH[p]?.replace(/ \(.*\)$/, '') || p, w !== '-' && UX_NATIVE_WHY[w], e !== '-' && UX_SEND_ENC[e], s === 'yes' ? 'imagem encolhida' : s === 'no' ? 'resolução pedida' : ''].filter(Boolean).join(' · '); };
 export const UX_NET_CAUSES = { rtt: 'Atraso alto', jitter: 'Oscilação', loss_in: 'Perda chegando', loss_out: 'Perda saindo', conceal: 'Voz picotada', freeze: 'Vídeo travando', drop: 'Conexão caiu' };
-const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay)|slim:(${Object.keys(UX_SEND_LIMITS).join('|')})|spath:(${Object.keys(UX_SEND_PATH).join('|')})|snat:(${Object.keys(UX_NATIVE_WHY).join('|')})|senc:(hw|sw)|sshrink:(yes|no))$`);
+const NET_RE = new RegExp(`^((${Object.entries(UX_NET).map(([k, [, l]]) => k + ':[0-' + (l.length - 1) + ']').join('|')})|mode:(sfu|p2p)|proto:(udp|tcp)|route:(direct|relay)|slim:(${Object.keys(UX_SEND_LIMITS).join('|')})|spath:(${Object.keys(UX_SEND_PATH).join('|')})|snat:(${Object.keys(UX_NATIVE_WHY).join('|')})|senc:(hw|sw)|sshrink:(yes|no)|scombo:${COMBO_RE})$`);
 export const UX_STEPS = { avatar: 'Pôs uma foto', friend: 'Fez um amigo', message: 'Mandou a 1ª mensagem', voice: 'Entrou na voz' };
 
 const free = (max) => (d) => d.length <= max;
@@ -265,6 +268,7 @@ function netQuality(eventos) {
   const cat = (names, key) => Object.fromEntries(Object.entries(names).map(([k, nome]) => [k, { nome, n: n(key + ':' + k) }]));
   conexao.caminho = cat(UX_SEND_PATH, 'spath'); conexao.sem_nativo = cat(UX_NATIVE_WHY, 'snat');
   conexao.codificador = cat(UX_SEND_ENC, 'senc'); conexao.resolucao_vs_pedida = cat(UX_SEND_SHRINK, 'sshrink');
+  conexao.combinacoes = Object.entries(net).filter(([k]) => k.startsWith('scombo:')).map(([k, v]) => ({ k: k.slice(7), nome: comboName(k.slice(7)), n: v.total })).sort((a, b) => b.n - a.n);
   conexao.tcp = pctOf(conexao.protocolo.tcp, conexao.protocolo.tcp + conexao.protocolo.udp); conexao.relay = pctOf(conexao.rota.relay, conexao.rota.relay + conexao.rota.direct);
   const causas = Object.entries(det('call_qcause')).map(([k, v]) => ({ k, nome: UX_NET_CAUSES[k] || k, n: v.total })).sort((a, b) => b.n - a.n);
   // cruzamento: de quem relatou problema, quantos tinham a rede ruim/média (o resto aponta para microfone, fone ou o app)
