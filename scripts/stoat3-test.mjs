@@ -114,6 +114,9 @@ try {
   ok(await p.$$eval('.gal-card', l => l.length) === 1, 'galeria mostra 1 post em grade (o comentário não vira card)');
   ok(await p.$('.gal-card .mcover.spoil') != null, 'post com spoiler aparece coberto');
   await shot(p, '1-galeria');
+  // a troca de tela tem animação (View Transition, ~280 ms): durante ela o clique cai na camada da transição, não na
+  // galeria. Espera a capa receber clique de verdade (antes o teste clicava no meio da animação e falhava sempre)
+  await p.waitForFunction(() => { const c = document.querySelector('.gal-card .mcover'); if (!c) return false; const r = c.getBoundingClientRect(); return c.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 5000, polling: 50 }).catch(() => { });
   await p.click('.gal-card .mcover'); await sleep(150);
   ok(await p.$('.gal-card .mcover') == null && !(await p.$('.gal-modal')), 'primeiro clique no spoiler só revela a foto');
   await p.click('.gal-card'); await p.waitForSelector('.gal-modal .gal-comment', { timeout: 4000 }).catch(() => { });
