@@ -14,7 +14,7 @@ import { isLauncher } from './launchers.js';
 const LOCAL_STALE_MS = 90000; // o app desktop informa o jogo a cada ~20 s
 const MIN_SECS = 30, MAX_BACKOFF_MS = 15 * 60 * 1000, KEEP_DAYS = 30, KEEP_PER_USER = 200, STALE_X = 3;
 
-export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, now = () => Date.now(), log = () => { } }) {
+export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, now = () => Date.now(), log = () => { } }) {
   const intervalMs = () => +process.env.ACTIVITY_POLL_MS || Math.max(MIN_SECS, +process.env.STEAM_POLL_SECS || 60) * 1000; // ACTIVITY_POLL_MS: só para testes
   const current = new Map();   // `${uid}:${platform}` -> { uid, platform, game:{id,title}, since, state, at }  (só o que está PUBLICADO)
   const cache = new Map();     // `${platform}:${external_id}` -> { snap, at }  (último snapshot, evita reconsultar)
@@ -31,13 +31,14 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const guildPeers = (uid) => all('SELECT DISTINCT m2.user_id id FROM members m1 JOIN members m2 ON m2.guild_id=m1.guild_id WHERE m1.user_id=? AND m2.user_id<>?', uid, uid).map(r => r.id);
   const canSee = (viewer, owner, platform) => {
     if (viewer === owner) return true;
+    if (isInvisible(owner)) return false; // modo invisível: ninguém vê o que a pessoa está jogando (como o Discord)
     if (!presenceOk(viewer, owner)) return false; // escolheu quem vê a atividade (server/privacy.js): vale para todas as plataformas
     if (platform === 'pc') { const v = pcVis(owner); return v !== 'off' && (areFriends(viewer, owner) || (v === 'servers' && shareGuild(viewer, owner))); }
     const a = acct(owner, platform);
     return !!a && a.visibility === 'friends' && areFriends(viewer, owner);
   };
   // quem recebe os eventos de `owner`: ele mesmo + amigos aceitos, se a atividade está compartilhada
-  const audience = (owner, platform) => base(owner, platform).filter(v => v === owner || presenceOk(v, owner));
+  const audience = (owner, platform) => isInvisible(owner) ? [owner] : base(owner, platform).filter(v => v === owner || presenceOk(v, owner));
   const base = (owner, platform) => {
     if (platform === 'pc') { const v = pcVis(owner); return v === 'off' ? [owner] : [...new Set([owner, ...friendsOf(owner), ...(v === 'servers' ? guildPeers(owner) : [])])]; }
     const a = acct(owner, platform);
@@ -61,7 +62,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const clear = (uid, platform, { notify = true, why = 'stop', audienceOverride = null } = {}) => {
     const k = uid + ':' + platform, cur = current.get(k); if (!cur) return;
     current.delete(k);
-    if (why === 'stop') record(uid, platform, 'game_stop', cur.game, { seconds: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform) });
+    if (why === 'stop' && !cur.quiet) record(uid, platform, 'game_stop', cur.game, { seconds: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform) });
     if (notify) dispatch(audienceOverride || audience(uid, platform), 'ACTIVITY_UPDATE', { user_id: uid, platform, activity: null });
   };
 
@@ -76,8 +77,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     if (!game) return clear(a.user_id, a.platform);
     if (prev && prev.game.id === game.id) { prev.at = now(); prev.state = snap.state; if (prev.game.title !== game.title) prev.game = game; return; }
     if (prev) clear(a.user_id, a.platform); // trocou de jogo: fecha o anterior
-    const entry = { uid: a.user_id, platform: a.platform, game, since: now(), state: snap.state, at: now() };
-    current.set(k, entry); record(a.user_id, a.platform, 'game_start', game, artOf(game, a.platform));
+    const entry = { uid: a.user_id, platform: a.platform, game, since: now(), state: snap.state, at: now(), quiet: isInvisible(a.user_id) };
+    current.set(k, entry); if (!entry.quiet) record(a.user_id, a.platform, 'game_start', game, artOf(game, a.platform));
     publish(a.user_id, a.platform, entry);
   }
 
@@ -215,8 +216,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
         return;
       }
       if (prev) clear(uid, 'pc');
-      const entry = { uid, platform: 'pc', game, since: now(), state: null, at: now() };
-      current.set(k, entry); record(uid, 'pc', 'game_start', game, artOf(game, 'pc'));
+      const entry = { uid, platform: 'pc', game, since: now(), state: null, at: now(), quiet: isInvisible(uid) };
+      current.set(k, entry); if (!entry.quiet) record(uid, 'pc', 'game_start', game, artOf(game, 'pc'));
       publish(uid, 'pc', entry);
     },
     clearLocal(uid) { clear(uid, 'pc'); }, // fechou o app (última conexão caiu)
@@ -232,6 +233,15 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     onPresencePrivacy(uid) {
       const cands = new Set([...friendsOf(uid), ...guildPeers(uid)]);
       for (const e of current.values()) if (e.uid === uid) for (const v of cands) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: e.platform, activity: canSee(v, uid, e.platform) ? pub(e) : null });
+    },
+    // ficou invisível: a atividade some para todos na hora e a sessão não entra no histórico (nem o "jogou por 2 h" depois);
+    // voltou a aparecer: quem pode ver recebe o jogo atual
+    onInvisible(uid, invisible) {
+      const cands = [...new Set([...friendsOf(uid), ...guildPeers(uid)])];
+      for (const e of current.values()) if (e.uid === uid) {
+        if (invisible) e.quiet = true;
+        for (const v of cands) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: e.platform, activity: canSee(v, uid, e.platform) ? pub(e) : null });
+      }
     },
     onGameHidden(uid, platform, gameId) { const cur = current.get(uid + ':' + platform); if (cur?.game.id === gameId) clear(uid, platform, { why: 'hidden' }); },
     // amizade criada/desfeita: cada lado passa a ver (ou deixa de ver) o que o outro está jogando, na hora

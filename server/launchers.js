@@ -29,4 +29,7 @@ const TITLES = [
 const BAD = new Set([...EXES, ...TITLES].map(norm));
 
 // game = { id, title } (ou id e title soltos)
-export const isLauncher = (game) => !!game && (BAD.has(norm(game.id)) || BAD.has(norm(game.title)));
+// programas da própria Resenha (lc-audio, lc-stream, lc-stream-poc: a janela de teste "Resenha PoC captura" fica em tela
+// cheia e o app antigo achava que era jogo). Também esconde o que já ficou registrado.
+const OWN = (game) => /^lc-[a-z0-9_-]+$/i.test(String(game.id || '')) || /^resenha\b/i.test(String(game.title || '').trim());
+export const isLauncher = (game) => !!game && (BAD.has(norm(game.id)) || BAD.has(norm(game.title)) || OWN(game));

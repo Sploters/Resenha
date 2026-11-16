@@ -53,7 +53,9 @@ const KNOWN_GAME = /\\(valorant-win64-shipping|league of legends|cs2|csgo|javaw|
 const GAME_DIR = /\\(steamapps\\common|epic games|riot games|gog galaxy\\games|gog games|ubisoft game launcher\\games|ea games|origin games|xboxgames|battle\.net\\.+\\|rockstar games|games)\\/i;
 // lojas/launchers pelo título da janela (o executável pode mudar de nome a cada versão; o servidor também barra: server/launchers.js)
 const LAUNCHER_TITLE = /^(riot client|steam|epic games( launcher)?|(blizzard )?battle\.net|ea( app)?|origin|ubisoft connect|uplay|gog galaxy|rockstar games launcher|xbox|amazon games|itch|playnite|overwolf|curseforge|minecraft launcher|hoyoplay|battlestate games launcher|heroic games launcher|nvidia app|geforce experience)$/i;
-const isGame = (w) => !!w.exe && !NOT_GAME.test(w.exe) && !LAUNCHER_TITLE.test(String(w.title || '').trim()) && (KNOWN_GAME.test(w.exe) || GAME_DIR.test(w.exe) || w.fullscreen);
+// programas da própria Resenha (lc-audio, lc-stream, lc-stream-poc com a janela de teste em tela cheia "Resenha PoC captura"…)
+const OWN_EXE = /\\lc-[\w-]+\.exe$/i, OWN_TITLE = /^resenha\b/i;
+const isGame = (w) => !!w.exe && !NOT_GAME.test(w.exe) && !OWN_EXE.test(w.exe) && !OWN_TITLE.test(String(w.title || '').trim()) && !LAUNCHER_TITLE.test(String(w.title || '').trim()) && (KNOWN_GAME.test(w.exe) || GAME_DIR.test(w.exe) || w.fullscreen);
 
 const icons = new Map(); // exe -> dataURL
 async function iconOf(exe) {
