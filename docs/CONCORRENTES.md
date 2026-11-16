@@ -169,6 +169,6 @@ Protocolo aberto e **federado** (como e-mail: cada um tem seu servidor, e todos 
 | 10 | E2EE em DMs de grupo / canais protegidos, sigilo futuro, verificação por emoji/QR | Matrix | Parcial (só DM 1:1) |
 | 11 | Ponte entre instalações da Resenha (ou com o Matrix) | Matrix | Não tem |
 | 12 | Chave de recuperação da E2EE (além da frase) | Matrix | Parcial |
-| 13 | `SECURITY.md` com canal para relatar falhas | Matrix (evitar o erro) | A conferir |
+| 13 | `SECURITY.md` com canal para relatar falhas | Matrix (evitar o erro) | Não tem |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
 | ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
