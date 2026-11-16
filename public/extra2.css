@@ -580,10 +580,12 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .muhero.paused .muart.big { opacity: .75; }
 
 /* ---------- "Jogando X? Transmitir" (jogo aberto na chamada) ---------- */
-#gameoffer { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 89; display: flex; align-items: center; gap: 12px; width: max-content; max-width: min(560px, calc(100vw - 32px));
+#gameoffer { position: fixed; right: 16px; bottom: 16px; z-index: 89; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; width: min(380px, calc(100vw - 32px));
   padding: 12px 12px 12px 14px; border-radius: 12px; background: var(--bg-float, #111214); color: var(--text, #dbdee1);
   border: 1px solid rgba(88,101,242,.45); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: goin .25s ease-out; }
-@keyframes goin { from { opacity: 0; transform: translate(-50%, -10px); } }
+@keyframes goin { from { opacity: 0; transform: translateY(12px); } }
+#gameoffer .go-acts { margin-left: 52px; width: calc(100% - 52px); }
+#gameoffer .go-acts .go-x { margin-left: auto; }
 #gameoffer .go-ic { width: 40px; height: 40px; flex: none; border-radius: 8px; object-fit: contain; }
 #gameoffer .go-ic.ph { display: grid; place-items: center; background: #5865f2; color: #fff; }
 #gameoffer .go-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -694,7 +696,9 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .ss .ss-aud label.f { margin: 0; font-size: 0; } .ss .ss-aud label.f .seg { font-size: 14px; }
 .ss .ss-aud .seg button { flex: 1 1 auto; padding: 8px 10px; }
 .ss .ss-aud .qinfo { margin: 6px 0 0; font-size: 12.5px; }
-.ss-clip { display: flex; align-items: center; gap: 12px; } .ss-clipt { flex: 1; display: flex; flex-direction: column; gap: 3px; } .ss-clipt b { font-size: 15px; } .ss-clipt small { color: var(--text-muted); font-size: 12.5px; } .ss-clipt kbd { font-size: 11px; padding: 0 6px; }
+.ss-clip { display: flex; align-items: center; gap: 12px; } .ss-clipt { flex: 1; display: flex; flex-direction: column; gap: 3px; } .ss-clipt b { font-size: 15px; } .ss-clipt small { color: var(--text-muted); font-size: 12.5px; } .ss-clipt b { display: flex; align-items: center; gap: 10px; }
+.vuser .vu-watch { display: inline-flex; color: var(--text-muted); }
+.ss-clipt .ss-key { font: 700 13px/1 var(--font-code, ui-monospace, monospace); padding: 5px 9px; border-radius: 6px; color: #fff; background: var(--brand, #5865f2); box-shadow: 0 2px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.2); letter-spacing: .03em; }
 .ss-pick .seg { margin: 4px 0 12px; } .ss-pick .sources { max-height: 380px; }
 .ss-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; margin: 18px -24px 0; padding: 14px 24px; background: var(--bg-sec); }
 .ss-foot .ss-sp { flex: 1; } .ss-foot .btn { min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; gap: 6px; } .ss-foot [hidden] { display: none !important; }
@@ -705,6 +709,7 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 /* opções dentro de "Mais opções": rótulo em cima, botões de largura igual ocupando a linha toda, texto centralizado */
 .ss-opt { margin-top: 12px; } .ss-opt .ss-lbl { margin: 0 0 6px; font-size: 11px; display: flex; align-items: baseline; gap: 8px; }
 .ss-opt .ss-lbl small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-muted); font-size: 12px; }
+.ss-opt .ss-lbl small.beta-tag { text-transform: uppercase; letter-spacing: .04em; font-size: 10px; font-weight: 800; color: #fff; background: var(--brand, #5865f2); padding: 2px 6px; border-radius: 4px; }
 .ss-more .ss-opt .seg { display: flex; width: 100%; flex-wrap: nowrap; }
 .ss-more .ss-opt .seg button { flex: 1 1 0; text-align: center; justify-content: center; padding: 7px 4px; }
 .ssq-cols .seg button, .ss .ss-aud .seg button { text-align: center; }

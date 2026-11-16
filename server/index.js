@@ -196,7 +196,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -1835,6 +1835,20 @@ function pushViewers(cid, streamer) {
   const set = watchers.get(cid + ':' + streamer), m = voice.get(cid); if (!m) return;
   const d = { channel_id: cid, streamer_id: streamer, viewers: set ? [...set] : [] };
   for (const [, s] of m) send(s.ws, 'STREAM_VIEWERS', d);
+  syncWatchFlags(cid);
+}
+// "assistindo" no estado de voz (olho ao lado do nome na lista da sala, para o servidor todo): só quem mudou é reenviado
+function syncWatchFlags(cid) {
+  const m = voice.get(cid); if (!m) return;
+  const on = new Set();
+  for (const [k, set] of watchers) if (k.startsWith(cid + ':')) for (const id of set) on.add(id);
+  let ch = null;
+  for (const [id, st] of m) {
+    if (!!st.watching === on.has(id)) continue;
+    st.watching = on.has(id);
+    ch = ch || get('SELECT * FROM channels WHERE id=?', cid); if (!ch) return;
+    dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, id, st), guild_id: ch.guild_id });
+  }
 }
 function dropWatching(uid, cid) { // tira uid das transmissões que assistia e encerra a dele
   for (const [k, set] of [...watchers]) {

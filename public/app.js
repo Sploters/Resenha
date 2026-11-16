@@ -1239,7 +1239,7 @@ function vuserRow(g, v) {
   const row = h('div.vuser', { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
     h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', 'Ao vivo'),
-    h('span.ico', v.video && icon('video', 14), muteIco(v), v.deaf && icon('headoff', 14)));
+    h('span.ico', v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.deaf && icon('headoff', 14)));
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;
 }
@@ -3493,15 +3493,17 @@ function renderVoiceUI(speakOnly) {
     btn(voice.muted ? 'micoff' : 'mic', voice.muted ? 'Ativar microfone (clique direito: redução de ruído)' : 'Silenciar (clique direito: redução de ruído)', voice.muted, () => voiceToggle('mute'), '.mic.solo-narrow'),
     btn(voice.deafened ? 'headoff' : 'headset', 'Ensurdecer', voice.deafened, () => voiceToggle('deaf'), '.solo-narrow'),
     btn('video', 'Câmera', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'),
-    voice.screen ? h('button.roundbtn.stopshare', { title: 'Parar de compartilhar a tela' + shareKeyHint() + ' — você continua na chamada', onclick: () => stopSharing() }, h('i.live-dot'), h('span.live-lbl', 'AO VIVO'), h('span.live-t', liveClock()), h('span.live-sep'), icon('screenoff', 20), h('span', 'Parar transmissão')) : btn('screen', 'Transmitir tela', false, startShare),
+    btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio)' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''),
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     abtn('gamepad', 'O que jogar hoje? (jogos que todo mundo da chamada tem)', false, () => openGameNight(voice.channelId)),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
-    voice.screen && h('span.bar-gap', { 'aria-hidden': 'true' }), // distância entre "Parar transmissão" e "Sair da chamada": não clica um achando que é o outro
-    btn('phoneoff', voice.screen ? 'Sair da chamada (também encerra a transmissão)' : 'Sair da chamada', false, () => voice.leave(), '.red'),
+    // transmitindo: a bola vermelha da ponta vira "Parar transmissão" (mesmo tamanho das outras) no lugar do "Sair da chamada";
+    // para sair da chamada continua o botão do painel de voz (ou parar a transmissão e o Sair volta aqui)
+    voice.screen ? btn('screenoff', 'Parar transmissão' + shareKeyHint() + ' — você continua na chamada', false, () => stopSharing(), '.red.stopshare')
+      : btn('phoneoff', 'Sair da chamada', false, () => voice.leave(), '.red'),
   ] : !dm && !chCan(ch, CH.CONNECT) ? h('div.vc-noconnect', icon('lock', 16), 'Você não tem permissão para entrar nesta sala')
     : S.prefs.joinBtn === 'compact' ? h('button.btn.green.sm.join-compact', { onclick: () => joinVoice(ch.id) }, icon(dm ? 'callstart' : 'voice', 16), dm ? 'Atender' : 'Entrar')
     : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
@@ -3556,9 +3558,9 @@ function noiseMenu(e) {
   const cur = S.prefs.noiseMode;
   menu(e, [['off', 'Nenhuma'], ['standard', 'Padrão (navegador)'], ['rnnoise', 'Alta — RNNoise (IA)'], ['gtcrn', 'Máxima — GTCRN (IA)']].map(([k, l]) => ({ label: 'Ruído: ' + l, radio: cur === k, fn: async () => { if ((cur || 'standard') === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })));
 }
-// método de captura (teste): rótulos curtos no seletor; o nome completo fica na dica
+// método de captura (Beta): rótulos curtos no seletor; o nome completo fica na dica
 const CAP_SHORT = { auto: 'Auto', wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium', classic: 'Clássico' };
-const capMethodOpt = (after) => h('div.ss-opt', { title: 'Automático escolhe sozinho; Clássico = a versão anterior' }, h('div.ss-lbl', 'Método de captura', h('small', 'teste')),
+const capMethodOpt = (after) => h('div.ss-opt', { title: 'Automático escolhe sozinho; Clássico = a versão anterior' }, h('div.ss-lbl', 'Método de captura', h('small.beta-tag', 'Beta')),
   seg(Object.keys(CAPTURE_METHODS).map(k => [k, CAP_SHORT[k]]), captureMode(S.prefs), (v) => { S.prefs.captureMethod = v; savePrefs(); after(); }));
 async function startShare() {
   if (voice.screen) return liveShareModal();
@@ -3584,8 +3586,7 @@ async function startShare() {
   const audTarget = () => (src?.type === 'window' ? (src.pid ? src : null) : list.find(s => s.type === 'window' && s.game && s.pid) || null);
   const drawAudio = () => {
     if (!desktop || !appCap.ok) { // navegador / Windows antigo: só o áudio do sistema (como antes)
-      return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })),
-        desktop && appCap.reason && h('div.qinfo', { title: appCap.reason }, 'Áudio só do jogo indisponível.'));
+      return audRow.replaceChildren(h('label.f', 'Áudio', seg({ system: 'Áudio do sistema', none: 'Sem áudio' }, audMode === 'none' ? 'none' : 'system', v => { audMode = v; })));
     }
     const t = audTarget(), opts = {}, isScr = src?.type === 'screen' && scrCap();
     if (isScr) opts.screen = 'Só desta tela';
@@ -3596,8 +3597,7 @@ async function startShare() {
       if (v === 'screen' || (isScr && v === 'system')) { scrMode = v; audMode = audMode === 'none' ? 'game' : audMode; audGamePicked = false; }
       else { audMode = v; if (v === 'game') audGamePicked = true; }
       drawAudio();
-    })),
-      h('div.qinfo', mode === 'screen' ? 'Só o som dos programas nesta tela.' : mode === 'game' ? 'Só o som do jogo.' : mode === 'system' ? 'Todo o som do PC, menos a Resenha.' : 'Sem som.'));
+    })));
   };
   const drawSources = () => {
     tabs.replaceChildren(...[['screen', 'Telas'], ['window', 'Janelas / aplicativos']].map(([k, l]) => h('button' + (tab === k ? '.on' : ''), { onclick: () => { tab = k; drawSources(); } }, l)));
@@ -3636,7 +3636,7 @@ async function startShare() {
     src?.game && h('span.ss-tag', 'JOGO'),
     desktop && h('button.btn.sm.grey', { type: 'button', onclick: () => go_('pick') }, 'Trocar'));
   const clipRow = h('div.ss-card.ss-clip',
-    h('div.ss-clipt', h('b', 'Gravar clipes'), h('small', ['Últimos 60 s', clipKeyLabel() ? [' com ', h('kbd', clipKeyLabel())] : ''])),
+    h('div.ss-clipt', h('b', 'Gravar clipes', clipKeyLabel() && h('kbd.ss-key', { title: 'Atalho para salvar um clipe' }, clipKeyLabel())), h('small', 'Últimos 60 s')),
     uiToggle(S.prefs.clipsOn === true, (v) => { S.prefs.clipsOn = v; savePrefs(); }));
   const capPick = window.lcDesktop?.nativeCapable ? capMethodOpt(() => { }) : null;
   const cfg = h('div.ss-cfg',
@@ -3746,10 +3746,13 @@ async function findGameSource(g) {
   return (g && list.find(s => s.name === g.title)) || list[0] || null;
 }
 // transmite src (app desktop) com as últimas configurações; no navegador (src null) o próprio navegador pede a tela
-async function quickShare(src) {
+// best: as melhores configurações automáticas para jogo (sugestão de jogo): 60 fps, movimento, taxa automática, 1440p se o
+// monitor tiver essa altura (senão 1080p) e só o som do jogo. Não mexe nas preferências salvas da pessoa.
+const bestGameShare = () => ({ res: Math.round((screen.height || 1080) * (devicePixelRatio || 1)) >= 1440 ? 1440 : 1080, fps: 60, hint: 'motion', bitrate: 0, audio: true, audioMode: 'game', screenAudio: 'screen' });
+async function quickShare(src, { best = false } = {}) {
   hideGameOffer();
   if (desktop && !src) { clipFlash(false, 'Transmissão não iniciada', 'Nada para transmitir', 'share'); return; }
-  const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen };
+  const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen, ...(best ? bestGameShare() : {}) };
   const mode = o.audio === false ? 'none' : o.audioMode === 'system' ? 'system' : 'game';
   o.audio = mode !== 'none';
   let appAudio = null;
@@ -3772,9 +3775,9 @@ function offerGameShare(g) {
   const key = comboLabel(shareKey());
   const el = h('div#gameoffer', { role: 'dialog', 'aria-label': 'Transmitir o jogo' },
     g.icon ? h('img.go-ic', { src: String(g.icon).startsWith('data:') ? g.icon : 'data:image/png;base64,' + g.icon, alt: '' }) : h('div.go-ic.ph', icon('gamepad', 22)),
-    h('div.go-txt', h('b', `Jogando ${g.title}?`), h('small', `Transmita o jogo para a sala. Atalho: ${key}`)),
+    h('div.go-txt', h('b', `Jogando ${g.title}?`), h('small', 'Transmita o jogo para a sala com a melhor qualidade automática.' + (shareKey() ? ` Atalho: ${key}` : ''))),
     h('div.go-acts',
-      h('button.btn.green', { type: 'button', onclick: async () => { const s = await findGameSource(g); s ? quickShare(s) : (hideGameOffer(), startShare()); } }, icon('screen', 16), 'Transmitir'),
+      h('button.btn.green', { type: 'button', onclick: async () => { const s = await findGameSource(g); s ? quickShare(s, { best: true }) : (hideGameOffer(), startShare()); } }, icon('screen', 16), 'Transmitir'),
       h('button.btn.link', { type: 'button', onclick: hideGameOffer }, 'Agora não'),
       h('button.go-x', { type: 'button', title: 'Não perguntar mais (dá para religar em Configurações → Atalhos)', 'aria-label': 'Não perguntar mais', onclick: () => { S.prefs.gameShareOffer = false; savePrefs(); hideGameOffer(); toast('Não vou mais perguntar. Para religar: Configurações → Atalhos.'); } }, icon('x', 14))));
   document.body.append(el);
@@ -3866,7 +3869,7 @@ function liveShareModal() {
       h('li', 'Continuar assim: a transmissão segue no ar; quem assiste vê a última imagem até o jogo sair da tela cheia.')),
     h('div.fsebtns', h('button.btn.sm', { onclick: () => { m?.close(); stopSharing(); setTimeout(() => startShare(), 300); } }, 'Escolher outra fonte'), h('button.btn.sm.link', { onclick: () => m?.close() }, 'Continuar assim'))) : null;
   const diag = captureDiag();
-  // método de captura (teste): trocar aqui reinicia só o vídeo da transmissão (1-2 s); voz e sala seguem
+  // método de captura (Beta): trocar aqui reinicia só o vídeo da transmissão (1-2 s); voz e sala seguem
   const capSel = window.lcDesktop?.nativeCapable ? capMethodOpt(() => voice.applyCaptureMode()) : null;
   const body = h('div.ss', fse || blk, h('div.ss-lbl', 'Qualidade da transmissão'),
     h('div.ss-card', qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, hint: n.hint, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true, extra: capSel })), diag.el);

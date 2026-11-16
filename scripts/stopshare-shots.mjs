@@ -1,4 +1,5 @@
-// Prints do selo "AO VIVO · Parar transmissão" (barra do palco) e da faixa "AO VIVO" do painel de voz.
+// Prints da bola "Parar transmissão" (barra do palco, no lugar do Sair da chamada), da faixa "AO VIVO" do painel de voz
+// e do olho ao lado de quem está assistindo na lista da sala.
 // Uso: node scripts/stopshare-shots.mjs  (prints em .testshots/stopshare)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process'; import fs from 'node:fs';
@@ -23,14 +24,25 @@ try {
   await P.waitForFunction(() => window.__lc.voice?.active, { timeout: 15000 });
   await P.evaluate(() => window.__lc.voice.toggleScreen({ res: 360, fps: 30, audio: false, hint: 'motion' })); await sleep(3500);
   const st = await P.evaluate(() => {
-    const b = document.querySelector('#stage .bar .stopshare'), leave = [...document.querySelectorAll('#stage .bar .roundbtn.red')].at(-1), vp = document.querySelector('#voice-panel .vp-live');
-    const rb = b?.getBoundingClientRect(), rl = leave?.getBoundingClientRect(), gap = rb && rl ? (Math.abs(rb.top - rl.top) > 20 ? 999 : rl.left - rb.right) : null; // linha diferente = longe
-    return { bar: b?.innerText.replace(/\s+/g, ' '), bg: b && getComputedStyle(b).backgroundColor, leaveBg: leave && getComputedStyle(leave).backgroundColor, gap, vp: vp?.innerText.replace(/\s+/g, ' ') };
+    const bar = document.querySelector('#stage .bar'), b = bar?.querySelector('.stopshare'), other = bar?.querySelector('.roundbtn:not(.stopshare)');
+    return { last: bar?.querySelector('.roundbtn:last-of-type')?.classList.contains('stopshare'), w: b?.offsetWidth, ow: other?.offsetWidth, leave: !!bar?.querySelector('[title^="Sair da chamada"]'), vp: document.querySelector('#voice-panel .vp-live')?.innerText.replace(/\s+/g, ' ') };
   });
-  ok(/AO VIVO 0:0\d Parar transmissão/.test(st.bar || ''), 'barra: selo "AO VIVO <tempo> Parar transmissão"', st.bar);
-  ok(st.bg !== st.leaveBg, 'cor diferente do "Sair da chamada"', [st.bg, st.leaveBg]);
-  ok(st.gap > 20, 'espaço entre Parar transmissão e Sair da chamada (ou em linhas diferentes)', st.gap);
+  ok(st.last, 'barra: a bola "Parar transmissão" fica na ponta, no lugar do Sair da chamada', st);
+  ok(st.w && st.w === st.ow, 'mesmo tamanho das outras bolas', [st.w, st.ow]);
+  ok(!st.leave, 'Sair da chamada sai da barra enquanto transmite (continua no painel de voz)');
   ok(/AO VIVO .*Parar/.test(st.vp || ''), 'painel de voz: faixa AO VIVO com Parar (visível em qualquer tela)', st.vp);
+  // segunda pessoa assiste: o olho aparece ao lado do nome dela na lista da sala
+  const tok2 = (await call('', 'POST', '/register', { username: 'bia', password: 'Teste.senha-123' })).token;
+  const inv = await call(tok, 'POST', `/guilds/${g.id}/invites`, {}); await call(tok2, 'POST', `/invites/${inv.code}`);
+  const Q = await browser.newPage(); await Q.setViewport({ width: 1280, height: 800 });
+  await Q.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, tok2);
+  await Q.goto(BASE); await Q.waitForSelector('#rail .rail-wrap');
+  await Q.evaluate((gid, r) => { window.__lc.go(gid, r); window.__lc.joinVoice(r); }, g.id, room);
+  await Q.waitForFunction(() => window.__lc.voice?.active, { timeout: 15000 }); await sleep(1500);
+  await Q.evaluate((uid) => { window.__lc.voice.openStream(uid); window.__lc.S.focus = 's:' + uid; window.__lc.renderVoiceUI?.(); }, await P.evaluate(() => window.__lc.S.me.id));
+  const eye = await P.waitForFunction(() => [...document.querySelectorAll('.vuser')].some(r => r.querySelector('.vu-watch')), { timeout: 8000 }).then(() => true).catch(() => false);
+  ok(eye, 'lista da sala: olho ao lado de quem está assistindo');
+  await P.screenshot({ path: OUT + '/03-olho.png' });
   await P.screenshot({ path: OUT + '/01-palco.png' });
   await (await P.$('#voice-panel')).screenshot({ path: OUT + '/02-painel.png' });
   await P.evaluate(() => document.querySelector('#voice-panel .vp-live-stop').click()); await sleep(800);

@@ -634,7 +634,7 @@ function streamPage() {
   return h('div', h('h2', 'Transmissão de tela'), hint('Valores iniciais de cada transmissão.'),
     card(qualityPanel(o, commit), row('Compartilhar áudio do sistema por padrão', null, toggle(o.audio, v => { o.audio = v; commit(); }))),
     section('Experimental'),
-    card(h('label.f', 'Método de captura (teste)', seg(CAPTURE_METHODS, captureMode(S.prefs), v => { S.prefs.captureMethod = v; save(); })),
+    card(h('label.f', 'Método de captura (Beta)', seg(CAPTURE_METHODS, captureMode(S.prefs), v => { S.prefs.captureMethod = v; save(); })),
       hint('Automático troca sozinho entre WGC e DXGI se a imagem falhar. Clássico = versão anterior. Vale a partir de 60 FPS no app para Windows.')),
     card(row('Teste: transmissão a 120 FPS', 'A transmissão normal fica limitada a ~48 FPS pelo Windows. Este teste usa um programa à parte (pacote de teste) que captura sem esse limite, e mede aqui quantos quadros chegam. Entre numa sala de voz antes.',
       h('button.btn', { onclick: () => openNativeTest() }, 'Abrir teste'))));
