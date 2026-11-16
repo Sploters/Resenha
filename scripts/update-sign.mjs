@@ -39,7 +39,14 @@ if (cmd === 'keygen') {
   if (!pem) { console.error('DESKTOP_UPDATE_KEY vazio: crie o segredo no GitHub (Settings → Secrets and variables → Actions). Sem ele os apps recusam a atualização.'); process.exit(1); }
   let key; try { key = readPrivateKey(pem); } catch (e) { console.error('DESKTOP_UPDATE_KEY com problema: ' + e.message); process.exit(1); }
   // confere que a chave privada é o par da pública embutida no app (senão todos os apps recusariam esta versão)
-  if (crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }).trim() !== PUBLIC_KEY.trim()) { console.error('DESKTOP_UPDATE_KEY não é o par da chave pública de desktop/updatekey.js'); process.exit(1); }
+  if (crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }).trim() !== PUBLIC_KEY.trim()) {
+    // mostra só a pública que sai do segredo (pública não é segredo) para dar para ver de qual par ele é
+    const got = crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }).trim().split('\n')[1];
+    const want = PUBLIC_KEY.trim().split('\n')[1];
+    console.error(`DESKTOP_UPDATE_KEY não é o par da chave pública de desktop/updatekey.js\n  pública do segredo:  ${got}\n  pública do app:      ${want}\n` +
+      'O keygen cria um par novo a cada vez: a privada do segredo e a pública do app precisam sair da MESMA execução.');
+    process.exit(1);
+  }
   const name = path.basename(a), size = fs.statSync(a).size, sha256 = sha256File(a);
   const sig = crypto.sign(null, Buffer.from(message({ name, version: b, size, sha256 })), key).toString('base64');
   fs.writeFileSync(a + '.sig', JSON.stringify({ v: 1, name, version: b, size, sha256, sig }) + '\n');
