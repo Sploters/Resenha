@@ -30,7 +30,7 @@ import { sortable, reordering } from './reorder.js';
 import { streamHover, updatePip, popOut } from './livepip.js';
 import { zoomControls, pruneZoom } from './zoom.js';
 import { refreshFreeze } from './freeze.js';
-import { initBoard, boardState, onDraw, boardCanvas, boardTools, clearBoard, pruneBoardCanvases } from './board.js';
+import { initBoard, boardState, onDraw, boardCanvas, boardTools, annotTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
 import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
 import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWatch } from './lite.js';
@@ -3447,7 +3447,7 @@ function renderVoiceUI(speakOnly) {
       tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`), h('button.btn.green', { onclick: (e) => { e.stopPropagation(); voice.openStream(uid); renderVoiceUI(); } }, 'Assistir'))));
     } else if (scr && v.screen) {
       const key = 's:' + uid; live.add(key);
-      const vid = mine && !S.selfPreview ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
+      const vid = mine && !S.selfPreview && S.annot !== key ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
       // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
       // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
       if (mine) voice.syncPreview(); // transmissão nativa: prévia leve, ou 30 fps se ela também alimenta o clipe próprio
@@ -3455,10 +3455,10 @@ function renderVoiceUI(speakOnly) {
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
             const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });
-            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); },
+            tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (S.annot === key ? '.annotating' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); },
               // duplo clique: tela cheia (no 1º teste, cliques repetidos no vídeo procuravam isso)
               ondblclick: (e) => { if (S.annot === key || e.target.closest('button, input, .sctl, .annot-bar, .snote')) return; fullscreenStream(scr, inRoom ? { key, who: nm(uid) } : null); },
-              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', annotTools('s:' + uid, () => { S.annot = null; renderVoiceUI(); })), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
     }
     const ckey = 'c:' + uid;
@@ -3810,15 +3810,15 @@ function healthPill() {
 function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
   const on = remoteControlling(uid), wait = remotePending(uid);
   return [
-      mine && { ux: 'previa', label: S.selfPreview ? 'Pausar a prévia' : 'Ver a prévia da minha transmissão', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
-      mine && { ux: 'ajustes', label: 'Ajustes da transmissão', hint: 'Qualidade, áudio e trocar o que compartilho', fn: liveShareModal },
-      inRoom && { ux: 'clipes', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
-      { ux: 'desenhar', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar sobre a transmissão', hint: 'Todos na sala veem', fn: () => { S.annot = S.annot === key ? null : key; renderVoiceUI(); } },
-      { ux: 'destacar', label: S.room?.spot === key ? 'Parar de destacar para todos' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
-      !mine && inRoom && { ux: 'controle', label: on ? 'Parar de controlar' : wait ? 'Cancelar o pedido de controle' : 'Pedir controle (mouse, teclado ou controle)', fn: () => (on || wait ? stopControl() : requestControl(uid)) },
-      !mine && { ux: 'qualidade', label: S.qstats === key ? 'Esconder a qualidade' : 'Qualidade desta transmissão', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
-      { ux: 'flutuante', label: 'Janela flutuante sobre outros apps', fn: () => popOut(scr) },
-      { ux: 'telacheia', label: 'Tela cheia', hint: 'ou clique duas vezes no vídeo', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },
+      mine && { ux: 'previa', icon: S.selfPreview ? 'eyeoff' : 'eye', label: S.selfPreview ? 'Pausar prévia' : 'Ver prévia', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
+      mine && { ux: 'ajustes', icon: 'sliders', label: 'Ajustes', hint: 'Qualidade, áudio e fonte', fn: liveShareModal },
+      inRoom && { ux: 'clipes', icon: clipping(key) ? 'clip' : 'clipsparkle', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
+      { ux: 'desenhar', icon: S.annot === key ? 'check' : 'edit', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar', hint: 'Todos veem', fn: () => { if (S.annot === key) S.annot = null; else { S.annot = key; S.focus = key; } renderVoiceUI(); } },
+      { ux: 'destacar', icon: 'star', label: S.room?.spot === key ? 'Tirar destaque' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
+      !mine && inRoom && { ux: 'controle', icon: 'pointer', label: on ? 'Parar controle' : wait ? 'Cancelar pedido' : 'Pedir controle', hint: !on && !wait ? 'Mouse, teclado ou controle' : null, fn: () => (on || wait ? stopControl() : requestControl(uid)) },
+      !mine && { ux: 'qualidade', icon: 'wifi', label: S.qstats === key ? 'Esconder qualidade' : 'Ver qualidade', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
+      { ux: 'flutuante', icon: 'external', label: 'Janela flutuante', hint: 'Por cima de outros apps', fn: () => popOut(scr) },
+      { ux: 'telacheia', icon: 'expand', label: 'Tela cheia', hint: 'Ou clique duas vezes', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },
   ].filter(Boolean);
 }
 function streamControls({ key, uid, mine, scr, inRoom, who }) {

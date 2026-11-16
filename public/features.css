@@ -622,7 +622,7 @@ html.anim .rail-wrap::before { transition: height .2s, margin-top .2s, opacity .
 /* lousa, desenhos sobre a transmissão e editor de código */
 .roundbtn.active { background: var(--brand, #5865f2) !important; color: #fff; }
 .tile canvas.board { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
-.tile canvas.board.live { pointer-events: auto; cursor: crosshair; touch-action: none; }
+.tile canvas.board.drawing { pointer-events: auto; cursor: crosshair; touch-action: none; }
 .tile canvas.board.wb { background: #1e1f22; z-index: 0; }
 .tile.wbtile, .tile.codetile { background: #1e1f22; cursor: default; overflow: hidden; }
 .tile.wbtile { aspect-ratio: 16/9; min-width: 280px; }
@@ -640,7 +640,7 @@ html.anim .rail-wrap::before { transition: height .2s, margin-top .2s, opacity .
 .codebar .sp { flex: 1; } .codebar select { background: #1e1f22; color: #dbdee1; border: 0; border-radius: 4px; padding: 3px 6px; }
 .codebar .ibtn { color: #b5bac1; } .codebar .ibtn:hover { color: #fff; }
 .codeta { flex: 1; width: 100%; resize: none; border: 0; outline: none; background: #1e1f22; color: #e6e6e6; padding: 12px; font: 13px/1.5 Consolas, 'Cascadia Mono', monospace; tab-size: 2; white-space: pre; overflow: auto; }
-#stage .strip .tile canvas.board.live, #stage .strip .annot-bar, #stage .strip .wbbar { display: none; }
+#stage .strip .tile canvas.board.drawing, #stage .strip .annot-bar, #stage .strip .wbbar { display: none; }
 #stage .strip .tile.codetile { min-width: 0; min-height: 0; } #stage .strip .tile.codetile .codeta { display: none; }
 .mico { display: inline-flex; } .mico.lmute, .vuser .ico .lmute { color: var(--red, #ed4245); }
 .tile .label .mico.lmute { color: var(--red, #ed4245); }
@@ -1840,3 +1840,22 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .ev-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ev-tz { margin-top: -6px; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 520px) { .ev-frow { grid-template-columns: 1fr; } .ev-list { grid-template-columns: 1fr; } #eventsview .cbody { padding: 12px 12px 32px; } }
+/* desenhar sobre a transmissão: some o resto dos controles do quadro e fica só a barra compacta, numa linha, no topo */
+.tile.screen.annotating .sctl, .tile.screen.annotating .hpill, .tile.screen.annotating .blackwarn { display: none; }
+.tile.screen.annotating { outline: 2px solid var(--brand, #5865f2); outline-offset: -2px; }
+.btools.bcompact { flex-wrap: nowrap; gap: 4px; padding: 5px 6px; border-radius: 12px; max-width: none; background: rgba(17,18,20,.92); backdrop-filter: blur(6px); }
+.bcompact .ibtn { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; }
+.bcompact .ibtn:hover { background: rgba(255,255,255,.1); }
+.bcompact .btool.on { background: var(--brand, #5865f2); }
+.bcompact .bcolwrap { position: relative; }
+.bcompact .bcolbtn { display: flex; align-items: center; gap: 3px; height: 32px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: #fff; cursor: pointer; }
+.bcompact .bcolbtn:hover { background: rgba(255,255,255,.1); }
+.bcompact .bcur { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+.bcompact .bpal { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); display: grid; grid-template-columns: repeat(5, 22px); gap: 8px; padding: 10px; border-radius: 10px; background: rgba(17,18,20,.96); box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 2; }
+.bcompact .bpal[hidden] { display: none; }
+.bcompact .bpal .bcol { width: 22px; height: 22px; } .bcompact .bpal .bpick { width: 22px; height: 22px; }
+.bcompact .bsize { width: 28px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.bcompact .bsize i { border-radius: 50%; background: #fff; opacity: .6; }
+.bcompact .bsize:hover { background: rgba(255,255,255,.1); } .bcompact .bsize.on { background: rgba(255,255,255,.14); } .bcompact .bsize.on i { opacity: 1; }
+.bcompact .bdone { display: inline-flex; align-items: center; gap: 5px; height: 32px; margin-left: 4px; padding: 0 12px; border: 0; border-radius: 8px; background: #23a55a; color: #fff; font: 600 13px/1 var(--font, inherit); cursor: pointer; white-space: nowrap; }
+.bcompact .bdone:hover { background: #1a8a4a; }

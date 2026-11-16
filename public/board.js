@@ -47,7 +47,8 @@ export function boardCanvas(id, { interactive = false, video = null } = {}) {
   const old = cache.get(id);
   if (old && old.video === video && old.interactive === interactive) { views.add(old.view); return old.canvas; }
   dropCanvas(id);
-  const canvas = h('canvas.board' + (video ? '.over' : '.wb') + (interactive ? '.live' : ''));
+  // '.drawing', não '.live': '.live' é o selo vermelho "Ao vivo" e pintava o desenho todo de vermelho por cima do vídeo
+  const canvas = h('canvas.board' + (video ? '.over' : '.wb') + (interactive ? '.drawing' : ''));
   const zoomable = !video; // a lousa tem zoom próprio; sobre uma transmissão vale o zoom do vídeo
   const area = () => { // retângulo (em px do canvas) onde o conteúdo aparece: o vídeo usa "contain"
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
@@ -107,10 +108,13 @@ export function boardCanvas(id, { interactive = false, video = null } = {}) {
       if (hit.length) { const ids = new Set(hit); boards.set(id, l.filter(s => !ids.has(s.id))); paint(); send('ROOM_DRAW', { board: id, op: 'erase', ids: hit }); }
     };
     canvas.oncontextmenu = (e) => e.preventDefault();
+    // sobre uma transmissão: a roda do mouse dá zoom no vídeo e o botão direito/do meio arrasta o vídeo com zoom, sem sair do desenho
+    if (video) canvas.addEventListener('wheel', (e) => { e.stopPropagation(); video.onwheel?.(e); }, { passive: false });
     canvas.onpointerenter = () => { canvas.style.cursor = tool.erase ? 'cell' : 'crosshair'; };
     canvas.onpointerdown = (e) => {
       e.preventDefault(); e.stopPropagation();
       if (zoomable && (e.button === 1 || e.button === 2)) { const v = zoomOf(id); pan = { sx: e.clientX, sy: e.clientY, x: v.x, y: v.y }; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing'; return; } // botão do meio/direito arrasta a lousa
+      if (video && (e.button === 1 || e.button === 2)) { video.onpointerdown?.({ button: 0, clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }); return; }
       if (e.button !== 0) return;
       canvas.setPointerCapture(e.pointerId);
       if (tool.erase) { erasing = true; erase(e); return; }
@@ -155,7 +159,7 @@ export function boardTools(id, extra) {
     cols.forEach(b => b.classList.toggle('on', !tool.erase && b.dataset.c === tool.color));
     pen.classList.toggle('on', !tool.erase); era.classList.toggle('on', tool.erase);
     const own = !COLORS.includes(tool.color); custom.classList.toggle('on', !tool.erase && own); custom.style.color = own ? tool.color : ''; if (!fromPicker) customIn.value = /^#[0-9a-f]{6}$/i.test(tool.color) ? tool.color : '#ffffff';
-    document.querySelectorAll('canvas.board.live').forEach(c => { c.style.cursor = tool.erase ? 'cell' : 'crosshair'; });
+    document.querySelectorAll('canvas.board.drawing').forEach(c => { c.style.cursor = tool.erase ? 'cell' : 'crosshair'; });
   };
   const zoom = id === 'wb' ? [h('span.bsep'),
     h('button.ibtn', { title: 'Diminuir o zoom', onclick: () => zoomCenter(id, 1 / 1.25) }, icon('minus', 16)),
@@ -167,5 +171,43 @@ export function boardTools(id, extra) {
     h('button.ibtn', { title: 'Desfazer meu último traço', onclick: () => undo(id) }, icon('rotate', 16)),
     h('button.ibtn', { title: 'Limpar tudo', onclick: () => clearBoard(id) }, icon('trash', 16)),
     ...[].concat(extra || []));
+  sync(); return bar;
+}
+
+// barra compacta para desenhar sobre uma transmissão: uma linha só, com caneta/borracha, a cor atual (abre as outras),
+// três espessuras, desfazer, limpar e "Pronto". Atalhos: Esc termina, Ctrl+Z desfaz, B borracha, P caneta.
+const SIZES = [['Fino', 3], ['Médio', 6], ['Grosso', 12]];
+export function annotTools(id, done) {
+  const bar = h('div.btools.bcompact', { onclick: (e) => e.stopPropagation(), onpointerdown: (e) => e.stopPropagation(), ondblclick: (e) => e.stopPropagation(), onwheel: (e) => e.stopPropagation() });
+  const pen = h('button.ibtn.btool', { title: 'Caneta (P)', 'aria-label': 'Caneta', onclick: () => { tool.erase = false; sync(); } }, icon('edit', 16));
+  const era = h('button.ibtn.btool', { title: 'Borracha (B): apaga o traço em que passar', 'aria-label': 'Borracha', onclick: () => { tool.erase = true; sync(); } }, icon('eraser', 16));
+  const dot = h('i.bcur');
+  const customIn = h('input', { type: 'color', name: 'board-color', value: tool.color, oninput: (e) => { tool.color = e.target.value; tool.erase = false; sync(); } });
+  const pal = h('div.bpal', { hidden: true },
+    ...COLORS.map(c => h('button.bcol', { style: { background: c }, title: c, 'data-c': c, onclick: () => { tool.color = c; tool.erase = false; pal.hidden = true; sync(); } })),
+    h('label.bpick', { title: 'Outra cor' }, icon('palette', 14), customIn));
+  const colBtn = h('button.bcolbtn', { title: 'Cor', 'aria-label': 'Escolher a cor', onclick: () => { pal.hidden = !pal.hidden; } }, dot, icon('chevdown', 12));
+  const sizes = SIZES.map(([n, w]) => h('button.bsize', { title: 'Traço ' + n.toLowerCase(), 'aria-label': 'Traço ' + n.toLowerCase(), 'data-w': w, onclick: () => { tool.w = w; sync(); } }, h('i', { style: { width: w + 2 + 'px', height: w + 2 + 'px' } })));
+  const sync = () => {
+    pen.classList.toggle('on', !tool.erase); era.classList.toggle('on', tool.erase);
+    dot.style.background = tool.color;
+    pal.querySelectorAll('.bcol').forEach(b => b.classList.toggle('on', b.dataset.c === tool.color));
+    const near = SIZES.reduce((a, b) => (Math.abs(b[1] - tool.w) < Math.abs(a[1] - tool.w) ? b : a))[1];
+    sizes.forEach(b => b.classList.toggle('on', +b.dataset.w === near));
+    document.querySelectorAll('canvas.board.drawing').forEach(c => { c.style.cursor = tool.erase ? 'cell' : 'crosshair'; });
+  };
+  const key = (e) => {
+    if (!bar.isConnected) return removeEventListener('keydown', key, true);
+    if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(id); }
+    else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'b') { tool.erase = true; sync(); }
+    else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'p') { tool.erase = false; sync(); }
+  };
+  addEventListener('keydown', key, true);
+  bar.append(pen, era, h('span.bsep'), h('div.bcolwrap', colBtn, pal), ...sizes, h('span.bsep'),
+    h('button.ibtn', { title: 'Desfazer (Ctrl+Z)', 'aria-label': 'Desfazer', onclick: () => undo(id) }, icon('rotate', 16)),
+    h('button.ibtn', { title: 'Apagar todos os desenhos', 'aria-label': 'Apagar tudo', onclick: () => clearBoard(id) }, icon('trash', 16)),
+    h('button.bdone', { title: 'Terminar de desenhar (Esc)', onclick: done }, icon('check', 14), 'Pronto'));
   sync(); return bar;
 }
