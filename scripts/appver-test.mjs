@@ -1,9 +1,11 @@
 // Versões do app desktop na call e relatório de problema: selinho e aviso de quem está desatualizado, versão mínima
 // barrando a entrada na call, relatório com diagnóstico enviado por DM ao administrador. Uso: node scripts/appver-test.mjs
-// (a versão mais nova vem do GitHub pelo servidor; sem internet, o teste do selinho usa a versão do próprio app)
+// A versão mais nova publicada vem das releases do GitHub pelo servidor, que no CI (sem chave, repositório privado) responde
+// vazio: o teste responde /api/desktop/update no navegador com a versão do próprio app (desktop/package.json).
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process'; import fs from 'node:fs';
 const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', OUT = '.testshots/appver';
+const LATEST = JSON.parse(fs.readFileSync('desktop/package.json', 'utf8')).version;
 const PORT = 3299, BASE = `http://localhost:${PORT}`, DATA = './.testdata29';
 fs.mkdirSync(OUT, { recursive: true });
 fs.rmSync(DATA, { recursive: true, force: true }); fs.mkdirSync(DATA, { recursive: true });
@@ -18,10 +20,12 @@ try {
   const b = await call('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const g = await call(a.token, 'POST', '/guilds', { name: 'T' }); const inv = await call(a.token, 'POST', `/guilds/${g.id}/invites`); await call(b.token, 'POST', '/invites/' + inv.code);
   const page = async (tok, desk) => { const c = await browser.createBrowserContext(), P = await c.newPage(); await P.setViewport({ width: 1300, height: 800 }); P.on('pageerror', e => console.log('  PAGEERROR', e.message));
+    await P.setRequestInterception(true);
+    P.on('request', (r) => (new URL(r.url()).pathname === '/api/desktop/update' ? r.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: LATEST }) }) : r.continue()));
     await P.evaluateOnNewDocument((t, desk) => { localStorage.lc_token = t; window.__toasts = []; new MutationObserver(() => { const e = document.getElementById('toast'); if (e && window.__toasts.at(-1) !== e.textContent) window.__toasts.push(e.textContent); }).observe(document, { childList: true, subtree: true }); if (desk) { const fns = { getSettings: async () => ({ version: desk }), getUpdate: async () => null, installUpdate: async () => false, getDiagnostics: async () => ({ app: desk, gpus: [{ nome: 'GPU de teste', ativa: true }], log: 'linha de log' }) }; window.lcDesktop = new Proxy(fns, { get: (o, k) => (k in o ? o[k] : k === 'isDesktop' ? true : () => Promise.resolve({})) }); } }, tok, desk);
     await P.goto(BASE); await P.waitForSelector('#rail'); return P; };
   const A = await page(a.token, null), B = await page(b.token, '1.0.10'); await sleep(500); a.user = await A.evaluate(() => window.__lc.S.me); b.user = await B.evaluate(() => window.__lc.S.me);
-  const latest = (await (await fetch(BASE + '/api/desktop/update')).json()).version; console.log('  versão mais nova (servidor):', latest);
+  console.log('  versão mais nova (simulada):', LATEST, ' — o servidor, consultando o GitHub, diz:', (await (await fetch(BASE + '/api/desktop/update')).json()).version);
   const vch = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 2), g.id);
   for (const P of [A, B]) { await P.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id); await sleep(400); await P.evaluate(() => [...document.querySelectorAll('#stage .btn')].find(x => /Entrar/.test(x.textContent))?.click()); await P.waitForFunction(() => window.__lc.voice?.channelId, { timeout: 15000 }); }
   await sleep(1500);
