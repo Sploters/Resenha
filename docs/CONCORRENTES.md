@@ -51,6 +51,55 @@ Chat e voz no estilo Discord, open-source (AGPLv3), da Suécia, em beta público
 
 ---
 
+## 2. TeamSpeak
+VoIP proprietário, voz em primeiro lugar, referência para gamers há mais de 20 anos. Dos EUA, ~15 milhões de usuários, nota 3,3. O TeamSpeak 6 (beta desde 2025) trouxe UI moderna, compartilhamento de tela e mensagens globais.
+
+**Pontos fortes**
+- **Voz de baixíssima latência e muito limpa**: o padrão do jogo competitivo.
+- Privacidade declarada: a empresa diz não ter acesso a voz nem texto.
+- Tela e câmera no TS6.
+- **Permissões por nível** ("Power" e "Needed Power"): cada ação exige um número, e cada cargo tem o seu. Granular ao extremo.
+- **Whisper (sussurro)**: segurar uma tecla fala só com pessoas, cargos ou canais escolhidos, sem sair da sala.
+- Multiplataforma, sem verificação de identidade.
+- Plugins para bots e integrações.
+
+**Pontos fracos**
+- Texto fraco perto do Discord: sem emojis próprios, chat pobre.
+- **Código fechado**: a promessa de privacidade não dá para auditar; E2EE "desconhecido".
+- Sem canais de vídeo fixos (só tela).
+- TS6 ainda em beta, instável.
+- **TS3 gratuito limitado a 32 vagas.**
+- Comunidade rachada entre TS3 e TS6 (migração lenta).
+- Servidores oficiais lotam em horários de pico.
+- O sistema de Power é poderoso, mas **confuso para quem não é admin**.
+
+**Comparando com a Resenha**
+| Item | TeamSpeak | Resenha |
+|---|---|---|
+| Qualidade e latência da voz | Referência | SFU (mediasoup), Opus 64 kbps, redução de ruído por IA, diagnóstico de conexão |
+| Whisper / falar só com alguns | Sim | Não |
+| Permissões | Power numérico, muito granular | Cargos + permitir/seguir/negar por categoria e canal (mais simples) |
+| Texto rico, emojis próprios | Fraco / não | **Já tem** (bem à frente) |
+| Canais de vídeo | Não | **Já tem** (câmera na sala de voz) |
+| Código aberto, auditável | Não | Auto-hospedado, código próprio |
+| Limite de vagas | 32 no TS3 grátis | Sem limite de licença (P2P ~6-8; SFU aguenta mais) |
+| Plugins / bots | Sim | Não (só o de música) |
+
+**Vale trazer**
+1. **Whisper / sussurro**: tecla própria (como o push-to-talk, funcionando com o jogo em foco) que fala só com alvos salvos: pessoas, um cargo ("Time A") ou outra sala, sem sair da chamada. Indicador para quem recebe ("sussurrando para você"). Ótimo para shotcaller, torneio e dois times na mesma sala.
+2. **Foco em latência como bandeira**: um modo "competitivo" na sala de voz (Opus em baixa latência, quadros menores, sem efeitos pesados, prioridade na rede) e um ping visível por pessoa.
+3. **Permissões finas sem a confusão**: manter o modelo simples de hoje e oferecer um modo avançado opcional. Exemplo: "quem pode mover/mutar quem" depende da posição do cargo, como a hierarquia do Discord, que é o mesmo efeito do Power do TS sem números.
+4. **Recursos de sala de voz do TS**: limite de pessoas por sala, sala com senha, **orador prioritário** (abaixa os outros quando ele fala) e "falar só com permissão" (fila para pedir a vez).
+
+**Erros a evitar**
+- Código fechado e privacidade "acredite em mim": a Resenha deve continuar auditável.
+- Limite de vagas como modelo de negócio.
+- Deixar o texto pobre: é justamente onde a Resenha ganha.
+- Racha de versões: atualizações sem quebrar quem está na versão antiga (o app já se atualiza sozinho; manter assim).
+- Permissões que só um especialista entende.
+
+---
+
 <!-- Próximos concorrentes entram aqui, no mesmo formato. -->
 
 ## Lista consolidada (prioridades)
@@ -60,4 +109,9 @@ Chat e voz no estilo Discord, open-source (AGPLv3), da Suécia, em beta público
 | 2 | CSS personalizado / temas da comunidade | Fluxer | Não tem |
 | 3 | Voz em vários aparelhos ao mesmo tempo | Fluxer | A conferir |
 | 4 | Automod / moderação granular | Fluxer | Parcial |
+| 5 | Whisper / sussurro para pessoas, cargos ou salas | TeamSpeak | Não tem |
+| 6 | Modo de voz competitivo (baixa latência) + ping por pessoa | TeamSpeak | Parcial (diagnóstico de conexão) |
+| 7 | Hierarquia de cargos para mover/mutar/expulsar | TeamSpeak | A conferir |
+| 8 | Sala de voz: limite de pessoas, senha, orador prioritário, pedir a vez | TeamSpeak | Não tem |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
+| ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
