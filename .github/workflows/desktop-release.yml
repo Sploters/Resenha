@@ -54,6 +54,10 @@ jobs:
       - name: Dependências
         run: npm ci
 
+      # todo arquivo usado pelo main.js precisa estar em build.files (senão fica fora do app.asar e o app não abre)
+      - name: Conferir os arquivos do app
+        run: node ../scripts/desktop-files-check.mjs
+
       # os programas nativos (lc-input.exe e lc-stream.exe) já estão em desktop/native no repositório
       - name: Montar o instalador
         run: npx electron-builder --win nsis portable --publish never -c.extraMetadata.version=${{ steps.ver.outputs.v }}

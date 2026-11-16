@@ -30,6 +30,7 @@
       "clipflash.js",
       "frontwatch.js",
       "appaudio.js",
+      "helper.js",
       "updsplash.js",
       "updatekey.js"
     ],
