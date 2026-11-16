@@ -307,6 +307,54 @@ Clone open-source do Discord (o antigo Revolt, renomeado no fim de 2025), escrit
 
 ---
 
+## 7. Root
+Plataforma de comunidades com chat **e ferramentas de coordenação** (tarefas, planejamento de raids). Visual muito parecido com o Discord e importa servidores do Discord. Dos EUA, código fechado e centralizado, ~50 mil usuários, nota 1,5. **É de onde vem a ideia de Raids.**
+
+**Pontos fortes**
+- Paridade com o Discord: texto, voz, vídeo, tela, cargos, permissões, emojis e DMs.
+- **Planejamento de raids** e **tarefas** dentro da comunidade.
+- **Figurinhas** (stickers).
+- Apps personalizados dentro do servidor.
+- **Importa servidores do Discord** para facilitar a migração.
+- **Termos de uso próprios por comunidade.**
+- Sem verificação de identidade.
+
+**Pontos fracos**
+- **Os primeiros termos de uso permitiam vender os dados e treinar IA com eles**; só mudou depois da revolta do público.
+- Centralizado, sem auto-hospedar: pode mudar a política de novo sem avisar.
+- Código fechado: nada verificável.
+- Sem E2EE.
+- Novo, com bugs; comunidade pequena.
+- Nota 1,5: a pior da lista, puxada pela desconfiança.
+
+**Comparando com a Resenha**
+| Item | Root | Resenha |
+|---|---|---|
+| Voz, vídeo, tela | Sim | **Já tem** |
+| Planejamento de raids | Sim | Não (eventos com vagas, sem funções nem times) |
+| Tarefas | Sim | Parcial: canal Documento com `- [ ]` marcável |
+| Figurinhas | Sim | Não (emojis e soundboard, sem figurinhas) |
+| Importar servidor do Discord | Sim | Parcial (importa conversas, não a estrutura) |
+| Termos por comunidade | Sim | Não |
+| Apps personalizados | Sim | Não (fora do plano, como os bots) |
+| Auto-hospedar, código próprio | Não | **Já tem** |
+| E2EE | Não | **Já tem** (DMs 1:1) |
+| Dados vendidos / IA | Já previu nos termos | Nada sai do servidor do grupo |
+
+**Vale trazer**
+1. **Raids e montar times** (já detalhado em "Decisões"): composição por função, vários times, lista de espera, modelos por jogo, raid semanal.
+2. **Tarefas ligadas ao evento ou ao grupo**: checklist com responsável e prazo ("quem leva o farm de consumíveis", "quem cria a sala", "comprar o DLC até sexta"), que avisa quem foi marcado. Pode nascer do canal Documento, que já tem caixinhas: falta só o responsável, o prazo e o aviso.
+3. **Figurinhas do servidor**: imagens ou GIFs maiores que um emoji, enviadas sozinhas, com seletor próprio ao lado dos emojis. Encaixa na Mídia favorita, que já organiza GIFs e imagens.
+4. **Importar o servidor do Discord inteiro**: reforça a #22.
+5. **Regras do servidor que a pessoa aceita ao entrar**: o servidor tem um texto de regras (pode ser um canal Documento) e quem entra precisa aceitar antes de escrever. É a versão útil dos "termos por comunidade".
+
+**Erros a evitar**
+- **Termos que permitem vender dados ou treinar IA**: a Resenha não faz isso, e o `PRIVACIDADE.md` deve dizer explicitamente.
+- Mudar a política em silêncio: qualquer mudança no `PRIVACIDADE.md` aparece em "Novidades".
+- Código fechado e centralizado.
+
+---
+
 ## Lista consolidada (prioridades)
 | # | Ideia | Origem | Status na Resenha |
 |---|---|---|---|
@@ -331,11 +379,16 @@ Clone open-source do Discord (o antigo Revolt, renomeado no fim de 2025), escrit
 | 19 | Fila de aprovação e sinalização com motivo | Discourse | Parcial |
 | 20 | "O que eu perdi?" (resumo das não lidas, IA opcional e local) | Discourse | Não tem |
 | 21 | `PRIVACIDADE.md` / termos abertos, com link nas Configurações | Stoat | Não tem |
-| 22 | Importar a estrutura de um servidor do Discord + guia "Vindo do Discord?" | Stoat | Parcial (importa conversas) |
+| 22 | Importar a estrutura de um servidor do Discord + guia "Vindo do Discord?" | Stoat, Root | Parcial (importa conversas) |
+| 23 | Raids e montar times nos Eventos (funções, vários times, lista de espera, modelos, semanal) | Root | Não tem |
+| 24 | Tarefas com responsável, prazo e aviso (a partir do canal Documento) | Root | Parcial (caixinhas no Documento) |
+| 25 | Figurinhas do servidor | Root | Não tem |
+| 26 | Regras do servidor aceitas ao entrar | Root | Não tem |
 | ✗ | Varredura de mídia por IA no servidor | Fluxer (evitar) | Não fazer |
 | ✗ | Código fechado / limite de vagas / permissões confusas | TeamSpeak (evitar) | Não fazer |
 | ✗ | IP visível para moderadores | Discourse (evitar) | Não fazer |
 | ✗ | App preso a um servidor / instância central única | Stoat (evitar) | Não fazer |
+| ✗ | Termos que permitem vender dados ou treinar IA; mudar a política em silêncio | Root (evitar) | Não fazer |
 
 ## Onde a Resenha já ganha de todos
 - **Voz, vídeo e tela completos**: o Stoat ainda não lançou, o Discourse não tem, o Element não manda áudio da tela, o TeamSpeak não tem canais de vídeo. A Resenha tem SFU, 120 FPS nativo, áudio só do jogo, clipes e controle remoto.
@@ -361,9 +414,10 @@ Clone open-source do Discord (o antigo Revolt, renomeado no fim de 2025), escrit
 4. **Migração do Discord**: importar a estrutura do servidor e o guia "Vindo do Discord?" (#22).
 5. **E2EE mais ampla**: DMs em grupo, canais protegidos, sigilo futuro, verificação por emoji/QR e chave de recuperação (#10, #12).
 6. **Confiança**: `SECURITY.md` e `PRIVACIDADE.md` (#13, #21).
-7. **Extras**: economia do servidor (#15), "O que eu perdi?" (#20), ponte entre instalações (#11), modo demonstração (#16).
+7. **Do Root**: Raids e times (#23), tarefas com responsável e prazo (#24), figurinhas (#25), regras aceitas ao entrar (#26). A decidir.
+8. **Extras**: economia do servidor (#15), "O que eu perdi?" (#20), ponte entre instalações (#11), modo demonstração (#16).
 
-**Ideia nova: Eventos → Raids e montar times** (inspirada no fórum, mas dentro de Eventos)
+**Ideia nova: Eventos → Raids e montar times** (#23, vinda do Root)
 Hoje o evento tem vagas e Vou / Talvez / Não vou (`server/events.js`), e o LFG já conhece funções por jogo (`server/lfg.js`: Duelista/Controlador…, Topo/Selva/Meio…). A ideia é juntar os dois:
 - **Composição por função**: o evento define quantas vagas de cada função (WoW: 2 tanques, 5 healers, 13 DPS; Dota/LoL/Deadlock: uma de cada posição; Valorant: duelista, controlador…). Cada um se inscreve escolhendo a função (e uma reserva), e o cartão mostra o quadro: "Tanque 2/2 · Healer 3/5 · DPS 9/13".
 - **Vários times no mesmo evento**: Clash do LoL ou um 5v5 interno com Time A e Time B; arrastar pessoas entre times; botão "balancear" pelo elo do perfil de jogador do LFG.
