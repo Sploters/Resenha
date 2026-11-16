@@ -776,6 +776,14 @@ const chPermsEvent = (ch) => dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_PERM
 app.put('/api/channels/:id/perms', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
   if (!ch || !ch.guild_id || ch.type === 11 || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS) || !can(ch.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  // hierarquia: o ajuste de um cargo do seu nível para cima não muda (nem some ao sincronizar)
+  const mine = rankOf(ch.guild_id, req.uid), high = new Set(all('SELECT id FROM roles WHERE guild_id=? AND position>=?', ch.guild_id, mine).map(r => r.id));
+  if (high.size) {
+    const key = (o) => o ? `${(+o.allow | 0) & 15}/${(+o.deny | 0) & 15 & ~((+o.allow | 0) & 15)}` : '0/0';
+    const cur = new Map(chp.overwrites(ch.id).map(o => [o.target, o]));
+    const next = req.body?.sync === true ? new Map() : new Map((Array.isArray(req.body?.overwrites) ? req.body.overwrites : []).map(o => [String(o?.target || ''), o]));
+    if ([...high].some(t => key(cur.get(t)) !== key(next.get(t)))) return bad(res, ROLE_ABOVE, 403);
+  }
   if (req.body?.sync === true) {
     if (ch.type === 4 || !ch.parent_id) return bad(res, 'O canal não está numa categoria');
     run('DELETE FROM channel_perms WHERE channel_id=?', ch.id); run('UPDATE channels SET perm_sync=1 WHERE id=?', ch.id);

@@ -11,7 +11,7 @@ Ordem de trabalho das ideias aprovadas em `docs/CONCORRENTES.md` (seção "Decis
 - [x] Reordenar: `PUT /api/guilds/:id/roles/order` e botões ▲ ▼ na lista de cargos, só abaixo do seu (arrastar fica para depois).
 - [x] App: opções somem no clique direito e na lista de membros; cargos acima aparecem com 🔒 e "só para ver"; permissões que você não tem ficam travadas.
 - [x] Teste: `scripts/roles-hierarchy-test.mjs` (32 verificações).
-- [ ] Pendente: permissões por canal (`chperms`) ainda deixam quem gerencia cargos ajustar o canal para um cargo acima do seu.
+- [x] Permissões por canal: o ajuste de um cargo do seu nível para cima não muda nem some ao sincronizar.
 
 ## 2. Moderação de voz (usa a hierarquia)
 - [ ] Mutar e ensurdecer alguém para a sala (permissão nova).

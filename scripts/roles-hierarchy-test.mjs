@@ -79,6 +79,15 @@ ok((await call(mod.tok, 'PATCH', `/guilds/${g.id}/members/${mem2.id}`, { roles: 
 // cargos acima que a pessoa já tem não atrapalham quem só mexe nos de baixo
 await call(own.tok, 'PATCH', `/guilds/${g.id}/members/${mem2.id}`, { roles: [] });
 
+// permissões por canal: o ajuste de um cargo acima não muda
+await call(own.tok, 'PATCH', `/roles/${rMod}`, { perms: P.KICK | P.BAN | P.MODERATE | P.MANAGE_ROLES | 4 });
+const chan = (await ready(own.tok)).guilds.find(x => x.id === g.id).channels.find(c => c.type === 0);
+ok((await call(own.tok, 'PUT', `/channels/${chan.id}/perms`, { overwrites: [{ target: rAdm, allow: 0, deny: 1 }] })).status === 200, 'dono ajusta o canal para o Admin');
+ok((await call(mod.tok, 'PUT', `/channels/${chan.id}/perms`, { overwrites: [{ target: rMem, allow: 0, deny: 2 }] })).status === 403, 'mod não apaga o ajuste do Admin no canal');
+ok((await call(mod.tok, 'PUT', `/channels/${chan.id}/perms`, { overwrites: [{ target: rAdm, allow: 0, deny: 1 }, { target: rMem, allow: 0, deny: 2 }] })).status === 200, 'mod ajusta o canal para o Membro mantendo o do Admin');
+ok((await call(mod.tok, 'PUT', `/channels/${chan.id}/perms`, { overwrites: [{ target: rAdm, allow: 1, deny: 0 }, { target: rMem, allow: 0, deny: 2 }] })).status === 403, 'mod não muda o ajuste do Admin');
+ok((await call(mod.tok, 'PUT', `/channels/${chan.id}/perms`, { sync: true })).status === 403, 'mod não sincroniza (apagaria o ajuste do Admin)');
+
 // Admin (acima do Mod) pode agir sobre ele; o dono sobre todos
 ok((await call(adm.tok, 'PATCH', `/guilds/${g.id}/members/${mod.id}`, { timeout_until: Date.now() + 60000 })).status === 200, 'admin castiga mod');
 ok((await call(adm.tok, 'DELETE', `/guilds/${g.id}/members/${adm.id}`.replace(adm.id, own.id))).status === 400, 'ninguém expulsa o dono');
