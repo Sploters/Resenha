@@ -17,6 +17,14 @@ Detalhes técnicos e limitações: `docs/CAPTURA-WGC-DXGI.md` (Fase 2).
 Se algo der muito errado durante a live: no mesmo painel, Método de captura = **Clássico (versão anterior)** ou
 **Forçar Chromium**. Troca na hora, sem sair da sala.
 
+## Jeito rápido (sem jogo): kit `teste-captura-resenha.zip`
+O kit (`native/pacote-captura`, montado por `montar.sh`) traz o **Jogo de Teste (Resenha)**: `lc-stream-poc.exe
+--poc-captura --jogo-teste --modo tela-cheia|sem-bordas`. Janela do tamanho do monitor com Direct3D próprio e animação
+calma (sem piscar). Em `tela-cheia` usa tela cheia exclusiva e, como os jogos, sai dela e **minimiza no Alt+Tab** e volta
+ao receber o foco: reproduz o caso do Valorant sem precisar de jogo nem de anti-cheat. O `TESTAR` roda 4 casos (tela
+cheia/sem bordas × janela/tela inteira), lê o "Copiar relatório do teste" da área de transferência e grava tudo em
+`resultado-transmissao-<PC>.json`. Os testes com jogo de verdade abaixo continuam valendo para quem quiser.
+
 ## O que anotar em cada teste
 | Campo | Onde ver |
 |---|---|

@@ -1,21 +1,21 @@
-TESTE DA CAPTURA DE JOGOS - RESENHA (Fase 2)
+TESTE DA TRANSMISSAO - RESENHA (Windows 10 e 11)
 
-O que este teste faz
-- Le a versao do Windows, a placa de video e o monitor.
-- Pergunta ao Windows, segundo a segundo, se o jogo esta em "tela cheia exclusiva"
-  (a mesma consulta que o Discord usa). NAO abre, NAO injeta e NAO mexe no jogo.
-- Faz perguntas sobre uma transmissao de verdade na Resenha.
-- Nao instala nada e nao muda nenhuma configuracao.
+Nao precisa de jogo nenhum
+- O kit traz um "Jogo de Teste (Resenha)": uma janela que cobre a tela com uma animacao calma
+  (fundo mudando devagar, uma barra andando e blocos amarelos contando os segundos). NAO pisca.
+- Ele roda em TELA CHEIA exclusiva (minimiza no Alt+Tab, igual ao Valorant e outros jogos) ou em
+  JANELA SEM BORDAS. Esc fecha.
+- Nao instala nada, nao muda configuracao e nao mexe na Resenha instalada.
 
 Como rodar (uns 10 minutos)
 1. Clique com o botao direito no .zip > Extrair tudo.
 2. Abra a pasta extraida e clique duas vezes em "TESTAR (clique duas vezes)".
    Se o Windows avisar sobre o arquivo, clique em "Mais informacoes" > "Executar assim mesmo".
-3. Siga as instrucoes na janela preta.
-4. No fim, mande o arquivo resultado-captura-<NOME DO PC>.json que aparece na pasta.
+3. Parte 1 e automatica (~30 s, nao mexa em nada).
+4. Parte 2: 4 transmissoes curtas na Resenha (precisa de alguem na sala assistindo). A janela preta
+   diz o que fazer em cada uma. No fim de cada caso, use "Copiar relatorio do teste" no
+   "Diagnostico da captura" da Resenha: o teste le o relatorio sozinho, sem digitar nada.
+5. No fim, mande o arquivo resultado-transmissao-<NOME DO PC>.json que aparece na pasta.
 
-Anti-cheat (Valorant/Vanguard e outros)
-- O teste so consulta o estado do Windows (como o Discord e a Xbox Game Bar fazem). Ele nao toca no processo do jogo.
-- Mesmo assim, se preferir, rode a parte 2 com o jogo no menu principal, fora de partida.
-
+Para a Parte 2, use o app de teste (Resenha-Teste-Captura) e o servidor atualizado.
 Precisamos de dois PCs: um com Windows 10 e outro com Windows 11.

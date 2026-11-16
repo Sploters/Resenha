@@ -576,6 +576,7 @@ pub fn main_poc() {
     // pixels físicos em tudo (DXGI, DWM, posição das janelas), como o app já manda as coordenadas
     let dpi = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }.is_ok();
     let manual: u64 = arg("--manual", "0").parse().unwrap_or(0);
+    if flag("--jogo-teste") { return run_test_game(); }
     let fs = flag("--tela-cheia");
     let res = if fs { run_fullscreen(dpi) } else if manual > 0 { run_manual(manual, dpi) } else { run_auto(dpi) };
     let name = if fs { "poc-captura-tela-cheia.json" } else if manual > 0 { "poc-captura-manual.json" } else if flag("--so-recorte") { "poc-captura-recorte.json" } else { "poc-captura-resultado.json" };
@@ -904,3 +905,150 @@ fn run_fullscreen(dpi: bool) -> R<J> {
 
 /// quadros que o DXGI diz ter juntado (AccumulatedFrames): bem acima dos entregues = o laço de consulta perdeu quadros
 fn acc_of(dx: &Option<Box<dyn Source>>) -> u64 { dx.as_ref().and_then(|s| s.extra()["accumulatedFrames"].as_u64()).unwrap_or(0) }
+
+// ---------------------------------------------------------------------------------------------------------------- jogo de teste
+/// "Jogo" genérico para testar a transmissão na Resenha sem precisar de um jogo de verdade (nem de anti-cheat):
+///   lc-stream --poc-captura --jogo-teste --modo tela-cheia|sem-bordas [--secs 600]
+/// Janela "Jogo de Teste (Resenha)" do tamanho do monitor principal, com Direct3D 11 próprio, pintando uma animação calma
+/// (fundo que muda devagar + barra que anda + contador de segundos em blocos), SEM piscar.
+/// tela-cheia: tela cheia EXCLUSIVA (SetFullscreenState). Como os jogos de verdade: ao perder o foco (Alt+Tab) sai da tela
+/// cheia e MINIMIZA; ao voltar (Alt+Tab ou barra de tarefas) entra de novo. É o caso do "Could not start video source".
+/// sem-bordas: janela sem bordas cobrindo o monitor (flip model), não minimiza no Alt+Tab.
+/// Esc fecha. Escreve jogo-teste-<modo>.json com o que aconteceu (segundos minimizado, entradas em tela cheia, estado do Windows).
+fn run_test_game() {
+    let modo = arg("--modo", "tela-cheia");
+    let exclusive = modo != "sem-bordas";
+    let secs: u64 = arg("--secs", "600").parse().unwrap_or(600);
+    let file = format!("jogo-teste-{}.json", if exclusive { "tela-cheia" } else { "sem-bordas" });
+    let v = match test_game(exclusive, secs, &file) { Ok(v) => v, Err(x) => json!({ "error": x }) };
+    let _ = std::fs::write(&file, serde_json::to_string_pretty(&v).unwrap_or_default());
+    say(&format!("\n  jogo de teste fechado. Registro em {file}"));
+}
+
+extern "system" fn game_wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    unsafe {
+        if msg == WM_ERASEBKGND { return LRESULT(1); } // quem pinta é o Direct3D
+        if msg == WM_PAINT { let mut ps = PAINTSTRUCT::default(); BeginPaint(h, &mut ps); let _ = EndPaint(h, &ps); return LRESULT(0); }
+        if msg == WM_SETCURSOR && (lp.0 & 0xFFFF) as u32 == HTCLIENT { SetCursor(None); return LRESULT(1); } // jogo esconde o cursor
+        DefWindowProcW(h, msg, wp, lp)
+    }
+}
+
+fn test_game(exclusive: bool, secs: u64, file: &str) -> R<J> {
+    let (mons, _) = monitors();
+    let m = pick_monitor(&mons).ok_or("nenhum monitor")?;
+    let (mw, mh) = ((m.rect.right - m.rect.left) as u32, (m.rect.bottom - m.rect.top) as u32);
+    let hw = unsafe {
+        let inst = e(GetModuleHandleW(None), "GetModuleHandle")?;
+        let cls = w!("LcJogoTeste");
+        let wc = WNDCLASSW { lpfnWndProc: Some(game_wndproc), hInstance: inst.into(), lpszClassName: cls, ..Default::default() };
+        RegisterClassW(&wc);
+        let hw = e(CreateWindowExW(WINDOW_EX_STYLE(0), cls, w!("Jogo de Teste (Resenha)"), WS_POPUP | WS_VISIBLE, m.rect.left, m.rect.top, mw as i32, mh as i32, None, None, Some(inst.into()), None), "CreateWindowEx")?;
+        let _ = ShowWindow(hw, SW_SHOW); let _ = SetForegroundWindow(hw);
+        hw
+    };
+    let mut gd: Option<ID3D11Device> = None; let mut gc: Option<ID3D11DeviceContext> = None;
+    unsafe { e(D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, HMODULE::default(), D3D11_CREATE_DEVICE_BGRA_SUPPORT, None, D3D11_SDK_VERSION, Some(&mut gd), None, Some(&mut gc)), "device do jogo")?; }
+    let (gd, gc) = (gd.unwrap(), gc.unwrap());
+    let gc1: Option<ID3D11DeviceContext1> = gc.cast().ok();
+    let factory: IDXGIFactory2 = e(unsafe { CreateDXGIFactory1::<IDXGIFactory2>() }, "IDXGIFactory2")?;
+    let sc: IDXGISwapChain = if exclusive {
+        let desc = DXGI_SWAP_CHAIN_DESC { BufferDesc: DXGI_MODE_DESC { Width: mw, Height: mh, Format: DXGI_FORMAT_B8G8R8A8_UNORM, ..Default::default() }, SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT, BufferCount: 1, OutputWindow: hw, Windowed: true.into(), SwapEffect: DXGI_SWAP_EFFECT_DISCARD, Flags: DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH.0 as u32 };
+        let mut sc = None; e(unsafe { factory.CreateSwapChain(&gd, &desc, &mut sc) }.ok(), "CreateSwapChain")?;
+        sc.ok_or("CreateSwapChain sem cadeia")?
+    } else {
+        let d1 = DXGI_SWAP_CHAIN_DESC1 { Width: mw, Height: mh, Format: DXGI_FORMAT_B8G8R8A8_UNORM, SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT, BufferCount: 2, SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD, ..Default::default() };
+        e(unsafe { factory.CreateSwapChainForHwnd(&gd, hw, &d1, None, None) }, "CreateSwapChainForHwnd")?.cast().map_err(|x| x.message())?
+    };
+    let make_rtv = |sc: &IDXGISwapChain| -> Option<ID3D11RenderTargetView> { let b: ID3D11Texture2D = unsafe { sc.GetBuffer(0) }.ok()?; let mut v = None; unsafe { gd.CreateRenderTargetView(&b, None, Some(&mut v)) }.ok()?; v };
+    let mut rtv = make_rtv(&sc);
+    let is_fs = || { let mut on = windows::core::BOOL(0); let _ = unsafe { sc.GetFullscreenState(Some(&mut on), None) }; on.as_bool() };
+    // entra na tela cheia quando a janela está na frente (de começo e depois de cada Alt+Tab de volta). Se o Windows não
+    // deixar o jogo vir para a frente ao abrir, ele fica atrás até alguém clicar nele (não minimiza antes de ter entrado)
+    let mut want_fs = false;
+    let mut events: Vec<J> = Vec::new(); let t0 = Instant::now();
+    let ev = |events: &mut Vec<J>, what: &str, extra: J| { let mut j = json!({ "t": r2(t0.elapsed().as_secs_f64()), "event": what }); if let (Some(o), Some(x)) = (j.as_object_mut(), extra.as_object()) { for (k, v) in x { o.insert(k.clone(), v.clone()); } } events.push(j); };
+    say(&format!("  JOGO DE TESTE ({}) no monitor {} ({}x{}). Esc fecha. Fecha sozinho em {} min.", if exclusive { "TELA CHEIA" } else { "JANELA SEM BORDAS" }, m.dev, mw, mh, secs / 60));
+    let frame_iv = Duration::from_secs_f64(1.0 / m.hz.clamp(30, 240) as f64);
+    let mut next = Instant::now();
+    let (mut sec, mut presented, mut occluded) = (0u64, 0u32, 0u32);
+    let mut per: Vec<J> = Vec::new();
+    let (mut s_min, mut s_fs, mut s_front, mut entries) = (0u32, 0u32, 0u32, 0u32);
+    let mut states: std::collections::BTreeMap<i32, u32> = Default::default();
+    // resumo (também gravado a cada 5 s: o roteiro pode fechar o jogo à força)
+    macro_rules! summary { () => { json!({ "modo": if exclusive { "tela-cheia" } else { "sem-bordas" }, "os": os(), "monitor": { "dev": m.dev, "w": mw, "h": mh, "hz": m.hz },
+        "segundos": sec, "segundosMinimizado": s_min, "segundosTelaCheia": s_fs, "segundosNaFrente": s_front, "entradasTelaCheia": entries,
+        "estadosWindows": states.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<String, J>>(),
+        "codigosEstado": "1 normal, 2 ocupado/tela cheia, 3 D3D tela cheia exclusiva, 4 apresentacao, 5 normal, 6 app tela cheia, 7 quiet",
+        "eventos": events, "porSegundo": per }) } }
+    let mut quit = false;
+    while !quit && t0.elapsed().as_secs() < secs {
+        unsafe {
+            let mut msg = MSG::default();
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                if msg.message == WM_KEYDOWN && msg.wParam.0 == 0x1B { quit = true; }
+                let _ = TranslateMessage(&msg); DispatchMessageW(&msg);
+            }
+            if !IsWindow(Some(hw)).as_bool() { break; }
+        }
+        let front = unsafe { GetForegroundWindow() } == hw;
+        let minimized = unsafe { IsIconic(hw) }.as_bool();
+        if exclusive {
+            // perdeu o foco em tela cheia: sai dela e minimiza (o que os jogos fazem; a Resenha recebe a janela MINIMIZADA)
+            if !front && want_fs {
+                want_fs = false;
+                if is_fs() { drop(rtv.take()); let _ = unsafe { sc.SetFullscreenState(false, None) }; }
+                unsafe { let _ = ShowWindow(hw, SW_MINIMIZE); }
+                ev(&mut events, "saiu_e_minimizou", json!({}));
+            } else if front && !minimized && !want_fs {
+                want_fs = true;
+                drop(rtv.take());
+                let r = unsafe { sc.SetFullscreenState(true, None) };
+                entries += 1;
+                ev(&mut events, "entrou_tela_cheia", json!({ "ok": r.is_ok(), "erro": r.err().map(|x| format!("0x{:08X}", x.code().0 as u32)) }));
+            }
+            if rtv.is_none() && !minimized {
+                let _ = unsafe { sc.ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0)) };
+                rtv = make_rtv(&sc);
+            }
+        }
+        if Instant::now() >= next {
+            next += frame_iv; if next < Instant::now() { next = Instant::now() + frame_iv; }
+            if let Some(v) = &rtv {
+                // fundo que muda devagar (ciclo de ~8 s, nunca escuro a ponto de parecer preto)
+                let t = t0.elapsed().as_secs_f32();
+                let ph = |o: f32| 0.5 + 0.5 * ((t / 8.0 + o) * std::f32::consts::TAU).sin();
+                let bg = [0.12 + 0.18 * ph(0.0), 0.15 + 0.15 * ph(0.33), 0.30 + 0.20 * ph(0.66), 1.0];
+                unsafe { gc.ClearRenderTargetView(v, &bg); }
+                if let Some(c1) = &gc1 {
+                    let (w, h) = (mw as i32, mh as i32);
+                    // barra clara que atravessa a tela em 3 s
+                    let x = ((t % 3.0) / 3.0 * (w as f32)) as i32; let bw = (w / 40).max(8);
+                    unsafe { c1.ClearView(v, &[0.92, 0.92, 0.85, 1.0], Some(&[RECT { left: x, top: h / 5, right: x + bw, bottom: h * 4 / 5 }])); }
+                    // segundos em binário (12 blocos): dá para ver na transmissão se a imagem está andando
+                    let s = t0.elapsed().as_secs(); let bs = (h / 18).max(12);
+                    for i in 0..12 { let on = s >> (11 - i) & 1 == 1; let c = if on { [0.95f32, 0.75, 0.2, 1.0] } else { [0.05, 0.05, 0.08, 1.0] };
+                        let lx = w / 2 - 6 * bs + i * bs; unsafe { c1.ClearView(v, &c, Some(&[RECT { left: lx + 2, top: h - 2 * bs, right: lx + bs - 2, bottom: h - bs }])); } }
+                }
+                let hr = unsafe { sc.Present(1, DXGI_PRESENT(0)) };
+                if hr == DXGI_STATUS_OCCLUDED { occluded += 1; } else if hr.is_ok() { presented += 1; }
+            }
+        } else { std::thread::sleep(Duration::from_millis(1)); }
+        let s2 = t0.elapsed().as_secs();
+        if s2 > sec {
+            sec = s2;
+            let st = unsafe { SHQueryUserNotificationState() }.map(|x| x.0).unwrap_or(0);
+            *states.entry(st).or_default() += 1;
+            let fs = exclusive && is_fs();
+            if minimized { s_min += 1; } if fs { s_fs += 1; } if front { s_front += 1; }
+            per.push(json!({ "s": sec, "quadros": presented, "ocluido": occluded, "minimizado": minimized, "telaCheia": fs, "naFrente": front, "estadoWindows": st }));
+            if sec % 5 == 0 { let _ = std::fs::write(file, serde_json::to_string_pretty(&summary!()).unwrap_or_default()); say(&format!("  {:>4}s  quadros/s {:>3}  {}  {}", sec, presented, if minimized { "MINIMIZADO" } else if fs { "tela cheia" } else if front { "na frente" } else { "atras" }, match st { 3 => "(Windows: tela cheia exclusiva)", 2 => "(Windows: ocupado/tela cheia)", _ => "" })); }
+            presented = 0; occluded = 0;
+        }
+    }
+    if exclusive && is_fs() { drop(rtv.take()); let _ = unsafe { sc.SetFullscreenState(false, None) }; }
+    drop(rtv); drop(sc);
+    unsafe { let _ = DestroyWindow(hw); }
+    Ok(summary!())
+}
