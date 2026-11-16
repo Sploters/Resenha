@@ -224,7 +224,7 @@ function usagePanel(ctx) {
   let t = 0;
   const heavy = () => {
     const v = ctx?.voice, P = S.prefs, out = [];
-    if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', `Processa sua voz o tempo todo (${P.noiseMode === 'gtcrn' ? 'a Máxima, ~7%' : 'a Forte, ~3%'} de um núcleo num PC comum). A "Leve" do navegador quase não pesa.`]);
+    if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', `Processa sua voz o tempo todo (${P.noiseMode === 'gtcrn' ? 'a Máxima, ~10%' : 'a Forte, ~4%'} de um núcleo num PC comum). A "Leve" do navegador quase não pesa.`]);
     if (S.watching?.size) out.push([`Assistindo ${S.watching.size} transmiss${S.watching.size === 1 ? 'ão' : 'ões'}`, 'Cada vídeo decodificado pesa na placa de vídeo. Feche as que não está vendo.']);
     if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos 60 s de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p) e ocupa até ~50 MB de memória cada.']);
     if (v?.screen) out.push(['Você está transmitindo', 'Capturar e comprimir a tela pesa. 720p • 30 fps alivia bastante.']);

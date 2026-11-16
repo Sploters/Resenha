@@ -19,8 +19,8 @@ export function prewarmVoice(prefs) {
     const mode = prefs?.noiseMode;
     if (mode === 'rnnoise' || mode === 'gtcrn') import(`${NS}/index.js`).then((lib) => {
       nsLib ||= lib;
-      wasmCache[mode] ||= (mode === 'rnnoise' ? lib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : lib.loadGtcrn({ url: `${NS}/gtcrn.wasm` })).catch((e) => { delete wasmCache[mode]; throw e; });
-      wasmCache[mode].catch(() => { });
+      loadWasm(mode).catch(() => { });
+      if (mode === 'gtcrn' && prefs.vadGate !== false) loadWasm('rnnoise').catch(() => { }); // detector de voz da porta
     }).catch(() => { });
   };
   (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(go, { timeout: 8000 });
@@ -74,9 +74,58 @@ const bitrateFor = (res, fps, mbps) => {
   return Math.round(base * (fps >= 120 ? 2.4 : fps >= 60 ? 1.6 : fps <= 15 ? .6 : 1) * 1e6);
 };
 
-async function ensureModule(ctx, name) {
+async function ensureModule(ctx, name, url = `${NS}/${name}/workletProcessor.js`) {
   let set = loadedModules.get(ctx); if (!set) loadedModules.set(ctx, set = new Set());
-  if (!set.has(name)) { await ctx.audioWorklet.addModule(`${NS}/${name}/workletProcessor.js`); set.add(name); }
+  if (!set.has(name)) { await ctx.audioWorklet.addModule(url); set.add(name); }
+}
+// o modelo (.wasm) é baixado uma vez por abertura do app; cada nó recebe uma cópia (o nó pode transferir o buffer)
+const loadWasm = (m) => (wasmCache[m] ||= (m === 'rnnoise' ? nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` }))
+  .catch((e) => { delete wasmCache[m]; throw e; })).then((b) => b.slice(0));
+// porta guiada por voz (vadgate-worklet.js): ligada por padrão com RNNoise/GTCRN; prefs.vadGate === false desliga
+export const vadGateOn = (prefs) => (prefs.noiseMode === 'rnnoise' || prefs.noiseMode === 'gtcrn') && prefs.vadGate !== false;
+const vadGateNode = (ctx, opts) => new AudioWorkletNode(ctx, 'lc-vadgate', { numberOfInputs: opts.denoise ? 1 : 2, numberOfOutputs: 1, outputChannelCount: [1],
+  channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers', processorOptions: opts });
+
+// Cadeia de processamento do microfone, de src até o nó devolvido em `last` (createMic liga o resto). Exportada para o
+// banco de testes de ruído (scripts/noise-bench.mjs) medir exatamente o que o app usa.
+export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null, processed: false }) {
+  const mode = prefs.noiseMode || 'standard', nodes = out.nodes;
+  let last = src, first = null;
+  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
+  try {
+    if (mode === 'rnnoise' || mode === 'gtcrn') {
+      nsLib ||= await import(`${NS}/index.js`);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80; chain(hp);
+      // a porta é um extra: se ela não carregar, segue a redução de ruído de sempre (sem a proteção)
+      let smart = vadGateOn(prefs);
+      if (smart) await ensureModule(ctx, 'vadgate', '/vadgate-worklet.js').catch((e) => { console.warn('vadgate', e); smart = false; });
+      const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
+      if (mode === 'rnnoise') {
+        // com a porta: o próprio nó dela faz o RNNoise (e reaproveita a probabilidade de voz); sem: o nó RNNoise de sempre
+        if (smart) chain(vg(true, await loadWasm('rnnoise')));
+        else { await ensureModule(ctx, mode); chain(new nsLib.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary: await loadWasm('rnnoise') })); }
+      } else {
+        await ensureModule(ctx, mode);
+        const [g, r] = await Promise.all([loadWasm('gtcrn'), smart ? loadWasm('rnnoise').catch(() => null) : null]);
+        chain(new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary: g }));
+        // RNNoise separado, só como detector de voz, analisando o microfone ANTES do GTCRN (entrada 1): a saída do GTCRN
+        // confunde o detector, e o atraso do GTCRN vira antecedência para a porta
+        if (smart && r) { chain(vg(false, r)); hp.connect(last, 0, 1); }
+      }
+      out.processed = true;
+    }
+    if (prefs.gate) {
+      nsLib ||= await import(`${NS}/index.js`);
+      await ensureModule(ctx, 'noiseGate');
+      chain(new nsLib.NoiseGateWorkletNode(ctx, { openThreshold: prefs.gateDb ?? -45, closeThreshold: (prefs.gateDb ?? -45) - 6, holdMs: 250, maxChannels: 1 }));
+      out.processed = true;
+    }
+  } catch (e) { // se a IA falhar, segue sem ela (usa o que já está na cadeia)
+    console.warn('denoise', e); out.error = `Redução de ruído indisponível: ${e.message || e}`;
+  }
+  // sensibilidade / liga-desliga da porta por voz ao vivo, sem refazer o microfone
+  out.setVadGate = (o) => { try { out.vadGate?.port.postMessage(o); } catch { } };
+  return Object.assign(out, { first, last });
 }
 
 // Cria o microfone processado. Retorna { raw, stream, analyser, dispose, setLoopback }
@@ -94,27 +143,9 @@ export async function createMic(prefs, ctx) {
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
   const out = { raw, nodes, error: null, processed: false };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
-  let last = src, first = null;
+  const { first: f0 } = await buildChain(ctx, src, prefs, out);
+  let last = out.last, first = f0;
   const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
-  try {
-    if (mode === 'rnnoise' || mode === 'gtcrn') {
-      nsLib ||= await import(`${NS}/index.js`);
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80; chain(hp);
-      await ensureModule(ctx, mode);
-      // o modelo (.wasm) é baixado uma vez por abertura do app; cada chamada recebe uma cópia (o nó pode transferir o buffer)
-      const wasmBinary = (await (wasmCache[mode] ||= (mode === 'rnnoise' ? nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` })).catch((e) => { delete wasmCache[mode]; throw e; }))).slice(0);
-      chain(mode === 'rnnoise' ? new nsLib.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary }) : new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary }));
-      out.processed = true;
-    }
-    if (prefs.gate) {
-      nsLib ||= await import(`${NS}/index.js`);
-      await ensureModule(ctx, 'noiseGate');
-      chain(new nsLib.NoiseGateWorkletNode(ctx, { openThreshold: prefs.gateDb ?? -45, closeThreshold: (prefs.gateDb ?? -45) - 6, holdMs: 250, maxChannels: 1 }));
-      out.processed = true;
-    }
-  } catch (e) { // se a IA falhar, segue sem ela (usa o que já está na cadeia)
-    console.warn('denoise', e); out.error = `Redução de ruído indisponível: ${e.message || e}`;
-  }
   const g = ctx.createGain(); g.gain.value = gain;
   // alguns filtros de ruído só preenchem o canal esquerdo: pega o canal 0 e o destino estéreo repete nos dois lados
   g.channelCount = 1; g.channelCountMode = 'explicit'; g.channelInterpretation = 'discrete'; chain(g);

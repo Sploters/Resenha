@@ -1,0 +1,691 @@
+{
+ "sens": 50,
+ "latenciaMs": {
+  "rnnoise": 20.6,
+  "rnnoise+porta": 20.6,
+  "rnnoise+voz": 20,
+  "gtcrn": 31.9,
+  "gtcrn+voz": 31.9
+ },
+ "cpuPct": {
+  "rnnoise": 2.11,
+  "rnnoise+porta": 2.19,
+  "rnnoise+voz": 2.46,
+  "gtcrn": 5.02,
+  "gtcrn+voz": 7.93
+ },
+ "cenarios": {
+  "latido_silencio": {
+   "desc": "latidos de cachorro (-22 dBFS) durante o silêncio",
+   "frames": {
+    "fala": 2845,
+    "ruidoNaPausa": 272,
+    "inicios": 10
+   },
+   "input": {
+    "ruidoPausaDb": -25.7,
+    "snrFalaDb": 154.5
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -6.1,
+     "ruidoNivelDb": -31.7,
+     "ruidoAudivelPct": 22.8,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 43.8
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -4.6,
+     "ruidoNivelDb": -30.3,
+     "ruidoAudivelPct": 23.2,
+     "portaAbertaPct": 21,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.32,
+     "inicioDb": -0.1,
+     "inicioPiorDb": -0.4,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 34.6
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -8.6,
+     "ruidoNivelDb": -34.2,
+     "ruidoAudivelPct": 16.9,
+     "portaAbertaPct": 10.3,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.35,
+     "inicioDb": -1.4,
+     "inicioPiorDb": -12.1,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 35
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -13.1,
+     "ruidoNivelDb": -38.8,
+     "ruidoAudivelPct": 7.7,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 40.7
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -27.8,
+     "ruidoNivelDb": -53.5,
+     "ruidoAudivelPct": 2.9,
+     "portaAbertaPct": 2.2,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.18,
+     "inicioDb": -1.7,
+     "inicioPiorDb": -15,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 39.7
+    }
+   }
+  },
+  "moto_silencio": {
+   "desc": "motor/escapamento alto (-20 dBFS) durante o silêncio",
+   "frames": {
+    "fala": 3065,
+    "ruidoNaPausa": 848,
+    "inicios": 17
+   },
+   "input": {
+    "ruidoPausaDb": -20.7,
+    "snrFalaDb": 158.7
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -25.8,
+     "ruidoNivelDb": -46.5,
+     "ruidoAudivelPct": 6.1,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 33.2
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -27.7,
+     "ruidoNivelDb": -48.4,
+     "ruidoAudivelPct": 18.6,
+     "portaAbertaPct": 6.8,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.82,
+     "inicioDb": -9.5,
+     "inicioPiorDb": -150,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 31.4
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -27.1,
+     "ruidoNivelDb": -47.8,
+     "ruidoAudivelPct": 1.7,
+     "portaAbertaPct": 1.5,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.49,
+     "inicioDb": -1.1,
+     "inicioPiorDb": -15,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 28.9
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -35.6,
+     "ruidoNivelDb": -56.3,
+     "ruidoAudivelPct": 4.6,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 41.7
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -43,
+     "ruidoNivelDb": -63.7,
+     "ruidoAudivelPct": 0.5,
+     "portaAbertaPct": 0.7,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.23,
+     "inicioDb": -1,
+     "inicioPiorDb": -15,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 33.3
+    }
+   }
+  },
+  "moto_fala": {
+   "desc": "moto passando (pico -16 dBFS) enquanto fala",
+   "frames": {
+    "fala": 2894,
+    "ruidoNaPausa": 35,
+    "inicios": 15
+   },
+   "input": {
+    "ruidoPausaDb": -19.6,
+    "snrFalaDb": -2.4
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -37.5,
+     "ruidoNivelDb": -57.1,
+     "ruidoAudivelPct": 20,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 10.6
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -41.5,
+     "ruidoNivelDb": -61.2,
+     "ruidoAudivelPct": 2.9,
+     "portaAbertaPct": 25.7,
+     "vozDb": -0.1,
+     "vozBaixaDb": -1.7,
+     "vozCortadaPct": 4.42,
+     "inicioDb": -12.4,
+     "inicioPiorDb": -150,
+     "fimDb": -1.5,
+     "fimPiorDb": -18,
+     "snrFalaDb": 10.3
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -37.5,
+     "ruidoNivelDb": -57.1,
+     "ruidoAudivelPct": 20,
+     "portaAbertaPct": 37.1,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 3.08,
+     "inicioDb": -4,
+     "inicioPiorDb": -35,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 10.7
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -54.2,
+     "ruidoNivelDb": -73.8,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 14.2
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -54.3,
+     "ruidoNivelDb": -73.9,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": -0.1,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 2.8,
+     "inicioDb": -1.3,
+     "inicioPiorDb": -15,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 13
+    }
+   }
+  },
+  "latido_fala": {
+   "desc": "latidos (-22 dBFS) por cima da fala",
+   "frames": {
+    "fala": 2995,
+    "ruidoNaPausa": 0,
+    "inicios": 17
+   },
+   "input": {
+    "ruidoPausaDb": -150,
+    "snrFalaDb": 7.8
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 12
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 1.1,
+     "inicioDb": -9.4,
+     "inicioPiorDb": -150,
+     "fimDb": 0,
+     "fimPiorDb": -0.4,
+     "snrFalaDb": 12.5
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.17,
+     "inicioDb": -0.2,
+     "inicioPiorDb": -2.2,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 12
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 18.9
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.03,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 18.9
+    }
+   }
+  },
+  "voz_baixa": {
+   "desc": "voz baixa e distante (-42 dBFS, com sala) e ar ambiente (-66)",
+   "frames": {
+    "fala": 2010,
+    "ruidoNaPausa": 0,
+    "inicios": 6
+   },
+   "input": {
+    "ruidoPausaDb": -150,
+    "snrFalaDb": 24.4
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 13.5
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": -0.1,
+     "vozBaixaDb": -0.2,
+     "vozCortadaPct": 1.69,
+     "inicioDb": -25.4,
+     "inicioPiorDb": -150,
+     "fimDb": -0.3,
+     "fimPiorDb": -1.4,
+     "snrFalaDb": 12.2
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.25,
+     "inicioDb": -0.3,
+     "inicioPiorDb": -1.6,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 13.5
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 25.6
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.1,
+     "inicioDb": -0.1,
+     "inicioPiorDb": -0.3,
+     "fimDb": -0.2,
+     "fimPiorDb": -1.2,
+     "snrFalaDb": 25.6
+    }
+   }
+  },
+  "fala_pausas": {
+   "desc": "fala normal com pausas curtas e longas, sala quieta",
+   "frames": {
+    "fala": 4178,
+    "ruidoNaPausa": 0,
+    "inicios": 20
+   },
+   "input": {
+    "ruidoPausaDb": -150,
+    "snrFalaDb": 41.9
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 33.6
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.5,
+     "inicioDb": -8.8,
+     "inicioPiorDb": -150,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 31.1
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.05,
+     "inicioDb": 0,
+     "inicioPiorDb": -0.7,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 33.2
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 45.7
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -150,
+     "ruidoNivelDb": -150,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 45.4
+    }
+   }
+  },
+  "aparelho_ambiente": {
+   "desc": "aparelho ligado no cômodo (aspirador gravado, -50 dBFS)",
+   "frames": {
+    "fala": 1829,
+    "ruidoNaPausa": 593,
+    "inicios": 9
+   },
+   "input": {
+    "ruidoPausaDb": -50.1,
+    "snrFalaDb": 23.6
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -12.9,
+     "ruidoNivelDb": -63,
+     "ruidoAudivelPct": 7.3,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 23.4
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -23.2,
+     "ruidoNivelDb": -73.3,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 1.5,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.66,
+     "inicioDb": -0.1,
+     "inicioPiorDb": -0.3,
+     "fimDb": 0.1,
+     "fimPiorDb": -0.1,
+     "snrFalaDb": 22.8
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -19.4,
+     "ruidoNivelDb": -69.5,
+     "ruidoAudivelPct": 0.2,
+     "portaAbertaPct": 3.5,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.98,
+     "inicioDb": -2.7,
+     "inicioPiorDb": -15.5,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 22.8
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -25.4,
+     "ruidoNivelDb": -75.5,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 25.9
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -34.3,
+     "ruidoNivelDb": -84.4,
+     "ruidoAudivelPct": 0,
+     "portaAbertaPct": 0,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.77,
+     "inicioDb": -7.2,
+     "inicioPiorDb": -35,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 25.4
+    }
+   }
+  },
+  "teclado_ventilador": {
+   "desc": "teclado (-34 dBFS) o tempo todo e ventilador (-50)",
+   "frames": {
+    "fala": 1829,
+    "ruidoNaPausa": 597,
+    "inicios": 9
+   },
+   "input": {
+    "ruidoPausaDb": -36.5,
+    "snrFalaDb": 8.2
+   },
+   "cadeias": {
+    "rnnoise": {
+     "ruidoPassaDb": -12.7,
+     "ruidoNivelDb": -49.2,
+     "ruidoAudivelPct": 20.8,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 15
+    },
+    "rnnoise+porta": {
+     "ruidoPassaDb": -12.2,
+     "ruidoNivelDb": -48.6,
+     "ruidoAudivelPct": 20.4,
+     "portaAbertaPct": 42.5,
+     "vozDb": 0,
+     "vozBaixaDb": -0.1,
+     "vozCortadaPct": 0.87,
+     "inicioDb": 1.6,
+     "inicioPiorDb": -2.5,
+     "fimDb": 0.8,
+     "fimPiorDb": -2.1,
+     "snrFalaDb": 15
+    },
+    "rnnoise+voz": {
+     "ruidoPassaDb": -12.7,
+     "ruidoNivelDb": -49.2,
+     "ruidoAudivelPct": 20.8,
+     "portaAbertaPct": 70.5,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.11,
+     "inicioDb": 0,
+     "inicioPiorDb": -0.3,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 15
+    },
+    "gtcrn": {
+     "ruidoPassaDb": -33.9,
+     "ruidoNivelDb": -70.4,
+     "ruidoAudivelPct": 1.2,
+     "portaAbertaPct": null,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 17.1
+    },
+    "gtcrn+voz": {
+     "ruidoPassaDb": -33.9,
+     "ruidoNivelDb": -70.4,
+     "ruidoAudivelPct": 1.2,
+     "portaAbertaPct": 1.5,
+     "vozDb": 0,
+     "vozBaixaDb": 0,
+     "vozCortadaPct": 0.05,
+     "inicioDb": 0,
+     "inicioPiorDb": 0,
+     "fimDb": 0,
+     "fimPiorDb": 0,
+     "snrFalaDb": 17.1
+    }
+   }
+  }
+ }
+}

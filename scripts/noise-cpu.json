@@ -1,32 +1,44 @@
 {
-  "secs": 15,
+  "secs": 12,
   "rounds": 2,
   "cores": 4,
   "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
   "modes": {
     "off": {
-      "total": 3.7,
-      "worklet": 0.93,
-      "audioSvc": 2.6,
+      "total": 4.58,
+      "worklet": 1.29,
+      "audioSvc": 3,
       "extra": 0
     },
     "standard": {
-      "total": 3.92,
-      "worklet": 0.87,
-      "audioSvc": 2.9,
-      "extra": 0.22
+      "total": 4.79,
+      "worklet": 1.21,
+      "audioSvc": 3.42,
+      "extra": 0.21
+    },
+    "rnnoise-antigo": {
+      "total": 7.71,
+      "worklet": 4.66,
+      "audioSvc": 2.96,
+      "extra": 3.13
     },
     "rnnoise": {
-      "total": 6.7,
-      "worklet": 4.06,
-      "audioSvc": 2.56,
-      "extra": 3
+      "total": 8.24,
+      "worklet": 5.16,
+      "audioSvc": 2.96,
+      "extra": 3.66
+    },
+    "gtcrn-antigo": {
+      "total": 11.16,
+      "worklet": 8.04,
+      "audioSvc": 3.04,
+      "extra": 6.58
     },
     "gtcrn": {
-      "total": 11.26,
-      "worklet": 7.99,
-      "audioSvc": 2.46,
-      "extra": 7.56
+      "total": 14.52,
+      "worklet": 11.2,
+      "audioSvc": 3.04,
+      "extra": 9.94
     }
   }
 }

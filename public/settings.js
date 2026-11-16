@@ -582,7 +582,18 @@ function voicePage(ctx, reg) {
   };
   const testBtn = h('button.btn', { onclick: () => (test ? stopTest() : startTest()) }, 'Testar microfone');
   // supressão de ruído: cada nível mostra a voz (barras altas) e o ruído (pontinhos) que sobra
-  const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); restartTest(); }));
+  // proteção por voz (vadgate-*.js): só existe com a redução por IA; ligada por padrão, com sensibilidade ajustável ao vivo
+  const aiNoise = () => ['rnnoise', 'gtcrn'].includes(S.prefs.noiseMode);
+  const sensTxt = (v) => (v <= 30 ? 'corta mais ruído' : v >= 70 ? 'protege mais a voz' : 'equilibrada') + ` (${v})`;
+  const vadSens = h('label.f', { style: { marginTop: '4px' } }, 'Sensibilidade da proteção por voz',
+    slider(0, 100, S.prefs.vadSens ?? 50, 5, (v) => { S.prefs.vadSens = v; }, sensTxt, (v) => { save(); voice.micGraph?.setVadGate?.({ sens: v }); test?.setVadGate?.({ sens: v }); }));
+  vadSens.style.display = S.prefs.vadGate !== false ? '' : 'none';
+  const vadBox = h('div', toggleCards([{ on: S.prefs.vadGate !== false, label: 'Proteção por voz', sub: 'Abafa o que não é fala',
+    desc: 'Quando a IA não reconhece voz (latido, moto passando, teclado), o microfone é abafado aos poucos em vez de deixar o barulho passar. Não corta o começo nem o fim das palavras.',
+    prev: h('span.vp-fx', icon('waves', 30)), fn: (v) => { S.prefs.vadGate = v; save(); vadSens.style.display = v ? '' : 'none'; restartTest(); } }]), vadSens);
+  const showVad = () => { vadBox.style.display = aiNoise() ? '' : 'none'; };
+  showVad();
+  const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); showVad(); restartTest(); }));
   drawNoise(); setTimeout(placeMark, 0);
   const gateLbl = h('span', S.prefs.gateDb + ' dB');
   const gateBox = h('label.f', { style: { marginTop: '4px' } }, 'Limite da porta: ', h('span', S.prefs.gateDb + ' dB')); gateBox.style.display = S.prefs.gate ? '' : 'none';
@@ -598,7 +609,7 @@ function voicePage(ctx, reg) {
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
       !navigator.mediaDevices?.enumerateDevices ? null : h('button.btn.grey', { onclick: dev('mic') }, 'Pedir permissão do microfone')),
-    section('Supressão de ruído'), card(noiseCards,
+    section('Supressão de ruído'), card(noiseCards, vadBox,
       toggleCards([
         { on: S.prefs.gate, label: 'Porta de ruído', desc: 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', prev: h('span.vp-gate', h('i.g1'), h('i.g2'), h('i.g3'), h('i.g4'), h('i.g5'), h('b.vp-line')), fn: v => { S.prefs.gate = v; save(); gateBox.style.display = v ? '' : 'none'; restartTest(); } },
         { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },

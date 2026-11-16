@@ -9,7 +9,9 @@ import { ownServer } from './test-server.mjs';
 import { threads as procThreads, diff, TICK } from './proc-cpu.mjs';
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
 const SECS = +(process.env.SECS || 15), ROUNDS = +(process.env.ROUNDS || 2);
-const MODES = (process.env.MODES || 'off,standard,rnnoise,gtcrn').split(',');
+// "rnnoise" e "gtcrn" = com a proteção por voz (o padrão do app); "rnnoise-antigo"/"gtcrn-antigo" = sem ela
+const MODES = (process.env.MODES || 'off,standard,rnnoise-antigo,rnnoise,gtcrn-antigo,gtcrn').split(',');
+const prefsOf = (m) => ({ noiseMode: m.replace(/-antigo$/, ''), vadGate: !m.endsWith('-antigo') });
 const BASE = await ownServer('noisecpu', 3338, 41290);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // "fala" (tom com vibrato e sílabas) e pausas, sempre com chiado por baixo
@@ -33,11 +35,11 @@ await page.goto(BASE + '/vendor/ns/LICENSE'); // página parada da mesma origem 
 await page.evaluate(async () => { window.V = await import('/voice.js'); });
 const R = Object.fromEntries(MODES.map(m => [m, []]));
 for (let r = 0; r < ROUNDS; r++) for (const mode of MODES) {
-  const info = await page.evaluate(async (mode) => {
+  const info = await page.evaluate(async (prefs) => {
     window.ctx = window.V.newAudioContext(); await window.ctx.resume();
-    window.mic = await window.V.createMic({ noiseMode: mode }, window.ctx);
+    window.mic = await window.V.createMic(prefs, window.ctx);
     return { err: window.mic.error, processed: window.mic.processed, ns: window.mic.raw.getAudioTracks()[0].getSettings().noiseSuppression };
-  }, mode);
+  }, prefsOf(mode));
   if (info.err) console.log('  ', mode, info.err);
   await sleep(2000); // aquece (carregar o wasm, modelo)
   const a = threads(), t0 = Date.now(); await sleep(SECS * 1000); const b = threads(), secs = (Date.now() - t0) / 1000;
@@ -46,7 +48,7 @@ for (let r = 0; r < ROUNDS; r++) for (const mode of MODES) {
   const worklet = pct(Object.entries(d).filter(([k]) => /^renderer \/ .*(AudioWorklet|Audio)/i.test(k)).reduce((s, [, x]) => s + x, 0));
   const audioSvc = pct(Object.entries(d).filter(([k]) => /^utility:audio/.test(k)).reduce((s, [, x]) => s + x, 0));
   R[mode].push({ total, worklet, audioSvc, top: Object.entries(d).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, x]) => [k, pct(x)]) });
-  console.log(`  rodada ${r + 1} ${mode.padEnd(8)} total ${total}%  thread de áudio da página ${worklet}%  serviço de áudio ${audioSvc}%   (supressão do navegador: ${info.ns})`);
+  console.log(`  rodada ${r + 1} ${mode.padEnd(15)} total ${total}%  thread de áudio da página ${worklet}%  serviço de áudio ${audioSvc}%   (supressão do navegador: ${info.ns})`);
   if (process.env.DEBUG) console.log('     ', JSON.stringify(R[mode].at(-1).top));
   await page.evaluate(async () => { window.mic.dispose(); await window.ctx.close(); });
   await sleep(1000);
@@ -56,6 +58,6 @@ const base = avg(R.off || R[MODES[0]], 'total');
 console.log('\nMédia (% de um núcleo; diferença para "Nenhuma"):');
 const out = {};
 for (const m of MODES) { out[m] = { total: avg(R[m], 'total'), worklet: avg(R[m], 'worklet'), audioSvc: avg(R[m], 'audioSvc') }; out[m].extra = +(out[m].total - base).toFixed(2);
-  console.log(`  ${m.padEnd(8)} total ${out[m].total}%  (+${out[m].extra})   thread de áudio da página ${out[m].worklet}%   serviço de áudio ${out[m].audioSvc}%`); }
+  console.log(`  ${m.padEnd(15)} total ${out[m].total}%  (+${out[m].extra})   thread de áudio da página ${out[m].worklet}%   serviço de áudio ${out[m].audioSvc}%`); }
 if (process.env.JSON) fs.writeFileSync(process.env.JSON, JSON.stringify({ secs: SECS, rounds: ROUNDS, cores: (await import('node:os')).cpus().length, cpu: (await import('node:os')).cpus()[0]?.model, modes: out }, null, 2));
 await browser.close(); fs.rmSync(WAV, { force: true }); setTimeout(() => process.exit(0), 200);
