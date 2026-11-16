@@ -378,3 +378,124 @@ Recomendações (a decidir):
 3. Depois de validada: seletor (Windows 10 -> DXGI para monitor e para jogo em tela cheia; Windows 11 -> WGC com
    DXGI de reserva; gatilhos: erro, tela preta, WGC parado, estado 3 no Windows 10) e o painel com os campos pedidos.
 4. Não testado (risco declarado): jogo real com anti-cheat, 120 Hz+, notebook híbrido, HDR, monitor girado, TDR.
+
+---
+
+# Fase 2: integração (WGC + DXGI + seleção automática)
+
+Situação: **implementado, compilado para Windows e testado no Linux com simulação; ainda NÃO medido num Windows de
+verdade**. Os números de FPS/CPU/latência de troca em jogos reais dependem do roteiro `docs/TESTE-CAPTURA-AMIGOS.md`.
+
+## O que entrou
+| Parte | Onde | O que faz |
+|---|---|---|
+| Seletor | `native/lc-stream/src/select.rs` | Lógica pura (sem Windows), 14 testes próprios no `cargo test`. Ordem inicial, validação cruzada, limites. |
+| Captura com método | `native/lc-stream/src/capture.rs` | Fontes WGC e DXGI (`DuplicateOutput1` no device do codificador), sonda de tela preta/parada, troca quente, recriação do DXGI, reconstrução após perda da placa. |
+| Caminho clássico | `native/lc-stream/src/win.rs` (`win::run`) | **Intocado** (só ganhou `set_src`, usado pelo caminho novo). É usado quando o app não manda `capture`. |
+| Simulação | `native/lc-stream/src/sim.rs` | Fora do Windows: o seletor real com fontes simuladas (`LC_SIM`), para os testes do app. |
+| App desktop | `desktop/native.js`, `preload.js`, `main.js` | Repassa o método e o build do Windows; com método, o Windows 10 também usa o nativo (pelo DXGI). |
+| Página | `public/voice.js`, `app.js`, `settings.js` | Opção "Método de captura", troca ao vivo, histórico, painel, Chromium como último recurso. |
+| Teste | `scripts/captura-metodo-test.mjs` | Ponta a ponta com o lc-stream real (Linux) + SFU real, 8 cenários. |
+
+## Como decide (modo Automático)
+1. Ordem inicial: Windows 11 (build >= 22000) -> WGC, DXGI. Windows 10 -> DXGI, WGC. Se o primeiro não abrir
+   (ex.: monitor em outra placa, monitor girado, WGC ausente), abre o segundo. O motivo vai para o painel.
+2. A cada 0,5 s a fonte ativa é avaliada: quadros novos, e uma miniatura 64x36 lida da GPU a cada 250 ms sem travar
+   (texturas de leitura em rodízio, `D3D11_MAP_FLAG_DO_NOT_WAIT`): preta? mudou desde a anterior?
+3. Gatilhos:
+   - **erro** que a fonte não resolveu (o DXGI já tenta recriar sozinho por até 8 s) -> troca direta para o outro método;
+   - **tela preta** por 3 s -> abre o outro método ao lado (candidato);
+   - **imagem parada** por 4 s com sinal de que devia mudar (jogo/vídeo em tela cheia na frente, no que está sendo
+     transmitido: `SHQueryUserNotificationState` 2/3 + janela da frente) -> candidato. No Windows 10 com WGC e tela cheia
+     exclusiva o limite é 1,5 s (a PoC viu o WGC congelar ali);
+   - **nenhum quadro** em 3 s depois de abrir -> erro.
+   Área de trabalho parada sem tela cheia na frente NÃO conta como problema (o WGC só entrega quadro quando algo muda).
+4. O candidato roda ao lado por até 2,5 s, só alimentando a sonda (não vai para o codificador). Troca se ele entregar
+   imagem não preta e, se a ativa estava parada, imagem mudando. Senão é descartado e a próxima tentativa espera
+   10 s, 20 s, 40 s ... até 5 min. Exemplo: conteúdo protegido sai preto nos dois -> não troca, só registra.
+5. Janela no Windows 11 que caiu para o DXGI: tenta voltar ao WGC (que isola a janela) depois de 60 s, 120 s, ...
+   No Windows 10 não volta (lá o DXGI é o preferido).
+6. Limites contra laço: no máximo 6 trocas em 5 min; um método com 3 erros em 2 min fica desligado na transmissão;
+   sem método -> o programa encerra com "nenhum metodo de captura nativa funcionou" e a página volta ao Chromium
+   **sem** reiniciar o programa (está na lista de erros definitivos). Os outros erros continuam com o limite antigo
+   (3 reinícios em 30 s).
+7. Forçar WGC/DXGI: nunca troca de método (só recria dentro dele); problema de imagem só vira anotação no histórico.
+
+## Troca sem reiniciar codificador, SFU ou sessão
+As duas fontes usam o mesmo `ID3D11Device` do codificador. Trocar = outra textura de entrada no `VideoProcessorBlt`,
+outro retângulo de origem (`set_src`) e `force_key()` em todas as camadas. RTP/SRTP, SSRCs, relógio e a sessão no
+SFU continuam. O evento `method` traz `ms` (da troca até o 1º quadro da nova fonte no codificador) e `testMs` (quanto
+tempo os dois métodos ficaram comparados lado a lado, sem afetar a transmissão).
+
+## Recuperação
+- DXGI: `ACCESS_LOST`, `INVALID_CALL` e qualquer erro que não seja timeout -> recria a duplicação com espera de
+  0,1 s a 1 s; desiste após 8 s sem acesso ou 30 recriações em 60 s (aí o seletor decide).
+- Resolução e tela cheia: o DXGI recria e passa a entregar o tamanho novo; o WGC recria o pool. O codificador mantém a
+  saída e encaixa a imagem nova com barras pretas (igual ao caminho clássico).
+- Janela mudou de monitor (DXGI): duplica a saída do monitor novo. Minimizada: repete o último quadro.
+- Placa de vídeo perdida (`GetDeviceRemovedReason`): recria device, codificadores e fonte e manda os parâmetros
+  novos (SPS/PPS) pelo mesmo RTP; até 3 vezes em 2 min, depois erro -> Chromium.
+
+## Controles
+Configurações > Transmissão > Experimental > **Método de captura (teste)**, e o mesmo seletor em "Ajustes da
+transmissão" durante a live (troca na hora, reinicia só o vídeo, 1-2 s):
+Automático (padrão) · Forçar WGC · Forçar DXGI · Forçar Chromium · **Clássico (versão anterior)**.
+
+## Painel (Ajustes da transmissão > Diagnóstico da captura)
+Pedido, método em uso (e candidato sendo testado), por que começou assim, o que não abriu, FPS capturado/codificado,
+CPU do programa nativo (% de um núcleo), tempo de codificação, resolução de captura -> envio, erros, recriações do DXGI,
+perdas da placa, avisos (DXGI em janela mostra o que estiver por cima; sem cursor no DXGI) e o histórico de trocas e
+decisões com horário e motivo. Botão "Copiar relatório do teste" (JSON) para mandar os resultados.
+
+## Segurança e volta atrás
+- Sem injeção de DLL, hook ou acesso a processo de jogo: só WGC e DXGI Desktop Duplication (APIs públicas de captura).
+- Caminho atual preservado: `win::run` sem mudança de comportamento; o lc-stream só sai dele quando recebe `capture`.
+- Volta atrás em 3 níveis: (1) "Clássico (versão anterior)" ou "Forçar Chromium" nas configurações, na hora;
+  (2) app antigo: a página nova manda `capture` só se o app disser que suporta (`modes`); app antigo segue igual;
+  página antiga + app novo também segue no clássico; (3) código: o commit `cc6c4a1` (PoC) é o estado anterior a esta
+  integração; o instalador anterior continua nas releases do GitHub.
+- A voz não passa pelo lc-stream: nada aqui toca no microfone, no Opus ou no transporte da voz.
+
+## Testes feitos (Linux, sem Windows)
+| Teste | Resultado |
+|---|---|
+| `cargo test` (14 do seletor + 5 de RTP/SRTP) | 19/19 |
+| `cargo build --target x86_64-pc-windows-gnu` | sem erro e sem aviso |
+| `scripts/captura-metodo-test.mjs` (8 cenários, lc-stream real + SFU real) | tudo ok |
+| `native-live-test`, `native-test` (caminho clássico), `fse-test`, `streamhealth-test`, `callqual-unit-test`, `black-capture-test` | ok |
+| `node scripts/check.mjs`, `desktop-files-check` | ok |
+| App portátil para Windows montado aqui (`electron-builder --win portable`, sem assinatura de código) | ok, **não executado** (sem Windows) |
+
+O que os testes no Linux NÃO provam: que as chamadas do Windows (WGC, DXGI, sonda na GPU, `GetDeviceRemovedReason`,
+`SHQueryUserNotificationState`) se comportam como esperado. O código foi escrito em cima do que a PoC mediu nos dois
+PCs (mesmas chamadas), mas o caminho integrado só vai ser provado no roteiro `docs/TESTE-CAPTURA-AMIGOS.md`.
+
+Bugs que os testes pegaram e já estão corrigidos:
+- a regra "voltar ao método preferido" tentava voltar ao DXGI no Windows 10 logo depois de ele falhar (agora só volta
+  ao WGC, no Windows 11, para janela, depois de 60 s);
+- numa troca a frio em que o substituto não abria, o programa ainda tentava abri-lo mais 2 vezes antes de desistir.
+
+## Entrega para teste
+- Branch `claude/jolly-galileo-cin4x4`. O servidor precisa rodar esta branch (página nova).
+- App: `Resenha-Teste-Captura-1.0.40.exe` (portátil, roda sem instalar e sem mexer na Resenha instalada).
+  Montar de novo: `cd desktop && npx electron-builder --win portable --publish never -c.win.signExecutable=false
+  -c.portable.artifactName='Resenha-Teste-Captura-${version}.${ext}'` (o `lc-stream.exe` já está em `desktop/native`).
+- O instalador oficial só sai quando isto chegar na `main` (workflow `desktop-release.yml`).
+
+## Problemas conhecidos e limitações (não escondidas)
+1. **DXGI não isola janela.** Transmitindo uma janela pelo DXGI, tudo o que ficar por cima dela (outra janela, menu,
+   notificação, o próprio overlay) aparece na transmissão. Minimizada: imagem para. O painel avisa quando isso vale.
+   No Windows 10 o Automático usa DXGI também para janela (o WGC de janela lá tem borda amarela).
+2. **Cursor não aparece no DXGI** (o DXGI entrega o ponteiro à parte; desenhar ficou para depois).
+3. DXGI precisa que o monitor esteja na mesma placa do codificador: notebook híbrido com monitor na integrada -> DXGI
+   indisponível (cai no WGC). Monitor girado -> DXGI indisponível (a imagem viria deitada).
+4. No Windows 10, enquanto o candidato WGC é testado (até 2,5 s) a borda amarela pode aparecer e ser captada pelo DXGI.
+5. Tela realmente preta (tela de carregamento longa, filme com proteção) dispara um teste do outro método; ele é
+   descartado e a espera dobra. Custo: abrir uma captura extra por até 2,5 s.
+6. A sonda olha uma miniatura 64x36: um jogo muito escuro (média < 4 e máximo < 24 de 255) conta como preto.
+7. HDR: pedimos BGRA 8 bits; o Windows converte (pode ficar lavado). Não testado.
+8. 120 Hz/120 FPS, jogos reais (Valorant com Vanguard), notebook híbrido, TDR real: **não testados**, só os
+   caminhos de código. A PoC só tinha monitores de 60 Hz.
+9. Trocas de resolução mantêm a saída do codificador (barras pretas), como o caminho clássico; não reabre o
+   codificador na resolução nova.
+10. O Automático é o padrão para quem tiver a página E o app novos. Quem tiver só um dos dois fica no clássico.

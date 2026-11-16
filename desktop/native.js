@@ -14,17 +14,28 @@ const helperPath = () => {
 };
 
 // Há codificador H.264 de hardware e captura WGC? (resultado guardado: o programa só lista, não captura nada)
-function capable() {
+// mode: método de captura escolhido nas configurações ('auto' | 'wgc' | 'dxgi'); sem ele = caminho clássico (só WGC,
+// e no Windows 10 fica no Chromium por causa da borda amarela). Com o DXGI o Windows 10 também transmite pelo nativo.
+const MODES = ['auto', 'wgc', 'dxgi'];
+function capable(mode) {
   if (process.platform !== 'win32') return Promise.resolve({ ok: false, code: 'web', reason: 'Só no app para Windows.' });
   const exe = helperPath(); if (!exe) return Promise.resolve({ ok: false, code: 'noexe', reason: 'Componente de transmissão nativa não encontrado. Atualize o app.' });
-  if (winBuild && winBuild < 20348) return Promise.resolve({ ok: false, code: 'win10', reason: BORDER_MSG });
-  if (probed) return probed;
-  probed = new Promise((res) => execFile(exe, ['--probe'], { windowsHide: true, timeout: 10000 }, (err, out) => {
+  const m = MODES.includes(mode) ? mode : null;
+  if (!m && winBuild && winBuild < 20348) return Promise.resolve({ ok: false, code: 'win10', reason: BORDER_MSG, modes: MODES, os: winBuild });
+  if (!probed) probed = new Promise((res) => execFile(exe, ['--probe'], { windowsHide: true, timeout: 10000 }, (err, out) => {
     let j = null; try { j = JSON.parse(String(out).trim().split(/\r?\n/).pop()); } catch { }
     if (!j) { probed = null; return res({ ok: false, code: 'other', reason: 'Não consegui testar a placa de vídeo' + (err ? ': ' + err.message : '') }); }
-    res(j.ok ? { ok: true, encoders: j.encoders } : { ok: false, code: j.wgc === false ? 'nocap' : 'nohw', reason: j.error || (j.wgc === false ? 'Este Windows não tem a captura de tela necessária (Windows 10 1903 ou mais novo).' : 'Nenhum codificador de vídeo de hardware (NVIDIA, AMD ou Intel) encontrado.') });
+    res(j);
   }));
-  return probed;
+  return probed.then((j) => {
+    if (j.ok === false && j.code) return j; // falha do próprio teste
+    const enc = Array.isArray(j.encoders) && j.encoders.length > 0;
+    if (!enc) return { ok: false, code: 'nohw', reason: j.error || 'Nenhum codificador de vídeo de hardware (NVIDIA, AMD ou Intel) encontrado.', modes: MODES, os: winBuild };
+    // o DXGI não depende do WGC: sem WGC, só "wgc" e o clássico ficam de fora
+    if (j.wgc === false && (!m || m === 'wgc')) return { ok: false, code: 'nocap', reason: 'Este Windows não tem a captura de tela necessária (Windows 10 1903 ou mais novo).', modes: MODES, os: winBuild };
+    const note = m === 'wgc' && winBuild && winBuild < 22000 ? 'WGC forçado no Windows 10: aparece uma borda amarela em volta da captura.' : null;
+    return { ok: true, encoders: j.encoders, modes: MODES, os: winBuild, note };
+  });
 }
 
 // Windows 10: a captura do programa nativo (WGC) sempre desenha uma borda amarela em volta da tela/janela, e só o Windows
@@ -54,12 +65,14 @@ function stop() {
   setTimeout(() => { try { p.kill(); } catch { } }, 3000);
 }
 
-// o: { host, port, ssrc, pt, key, serverKey, fps, height, kbps, cursor, sourceId }. Resolve com o evento "started" ou "error".
+// o: { host, port, ssrc, pt, key, serverKey, fps, height, kbps, cursor, sourceId, capture }. Resolve com o evento "started" ou "error".
+// capture ('auto' | 'wgc' | 'dxgi'): captura com escolha de método (native/lc-stream/src/capture.rs). Sem ele, o caminho clássico.
 async function start(o) {
   stop();
   const exe = helperPath(); if (!exe) return { ok: false, error: 'Componente de transmissão nativa não encontrado' };
   const cfg = { host: String(o.host), port: o.port | 0, ssrc: o.ssrc >>> 0, pt: o.pt | 0, key: String(o.key), serverKey: String(o.serverKey),
     fps: Math.max(1, Math.min(240, o.fps | 0)), height: Math.max(144, Math.min(2160, o.height | 0)), kbps: Math.max(500, Math.min(100000, o.kbps | 0)), cursor: o.cursor !== false, ...(await sourceFor(o.sourceId)) };
+  if (MODES.includes(o.capture)) { cfg.capture = o.capture; cfg.osBuild = winBuild; }
   // camadas do simulcast (da leve para a cheia), cada uma com o próprio ssrc
   if (Array.isArray(o.layers)) cfg.layers = o.layers.slice(0, 3).map(l => ({ ssrc: l.ssrc >>> 0, height: Math.max(144, Math.min(2160, l.height | 0)), fps: Math.max(1, Math.min(240, l.fps | 0)), kbps: Math.max(300, Math.min(100000, l.kbps | 0)) }));
   const p = spawn(exe, ['--stdin'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });

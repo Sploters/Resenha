@@ -9,8 +9,13 @@
 //! Fora do Windows (testes): a "captura" é um ffmpeg (testsrc) gerando H.264.
 mod rtp;
 mod srtp;
+pub mod select;
+#[cfg(not(windows))]
+mod sim;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+mod capture;
 #[cfg(all(windows, feature = "poc"))]
 mod poc;
 
@@ -34,15 +39,19 @@ pub struct Layer { pub ssrc: u32, pub height: u32, pub fps: u32, pub kbps: u32 }
 
 #[derive(Clone)]
 /// cursor: desenhar o ponteiro do mouse na captura (opção "mostrar o cursor" da transmissão)
-pub struct Opts { pub host: String, pub port: u16, pub pt: u8, pub key: Option<(String, String)>, pub secs: u64, pub layers: Vec<Layer>, pub source: Source, pub app: bool, pub cursor: bool, pub stop: Arc<AtomicBool> }
+pub struct Opts { pub host: String, pub port: u16, pub pt: u8, pub key: Option<(String, String)>, pub secs: u64, pub layers: Vec<Layer>, pub source: Source, pub app: bool, pub cursor: bool, pub stop: Arc<AtomicBool>,
+    /// método de captura pedido pelo app (auto | wgc | dxgi). None = caminho clássico (win::run, o da versão anterior)
+    pub capture: Option<String>, pub os_build: u32 }
 impl Opts { pub fn top(&self) -> &Layer { self.layers.last().unwrap() } }
 
 pub fn emit(v: serde_json::Value) { let mut o = std::io::stdout().lock(); let _ = writeln!(o, "{v}"); let _ = o.flush(); }
 
 /// Contadores por segundo; no modo app manda "stats" a cada segundo, no teste guarda a série e imprime um resumo.
-pub struct Meter { start: Instant, sec: u64, cap: u32, sent: u32, bytes: u64, lsent: Vec<u32>, pub last_layers: Vec<u32>, pub hist_cap: Vec<u32>, pub hist_sent: Vec<u32>, pub hist_bytes: Vec<u64>, pub enc_ms: Vec<f64>, pub skipped_busy: u64, pub repeats: u64, secs: u64, app: bool, pub stop: Arc<AtomicBool>, pub size: (u32, u32) }
+pub struct Meter { start: Instant, sec: u64, cap: u32, sent: u32, bytes: u64, lsent: Vec<u32>, pub last_layers: Vec<u32>, pub hist_cap: Vec<u32>, pub hist_sent: Vec<u32>, pub hist_bytes: Vec<u64>, pub enc_ms: Vec<f64>, pub skipped_busy: u64, pub repeats: u64, secs: u64, app: bool, pub stop: Arc<AtomicBool>, pub size: (u32, u32),
+    /// campos a mais no evento "stats" (captura com escolha de método); Null no caminho clássico
+    pub extra: serde_json::Value }
 impl Meter {
-    pub fn new(o: &Opts) -> Self { Self { start: Instant::now(), sec: 0, cap: 0, sent: 0, bytes: 0, lsent: vec![0; o.layers.len()], last_layers: vec![0; o.layers.len()], hist_cap: vec![], hist_sent: vec![], hist_bytes: vec![], enc_ms: vec![], skipped_busy: 0, repeats: 0, secs: o.secs, app: o.app, stop: o.stop.clone(), size: (0, 0) } }
+    pub fn new(o: &Opts) -> Self { Self { start: Instant::now(), sec: 0, cap: 0, sent: 0, bytes: 0, lsent: vec![0; o.layers.len()], last_layers: vec![0; o.layers.len()], hist_cap: vec![], hist_sent: vec![], hist_bytes: vec![], enc_ms: vec![], skipped_busy: 0, repeats: 0, secs: o.secs, app: o.app, stop: o.stop.clone(), size: (0, 0), extra: serde_json::Value::Null } }
     pub fn elapsed(&self) -> f64 { self.start.elapsed().as_secs_f64() }
     pub fn captured(&mut self) { self.cap += 1; }
     /// quadro enviado na camada `layer` (a última é a cheia: é ela que conta como "fps enviados")
@@ -56,7 +65,9 @@ impl Meter {
             self.hist_cap.push(c); self.hist_sent.push(t); self.hist_bytes.push(b);
             if self.app {
                 let em = if self.enc_ms.is_empty() { 0.0 } else { pct(&self.enc_ms[self.enc_ms.len().saturating_sub(c.max(1) as usize)..], 0.5) };
-                emit(serde_json::json!({ "t": "stats", "fps": t, "cap": c, "kbps": b * 8 / 1000, "w": self.size.0, "h": self.size.1, "encMs": (em * 100.0).round() / 100.0, "busy": self.skipped_busy, "nacks": s.nacks, "keyReq": s.plis, "repeats": self.repeats, "layers": self.last_layers }));
+                let mut v = serde_json::json!({ "t": "stats", "fps": t, "cap": c, "kbps": b * 8 / 1000, "w": self.size.0, "h": self.size.1, "encMs": (em * 100.0).round() / 100.0, "busy": self.skipped_busy, "nacks": s.nacks, "keyReq": s.plis, "repeats": self.repeats, "layers": self.last_layers });
+                if !self.extra.is_null() { merge(&mut v, self.extra.clone()); }
+                emit(v);
                 if self.enc_ms.len() > 4000 { self.enc_ms.drain(..2000); }
             } else {
                 eprintln!("  {:>3}s  capturados {:>3}  enviados {:>3} fps  {:>5.1} Mbps  (quadros-chave {}, pedidos de reenvio {})", self.sec, c, t, b as f64 * 8.0 / 1e6, s.keyframes, s.nacks);
@@ -106,14 +117,16 @@ fn main() {
         if layers.is_empty() { layers.push(Layer { ssrc: v["ssrc"].as_u64().unwrap_or(0) as u32, height, fps, kbps }); }
         Opts { host: v["host"].as_str().unwrap_or("").into(), port: v["port"].as_u64().unwrap_or(0) as u16, pt: v["pt"].as_u64().unwrap_or(102) as u8,
             key: match (v["key"].as_str(), v["serverKey"].as_str()) { (Some(a), Some(b)) => Some((a.into(), b.into())), _ => None },
-            secs: v["secs"].as_u64().unwrap_or(0), layers, source: src, app: true, cursor: v["cursor"].as_bool().unwrap_or(true), stop }
+            secs: v["secs"].as_u64().unwrap_or(0), layers, source: src, app: true, cursor: v["cursor"].as_bool().unwrap_or(true), stop,
+            capture: v["capture"].as_str().map(String::from), os_build: v["osBuild"].as_u64().unwrap_or(0) as u32 }
     } else {
         let Some((host, port, ssrc, pt, key)) = parse_code(&arg("--code", "")) else {
             eprintln!("Codigo invalido. Gere o codigo na Resenha (Configuracoes > Transmissao > Teste 120 FPS) e cole aqui.");
             std::process::exit(2);
         };
         let top = Layer { ssrc, height: arg("--height", "1080").parse().unwrap_or(1080), fps: arg("--fps", "120").parse().unwrap_or(120), kbps: arg("--kbps", "16000").parse().unwrap_or(16000) };
-        Opts { host, port, pt, key, secs: arg("--secs", "60").parse().unwrap_or(60), layers: vec![top], source: Source::Primary, app: false, cursor: true, stop }
+        Opts { host, port, pt, key, secs: arg("--secs", "60").parse().unwrap_or(60), layers: vec![top], source: Source::Primary, app: false, cursor: true, stop,
+            capture: if std::env::args().any(|a| a == "--metodo") { Some(arg("--metodo", "auto")) } else { None }, os_build: arg("--os-build", "0").parse().unwrap_or(0) }
     };
     if !o.app { let t = o.top(); eprintln!("  enviando para {}:{} (ssrc {}), {} fps, {} p, {} kbps, {} s{}", o.host, o.port, t.ssrc, t.fps, t.height, t.kbps, o.secs, if o.key.is_some() { ", criptografado (SRTP)" } else { "" }); }
     if let Err(e) = run(&o) {
@@ -131,7 +144,11 @@ pub fn sender(o: &Opts) -> Result<rtp::Session, String> {
 }
 
 #[cfg(windows)]
-fn run(o: &Opts) -> Result<(), String> { win::run(o) }
+fn run(o: &Opts) -> Result<(), String> {
+    // com "capture" (auto | wgc | dxgi): captura com escolha de método e troca sem derrubar (capture.rs).
+    // Sem ele, ou com um valor desconhecido: o caminho clássico, idêntico ao da versão anterior.
+    match o.capture.as_deref().and_then(select::Mode::parse) { Some(mode) => capture::run(o, mode, o.os_build), None => win::run(o) }
+}
 #[cfg(windows)]
 fn probe() { emit(win::probe()); }
 
@@ -162,7 +179,14 @@ fn run(o: &Opts) -> Result<(), String> {
     let mut tx = sender(o)?;
     let top = o.top().clone(); let (w, h) = ((top.height * 16 / 9) / 2 * 2, top.height);
     let mut m = Meter::new(o); m.size = (w, h);
-    if o.app { emit(serde_json::json!({ "t": "started", "w": w, "h": h, "encoder": "ffmpeg libx264 (teste)", "source": format!("{:?}", o.source), "layers": o.layers.iter().map(|l| format!("{}p{}", l.height, l.fps)).collect::<Vec<_>>() })); }
+    // com "capture": o seletor de verdade sobre fontes simuladas (sim.rs, LC_SIM)
+    let mut sim = match o.capture.as_deref().and_then(select::Mode::parse) { Some(mode) => Some(sim::Sim::new(mode, o.os_build, matches!(o.source, Source::Window(_)))?), None => None };
+    let mut started = serde_json::json!({ "t": "started", "w": w, "h": h, "encoder": "ffmpeg libx264 (teste)", "source": format!("{:?}", o.source), "layers": o.layers.iter().map(|l| format!("{}p{}", l.height, l.fps)).collect::<Vec<_>>() });
+    if let Some((_, cap)) = &sim { started["capture"] = cap.clone(); }
+    let mut sim = sim.take().map(|x| x.0);
+    let sim_out = |s: &mut sim::Sim| { for ev in s.events.drain(..) { if o.app { emit(ev); } else { eprintln!("  {ev}"); } } };
+    if o.app { emit(started); }
+    if let Some(s) = &mut sim { sim_out(s); }
     let t0 = Instant::now(); let mut next: Vec<f64> = vec![0.0; o.layers.len()]; let mut k: Vec<u64> = vec![0; o.layers.len()];
     while !m.done() {
         // próxima camada a vencer
@@ -175,10 +199,17 @@ fn run(o: &Opts) -> Result<(), String> {
         let before = tx.streams[i].stats.bytes;
         tx.send_frame(i, &frame, ts);
         m.sent(i, (tx.streams[i].stats.bytes - before) as usize);
+        if let Some(s) = &mut sim {
+            let r = s.tick(m.elapsed()); sim_out(s);
+            if let Err(x) = r { for mut f in kids { let _ = f.kill(); } return Err(x); }
+            m.extra = s.extra(w, h);
+        }
         m.tick(&tx.total());
         k[i] += 1; next[i] = k[i] as f64 / o.layers[i].fps as f64;
     }
     for mut f in kids { let _ = f.kill(); }
-    summary(&m, &tx.total(), serde_json::json!({ "encoder": "ffmpeg libx264 (teste)", "rtcpBad": tx.rtcp_bad, "layers": o.layers.len() }));
+    let mut x = serde_json::json!({ "encoder": "ffmpeg libx264 (teste)", "rtcpBad": tx.rtcp_bad, "layers": o.layers.len() });
+    if let Some(s) = &sim { x["capture"] = serde_json::json!({ "history": s.history() }); }
+    summary(&m, &tx.total(), x);
     Ok(())
 }

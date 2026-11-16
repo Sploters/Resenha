@@ -662,4 +662,7 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .capdiag { margin-top: 12px; font-size: 13px; } .capdiag summary { cursor: pointer; color: var(--text-muted); }
 .cd-body { margin-top: 6px; display: grid; gap: 3px; }
 .cd-row { display: flex; gap: 10px; justify-content: space-between; } .cd-row span { color: var(--text-muted); flex: none; } .cd-row b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.cd-hist { margin: 4px 0 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; font-size: 12px; }
+.cd-hist li { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 3px 0; border-top: 1px solid var(--bg-mod, rgba(127,127,127,.15)); } .cd-hist li span { flex: 1 1 100%; color: var(--text-muted); overflow-wrap: anywhere; }
+.cd-hist time { color: var(--text-muted); font-variant-numeric: tabular-nums; } .cd-hist li.m b { color: var(--text-normal, inherit); }
 .cd-sub { margin-top: 6px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }

@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   remoteStop: () => ipcRenderer.send('remote-stop'),
   onRemoteEvent: (cb) => ipcRenderer.on('remote-event', (_e, k) => cb(k)),
   // transmissão a 120 FPS: programa nativo (captura sem limite + placa de vídeo); ver desktop/native.js
-  nativeCapable: () => ipcRenderer.invoke('native-capable'),
+  nativeCapable: (mode) => ipcRenderer.invoke('native-capable', mode),
   nativeStart: (o) => ipcRenderer.invoke('native-start', o),
   nativeStop: () => ipcRenderer.send('native-stop'),
   onNativeEvent: (cb) => ipcRenderer.on('native-event', (_e, ev) => cb(ev)),

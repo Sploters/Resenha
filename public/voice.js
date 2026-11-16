@@ -43,7 +43,13 @@ export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
 export const FSE_TICK = 3000, FSE_CONFIRM_TICKS = 2, FSE_FROZEN_TICKS = 4; // aviso de tela cheia exclusiva: a cada 3 s; 2 leituras com as duas evidências; 12 s sem quadro = "congelada"
 export const GOV_TICK = 2000, GOV_BAD = 3, GOV_VIEWERS_MS = 10e3; // controle da transmissão (govTick): leitura a cada 2 s, 6 s ruins para descer
 export const NATIVE_RESTARTS = 3, NATIVE_RESTART_WIN = 30e3, NATIVE_RESTART_DELAY = 1000;
-const NATIVE_FATAL = /janela transmitida foi fechada|nenhum codificador|não encontrado|desktop sem suporte/i;
+// "nenhum metodo de captura nativa": o programa já tentou WGC e DXGI (e recriou cada um) e nenhum serviu: reiniciar não ajuda
+const NATIVE_FATAL = /janela transmitida foi fechada|nenhum codificador|não encontrado|desktop sem suporte|nenhum metodo de captura nativa/i;
+// método de captura (Configurações > Transmissão): 'auto' escolhe entre WGC e DXGI pelo que a captura entrega de verdade;
+// 'wgc'/'dxgi' forçam um; 'chromium' nunca usa o programa nativo; 'classic' = o caminho da versão anterior (só WGC).
+export const CAPTURE_METHODS = { auto: 'Automático', wgc: 'Forçar WGC', dxgi: 'Forçar DXGI', chromium: 'Forçar Chromium', classic: 'Clássico (versão anterior)' };
+export const captureMode = (prefs) => (CAPTURE_METHODS[prefs?.captureMethod] ? prefs.captureMethod : 'auto');
+const CAP_HIST_MAX = 60;
 export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '64 kbps'], [128, '128 kbps'], [256, '256 kbps'], [384, '384 kbps']];
 // voz é mono: 48-64 kbps já soam perfeitos. Acima disso só faz sentido para música (e pesa no upload do servidor:
 // cada voz é repassada para todos os outros da sala)
@@ -535,19 +541,31 @@ export class Voice {
     if (!this.screen) return null;
     const n = this.native, o = this.screenOpts || {}, st = await this.screenStats().catch(() => null), top = st?.[0];
     const method = n ? (n.restarting ? 'restarting' : n.pending ? 'starting' : 'native') : 'chromium';
-    const label = { native: 'Programa nativo (WGC → codificador da placa)', starting: 'Programa nativo (iniciando)', restarting: 'Programa nativo (reiniciando após falha)', chromium: 'Modo normal (captura e codificação do Chromium)' }[method];
+    const cm = n?.method || n?.stats?.m || null; // método da captura nativa em uso (wgc | dxgi): o evento de troca chega antes das estatísticas
+    const CAPN = { wgc: 'WGC', dxgi: 'DXGI' };
+    const label = { native: `Programa nativo (${CAPN[cm] || 'WGC'} → codificador da placa)`, starting: 'Programa nativo (iniciando)', restarting: 'Programa nativo (reiniciando após falha)', chromium: 'Modo normal (captura e codificação do Chromium)' }[method];
+    const st0 = n?.stats || {}, cap = n?.capture || null;
     const cs = this.capStats || { chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }, g = this.gov;
     return {
       method, label, want: { fps: +o.fps || 30, res: o.res || 1080 },
       captureFps: n ? (n.stats?.cap ?? null) : this.captureFps, sentFps: top?.fps ?? null, size: top?.w ? `${top.w}x${top.h}` : null, encoder: top?.enc || this.screenEncoder || '', limit: top?.limit || null,
       frames: [
-        { id: 'native', name: 'Programa nativo (WGC)', frames: cs.native.frames, secs: cs.native.secs, sent: cs.native.sent },
+        { id: 'native', name: 'Programa nativo (WGC/DXGI)', frames: cs.native.frames, secs: cs.native.secs, sent: cs.native.sent },
         { id: 'chromium', name: 'Chromium (capturador do navegador)', frames: cs.chromium.frames, secs: cs.chromium.secs },
       ],
       fallback: method === 'chromium' ? { code: this._natWhy || null, text: this._natWhyText || null } : null,
       restarts: this.natRestartCount || 0, lastError: this.natLastError || null,
       gov: g ? { note: g.note, step: g.ladder[g.level], layersOff: g.layersOff, top: g.ladder[0] } : null,
       fse: this.fse || null,
+      // escolha do método (captura com WGC/DXGI): o pedido, o que o programa decidiu e por quê, e o histórico de trocas
+      capture: {
+        mode: captureMode(this.prefs), applied: n ? (cap?.mode || (this._capMode ? null : 'classic')) : null, active: method === 'chromium' ? 'chromium' : cm,
+        candidate: st0.cand || null, plan: cap?.plan || null, order: cap?.order || null, os: cap?.os || null, openErrors: cap?.openErrors || [],
+        srcSize: st0.srcW ? `${st0.srcW}x${st0.srcH}` : null, outSize: n?.w ? `${n.w}x${n.h}` : null, capFps: n ? (st0.cap ?? null) : this.captureFps, encFps: n ? (st0.fps ?? null) : top?.fps ?? null,
+        repeats: st0.repeats ?? null, cpu: st0.cpu ?? null, encMs: st0.encMs ?? null, kbps: st0.kbps ?? null, black: st0.black ?? null, overlap: !!(n?.overlap ?? st0.overlap), errs: st0.errs ?? 0, lastErr: st0.lastErr || null, rebuilds: st0.rebuilds ?? 0,
+        fullscreen: st0.fs ?? null, info: st0.info || cap?.info || null, note: this._capNote || null, sim: !!cap?.sim,
+        history: (this.capHist || []).slice(-40),
+      },
     };
   }
   meterBlack() {
@@ -1270,18 +1288,25 @@ export class Voice {
   // O Chromium continua capturando a mesma fonte, mas só para o áudio do sistema e a prévia local (leve: 10 fps, 360p).
   // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
   // e comprime na placa de vídeo. Chamada protegida (VP8 cifrado) e PC sem codificador de hardware seguem pelo Chromium.
-  async nativeCapable() {
+  // mode: o método escolhido ('auto' | 'wgc' | 'dxgi'); 'classic'/'chromium' perguntam sem método (caminho clássico)
+  async nativeCapable(mode = captureMode(this.prefs)) {
     const d = window.lcDesktop; if (!d?.nativeCapable) return { ok: false, code: 'web', reason: 'Só no app desktop para Windows.' };
-    if (!this._natCap) this._natCap = d.nativeCapable().catch((e) => ({ ok: false, reason: e.message }));
-    return this._natCap;
+    const m = ['auto', 'wgc', 'dxgi'].includes(mode) ? mode : '';
+    this._natCap ||= {};
+    if (!this._natCap[m]) this._natCap[m] = d.nativeCapable(m || undefined).catch((e) => ({ ok: false, reason: e.message }));
+    return this._natCap[m];
   }
   // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por 10 min
   // _natWhy: por que esta transmissão não saiu pelo programa nativo (telemetria da chamada, public/callqual.js NATIVE_WHY)
   async wantNative(o) {
-    const why = this.e2ee ? 'e2ee' : +o.fps < NATIVE_MIN_FPS ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
-    if (why) { this._natWhy = why; return false; }
-    const c = await this.nativeCapable();
+    const mode = captureMode(this.prefs);
+    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : +o.fps < NATIVE_MIN_FPS ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
+    if (why) { this._natWhy = why; this._natWhyText = null; return false; }
+    const c = await this.nativeCapable(mode);
     this._natWhy = c.ok ? null : nativeWhy(c); this._natWhyText = c.ok ? null : c.reason || null;
+    // app antigo (sem escolha de método): segue no caminho clássico; o painel avisa
+    this._capMode = c.ok && ['auto', 'wgc', 'dxgi'].includes(mode) && Array.isArray(c.modes) && c.modes.includes(mode) ? mode : null;
+    this._capNote = c.ok ? c.note || null : null;
     return !!c.ok;
   }
   // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
@@ -1318,10 +1343,10 @@ export class Voice {
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];
       // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
-      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false });
+      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}) });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
-      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id) });
+      Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id), capture: res.capture || null, method: my.method || res.capture?.method || (this._capMode ? null : 'wgc'), overlap: my.overlap ?? !!res.capture?.overlap });
       // o programa manda por UDP (portas RTC_NATIVE_PORTS) e enviar nunca falha do lado de cá: se o servidor não recebe nada
       // (porta fechada no firewall/roteador/Docker), quem assiste veria tela preta até o servidor desistir (60 s). O servidor
       // avisa quando os primeiros pacotes chegam (NATIVE_SCREEN_LIVE); sem esse aviso em 8 s, volta ao Chromium e não insiste.
@@ -1339,7 +1364,20 @@ export class Voice {
     this._natLive.add(id); if (this._natLive.size > 20) this._natLive.delete(this._natLive.values().next().value);
     const n = this.native; if (n && n.producerId === id) { n.live = true; clearTimeout(n.liveTimer); }
   }
+  // histórico das trocas de método e das decisões do seletor (painel de diagnóstico): só desta transmissão, nada vai para o servidor
+  capLog(ev) {
+    const h = this.capHist ||= [];
+    if (ev.t === 'method') h.push({ kind: 'method', at: Date.now(), m: ev.m, from: ev.from || null, why: ev.why || '', ms: ev.ms ?? null, testMs: ev.testMs ?? null, auto: ev.auto !== false, overlap: !!ev.overlap });
+    else h.push({ kind: 'note', at: Date.now(), msg: ev.msg || '' });
+    if (h.length > CAP_HIST_MAX) h.splice(0, h.length - CAP_HIST_MAX);
+  }
   onNativeEvent(ev) {
+    if (ev.t === 'method' || ev.t === 'capnote') {
+      if (!this.native) return;
+      this.capLog(ev);
+      if (ev.t === 'method') { this.native.method = ev.m; this.native.overlap = !!ev.overlap; this.onUpdate(); }
+      return;
+    }
     const n = this.native; if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
     if (ev.t === 'stats') {
       n.busy0 ??= ev.busy; n.stats = ev; if (n.prevBusy != null && ev.busy > n.prevBusy) n.busy0 = n.prevBusy; n.prevBusy = ev.busy;
@@ -1356,6 +1394,7 @@ export class Voice {
     const now = Date.now(); this._natRestarts = (this._natRestarts || []).filter(t => now - t < NATIVE_RESTART_WIN);
     if (this._natRestarts.length >= NATIVE_RESTARTS) return this.nativeFallback(why + '; falhou ' + (NATIVE_RESTARTS + 1) + ' vezes seguidas');
     this._natRestarts.push(now); this.natRestartCount = (this.natRestartCount || 0) + 1; this.natLastError = why;
+    this.capLog({ t: 'capnote', msg: `programa nativo reiniciado (${this._natRestarts.length}/${NATIVE_RESTARTS}): ${why}` });
     this.stopNative();
     const wait = this.native = { pending: true, restarting: true }; // segura o lugar: a transmissão não volta ao Chromium no meio
     setTimeout(() => { if (this.native === wait && this.screen) { this.native = null; this.startNative().catch(() => { }); } }, NATIVE_RESTART_DELAY);
@@ -1371,6 +1410,7 @@ export class Voice {
   nativeFallback(why) {
     if (!this.native) return;
     this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail'; this._natWhyText = why;
+    this.capLog({ t: 'method', m: 'chromium', from: this.native.method || null, why: 'último recurso: ' + why, auto: true });
     this.stopNative();
     const vt = this.screen?.getVideoTracks()[0];
     if (!vt) return;
@@ -1385,6 +1425,22 @@ export class Voice {
     window.lcDesktop?.nativeStop?.();
     // ainda preparando: a sessão é fechada quando a resposta chegar (startNative); senão fecha esta
     if (!n.pending) this.sfuReq('native_stop', { producer_id: n.producerId }).catch(() => { });
+  }
+  // método de captura trocado nas configurações com a transmissão no ar: reinicia só o vídeo (1-2 s), voz e sala seguem
+  async applyCaptureMode() {
+    const vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
+    this.capLog({ t: 'capnote', msg: 'método trocado nas configurações: ' + CAPTURE_METHODS[captureMode(this.prefs)] });
+    this._natRestarts = []; this._natRetry = 0;
+    const nat = await this.wantNative(this.screenOpts || {});
+    if (!this.screen) return;
+    if (this.native) this.stopNative();
+    if (nat) { this.sfuStop('screen'); this.native = { pending: true }; this.previewOnly(vt, true); this.startNative().catch(() => { }); }
+    else {
+      this.previewOnly(vt, false);
+      if (this.sfu && !this.sfu.producers.screen) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      this.capLog({ t: 'method', m: 'chromium', from: null, why: this._natWhy === 'forced' ? 'forçado nas configurações' : 'nativo indisponível: ' + (this._natWhyText || this._natWhy || '?'), auto: this._natWhy !== 'forced' });
+    }
+    this.onUpdate();
   }
   // muda resolução/fps/otimização da transmissão em andamento
   async changeScreenQuality(opts) {
@@ -1421,7 +1477,7 @@ export class Voice {
     const s = this[kind]; if (!s) return;
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { this.stopNative(); this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
+    if (kind === 'screen') { this.stopNative(); this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();

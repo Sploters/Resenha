@@ -426,7 +426,7 @@ ipcMain.handle('ptt-set', (_e, code) => { pttWanted = code || null; const r = ap
 remote.onPtt((down) => { if (win && !win.isDestroyed()) win.webContents.send('ptt', down); });
 app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
 // transmissão a 120 FPS (desktop/native.js): o renderer pede a sessão ao servidor e passa as chaves para cá
-ipcMain.handle('native-capable', () => native.capable());
+ipcMain.handle('native-capable', (_e, mode) => native.capable(mode));
 ipcMain.handle('native-start', (_e, o) => native.start({ ...(o || {}), sourceId: (o && o.sourceId) || pickedSource }));
 ipcMain.on('native-stop', () => native.stop());
 native.onNativeEvent((ev) => { if (win && !win.isDestroyed()) win.webContents.send('native-event', ev); });

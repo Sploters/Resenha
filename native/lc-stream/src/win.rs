@@ -266,6 +266,11 @@ impl WinLayer {
         vctx.VideoProcessorSetStreamSourceRect(&self.vproc, 0, true, Some(&RECT { left: 0, top: 0, right: w as i32, bottom: h as i32 }));
         vctx.VideoProcessorSetStreamDestRect(&self.vproc, 0, true, Some(&fit(w, h, self.ow, self.oh)));
     } }
+    /// recorte da imagem de origem (janela dentro do monitor no DXGI, ou a imagem inteira); destino com a proporção dele
+    pub(crate) fn set_src(&self, vctx: &ID3D11VideoContext, r: RECT) { unsafe {
+        vctx.VideoProcessorSetStreamSourceRect(&self.vproc, 0, true, Some(&r));
+        vctx.VideoProcessorSetStreamDestRect(&self.vproc, 0, true, Some(&fit((r.right - r.left).max(2) as u32, (r.bottom - r.top).max(2) as u32, self.ow, self.oh)));
+    } }
     /// entrega uma textura NV12 ao codificador
     pub(crate) fn feed(&mut self, slot: usize, t: i64) -> windows::core::Result<()> { unsafe {
         let buf = MFCreateDXGISurfaceBuffer(&ID3D11Texture2D::IID, &self.ring[slot].0, 0, false)?;

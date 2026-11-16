@@ -18,7 +18,7 @@ import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
 import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh } from './state.js';
-import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice } from './voice.js';
+import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice, CAPTURE_METHODS, captureMode } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
@@ -3825,12 +3825,46 @@ function liveShareModal() {
       h('li', 'Continuar assim: a transmissão segue no ar; quem assiste vê a última imagem até o jogo sair da tela cheia.')),
     h('div.fsebtns', h('button.btn.sm', { onclick: () => { m?.close(); stopSharing(); setTimeout(() => startShare(), 300); } }, 'Escolher outra fonte'), h('button.btn.sm.link', { onclick: () => m?.close() }, 'Continuar assim'))) : null;
   const diag = captureDiag();
-  const body = h('div', fse || blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }), diag.el);
+  // método de captura (teste): trocar aqui reinicia só o vídeo da transmissão (1-2 s); voz e sala seguem
+  const capSel = window.lcDesktop?.nativeCapable ? h('label.f', 'Método de captura (teste)', seg(CAPTURE_METHODS, captureMode(S.prefs), (v) => { S.prefs.captureMethod = v; savePrefs(); voice.applyCaptureMode(); })) : null;
+  const body = h('div', fse || blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }), capSel, diag.el);
   m = modal('Ajustes da transmissão', 'Mudam na hora, sem interromper o que você está transmitindo.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
 }
 // diagnóstico da captura (M13): método em uso, quadros por método, fps efetivo, motivo de não estar no programa nativo,
 // reinícios, o que o controle da transmissão decidiu e o aviso de tela cheia exclusiva. Atualiza a cada 1 s enquanto aberto.
-const NATIVE_WHY_TXT = { win10: 'Windows 10 (a captura nativa desenha uma borda amarela)', nohw: 'sem codificador de vídeo na placa', nocap: 'Windows sem a captura necessária', noexe: 'app desktop sem o componente (atualize o app)', web: 'fora do app desktop para Windows', e2ee: 'chamada protegida (só pelo Chromium)', lowfps: 'menos de 60 FPS pedidos (o nativo entra a partir de 60)', nosfu: 'servidor sem SFU', udp: 'portas UDP da transmissão fechadas', fail: 'o programa nativo falhou', other: 'outro motivo' };
+const NATIVE_WHY_TXT = { win10: 'Windows 10 (a captura nativa desenha uma borda amarela)', nohw: 'sem codificador de vídeo na placa', nocap: 'Windows sem a captura necessária', noexe: 'app desktop sem o componente (atualize o app)', web: 'fora do app desktop para Windows', e2ee: 'chamada protegida (só pelo Chromium)', lowfps: 'menos de 60 FPS pedidos (o nativo entra a partir de 60)', nosfu: 'servidor sem SFU', udp: 'portas UDP da transmissão fechadas', fail: 'o programa nativo falhou', forced: 'Chromium forçado nas configurações (Transmissão > Método de captura)', other: 'outro motivo' };
+// escolha do método (WGC / DXGI / Chromium): pedido, ativo, por quê, FPS capturado e codificado, resolução, erros e o
+// histórico de trocas com o motivo de cada uma (eventos "method"/"capnote" do lc-stream, ver native/lc-stream/src/select.rs)
+const CAPM = { wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium' };
+const hhmmss = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour12: false });
+function capRows(c, row) {
+  if (!c) return [];
+  const out = [h('div.cd-sub', 'Método de captura')];
+  const applied = c.applied === 'classic' && c.mode !== 'classic' && c.mode !== 'chromium' ? ' — este app ainda não tem a escolha de método: usando o clássico (atualize o app)' : '';
+  out.push(row('Pedido nas configurações', (CAPTURE_METHODS[c.mode] || c.mode) + applied));
+  out.push(row('Em uso', (CAPM[c.active] || (c.active ? c.active : '—')) + (c.candidate ? ` · testando ${CAPM[c.candidate]} ao lado` : '') + (c.sim ? ' (simulado)' : '')));
+  if (c.plan) out.push(row('Por que começou assim', c.plan));
+  if (c.openErrors?.length) out.push(row('Não abriu', c.openErrors.map(e => `${CAPM[e.m] || e.m}: ${e.error}`).join(' · ')));
+  out.push(row('FPS capturado / codificado', `${c.capFps ?? '—'} / ${c.encFps ?? '—'}` + (c.repeats ? ` · repetições do último quadro: ${c.repeats}` : '')));
+  if (c.cpu != null || c.encMs != null) out.push(row('Programa nativo', [c.cpu != null && `CPU ${c.cpu}% de um núcleo`, c.encMs != null && `codificação ${c.encMs} ms`, c.kbps != null && `${c.kbps} kbps`].filter(Boolean).join(' · ')));
+  if (c.srcSize || c.outSize) out.push(row('Resolução', `captura ${c.srcSize || '—'} → envio ${c.outSize || '—'}`));
+  if (c.black) out.push(row('Imagem', 'PRETA (o seletor testa o outro método antes de trocar)'));
+  if (c.errs || c.lastErr) out.push(row('Erros do método', `${c.errs || 0}${c.lastErr ? ' · último: ' + c.lastErr : ''}`));
+  if (c.rebuilds) out.push(row('Placa de vídeo perdida', `${c.rebuilds}x (reconstruído sem derrubar a transmissão)`));
+  if (c.info?.accessLost) out.push(row('DXGI recriado', `${c.info.accessLost}x (troca de resolução, tela cheia, Ctrl+Alt+Del)`));
+  if (c.note) out.push(h('div.qinfo.warn', c.note));
+  if (c.active === 'dxgi' && c.overlap) out.push(h('div.qinfo.warn', 'DXGI capturando janela: ele grava a área da janela no monitor, então janelas, menus e notificações que ficarem POR CIMA aparecem na transmissão. Minimizada, a imagem para.'));
+  if (c.active === 'dxgi' && S.prefs.screen?.cursor !== false) out.push(h('div.qinfo', 'No DXGI o cursor do mouse não aparece na transmissão (limitação desta versão).'));
+  // para os testes: tudo isto em texto, para colar no chat e comparar entre PCs
+  out.push(h('button.btn.sm.grey', { style: { marginTop: '8px' }, onclick: async (e) => { const x = await voice.captureInfo(); const t = JSON.stringify({ quando: new Date().toISOString(), app: navigator.userAgent.match(/Resenha\/[\d.]+|Electron\/[\d.]+/g)?.join(' ') || '', ...x }, null, 1); try { await navigator.clipboard.writeText(t); e.target.textContent = 'Copiado!'; } catch { e.target.textContent = 'Não consegui copiar'; } } }, 'Copiar relatório do teste'));
+  if (c.history?.length) {
+    out.push(h('div.cd-sub', 'Histórico de trocas e decisões'));
+    out.push(h('ol.cd-hist', [...c.history].reverse().map(e => e.kind === 'method'
+      ? h('li.m', h('time', hhmmss(e.at)), h('b', `${e.from ? CAPM[e.from] || e.from : 'início'} → ${CAPM[e.m] || e.m}`), e.ms != null ? h('small', ` ${e.ms} ms sem quadro novo${e.testMs ? ` · comparados lado a lado por ${e.testMs} ms` : ''}`) : null, h('span', e.why))
+      : h('li', h('time', hhmmss(e.at)), h('span', e.msg)))));
+  }
+  return out;
+}
 function captureDiag() {
   const el = h('details.capdiag', h('summary', 'Diagnóstico da captura'), h('div.cd-body', 'medindo…'));
   const fmtN = (n) => n.toLocaleString('pt-BR');
@@ -3853,7 +3887,8 @@ function captureDiag() {
       x.fallback && row('Por que não o nativo', x.fallback.text || NATIVE_WHY_TXT[x.fallback.code] || (x.fallback.code ? NATIVE_WHY_TXT.other : 'não tentado')),
       x.restarts ? row('Reinícios do nativo', `${x.restarts}${x.lastError ? ' · último: ' + x.lastError : ''}`) : null,
       x.gov?.note ? row('Ajuste automático', x.gov.note) : null,
-      row('Tela cheia exclusiva', fseTxt));
+      row('Tela cheia exclusiva', fseTxt),
+      ...capRows(x.capture, row));
   };
   draw(); t = setInterval(draw, 1000);
   return { el };

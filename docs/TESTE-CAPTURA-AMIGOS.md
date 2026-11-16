@@ -1,0 +1,61 @@
+# Roteiro de testes: captura WGC + DXGI (com os amigos)
+
+Objetivo: ver, em PCs e jogos reais, se a escolha automática entre WGC e DXGI funciona, quanto custa e onde falha.
+Detalhes técnicos e limitações: `docs/CAPTURA-WGC-DXGI.md` (Fase 2).
+
+## Antes de começar
+1. **Servidor**: publicar esta branch no servidor da Resenha (a página nova traz a opção "Método de captura" e o painel).
+   Sem isso o app novo funciona igual ao de antes (caminho clássico).
+2. **App**: cada pessoa roda o `Resenha-Teste-Captura-1.0.40.exe` (portátil: não instala nada; para voltar, é só fechar
+   e abrir a Resenha instalada de sempre). Feche a Resenha instalada antes (o app abre uma vez só).
+   O Windows pode avisar "app não reconhecido" (o .exe não tem assinatura de código): "Mais informações > Executar assim mesmo".
+3. Configurações > Transmissão: FPS **60 ou 120** (abaixo de 60 a transmissão é sempre pelo Chromium).
+   Experimental > Método de captura (teste) = **Automático**.
+4. Uma pessoa transmite, pelo menos uma assiste. Durante a live: botão de ajustes da transmissão > "Diagnóstico da
+   captura". No fim de cada teste: **"Copiar relatório do teste"** e colar no chat (ou num arquivo) com o nome do teste.
+
+Se algo der muito errado durante a live: no mesmo painel, Método de captura = **Clássico (versão anterior)** ou
+**Forçar Chromium**. Troca na hora, sem sair da sala.
+
+## O que anotar em cada teste
+| Campo | Onde ver |
+|---|---|
+| Windows 10 ou 11 (build), placa de vídeo, Hz do monitor | painel ("Por que começou assim" traz o build) / Configurações do Windows |
+| Método em uso e trocas (com motivo e "ms sem quadro novo") | painel > Histórico |
+| FPS capturado / codificado | painel |
+| FPS que quem assiste vê | quem assiste: clique direito na transmissão > estatísticas |
+| CPU do programa nativo | painel ("Programa nativo") |
+| GPU | Gerenciador de Tarefas > Desempenho > GPU (anotar com e sem a live) e coluna GPU de "lc-stream.exe" em Detalhes |
+| Qualidade visual | quem assiste: nitidez, travadas, tela preta, borda amarela, janelas por cima aparecendo |
+| Estabilidade | a live caiu? a voz cortou? quantas vezes trocou de método? |
+
+## Testes
+| # | Teste | Como | Esperado (a confirmar) |
+|---|---|---|---|
+| 1 | Área de trabalho, 60 FPS | Transmitir a tela inteira, mexer em janelas | Win11: WGC. Win10: DXGI. Nenhuma troca. |
+| 2 | Mesmo, 120 FPS | idem com 120 FPS (monitor de 120 Hz+ se tiver) | FPS capturado até o Hz do monitor |
+| 3 | Valorant sem bordas | Valorant em "Janela sem bordas", transmitir a tela | imagem do jogo, sem troca |
+| 4 | Valorant tela cheia | Valorant em "Tela cheia", transmitir a tela | Win10: DXGI segue; se o WGC estiver em uso e congelar, troca para DXGI. Win11: WGC deve seguir |
+| 5 | Valorant como janela | transmitir a janela do Valorant (sem bordas e tela cheia) | Win11: WGC isola a janela. Win10: DXGI recorta (o que estiver por cima aparece) |
+| 6 | Outros jogos DirectX | 2-3 jogos (DX11 e DX12), sem bordas e tela cheia | igual ao 3/4 |
+| 7 | Resoluções | jogo em 1280x720, 1600x900 e na nativa | imagem certa (barras pretas se a proporção mudar) |
+| 8 | Janelas sobrepostas | transmitir uma janela e pôr outra por cima | WGC: não aparece. **DXGI: aparece** (limitação) |
+| 9 | Mudar resolução ao vivo | mudar a resolução do Windows ou do jogo durante a live | DXGI "recriado" no painel; live continua |
+| 10 | Entrar/sair da tela cheia | Alt+Enter / Alt+Tab no jogo durante a live | trocas (se houver) com motivo; live continua |
+| 11 | Ctrl+Alt+Del / UAC | abrir e fechar durante a live | ~1-2 s sem imagem e volta sozinho |
+| 12 | Forçados | repetir 1 e 4 com Forçar WGC e Forçar DXGI | sem troca; diferenças de FPS/CPU |
+| 13 | Voz | falar durante todos os testes | voz não pode cortar nem atrasar |
+| 14 | Duração | live de 30 min jogando | sem queda, trocas raras |
+
+## Resultados
+Preencher por PC (copiar a tabela):
+
+| # | PC (Win/placa/Hz) | Método final | Trocas (motivo, ms) | FPS cap/cod/visto | CPU % | GPU % | Visual | Problemas |
+|---|---|---|---|---|---|---|---|---|
+| 1 | | | | | | | | |
+
+## Se der problema
+- A live caiu para "Modo normal (Chromium)": o motivo está no painel ("Por que não o nativo" e no histórico). Copiar o relatório.
+- Tela preta para quem assiste: anotar o método em uso e se o Windows estava em tela cheia; testar Forçar o outro método.
+- Voltar ao app de antes: fechar o portátil e abrir a Resenha instalada. Nada do teste fica no PC além das
+  configurações da conta (a opção "Método de captura"; deixe em Automático ou Clássico).
