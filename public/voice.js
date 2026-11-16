@@ -702,9 +702,12 @@ export class Voice {
     }
     if (g.good >= g.upWait / (GOV_TICK / 1000) && g.level > 0) { const n = g.ladder[g.level - 1]; g.upAt = Date.now(); return this.govApply(g, { level: g.level - 1 }, `Folga no processador: voltando a ${n.h}p a ${n.f} FPS.`); }
   }
-  async govApply(g, ch, note) {
+  // uma aplicação por vez, na ordem (o controle e a troca de qualidade mexem nos mesmos parâmetros do codificador)
+  govApply(g, ch, note) { return (this._govP = Promise.resolve(this._govP).catch(() => { }).then(() => this.govApplyNow(g, ch, note))); }
+  async govApplyNow(g, ch, note) {
     const p = this.sfu?.producers.screen; if (!p?.rtpSender || this.gov !== g) return;
     Object.assign(g, ch); g.bad = 0; g.good = 0; g.cool = 2; g.note = note; g.steps.push({ at: Date.now(), note }); if (g.steps.length > 20) g.steps.shift();
+    g.applying = true; // os parâmetros mudam em duas etapas (passando por 'balanced'); quem lê o estado espera terminar
     const lv = g.ladder[g.level], capH = this.screen?.getVideoTracks()[0]?.getSettings?.().height || lv.h, s = Math.max(1, capH / lv.h);
     try {
       const prm = p.rtpSender.getParameters(), n = prm.encodings.length;
@@ -714,14 +717,17 @@ export class Voice {
       // isso, depois de descer para 720p o fps ficava preso nos ~34 da restrição antiga (medido: 720p fixo desde o
       // início dá 60 fps sem limite no mesmo processador)
       prm.degradationPreference = 'balanced'; await p.rtpSender.setParameters(prm);
+      if (this.gov !== g) return; // a qualidade mudou (ou a transmissão parou) no meio: não sobrescreve o que veio depois
       const p2 = p.rtpSender.getParameters();
       p2.degradationPreference = g.level > 0 || g.layersOff || this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
       await p.rtpSender.setParameters(p2);
-    } catch (e) { console.warn('controle da transmissão', e); }
+    } catch (e) { console.warn('controle da transmissão', e); } finally { g.applying = false; }
     this.onUpdate();
   }
   async sfuTuneScreen() {
     const p = this.sfu?.producers.screen; if (!p?.rtpSender) return;
+    // qualidade nova: desliga o controle já (uma aplicação dele em andamento desiste) e espera ela soltar os parâmetros
+    clearInterval(this._gt); this.gov = null; await Promise.resolve(this._govP).catch(() => { });
     try {
       const prm = p.rtpSender.getParameters(), enc = this.sfuEncodings('screen');
       prm.encodings.forEach((e, i) => { const { scalabilityMode, ...rest } = enc[i] || {}; Object.assign(e, rest); e.active = true; }); // scalabilityMode não muda depois de criado; camadas que o controle desligou voltam
