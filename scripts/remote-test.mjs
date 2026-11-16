@@ -109,7 +109,7 @@ try {
   await B.evaluate((uid) => { window.__lc.S.focus = 's:' + uid; }, a.id);
   const ctlBtn = (P, uid) => P.evaluate((uid) => { const t = document.querySelector(`.tile.screen[data-sid="${uid}"]`); const b = t?.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return !![...document.querySelectorAll('.menu .it')].find(x => /controle/i.test(x.textContent)); }, uid); // fica no "⋯" do quadro
   ok(await ctlBtn(B, a.id), 'quem assiste vê o botão "Pedir controle" na transmissão');
-  const clickCtl = (P) => P.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle|Parar de controlar/.test(x.textContent))?.click());
+  const clickCtl = (P) => P.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle|Parar controle/.test(x.textContent))?.click());
 
   // pedido -> alice vê o diálogo, libera só o mouse
   await clickCtl(B);

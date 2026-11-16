@@ -110,7 +110,7 @@ try {
   await setLayout(B, 'Autom');
 
   // ---------- 3. painel de qualidade ----------
-  ok(await tileMenu(B, '^Qualidade desta transmissão'), 'item do painel de qualidade no menu da transmissão'); await sleep(3500);
+  ok(await tileMenu(B, '^Ver qualidade'), 'item do painel de qualidade no menu da transmissão'); await sleep(3500);
   const panel = await B.evaluate(() => document.querySelector('.qstats .qs-body')?.textContent || '');
   ok(/FPS recebidos/.test(panel) && /\d+×\d+/.test(panel) && /Conexão/.test(panel) && /Áudio da transmissão/.test(panel), 'painel mostra resolução, FPS, conexão e áudio', panel);
   await clickText(B, '.qstats .qs-layer', '^Baixa$'); await sleep(4500);
@@ -118,7 +118,7 @@ try {
   await clickText(B, '.qstats .qs-layer', '^Alta$'); await sleep(4500);
   const high = await recvSnap(B, aid); ok(high && high.w >= 1280, 'camada Alta: recepção volta para 1280x720', high);
   await clickText(B, '.qstats .qs-layer', '^Auto$'); await sleep(500);
-  await tileMenu(B, '^Esconder a qualidade'); await sleep(1500);
+  await tileMenu(B, '^Esconder qualidade'); await sleep(1500);
   ok(await B.evaluate(() => !document.querySelector('.qstats')), 'painel fecha');
 
   // ---------- 4. pausa automática fora da tela ----------
@@ -146,7 +146,7 @@ try {
   await setLayout(B, 'Autom'); await B.evaluate(() => { window.__lc.S.focus = null; window.__lc.go(window.__lc.S.view.gid, window.__lc.S.view.cid); }); await sleep(2500);
 
   // ---------- 5. destaque para todos ----------
-  const spotBtn = (page) => tileMenu(page, '^(Destacar para todos|Parar de destacar)');
+  const spotBtn = (page) => tileMenu(page, '^(Destacar para todos|Tirar destaque)');
   await B.evaluate(() => { window.__lc.S.focus = null; window.__lc.renderVoiceUI?.(); });
   await A.evaluate(() => { const k = 's:' + window.__lc.S.me.id; window.__lc.S.ctlKey = k; }); await spotBtn(A); await sleep(1500);
   const s1 = { a: await A.evaluate(() => window.__lc.S.room?.spot), b: await B.evaluate(() => ({ spot: window.__lc.S.room?.spot, focus: window.__lc.S.focus })) };

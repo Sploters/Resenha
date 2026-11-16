@@ -67,7 +67,7 @@ try {
   await B.screenshot({ path: '.testshots/22-bob-watching.png' });
 
   // --- muda qualidade durante a transmissão ---
-  await E.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]').click(); [...document.querySelectorAll('.menu .it')].find(i => /Ajustes da transmissão/.test(i.textContent)).click(); }); await sleep(800);
+  await E.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]').click(); [...document.querySelectorAll('.menu .it')].find(i => /^Ajustes/.test(i.textContent)).click(); }); await sleep(800);
   ok(await E.evaluate(() => !!document.querySelector('.modal h2')?.textContent.includes('Ajustes da transmissão') && ![...document.querySelectorAll('.modal .btn')].some(b => /Parar/.test(b.textContent))), 'painel "Ajustes da transmissão" abriu (sem botão de parar)');
   await E.screenshot({ path: '.testshots/23-electron-live-panel.png' });
   await E.evaluate(() => { const cols = document.querySelectorAll('.modal .ssq-cols .seg'); const pick = (i, t) => [...cols[i].querySelectorAll('button')].find(b => b.textContent === t).click(); pick(0, '1080'); pick(1, '60'); }); await sleep(2500);
