@@ -1,6 +1,6 @@
 // Moderação: castigo (timeout), banimento e registro de auditoria
 import { h, icon, avatar, stamp, busy } from './util.js';
-import { S, tryApi, toast, modal, nameOf, user, guild, member, can, PERM, channelById } from './state.js';
+import { S, tryApi, toast, modal, nameOf, user, guild, member, can, outranks, chCan, CH, PERM, channelById } from './state.js';
 import { seg, toggle, row, section } from './ui.js';
 
 const DURATIONS = { 60: '60 s', 300: '5 min', 600: '10 min', 3600: '1 hora', 86400: '1 dia', 604800: '1 semana' };
@@ -27,6 +27,21 @@ export function banDialog(gid, uid, after) {
     } }]);
 }
 
+// Moderação de voz (Moderar voz): itens do clique direito em quem está numa sala deste servidor e abaixo do seu cargo.
+// Mutar/ensurdecer valem em todas as salas do servidor até alguém tirar; mover leva a pessoa para outra sala.
+export function voiceModItems(gid, uid) {
+  const g = guild(gid), vs = S.voice.get(uid), ch = vs && channelById(vs.channel_id);
+  if (!g || ch?.guild_id !== gid || vs.bot || !can(gid, PERM.VOICE_MOD) || !outranks(gid, uid)) return [];
+  const set = (body, msg) => tryApi('PATCH', `/guilds/${gid}/voice/${uid}`, body).then(r => r && toast(msg));
+  const nm = nameOf(uid, gid), rooms = g.channels.filter(c => c.type === 2 && c.id !== ch.id && chCan(c, CH.CONNECT));
+  return [
+    { label: 'Mutar para o servidor', checked: !!vs.mod_mute, fn: () => set({ mute: !vs.mod_mute }, vs.mod_mute ? `${nm} pode falar de novo` : `${nm} foi mutado nas salas do servidor`) },
+    { label: 'Ensurdecer para o servidor', checked: !!vs.mod_deaf, fn: () => set({ deaf: !vs.mod_deaf }, vs.mod_deaf ? `${nm} volta a ouvir as salas` : `${nm} não ouve mais as salas do servidor`) },
+    rooms.length > 0 && { label: 'Mover para', sub: rooms.map(c => ({ label: c.name, fn: () => set({ channel_id: c.id }, `${nm} foi movido para ${c.name}`) })) },
+    { label: 'Desconectar da chamada', danger: true, fn: () => set({ disconnect: true }, `${nm} foi desconectado da chamada`) },
+  ].filter(Boolean);
+}
+
 const hint = (t) => h('div.hintline', t);
 export function bansPage(gid) {
   const box = h('div');
@@ -42,11 +57,12 @@ export function bansPage(gid) {
 }
 
 const ACTIONS = {
+  voice_mute: 'mutou na voz', voice_unmute: 'desmutou na voz', voice_deaf: 'ensurdeceu na voz', voice_undeaf: 'tirou o ensurdecer de', voice_move: 'moveu de sala', voice_disconnect: 'desconectou da chamada',
   member_kick: 'expulsou', member_ban: 'baniu', member_unban: 'desbaniu', member_timeout: 'deu castigo a', member_timeout_remove: 'tirou o castigo de',
   member_roles: 'alterou os cargos de', message_delete: 'apagou uma mensagem de', message_spoiler: 'marcou como spoiler uma mensagem de', message_unspoiler: 'tirou o spoiler de uma mensagem de', role_create: 'criou o cargo', role_update: 'editou o cargo', role_delete: 'excluiu o cargo',
   channel_create: 'criou o canal', channel_update: 'editou o canal', channel_delete: 'excluiu o canal', guild_update: 'editou o servidor', guild_transfer: 'transferiu o servidor para', invite_delete: 'revogou o convite',
 };
-const USER_TARGET = /^(member_|message_delete|message_spoiler|message_unspoiler|guild_transfer)/;
+const USER_TARGET = /^(member_|voice_|message_delete|message_spoiler|message_unspoiler|guild_transfer)/;
 export function auditPage(gid) {
   const box = h('div'), more = h('button.btn.grey', { style: { marginTop: '12px' } }, 'Carregar mais');
   const names = new Map();

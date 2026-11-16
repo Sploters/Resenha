@@ -1066,7 +1066,7 @@ export class Voice {
   setLevel(p, key, f) {
     const a = p[key]; if (!a) return;
     // ensurdecer silencia as vozes, mas não as transmissões (só ficam mudas se a transmissão foi fechada)
-    a.muted = key === 'screenAudioEl' ? this.closedStreams.has(p.uid) : this.deafened;
+    a.muted = key === 'screenAudioEl' ? this.closedStreams.has(p.uid) : (this.deafened || this.modDeaf);
     const fx = key === 'audioEl' ? this.fxFor(p.uid) : null;
     let b = p[key + 'Boost'];
     if (f <= 1 && !b && !fx) { a.volume = f; return; }
@@ -1199,7 +1199,7 @@ export class Voice {
       let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
       a.level = peak / 128;
       const mine = uid === this.myId;
-      const loud = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || !this.micEnabled()));
+      const loud = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || this.modMute || this.modDeaf || !this.micEnabled()));
       const now = performance.now(); if (loud) a.at = now;
       const on = loud || (a.at > 0 && now - a.at < 300 && !(mine && (this.muted || this.deafened)));
       if (on !== this.speaking.has(uid)) { on ? this.speaking.add(uid) : this.speaking.delete(uid); changed = true; }
@@ -1210,11 +1210,13 @@ export class Voice {
 
   micEnabled() { return this.prefs.inputMode !== 'ptt' || this.ptt; }
   applyMute() {
-    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && this.micEnabled()));
+    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && !this.modMute && !this.modDeaf && this.micEnabled()));
     this.micGraph?.setIdle?.((this.muted || this.deafened) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
   }
   holdMic(on) { this.micHold = Math.max(0, (this.micHold || 0) + (on ? 1 : -1)); this.applyMute(); }
   setPtt(down) { if (this.ptt === down) return; this.ptt = down; this.applyMute(); this.onUpdate(true); }
+  // mutado/ensurdecido pela moderação (estado de voz mod_mute/mod_deaf): o servidor já não repassa; aqui o microfone também fecha
+  setModeration(mute, deaf) { if (!!this.modMute === !!mute && !!this.modDeaf === !!deaf) return; this.modMute = !!mute; this.modDeaf = !!deaf; this.afterAudioChange(); }
   toggleMute() { const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
   toggleDeaf() { this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
   afterAudioChange() { this.applyMute(); for (const uid of this.peers.keys()) this.applyVolume(uid); this.sendState(); this.onUpdate(); }
@@ -1228,7 +1230,7 @@ export class Voice {
   // janela escondida, porque o medidor daqui precisa do áudio para acender o "falando".
   syncVoiceFlow() {
     const s = this.sfu; if (!s?.ready) return;
-    const want = this.deafened && !this.screen;
+    const want = (this.deafened || this.modDeaf) && !this.screen;
     if (want !== !!s.levelsOn && s.srvLevels !== false) {
       s.levelsOn = want;
       this.sfuReq('levels', { on: want }).then((r) => { s.srvLevels = true; if (s.levelsOn) this.onSfuSpeaking(r); this.syncVoiceFlow(); }, () => { s.srvLevels = false; this.syncVoiceFlow(); });

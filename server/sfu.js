@@ -161,6 +161,20 @@ export function sfuLeave(cid, uid) {
   if (!r.peers.size) { r.router?.close(); rooms.delete(cid); }
 }
 
+// Moderação de voz: mutado não tem a voz repassada (o producer do microfone fica pausado no servidor); ensurdecido não
+// recebe as vozes dos outros (os consumers de microfone ficam pausados e não voltam a pedido do app)
+export function sfuModerate(cid, uid, { mute, deaf }) {
+  const peer = rooms.get(cid)?.peers.get(uid); if (!peer) return;
+  if (typeof mute === 'boolean' && peer.modMute !== mute) {
+    peer.modMute = mute;
+    const p = peer.producers.get('mic'); if (p && !p.closed) (mute ? p.pause() : p.resume()).catch(() => { });
+  }
+  if (typeof deaf === 'boolean' && peer.modDeaf !== deaf) {
+    peer.modDeaf = deaf;
+    for (const c of peer.consumers.values()) if (!c.closed && c.appData.source === 'mic') (deaf ? c.pause() : c.resume()).catch(() => { });
+  }
+}
+
 const producerInfo = (p, uid) => ({ producer_id: p.id, user_id: uid, kind: p.kind, source: p.appData.source });
 
 // "Falando" medido no servidor (AudioLevelObserver): para quem está ensurdecido, que não recebe as vozes (economiza banda e
@@ -183,6 +197,7 @@ function registerProducer(r, peer, source, p) {
   peer.producers.get(source)?.close();
   peer.producers.set(source, p);
   if (source === 'mic' && p.kind === 'audio') levelsFor(r).then(o => o.addProducer({ producerId: p.id }).catch(() => { }), () => { });
+  if (source === 'mic' && peer.modMute) p.pause().catch(() => { }); // mutado pela moderação: o servidor não repassa a voz
   p.appData.uid = peer.uid;
   p.on('transportclose', () => peer.producers.get(source) === p && peer.producers.delete(source));
   p.observer.on('close', () => {
@@ -291,6 +306,7 @@ export async function sfuRequest(cid, uid, op, d) {
       // para essa pessoa (senão o servidor seguia mandando vídeo acima do que a internet dela aguenta e a voz picotava)
       c.on('score', (sc) => { if (sc.score < 7 && !t.appData.weak && MIN_OUT_KBPS > WEAK_KBPS) { t.appData.weak = true; clearTimeout(t.appData.floorTimer); t.setMinOutgoingBitrate(t.appData.floorOn ? WEAK_KBPS * 1000 : 0).catch(() => { }); } });
       c.appData.recvT = t;
+      for (const o of r.peers.values()) for (const p of o.producers.values()) if (p.id === pid) c.appData.source = p.appData.source;
       const drop = () => { if (peer.consumers.delete(c.id)) peer.notify('SFU_CONSUMER_CLOSED', { consumer_id: c.id }); };
       c.on('producerclose', drop); c.on('transportclose', () => peer.consumers.delete(c.id));
       return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters };
@@ -299,7 +315,7 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.wantLevels = !!d.on; if (peer.wantLevels) await levelsFor(r);
       return { ids: peer.wantLevels ? r.levelsNow?.() || [] : [] };
     }
-    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) { if (d.paused) await c.pause(); else { await c.resume(); if (c.kind === 'video') rampFloor(c.appData.recvT); } } return {}; }
+    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) { if (d.paused) await c.pause(); else if (peer.modDeaf && c.appData.source === 'mic') { /* ensurdecido pela moderação */ } else { await c.resume(); if (c.kind === 'video') rampFloor(c.appData.recvT); } } return {}; }
     case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') { const sp = Math.max(0, Math.min(2, d.spatial | 0)); const up = sp > (c.preferredLayers?.spatialLayer ?? 2); await c.setPreferredLayers({ spatialLayer: sp, temporalLayer: 2 }).catch(() => { }); if (up) rampFloor(c.appData.recvT); } return {}; }
     // perda de verdade da voz que esta pessoa envia, vista pelo servidor. O relatório RTCP que o navegador recebe não serve:
     // com a correção de erros do Opus ligada, o mediasoup põe nele a PIOR perda entre quem ouve (para o Opus mandar mais
@@ -327,7 +343,7 @@ export async function sfuRequest(cid, uid, op, d) {
       }
       return { viewers };
     }
-    case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
+    case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); if (peer.modDeaf && c?.appData.source === 'mic') return {}; await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
     default: throw new Error('operação desconhecida');
   }
 }

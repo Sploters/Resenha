@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
 import { imageSize } from './imgsize.js';
-import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
+import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
 import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
@@ -57,7 +57,7 @@ const DEFAULT_AVATARS = (() => { try { return fs.readdirSync(path.join(__dirname
 if (DEFAULT_AVATARS.length) for (const u of all("SELECT id, avatar FROM users WHERE avatar LIKE '/avatars/%'"))
   if (!DEFAULT_AVATARS.includes(u.avatar)) run('UPDATE users SET avatar=? WHERE id=?', DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)], u.id);
 
-const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256 };
+const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512 };
 const COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c'];
 
 // ---------- helpers ----------
@@ -216,7 +216,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -670,6 +670,47 @@ app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
     for (const r of roles) if (want.has(r.id)) run('INSERT OR IGNORE INTO member_roles VALUES(?,?,?)', gid, target, r.id);
   }
   dispatch(guildMemberIds(gid), 'MEMBER_UPDATE', { guild_id: gid, ...memberObj(gid, target) });
+  res.json({});
+}));
+// Moderação de voz (Moderar voz + hierarquia): mutar/ensurdecer para o servidor (vale em todas as salas e continua ao
+// sair e voltar, até alguém tirar), mover para outra sala e desconectar da chamada
+try { db.exec('ALTER TABLE members ADD COLUMN voice_mute INTEGER DEFAULT 0'); } catch { }
+try { db.exec('ALTER TABLE members ADD COLUMN voice_deaf INTEGER DEFAULT 0'); } catch { }
+app.patch('/api/guilds/:id/voice/:uid', auth, wrap((req, res) => {
+  const gid = req.params.id, target = req.params.uid, b = req.body || {};
+  if (!can(gid, req.uid, P.VOICE_MOD)) return bad(res, 'Sem permissão', 403);
+  if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, target)) return bad(res, 'Membro não encontrado', 404);
+  if (!outranks(gid, req.uid, target)) return bad(res, target === req.uid ? 'Use os seus próprios botões de microfone e fone' : ABOVE, 403);
+  const c = currentVoice(target), ch = c && get('SELECT * FROM channels WHERE id=?', c), here = ch?.guild_id === gid ? ch : null;
+  const st = here && voice.get(c).get(target);
+  if (typeof b.mute === 'boolean' || typeof b.deaf === 'boolean') {
+    const cur = get('SELECT voice_mute m, voice_deaf d FROM members WHERE guild_id=? AND user_id=?', gid, target);
+    const mute = typeof b.mute === 'boolean' ? b.mute : !!cur.m, deaf = typeof b.deaf === 'boolean' ? b.deaf : !!cur.d;
+    run('UPDATE members SET voice_mute=?, voice_deaf=? WHERE guild_id=? AND user_id=?', mute ? 1 : 0, deaf ? 1 : 0, gid, target);
+    if (mute !== !!cur.m) audit(gid, req.uid, mute ? 'voice_mute' : 'voice_unmute', target);
+    if (deaf !== !!cur.d) audit(gid, req.uid, deaf ? 'voice_deaf' : 'voice_undeaf', target);
+    if (st) {
+      st.modMute = mute; st.modDeaf = deaf; sfuModerate(c, target, { mute, deaf });
+      dispatch(channelAudience(here), 'VOICE_STATE', { ...vsObj(c, target, st), guild_id: gid });
+    }
+  }
+  if (b.channel_id !== undefined || b.disconnect === true) {
+    if (!st) return bad(res, 'A pessoa não está numa sala de voz deste servidor', 409);
+    if (b.disconnect === true) {
+      send(st.ws, 'VOICE_MODERATED', { action: 'disconnect', channel_id: c, by: req.uid });
+      leaveVoice(target, c, 'kicked');
+      audit(gid, req.uid, 'voice_disconnect', target, here.name);
+    } else {
+      const to = get('SELECT * FROM channels WHERE id=? AND guild_id=? AND type=2', String(b.channel_id), gid);
+      if (!to) return bad(res, 'Sala de voz não encontrada');
+      if (to.id !== c) {
+        // o app da pessoa entra na sala nova sozinho (a mídia é refeita lá); sala trancada para ela também vale para quem move
+        if (!chp.chCan(to, req.uid, CH.CONNECT)) return bad(res, 'Você não pode entrar nessa sala, então não pode mover ninguém para ela', 403);
+        send(st.ws, 'VOICE_MODERATED', { action: 'move', channel_id: to.id, from: c, by: req.uid });
+        audit(gid, req.uid, 'voice_move', target, `${here.name} → ${to.name}`);
+      }
+    }
+  }
   res.json({});
 }));
 // Roles
@@ -2089,6 +2130,7 @@ wss.on('connection', (ws) => {
           const room = voice.get(ch.id);
           const peers = [...room.keys()];
           const st = { ws, mute: false, deaf: false, video: false, screen: false };
+          if (ch.guild_id) { const vm = get('SELECT voice_mute m, voice_deaf d FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, uid); st.modMute = !!vm?.m; st.modDeaf = !!vm?.d; } // vale em todas as salas do servidor
           room.set(uid, st);
           if (!sfuEnabled()) send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers });
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(ch.id, uid, st), guild_id: ch.guild_id });
@@ -2099,6 +2141,7 @@ wss.on('connection', (ws) => {
           if (!sfuEnabled()) break;
           sfuJoin(ch.id, uid, (t, x) => send(ws, t, { ...x, channel_id: ch.id })).then(sfu => {
             if (voice.get(ch.id)?.get(uid) !== st) return sfuLeave(ch.id, uid); // saiu enquanto entrava
+            if (st.modMute || st.modDeaf) sfuModerate(ch.id, uid, { mute: st.modMute, deaf: st.modDeaf });
             send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers, sfu });
           }).catch(e => { console.error('sfu join', e.message); if (voice.get(ch.id)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: ch.id, reason: 'join' }); }); // o app tenta de novo (ex.: worker sendo recriado)
           break;

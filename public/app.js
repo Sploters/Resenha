@@ -68,7 +68,7 @@ const openFullProfile = (...a) => { lazySettings().then(m => m.openFullProfile(.
 import { saveCustomTheme } from './themeeditor.js';
 import { isLightPair, THEME_CODE_RE, decodeTheme, gradientCss, styleName, stripThemeCodes, themeText, encodeTheme, GRADIENT_THEMES, themeDef } from './themes.js';
 import { profileCard, STATUS_TXT } from './card.js';
-import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
+import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon } from './activity.js';
@@ -398,6 +398,11 @@ function onEvent(t, d) {
       if (d.channel_id) S.voice.set(d.user_id, d); else S.voice.delete(d.user_id);
       if (d.channel_id && d.channel_id === voice.channelId) { if (d.user_id === S.me.id && before !== d.channel_id) scanOutdated(); else warnOutdated(d); }
       if (d.user_id !== S.me.id && (prevVs?.fx || null) !== (d.fx || null)) voice?.setPeerFx(d.user_id);
+      if (d.user_id === S.me.id && d.channel_id && d.channel_id === voice?.channelId) {
+        if (!!d.mod_mute !== !!prevVs?.mod_mute && prevVs?.channel_id === d.channel_id) toast(d.mod_mute ? 'A moderação mutou você nas salas deste servidor' : 'A moderação liberou o seu microfone');
+        if (!!d.mod_deaf !== !!prevVs?.mod_deaf && prevVs?.channel_id === d.channel_id) toast(d.mod_deaf ? 'A moderação ensurdeceu você nas salas deste servidor' : 'A moderação liberou o seu áudio');
+        voice.setModeration(d.mod_mute, d.mod_deaf);
+      }
       if (d.bot?.kind === 'music' && !prevVs?.bot) voice?.applyVolume(d.user_id); // áudio do bot chegou antes do estado: aplica o volume da música
       if (S.view.kind === 'home') { setTimeout(renderActiveNow); setTimeout(refreshFeedView); }
       if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
@@ -442,6 +447,12 @@ function onEvent(t, d) {
     case 'SOUNDS_UPDATE': { const g = guild(d.guild_id); if (g) { g.sounds = d.sounds; document.dispatchEvent(new Event('sb-changed')); } break; }
     case 'EMOJIS_UPDATE': { const g = guild(d.guild_id); if (g) { g.emojis = d.emojis; renderMessages(true); } break; }
     case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
+    case 'VOICE_MODERATED': { // a moderação moveu ou desconectou você (server: PATCH /api/guilds/:id/voice/:uid)
+      const by = d.by ? nameOf(d.by, channelById(d.channel_id)?.guild_id) : 'A moderação';
+      if (d.action === 'move' && voice?.channelId === d.from) { const to = channelById(d.channel_id); toast(`${by} moveu você para ${to ? chName(to) : 'outra sala'}`); joinVoice(d.channel_id); }
+      else if (d.action === 'disconnect') toast(`${by} desconectou você da chamada`, true);
+      break;
+    }
     case 'VOICE_DENIED': if (voice.channelId === d.channel_id) { track('voice_fail', /^[a-z_]{1,24}$/.test(d.code || '') ? d.code : 'denied'); cancelTimer('voice_connect'); voice.leave(); if (d.code === 'outdated') outdatedModal(d); else toast(d.reason, true); } break;
     case 'VOICE_PEER_LEFT': voice.onPeerLeft(d); break;
     case 'VOICE_SIGNAL': voice.onSignal(d); break;
@@ -1239,7 +1250,7 @@ function vuserRow(g, v) {
   const row = h('div.vuser', { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
     h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', 'Ao vivo'),
-    h('span.ico', v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.deaf && icon('headoff', 14)));
+    h('span.ico', v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.mod_deaf ? h('span.mico.lmute', { title: 'Ensurdecido pela moderação' }, icon('headoff', 14)) : v.deaf && icon('headoff', 14)));
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;
 }
@@ -1749,7 +1760,7 @@ const initialsOf = (s) => (s || '?').split(/\s+/).map(w => w[0]).join('').slice(
 // mute: silencia a voz da pessoa só para você (nas chamadas)
 const isLocalMuted = (uid) => !!S.prefs.mutedUsers?.[uid];
 // ícone de microfone cortado: cinza se a própria pessoa se silenciou, vermelho se fui eu que a silenciei (mesmo ícone, só muda a cor)
-const muteIco = (v) => { const lm = isLocalMuted(v.user_id); return (v.mute || lm) && h('span.mico' + (lm ? '.lmute' : ''), { title: lm ? 'Silenciado por você' : null }, icon('micoff', 14)); };
+const muteIco = (v) => { const lm = isLocalMuted(v.user_id), mm = !!v.mod_mute; return (v.mute || lm || mm) && h('span.mico' + (lm || mm ? '.lmute' : ''), { title: mm ? 'Mutado pela moderação' : lm ? 'Silenciado por você' : null }, icon('micoff', 14)); };
 function toggleLocalMute(uid) {
   const m = (S.prefs.mutedUsers ||= {});
   if (m[uid]) delete m[uid]; else m[uid] = true;
@@ -1800,6 +1811,7 @@ function callUserMenu(e, uid, gid) {
       : rt === 0 && { label: 'Adicionar Amizade', fn: () => tryApi('POST', '/relationships', { username: user(uid).username }).then(r => r && toast('Pedido enviado')) },
     rt !== 2 ? { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${uid}`, { type: 2 }) } : { label: 'Desbloquear', fn: () => tryApi('DELETE', `/relationships/${uid}`) },
     // moderação continua disponível para quem tem permissão
+    ...(voiceModItems(gid, uid).length ? ['-', ...voiceModItems(gid, uid)] : []),
     g && outranks(gid, uid) && (can(gid, PERM.MODERATE) || can(gid, PERM.BAN) || can(gid, PERM.KICK)) && '-',
     g && can(gid, PERM.MODERATE) && outranks(gid, uid) && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
     g && can(gid, PERM.BAN) && outranks(gid, uid) && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },
@@ -1829,6 +1841,7 @@ function userMenu(e, uid, gid) {
     voice?.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
     voice?.peers.get(uid)?.screenAudioEl && { node: volumeControl(voice, uid, 'screen', 'Áudio da transmissão') },
     g && '-',
+    ...voiceModItems(gid, uid), voiceModItems(gid, uid).length > 0 && '-',
     g && can(gid, PERM.MANAGE_ROLES) && outranks(gid, uid) && { label: 'Apelido…', fn: async () => { const n = await promptBox('Alterar apelido', 'Apelido', member(gid, uid)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${gid}/members/${uid}`, { nickname: n }); } },
     g && can(gid, PERM.MODERATE) && outranks(gid, uid) && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
     g && can(gid, PERM.BAN) && outranks(gid, uid) && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },

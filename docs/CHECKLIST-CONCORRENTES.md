@@ -13,11 +13,12 @@ Ordem de trabalho das ideias aprovadas em `docs/CONCORRENTES.md` (seção "Decis
 - [x] Teste: `scripts/roles-hierarchy-test.mjs` (32 verificações).
 - [x] Permissões por canal: o ajuste de um cargo do seu nível para cima não muda nem some ao sincronizar.
 
-## 2. Moderação de voz (usa a hierarquia)
-- [ ] Mutar e ensurdecer alguém para a sala (permissão nova).
-- [ ] Mover para outra sala e desconectar da chamada.
-- [ ] Menu de clique direito na pessoa da sala; registro de auditoria.
-- [ ] Teste.
+## 2. Moderação de voz (usa a hierarquia) — feito
+- [x] Permissão nova **Moderar voz** (`P.VOICE_MOD = 512`).
+- [x] Mutar e ensurdecer para o servidor: vale em todas as salas e continua ao sair e voltar (`members.voice_mute/voice_deaf`) até alguém tirar. No SFU o microfone fica pausado no servidor e as vozes não chegam a quem foi ensurdecido (`sfuModerate` em `server/sfu.js`); no app o microfone também fecha. Sem SFU (malha P2P) vale só pelo app.
+- [x] Mover para outra sala (o app da pessoa entra sozinho, com aviso) e desconectar da chamada (aviso + sai para todos).
+- [x] Clique direito na pessoa (na sala ou na lista): Mutar/Ensurdecer para o servidor, Mover para, Desconectar; ícones vermelhos "pela moderação"; registro de auditoria (`voice_*`).
+- [x] Teste: `scripts/voice-mod-test.mjs`.
 
 ## 3. Confiança (barato) — feito
 - [x] `SECURITY.md`: como relatar falha (relato privado do GitHub), resposta em até 7 dias, o que está dentro, dicas para quem hospeda.
