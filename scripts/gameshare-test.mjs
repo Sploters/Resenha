@@ -22,7 +22,7 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 
 // app desktop simulado: lista com o jogo minimizado, áudio nativo = tom de 440 Hz
 const fakeDesktop = () => {
-  const T = (window.__t = { selected: null, audioStart: null, flashes: [], stopped: 0 });
+  const T = (window.__t = { selected: null, audioStart: null, flashes: [], stopped: 0, minimized: true, gdmTries: 0 });
   const png = (() => { const c = document.createElement('canvas'); c.width = 32; c.height = 32; const x = c.getContext('2d'); x.fillStyle = '#e44'; x.fillRect(0, 0, 32, 32); return c.toDataURL(); });
   let audioCb = null, timer = null, hotkey = null;
   window.lcDesktop = {
@@ -33,6 +33,7 @@ const fakeDesktop = () => {
       { id: 'window:4242:0', name: 'VALORANT', type: 'window', thumbnail: null, appIcon: png(), pid: 5150, exe: 'C:\\Riot Games\\VALORANT\\live\\ShooterGame\\Binaries\\Win64\\VALORANT-Win64-Shipping.exe', game: true, minimized: true, fullscreen: true },
     ],
     selectSource: async (id, name) => { T.selected = { id, name }; return true; },
+    sourceState: async () => (/^window:/.test(T.selected?.id || '') ? { kind: 'window', exists: true, minimized: T.selected.id === 'window:4242:0' && T.minimized } : { kind: 'screen' }),
     appAudioCapable: async () => ({ ok: true }),
     onAppAudio: (f) => { audioCb = f; },
     appAudioStart: async (o) => {
@@ -47,7 +48,10 @@ const fakeDesktop = () => {
     setSettings: async () => true, getSettings: async () => ({}), setBadge: () => { }, setThrottle: () => { },
   };
   // a captura do Chromium (fonte escolhida + loopback do PC inteiro): vídeo de canvas + um tom de 1500 Hz (o "PC inteiro")
+  // como o Chromium de verdade: janela minimizada (jogo em tela cheia depois do Alt+Tab) não começa a captura
   navigator.mediaDevices.getDisplayMedia = async () => {
+    T.gdmTries++;
+    if (T.selected?.id === 'window:4242:0' && T.minimized) throw new DOMException('Could not start video source', 'NotReadableError');
     const c = document.createElement('canvas'); c.width = 1280; c.height = 720; const x = c.getContext('2d'); let n = 0;
     setInterval(() => { x.fillStyle = `hsl(${n++ % 360},60%,40%)`; x.fillRect(0, 0, 1280, 720); }, 33);
     const ac = new AudioContext(), o = ac.createOscillator(), d = ac.createMediaStreamDestination(); o.frequency.value = 1500; o.connect(d); o.start();
@@ -103,6 +107,11 @@ try {
   const back = await audOn();
   ok(back.some(t => /^Só este programa: VALORANT/.test(t)), 'de volta ao jogo: só o jogo de novo', back);
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Transmitir').click());
+  // jogo minimizado: o Chromium recusa ("Could not start video source"); a Resenha avisa e espera o jogo voltar à tela
+  await sleep(1500);
+  const wait = await A.evaluate(() => ({ screen: !!window.__lc.voice.screen, waiting: !!window.__lc.voice._scrWait, toast: [...document.querySelectorAll('#toast')].map(e => e.textContent).join(' | ') }));
+  ok(!wait.screen && wait.waiting && /minimizado/.test(wait.toast) && !/Não foi possível/.test(wait.toast), 'jogo minimizado: sem erro, avisa e espera o jogo voltar', wait);
+  await A.evaluate(() => { window.__t.minimized = false; }); // a pessoa voltou para o jogo
   await sleep(2500);
   const st = await A.evaluate(() => ({ t: window.__t, appAudio: window.__lc.voice.appAudio && { mode: window.__lc.voice.appAudio.mode, name: window.__lc.voice.appAudio.name }, tracks: window.__lc.voice.screen?.getAudioTracks().length, err: window.__lc.voice.error }));
   ok(st.t.selected?.id === 'window:4242:0', 'transmite a janela do jogo (minimizada) pelo id, não a tela inteira', st.t.selected);

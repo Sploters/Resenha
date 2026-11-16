@@ -1256,16 +1256,31 @@ export class Voice {
     this.publish('cam', this.cam); playSound('camOn');
   }
   // opts: { res: 720|1080|1440|'source', fps: 15|30|60, audio: bool, hint: 'motion'|'detail' }
-  toggleScreen(opts) { return this.screen ? Promise.resolve(this.stopLocal('screen')) : this.once('_scrBusy', () => this.toggleScreenNow(opts)); }
+  toggleScreen(opts) {
+    if (this._scrWait) { this._scrWait.cancel(); return Promise.resolve(); } // esperando o jogo voltar: clicar de novo desiste
+    return this.screen ? Promise.resolve(this.stopLocal('screen')) : this.once('_scrBusy', () => this.toggleScreenNow(opts));
+  }
   async toggleScreenNow(opts) {
     if (this.screen) return this.stopLocal('screen');
     opts = { res: 1080, fps: 30, audio: true, hint: 'motion', ...opts };
     const video = { frameRate: capFps(opts.fps), cursor: opts.cursor === false ? 'never' : 'always' };
     if (opts.res !== 'source') { video.height = { ideal: +opts.res, max: +opts.res }; video.width = { ideal: Math.round(+opts.res * 16 / 9) }; }
+    const gdm = () => navigator.mediaDevices.getDisplayMedia({ video, audio: opts.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true, suppressLocalAudioPlayback: true } : false, systemAudio: 'include', selfBrowserSurface: 'exclude' });
+    const cid = this.channelId;
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
-      this.screen = await navigator.mediaDevices.getDisplayMedia({ video, audio: opts.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true, suppressLocalAudioPlayback: true } : false, systemAudio: 'include', selfBrowserSurface: 'exclude' });
-    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name)); }
+      try { this.screen = await gdm(); } catch (e) {
+        // Jogo em TELA CHEIA (exclusiva): no Alt+Tab para a Resenha o Windows minimiza o jogo, e o Chromium não começa a
+        // captura de uma janela minimizada ("Could not start video source"). Espera o jogo voltar à tela e começa.
+        if (e.name !== 'NotReadableError' || !(await this.srcMinimized())) throw e;
+        if (!(await this.waitSourceShown())) return; // desistiu, saiu da sala ou o jogo fechou
+        if (!this.channelId || this.channelId !== cid) return;
+        for (let i = 0; ; i++) { // o jogo leva um instante para voltar a desenhar depois de restaurado
+          try { this.screen = await gdm(); break; } catch (e2) { if (e2.name !== 'NotReadableError' || i >= 5) throw e2; await new Promise(r => setTimeout(r, 400)); }
+        }
+      }
+    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo.' : '')); }
+    if (!this.channelId || this.channelId !== cid) { this.screen?.getTracks().forEach(t => t.stop()); this.screen = null; return; } // saiu da sala enquanto abria
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
     this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null;
@@ -1277,6 +1292,30 @@ export class Voice {
     if (nat) { this.native = { pending: true }; this.previewOnly(vt, true); }
     this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource(); this.watchFse();
     if (nat) this.startNative().catch(() => { });
+  }
+
+  // janela escolhida está minimizada agora? (só o app desktop sabe; sem ele, não)
+  async srcMinimized() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && !!s.minimized; } catch { return false; } }
+  // espera a janela escolhida sair do minimizado (até 2 min). true = apareceu; false = desistiu/fechou/saiu da sala
+  waitSourceShown() {
+    const cid = this.channelId;
+    this.onAutoAdjust?.('O jogo está minimizado (tela cheia). Volte para o jogo: a transmissão começa quando ele aparecer na tela. Clique em Transmitir de novo para desistir.');
+    return new Promise((resolve) => {
+      let done = false, timer = null;
+      const end = (v) => { if (done) return; done = true; clearTimeout(timer); this._scrWait = null; this.onUpdate(); resolve(v); };
+      this._scrWait = { cancel: () => end(false) };
+      const t0 = Date.now();
+      const tick = async () => {
+        if (done) return;
+        if (!this.channelId || this.channelId !== cid || Date.now() - t0 > 120000) return end(false);
+        let s = null; try { s = await window.lcDesktop.sourceState(); } catch { }
+        if (done) return;
+        if (s && s.kind === 'window' && !s.exists) { this.onAutoAdjust?.('A janela do jogo fechou: transmissão cancelada.'); return end(false); }
+        if (s && !s.minimized) return end(true);
+        timer = setTimeout(tick, 500);
+      };
+      this.onUpdate(); tick();
+    });
   }
 
   // ---------- áudio da transmissão só do jogo (app desktop no Windows 10 2004+) ----------

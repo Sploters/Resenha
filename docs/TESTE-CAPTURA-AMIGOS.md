@@ -36,6 +36,7 @@ Se algo der muito errado durante a live: no mesmo painel, Método de captura = *
 | 2 | Mesmo, 120 FPS | idem com 120 FPS (monitor de 120 Hz+ se tiver) | FPS capturado até o Hz do monitor |
 | 3 | Valorant sem bordas | Valorant em "Janela sem bordas", transmitir a tela | imagem do jogo, sem troca |
 | 4 | Valorant tela cheia | Valorant em "Tela cheia", transmitir a tela | Win10: DXGI segue; se o WGC estiver em uso e congelar, troca para DXGI. Win11: WGC deve seguir |
+| 4b | Jogo em tela cheia escolhido minimizado | Valorant em "Tela cheia", Alt+Tab para a Resenha, escolher a JANELA do Valorant (aparece "minimizado") e Transmitir | aviso "O jogo está minimizado..." (sem o erro "Could not start video source"); ao voltar para o jogo a live começa em 1-2 s |
 | 5 | Valorant como janela | transmitir a janela do Valorant (sem bordas e tela cheia) | Win11: WGC isola a janela. Win10: DXGI recorta (o que estiver por cima aparece) |
 | 6 | Outros jogos DirectX | 2-3 jogos (DX11 e DX12), sem bordas e tela cheia | igual ao 3/4 |
 | 7 | Resoluções | jogo em 1280x720, 1600x900 e na nativa | imagem certa (barras pretas se a proporção mudar) |
@@ -55,6 +56,9 @@ Preencher por PC (copiar a tabela):
 | 1 | | | | | | | | |
 
 ## Se der problema
+- "Não foi possível compartilhar a tela: Could not start video source": o Chromium não começa a captura de uma janela
+  minimizada (jogo em tela cheia depois do Alt+Tab). Com o servidor atualizado a Resenha espera o jogo voltar; se ainda
+  aparecer, anotar Windows, jogo, modo de vídeo e se foi "janela" ou "tela inteira".
 - A live caiu para "Modo normal (Chromium)": o motivo está no painel ("Por que não o nativo" e no histórico). Copiar o relatório.
 - Tela preta para quem assiste: anotar o método em uso e se o Windows estava em tela cheia; testar Forçar o outro método.
 - Voltar ao app de antes: fechar o portátil e abrir a Resenha instalada. Nada do teste fica no PC além das
