@@ -24,8 +24,8 @@ try {
   await P.waitForFunction(() => window.__lc.voice?.active, { timeout: 15000 });
   await P.evaluate(() => window.__lc.voice.toggleScreen({ res: 360, fps: 30, audio: false, hint: 'motion' })); await sleep(3500);
   const st = await P.evaluate(() => {
-    const bar = document.querySelector('#stage .bar'), b = bar?.querySelector('.stopshare'), other = bar?.querySelector('.roundbtn:not(.stopshare)');
-    return { last: bar?.querySelector('.roundbtn:last-of-type')?.classList.contains('stopshare'), w: b?.offsetWidth, ow: other?.offsetWidth, leave: !!bar?.querySelector('[title^="Sair da chamada"]'), vp: document.querySelector('#voice-panel .vp-live')?.innerText.replace(/\s+/g, ' ') };
+    const bar = document.querySelector('#stage .bar'), vis = [...(bar?.querySelectorAll('.roundbtn') || [])].filter(x => x.offsetWidth), b = bar?.querySelector('.stopshare'), other = vis.find(x => x !== b);
+    return { last: vis.at(-1)?.classList.contains('stopshare'), w: b?.offsetWidth, ow: other?.offsetWidth, leave: !!bar?.querySelector('[title^="Sair da chamada"]'), vp: document.querySelector('#voice-panel .vp-live')?.innerText.replace(/\s+/g, ' ') };
   });
   ok(st.last, 'barra: a bola "Parar transmissão" fica na ponta, no lugar do Sair da chamada', st);
   ok(st.w && st.w === st.ow, 'mesmo tamanho das outras bolas', [st.w, st.ow]);
@@ -39,10 +39,12 @@ try {
   await Q.goto(BASE); await Q.waitForSelector('#rail .rail-wrap');
   await Q.evaluate((gid, r) => { window.__lc.go(gid, r); window.__lc.joinVoice(r); }, g.id, room);
   await Q.waitForFunction(() => window.__lc.voice?.active, { timeout: 15000 }); await sleep(1500);
-  await Q.evaluate((uid) => { window.__lc.voice.openStream(uid); window.__lc.S.focus = 's:' + uid; window.__lc.renderVoiceUI?.(); }, await P.evaluate(() => window.__lc.S.me.id));
-  const eye = await P.waitForFunction(() => [...document.querySelectorAll('.vuser')].some(r => r.querySelector('.vu-watch')), { timeout: 8000 }).then(() => true).catch(() => false);
+  const sid = await P.evaluate(() => window.__lc.S.me.id);
+  await Q.evaluate((uid) => window.__lc.voice.openStream(uid), sid);
+  await Q.waitForFunction((uid) => window.__lc.S.watching?.has(uid), { timeout: 20000, polling: 500 }, sid).catch(() => null);
+  const eye = await P.waitForFunction(() => [...document.querySelectorAll('.vuser')].some(r => r.querySelector('.vu-watch')), { timeout: 10000, polling: 500 }).then(() => true).catch(() => false);
   ok(eye, 'lista da sala: olho ao lado de quem está assistindo');
-  await P.screenshot({ path: OUT + '/03-olho.png' });
+  await P.bringToFront(); await P.screenshot({ path: OUT + '/03-olho.png' });
   await P.screenshot({ path: OUT + '/01-palco.png' });
   await (await P.$('#voice-panel')).screenshot({ path: OUT + '/02-painel.png' });
   await P.evaluate(() => document.querySelector('#voice-panel .vp-live-stop').click()); await sleep(800);
