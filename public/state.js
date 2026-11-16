@@ -275,6 +275,16 @@ export function perms(gid) {
   return p & PERM.ADMIN ? 0xffffff : p;
 }
 export const can = (gid, bit) => (perms(gid) & bit) !== 0;
+// hierarquia de cargos (espelho de rankOf em server/index.js): vale o cargo mais alto; o dono fica acima de todos
+export function rankOf(gid, uid) {
+  const g = guild(gid); if (!g) return 0;
+  if (g.owner_id === uid) return 1e9;
+  const m = g.members.get(uid); let p = 0;
+  for (const r of g.roles) if (m?.roles.includes(r.id) && r.position > p) p = r.position;
+  return p;
+}
+export const outranks = (gid, uid) => uid !== S.me.id && rankOf(gid, S.me.id) > rankOf(gid, uid);
+export const roleBelow = (gid, r) => r.position < rankOf(gid, S.me.id);
 // permissões por canal/categoria (espelho de server/chperms.js): canal sincronizado segue a categoria; post de fórum segue o fórum
 export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8 }, CH_ALL = 15;
 export const CH_LABELS = [[CH.SEND, 'Enviar mensagens', 'Escrever no chat (e criar posts, num fórum)'], [CH.ATTACH, 'Enviar arquivos', 'Anexar imagens, vídeos e outros arquivos'],

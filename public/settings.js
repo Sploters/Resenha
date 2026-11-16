@@ -1,5 +1,5 @@
 import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
-import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
+import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, perms, outranks, roleBelow, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHODS, captureMode } from './voice.js';
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
@@ -954,21 +954,41 @@ function invitesPage(gid) {
   draw();
   return h('div', h('h2', 'Convites'), h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`); draw(); } }, 'Criar convite'), box);
 }
+const lockedSwitch = (on, title = 'Igual ou acima do seu cargo mais alto') => h('div.switch' + (on ? '.on' : ''), { role: 'switch', 'aria-checked': String(!!on), 'aria-disabled': 'true', title, style: { opacity: '.45', cursor: 'not-allowed' } });
 function rolesPage(gid) {
-  const g = guild(gid), box = h('div'), editor = h('div');
+  // cargos do mais alto para o mais baixo; só os abaixo do seu cargo mais alto podem ser editados, apagados ou movidos
+  const g = guild(gid), box = h('div'), editor = h('div'), manage = can(gid, PERM.MANAGE_ROLES);
+  const sorted = () => [...g.roles].sort((a, b) => b.position - a.position);
+  const move = async (r, dir) => {
+    const list = sorted(), i = list.indexOf(r), j = i + dir, o = list[j];
+    if (!o || !roleBelow(gid, o)) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    if (await tryApi('PUT', `/guilds/${gid}/roles/order`, { ids: list.map(x => x.id) })) setTimeout(draw, 200);
+  };
   const draw = () => {
-    box.replaceChildren(...g.roles.map(r => h('div.role-row', { onclick: () => edit(r) }, h('i.dot', { style: { background: r.color } }), h('span', { style: { flex: 1 } }, r.name), h('small', { style: { color: 'var(--text-muted)' } }, `${[...g.members.values()].filter(m => m.roles.includes(r.id)).length} membros`))));
+    const list = sorted();
+    box.replaceChildren(...list.map((r, i) => {
+      const ok = manage && roleBelow(gid, r);
+      return h('div.role-row', { onclick: () => edit(r), title: ok ? '' : 'Igual ou acima do seu cargo mais alto: só para ver' }, h('i.dot', { style: { background: r.color } }), h('span', { style: { flex: 1 } }, r.name, !ok && manage && h('small.mut', ' 🔒')),
+        h('small', { style: { color: 'var(--text-muted)' } }, `${[...g.members.values()].filter(m => m.roles.includes(r.id)).length} membros`),
+        ok && h('button.btn.grey', { title: 'Subir', disabled: !(list[i - 1] && roleBelow(gid, list[i - 1])), onclick: (e) => { e.stopPropagation(); move(r, -1); } }, '▲'),
+        ok && h('button.btn.grey', { title: 'Descer', disabled: !list[i + 1], onclick: (e) => { e.stopPropagation(); move(r, 1); } }, '▼'));
+    }));
     if (!g.roles.length) box.append(note('Nenhum cargo ainda.'));
   };
   const edit = (r) => {
-    let color = r.color, perms = r.perms; const name = h('input', { value: r.name, maxLength: 50 });
-    editor.replaceChildren(card(h('h3', { style: { marginTop: 0, color: 'var(--header)' } }, 'Editar cargo'), h('label.f', 'Nome do cargo', name), h('label.f', 'Cor'), swatches(color, c => (color = c)),
-      h('div', { style: { marginTop: '16px' } }, PERM_LABELS.map(([bit, label, desc]) => row(label, desc, toggle(perms & bit, on => { perms = on ? perms | bit : perms & ~bit; })))),
-      h('div.btns', { style: { marginTop: '16px' } }, h('button.btn', { onclick: async () => { await tryApi('PATCH', `/roles/${r.id}`, { name: name.value, color, perms }); toast('Cargo salvo!'); setTimeout(draw, 200); } }, 'Salvar'),
+    const ok = manage && roleBelow(gid, r), mine = perms(gid);
+    let color = r.color, p = r.perms; const name = h('input', { value: r.name, maxLength: 50, disabled: !ok });
+    editor.replaceChildren(card(h('h3', { style: { marginTop: 0, color: 'var(--header)' } }, ok ? 'Editar cargo' : 'Cargo (só para ver)'),
+      !ok && note(manage ? 'Este cargo está no seu nível ou acima: só quem está mais alto (ou o dono) pode mudar.' : 'Você não pode gerenciar cargos neste servidor.'),
+      h('label.f', 'Nome do cargo', name), h('label.f', 'Cor'), ok ? swatches(color, c => (color = c)) : h('i.dot', { style: { background: color, display: 'inline-block', width: '20px', height: '20px' } }),
+      h('div', { style: { marginTop: '16px' } }, PERM_LABELS.map(([bit, label, desc]) => row(label, desc, ok && (mine & bit) ? toggle(p & bit, on => { p = on ? p | bit : p & ~bit; }) : lockedSwitch(p & bit, ok ? 'Você não tem essa permissão, então não pode dar nem tirar' : 'Cargo igual ou acima do seu')))),
+      ok && h('div.btns', { style: { marginTop: '16px' } }, h('button.btn', { onclick: async () => { if (await tryApi('PATCH', `/roles/${r.id}`, { name: name.value, color, perms: p })) toast('Cargo salvo!'); setTimeout(draw, 200); } }, 'Salvar'),
         h('button.btn.red', { onclick: async () => { if (await confirmBox('Excluir cargo', `Excluir ${r.name}?`, 'Excluir')) { await tryApi('DELETE', `/roles/${r.id}`); editor.replaceChildren(); setTimeout(draw, 200); } } }, 'Excluir'))));
   };
   draw();
-  return h('div', h('h2', 'Cargos'), can(gid, PERM.MANAGE_ROLES) && h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/roles`, { name: 'novo cargo' }); setTimeout(draw, 250); } }, 'Criar cargo'), box, editor);
+  return h('div', h('h2', 'Cargos'), manage && hint('Cargos mais altos mandam nos mais baixos: você só expulsa, bane, põe de castigo e muda cargos de quem está abaixo do seu cargo mais alto, e só dá permissões que tem. Cargo novo entra no fim da lista.'),
+    manage && h('button.btn', { style: { margin: '8px 0 16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/roles`, { name: 'novo cargo' }); setTimeout(draw, 250); } }, 'Criar cargo'), box, editor);
 }
 function membersPage(gid) {
   const g = guild(gid), box = h('div'), q = h('input.fsearch', { placeholder: 'Buscar membro', oninput: debounce(() => draw(), 120) });
@@ -976,10 +996,10 @@ function membersPage(gid) {
     box.replaceChildren(...[...g.members.values()].filter(m => nameOf(m.user_id, gid).toLowerCase().includes(q.value.toLowerCase())).map(m => {
       const u = user(m.user_id);
       return h('div.frow', { style: { cursor: 'default' } }, avatar(u, 36, { ring: 'var(--bg-pri)' }), h('div.fn', h('b', nameOf(m.user_id, gid)), h('small', '@' + u.username + (g.owner_id === u.id ? ' • Dono' : '') + (timedOutUntil(gid, u.id) ? ' • de castigo até ' + new Date(timedOutUntil(gid, u.id)).toLocaleString('pt-BR') : ''))),
-        can(gid, PERM.MANAGE_ROLES) && g.roles.length > 0 && h('button.btn.grey', { onclick: () => rolePicker(g, m) }, 'Cargos'),
-        can(gid, PERM.MODERATE) && u.id !== g.owner_id && u.id !== S.me.id && h('button.btn.grey', { onclick: () => (timedOutUntil(gid, u.id) ? removeTimeout(gid, u.id) : timeoutDialog(gid, u.id)) }, timedOutUntil(gid, u.id) ? 'Tirar castigo' : 'Castigo'),
-        can(gid, PERM.BAN) && u.id !== g.owner_id && u.id !== S.me.id && h('button.btn.red', { onclick: () => banDialog(gid, u.id, () => setTimeout(draw, 300)) }, 'Banir'),
-        can(gid, PERM.KICK) && u.id !== g.owner_id && u.id !== S.me.id && h('button.btn.red', { onclick: async () => { if (await confirmBox('Expulsar', `Expulsar ${u.display_name}?`, 'Expulsar')) { await tryApi('DELETE', `/guilds/${gid}/members/${u.id}`); setTimeout(draw, 300); } } }, 'Expulsar'));
+        can(gid, PERM.MANAGE_ROLES) && g.roles.length > 0 && (u.id === S.me.id || outranks(gid, u.id)) && h('button.btn.grey', { onclick: () => rolePicker(g, m) }, 'Cargos'),
+        can(gid, PERM.MODERATE) && outranks(gid, u.id) && h('button.btn.grey', { onclick: () => (timedOutUntil(gid, u.id) ? removeTimeout(gid, u.id) : timeoutDialog(gid, u.id)) }, timedOutUntil(gid, u.id) ? 'Tirar castigo' : 'Castigo'),
+        can(gid, PERM.BAN) && outranks(gid, u.id) && h('button.btn.red', { onclick: () => banDialog(gid, u.id, () => setTimeout(draw, 300)) }, 'Banir'),
+        can(gid, PERM.KICK) && outranks(gid, u.id) && h('button.btn.red', { onclick: async () => { if (await confirmBox('Expulsar', `Expulsar ${u.display_name}?`, 'Expulsar')) { await tryApi('DELETE', `/guilds/${gid}/members/${u.id}`); setTimeout(draw, 300); } } }, 'Expulsar'));
     }));
   };
   const title = h('h2', `Membros — ${g.member_count || g.members.size}`);
@@ -989,7 +1009,11 @@ function membersPage(gid) {
 }
 function rolePicker(g, m) {
   const sel = new Set(m.roles);
-  modal(`Cargos de ${nameOf(m.user_id, g.id)}`, '', h('div', g.roles.map(r => row(r.name, null, toggle(sel.has(r.id), on => (on ? sel.add(r.id) : sel.delete(r.id)))))),
+  // cargos do seu nível para cima aparecem travados (o servidor também recusa)
+  modal(`Cargos de ${nameOf(m.user_id, g.id)}`, '', h('div', g.roles.map(r => {
+    const ok = roleBelow(g.id, r);
+    return row(r.name, ok ? null : 'Igual ou acima do seu cargo mais alto: só quem está acima pode dar ou tirar', ok ? toggle(sel.has(r.id), on => (on ? sel.add(r.id) : sel.delete(r.id))) : lockedSwitch(sel.has(r.id)));
+  })),
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Salvar', fn: () => tryApi('PATCH', `/guilds/${g.id}/members/${m.user_id}`, { roles: [...sel] }) }]);
 }
 void channelById;

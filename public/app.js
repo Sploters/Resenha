@@ -17,7 +17,7 @@ import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh } from './state.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice, CAPTURE_METHODS, captureMode } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -1800,10 +1800,10 @@ function callUserMenu(e, uid, gid) {
       : rt === 0 && { label: 'Adicionar Amizade', fn: () => tryApi('POST', '/relationships', { username: user(uid).username }).then(r => r && toast('Pedido enviado')) },
     rt !== 2 ? { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${uid}`, { type: 2 }) } : { label: 'Desbloquear', fn: () => tryApi('DELETE', `/relationships/${uid}`) },
     // moderação continua disponível para quem tem permissão
-    g && g.owner_id !== uid && (can(gid, PERM.MODERATE) || can(gid, PERM.BAN) || can(gid, PERM.KICK)) && '-',
-    g && can(gid, PERM.MODERATE) && g.owner_id !== uid && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
-    g && can(gid, PERM.BAN) && g.owner_id !== uid && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },
-    g && can(gid, PERM.KICK) && g.owner_id !== uid && { label: 'Expulsar', danger: true, fn: async () => { if (await confirmBox('Expulsar membro', `Expulsar ${user(uid).display_name}?`, 'Expulsar')) tryApi('DELETE', `/guilds/${gid}/members/${uid}`); } },
+    g && outranks(gid, uid) && (can(gid, PERM.MODERATE) || can(gid, PERM.BAN) || can(gid, PERM.KICK)) && '-',
+    g && can(gid, PERM.MODERATE) && outranks(gid, uid) && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
+    g && can(gid, PERM.BAN) && outranks(gid, uid) && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },
+    g && can(gid, PERM.KICK) && outranks(gid, uid) && { label: 'Expulsar', danger: true, fn: async () => { if (await confirmBox('Expulsar membro', `Expulsar ${user(uid).display_name}?`, 'Expulsar')) tryApi('DELETE', `/guilds/${gid}/members/${uid}`); } },
     S.prefs.devMode && { label: 'Copiar ID do usuário', fn: () => navigator.clipboard?.writeText(uid) },
   ]);
 }
@@ -1829,10 +1829,10 @@ function userMenu(e, uid, gid) {
     voice?.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
     voice?.peers.get(uid)?.screenAudioEl && { node: volumeControl(voice, uid, 'screen', 'Áudio da transmissão') },
     g && '-',
-    g && can(gid, PERM.MANAGE_ROLES) && { label: 'Apelido…', fn: async () => { const n = await promptBox('Alterar apelido', 'Apelido', member(gid, uid)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${gid}/members/${uid}`, { nickname: n }); } },
-    g && can(gid, PERM.MODERATE) && g.owner_id !== uid && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
-    g && can(gid, PERM.BAN) && g.owner_id !== uid && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },
-    g && can(gid, PERM.KICK) && g.owner_id !== uid && { label: 'Expulsar', danger: true, fn: async () => { if (await confirmBox('Expulsar membro', `Expulsar ${user(uid).display_name}?`, 'Expulsar')) tryApi('DELETE', `/guilds/${gid}/members/${uid}`); } },
+    g && can(gid, PERM.MANAGE_ROLES) && outranks(gid, uid) && { label: 'Apelido…', fn: async () => { const n = await promptBox('Alterar apelido', 'Apelido', member(gid, uid)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${gid}/members/${uid}`, { nickname: n }); } },
+    g && can(gid, PERM.MODERATE) && outranks(gid, uid) && (timedOutUntil(gid, uid) ? { label: 'Remover castigo', fn: () => removeTimeout(gid, uid) } : { label: 'Castigo…', danger: true, fn: () => timeoutDialog(gid, uid) }),
+    g && can(gid, PERM.BAN) && outranks(gid, uid) && { label: 'Banir…', danger: true, fn: () => banDialog(gid, uid) },
+    g && can(gid, PERM.KICK) && outranks(gid, uid) && { label: 'Expulsar', danger: true, fn: async () => { if (await confirmBox('Expulsar membro', `Expulsar ${user(uid).display_name}?`, 'Expulsar')) tryApi('DELETE', `/guilds/${gid}/members/${uid}`); } },
     '-', S.prefs.devMode && { label: 'Copiar ID do usuário', fn: () => navigator.clipboard?.writeText(uid) },
   ]);
 }

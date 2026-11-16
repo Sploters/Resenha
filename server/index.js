@@ -170,6 +170,26 @@ function memberPerms(gid, uid) {
   return (p & P.ADMIN) ? 0xffffff : p;
 }
 const can = (gid, uid, bit) => (memberPerms(gid, uid) & bit) !== 0;
+// hierarquia de cargos: cada um vale o cargo mais alto que tem (posições 1..n, a maior em cima); o dono fica acima de todos.
+// Expulsar, banir, castigar, mudar apelido e mexer em cargos só valem para baixo (como no Discord).
+const OWNER_RANK = 1e9;
+function rankOf(gid, uid) {
+  if (get('SELECT owner_id o FROM guilds WHERE id=?', gid)?.o === uid) return OWNER_RANK;
+  return get('SELECT MAX(r.position) p FROM member_roles mr JOIN roles r ON r.id=mr.role_id WHERE mr.guild_id=? AND mr.user_id=?', gid, uid)?.p || 0;
+}
+const outranks = (gid, actor, target) => actor !== target && rankOf(gid, actor) > rankOf(gid, target);
+const ABOVE = 'Essa pessoa tem um cargo igual ou acima do seu';
+const ROLE_ABOVE = 'Esse cargo é igual ou acima do seu cargo mais alto';
+const tx = (fn) => { db.exec('BEGIN'); try { fn(); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; } };
+// posições contíguas 1..n mantendo a ordem (cargos antigos nasciam com Date.now() % 100000)
+function renumberRoles(gid) {
+  const rs = all('SELECT id FROM roles WHERE guild_id=? ORDER BY position ASC, id ASC', gid);
+  rs.forEach((r, i) => run('UPDATE roles SET position=? WHERE id=?', i + 1, r.id));
+}
+if (!get("SELECT 1 x FROM meta WHERE k='roles-position-1'")) tx(() => {
+  for (const { guild_id } of all('SELECT DISTINCT guild_id FROM roles')) renumberRoles(guild_id);
+  run("INSERT INTO meta VALUES('roles-position-1',?)", String(Date.now()));
+});
 const chp = createChPerms({ db, all, get, run, memberPerms, P }); // permissões por canal/categoria (server/chperms.js)
 // castigo: não fala, não reage, não entra em voz
 const timedOut = (gid, uid) => !!gid && (get('SELECT timeout_until t FROM members WHERE guild_id=? AND user_id=?', gid, uid)?.t || 0) > Date.now();
@@ -577,6 +597,7 @@ app.delete('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
   if (!g) return bad(res, 'Servidor não encontrado', 404);
   if (target === g.owner_id) return bad(res, 'O dono não pode sair/ser expulso; exclua o servidor', 400);
   if (target !== req.uid && !can(gid, req.uid, P.KICK)) return bad(res, 'Sem permissão', 403);
+  if (target !== req.uid && !outranks(gid, req.uid, target)) return bad(res, ABOVE, 403);
   removeMember(gid, target, target !== req.uid);
   if (target !== req.uid) audit(gid, req.uid, 'member_kick', target, clean(req.query.reason, 300));
   res.json({});
@@ -590,6 +611,7 @@ app.put('/api/guilds/:id/bans/:uid', auth, wrap((req, res) => {
   const gid = req.params.id, target = req.params.uid, g = get('SELECT * FROM guilds WHERE id=?', gid);
   if (!g || !can(gid, req.uid, P.BAN)) return bad(res, 'Sem permissão', 403);
   if (target === g.owner_id || target === req.uid || !getUser(target)) return bad(res, 'Não é possível banir este usuário');
+  if (!outranks(gid, req.uid, target)) return bad(res, ABOVE, 403);
   const reason = clean(req.body.reason, 300);
   run('INSERT INTO bans(guild_id,user_id,reason,by_id,created_at) VALUES(?,?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET reason=excluded.reason', gid, target, reason, req.uid, Date.now());
   if (get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, target)) removeMember(gid, target, true);
@@ -622,11 +644,13 @@ app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
   if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, target)) return bad(res, 'Membro não encontrado', 404);
   if (req.body.nickname !== undefined) {
     if (!own && !can(gid, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+    if (!own && !outranks(gid, req.uid, target)) return bad(res, ABOVE, 403);
     run('UPDATE members SET nickname=? WHERE guild_id=? AND user_id=?', clean(req.body.nickname, 32) || null, gid, target);
   }
   if (req.body.timeout_until !== undefined) { // castigo (null = remover)
     const g = get('SELECT owner_id FROM guilds WHERE id=?', gid);
     if (!can(gid, req.uid, P.MODERATE) || own || target === g.owner_id) return bad(res, 'Sem permissão', 403);
+    if (!outranks(gid, req.uid, target)) return bad(res, ABOVE, 403);
     const until = req.body.timeout_until ? Math.min(+req.body.timeout_until, Date.now() + 28 * 86400000) : null;
     if (until !== null && !(until > Date.now())) return bad(res, 'Duração inválida');
     run('UPDATE members SET timeout_until=? WHERE guild_id=? AND user_id=?', until, gid, target);
@@ -635,9 +659,15 @@ app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
   }
   if (Array.isArray(req.body.roles)) {
     if (!can(gid, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
-    audit(gid, req.uid, 'member_roles', target, req.body.roles.map(r => get('SELECT name FROM roles WHERE id=? AND guild_id=?', r, gid)?.name).filter(Boolean).join(', ') || '(nenhum)');
+    if (!own && !outranks(gid, req.uid, target)) return bad(res, ABOVE, 403);
+    // só entram e saem cargos abaixo do seu; os que estão acima ficam como estavam
+    const mine = rankOf(gid, req.uid), want = new Set(req.body.roles.map(String));
+    const cur = new Set(all('SELECT role_id FROM member_roles WHERE guild_id=? AND user_id=?', gid, target).map(r => r.role_id));
+    const roles = all('SELECT id,name,position FROM roles WHERE guild_id=?', gid);
+    if (roles.some(r => want.has(r.id) !== cur.has(r.id) && r.position >= mine)) return bad(res, ROLE_ABOVE, 403);
+    audit(gid, req.uid, 'member_roles', target, roles.filter(r => want.has(r.id)).sort((a, b) => b.position - a.position).map(r => r.name).join(', ') || '(nenhum)');
     run('DELETE FROM member_roles WHERE guild_id=? AND user_id=?', gid, target);
-    for (const r of req.body.roles) if (get('SELECT 1 x FROM roles WHERE id=? AND guild_id=?', r, gid)) run('INSERT OR IGNORE INTO member_roles VALUES(?,?,?)', gid, target, r);
+    for (const r of roles) if (want.has(r.id)) run('INSERT OR IGNORE INTO member_roles VALUES(?,?,?)', gid, target, r.id);
   }
   dispatch(guildMemberIds(gid), 'MEMBER_UPDATE', { guild_id: gid, ...memberObj(gid, target) });
   res.json({});
@@ -645,27 +675,56 @@ app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
 // Roles
 app.post('/api/guilds/:id/roles', auth, wrap((req, res) => {
   if (!can(req.params.id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
-  const id = newId();
-  run('INSERT INTO roles(id,guild_id,name,color,perms,position) VALUES(?,?,?,?,?,?)', id, req.params.id, clean(req.body.name, 50) || 'novo cargo', clean(req.body.color, 9) || '#99aab5', Number(req.body.perms) | 0, Date.now() % 100000);
-  dispatch(guildMemberIds(req.params.id), 'ROLE_UPDATE', { guild_id: req.params.id, role: get('SELECT * FROM roles WHERE id=?', id) });
+  const gid = req.params.id, id = newId(), perms = Number(req.body.perms) | 0;
+  if (perms & ~memberPerms(gid, req.uid)) return bad(res, 'Você não pode dar uma permissão que não tem', 403);
+  // cargo novo entra no fim da lista (posição 1), abaixo de quem criou; os outros sobem uma posição
+  const ids = guildMemberIds(gid);
+  tx(() => {
+    run('UPDATE roles SET position=position+1 WHERE guild_id=?', gid);
+    run('INSERT INTO roles(id,guild_id,name,color,perms,position) VALUES(?,?,?,?,?,?)', id, gid, clean(req.body.name, 50) || 'novo cargo', clean(req.body.color, 9) || '#99aab5', perms, 1);
+  });
+  for (const r of all('SELECT * FROM roles WHERE guild_id=?', gid)) dispatch(ids, 'ROLE_UPDATE', { guild_id: gid, role: r });
   audit(req.params.id, req.uid, 'role_create', id, clean(req.body.name, 50) || 'novo cargo');
   res.json({ id });
 }));
 app.patch('/api/roles/:id', auth, wrap((req, res) => {
   const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
   if (!r || !can(r.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  if (r.position >= rankOf(r.guild_id, req.uid)) return bad(res, ROLE_ABOVE, 403);
+  if (req.body.perms !== undefined && ((Number(req.body.perms) | 0) ^ r.perms) & ~memberPerms(r.guild_id, req.uid)) return bad(res, 'Você não pode dar ou tirar uma permissão que não tem', 403);
   run('UPDATE roles SET name=?,color=?,perms=? WHERE id=?', clean(req.body.name, 50) || r.name, clean(req.body.color, 9) || r.color, req.body.perms !== undefined ? Number(req.body.perms) | 0 : r.perms, r.id);
   dispatch(guildMemberIds(r.guild_id), 'ROLE_UPDATE', { guild_id: r.guild_id, role: get('SELECT * FROM roles WHERE id=?', r.id) });
   audit(r.guild_id, req.uid, 'role_update', r.id, get('SELECT name FROM roles WHERE id=?', r.id).name);
   res.json({});
 }));
+// reordenar: ids do mais alto para o mais baixo (todos os cargos do servidor). Os cargos do seu nível para cima não mudam de lugar.
+app.put('/api/guilds/:id/roles/order', auth, wrap((req, res) => {
+  const gid = req.params.id;
+  if (!can(gid, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  const roles = all('SELECT id,position FROM roles WHERE guild_id=?', gid), ids = Array.isArray(req.body.ids) ? req.body.ids.map(String) : [];
+  if (ids.length !== roles.length || new Set(ids).size !== ids.length || !roles.every(r => ids.includes(r.id))) return bad(res, 'Lista de cargos inválida');
+  const mine = rankOf(gid, req.uid), next = new Map(ids.map((id, i) => [id, ids.length - i]));
+  if (roles.some(r => (r.position >= mine || next.get(r.id) >= mine) && r.position !== next.get(r.id))) return bad(res, ROLE_ABOVE, 403);
+  const changed = roles.filter(r => r.position !== next.get(r.id));
+  if (changed.length) {
+    tx(() => { for (const r of changed) run('UPDATE roles SET position=? WHERE id=?', next.get(r.id), r.id); });
+    const mids = guildMemberIds(gid);
+    for (const r of changed) dispatch(mids, 'ROLE_UPDATE', { guild_id: gid, role: get('SELECT * FROM roles WHERE id=?', r.id) });
+    audit(gid, req.uid, 'role_update', null, 'ordem dos cargos');
+  }
+  res.json({});
+}));
 app.delete('/api/roles/:id', auth, wrap((req, res) => {
   const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
   if (!r || !can(r.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
+  if (r.position >= rankOf(r.guild_id, req.uid)) return bad(res, ROLE_ABOVE, 403);
   run('DELETE FROM roles WHERE id=?', r.id);
   run('DELETE FROM channel_perms WHERE target=?', r.id); // ajustes de canal do cargo apagado
   audit(r.guild_id, req.uid, 'role_delete', r.id, r.name);
-  dispatch(guildMemberIds(r.guild_id), 'ROLE_DELETE', { guild_id: r.guild_id, id: r.id });
+  const mids = guildMemberIds(r.guild_id);
+  dispatch(mids, 'ROLE_DELETE', { guild_id: r.guild_id, id: r.id });
+  renumberRoles(r.guild_id); // fecha o buraco na ordem
+  for (const x of all('SELECT * FROM roles WHERE guild_id=? AND position>=?', r.guild_id, r.position)) dispatch(mids, 'ROLE_UPDATE', { guild_id: r.guild_id, role: x });
   res.json({});
 }));
 // Channels
