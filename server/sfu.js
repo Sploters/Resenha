@@ -312,6 +312,21 @@ export async function sfuRequest(cid, uid, op, d) {
       }
       return seen ? { count, lost } : {};
     }
+    // quem transmite pelo Chromium pergunta como estão os espectadores da SUA tela (public/voice.js govTick): banda estimada
+    // pelo servidor para cada um e a nota do que chega. Decide se as camadas leves do simulcast podem ficar desligadas.
+    case 'screen_viewers': {
+      const sp = peer.producers.get('screen'); if (!sp || sp.kind !== 'video') return { viewers: [] };
+      const viewers = [];
+      for (const o of r.peers.values()) {
+        if (o === peer) continue;
+        for (const c of o.consumers.values()) {
+          if (c.closed || c.producerId !== sp.id || c.paused) continue;
+          const st = await c.appData.recvT?.getStats().catch(() => null);
+          viewers.push({ avail: st?.[0]?.availableOutgoingBitrate ?? null, score: c.score?.score ?? null });
+        }
+      }
+      return { viewers };
+    }
     case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
     default: throw new Error('operação desconhecida');
   }

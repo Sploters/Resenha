@@ -163,10 +163,30 @@ try {
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoHeight >= 720, { timeout: 20000 }, a.id).catch(() => { });
   const f60 = await viewerFps(B, a.id);
   ok(f60 >= 52 && f60 <= 66, 'espectador recebe ~60 fps (não os ~48 do Chromium)', f60);
-  // o programa cai (ex.: placa de vídeo ocupada): segue transmitindo pelo modo normal
-  helpers[2].proc.kill('SIGKILL'); await sleep(2500);
+  // o programa cai uma vez (ex.: Alt+Tab, placa ocupada por um instante): reinicia sozinho e segue no nativo
+  const nBefore = helpers.length;
+  helpers[2].proc.kill('SIGKILL');
+  await A.waitForFunction(() => window.__lc.voice.natRestartCount >= 1 && window.__lc.voice.native?.live && !window.__lc.voice.native.pending, { timeout: 15000 }).catch(() => { });
+  const sr = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers), restarts: window.__lc.voice.natRestartCount, toast: document.getElementById('toast')?.textContent || '' }));
+  ok(sr.native && !sr.prod.includes('screen') && sr.restarts === 1 && helpers.length === nBefore + 1 && !/placa de vídeo indisponível/.test(sr.toast), 'programa caiu uma vez: reinicia sozinho e continua no nativo, sem aviso', { ...sr, n: helpers.length - nBefore });
+  await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoHeight >= 720, { timeout: 20000 }, a.id).catch(() => { });
+  const fr = await viewerFps(B, a.id);
+  ok(fr >= 52, 'espectador volta a receber ~60 fps depois do reinício', fr);
+  // painel da captura (M13): método nativo, quadros do programa e o reinício registrado
+  const ci = await A.evaluate(() => window.__lc.voice.captureInfo());
+  const nat = ci?.frames.find(f => f.id === 'native');
+  ok(ci?.method === 'native' && nat.frames > 100 && nat.secs > 3 && ci.restarts === 1 && /fechou/.test(ci.lastError || '') && ci.fallback === null, 'diagnóstico: método nativo, quadros capturados pelo programa e 1 reinício', { method: ci?.method, nat, restarts: ci?.restarts, lastError: ci?.lastError });
+  // cai de novo várias vezes seguidas (falha que não passa): depois de 3 reinícios em 30 s, volta ao modo normal
+  for (let k = 0; k < 3; k++) {
+    const c = await A.evaluate(() => window.__lc.voice.natRestartCount);
+    helpers.at(-1).proc.kill('SIGKILL');
+    await A.waitForFunction((c) => !window.__lc.voice.native || (window.__lc.voice.natRestartCount > c && window.__lc.voice.native.live && !window.__lc.voice.native.pending), { timeout: 15000 }, c).catch(() => { });
+  }
+  helpers.at(-1).proc.kill('SIGKILL'); await sleep(2500);
   const sf = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers), screen: !!window.__lc.voice.screen, toast: document.getElementById('toast')?.textContent || '' }));
-  ok(!sf.native && sf.screen && sf.prod.includes('screen') && /placa de vídeo indisponível/.test(sf.toast), 'programa caiu: transmissão continua pelo modo normal, com aviso', sf);
+  ok(!sf.native && sf.screen && sf.prod.includes('screen') && /placa de vídeo indisponível/.test(sf.toast), 'programa caiu 4 vezes em 30 s: transmissão continua pelo modo normal, com aviso', sf);
+  const cf = await A.evaluate(() => window.__lc.voice.captureInfo());
+  ok(cf?.method === 'chromium' && cf.fallback?.code === 'fail' && /falhou 4 vezes/.test(cf.fallback.text || '') && cf.frames.find(f => f.id === 'native').frames > 0, 'diagnóstico depois da volta: modo normal, com o motivo e os quadros que o nativo já tinha capturado', { method: cf?.method, fallback: cf?.fallback });
   // parar tudo
   await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 120 }));
   await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending, { timeout: 15000 }).catch(() => { });

@@ -8,6 +8,8 @@
 //!   hello                  {"v":1,"events":bool,"toast":bool}  (o que este programa sabe fazer)
 //!   probe                  o mesmo que --probe
 //!   windows                o mesmo que --windows (lista atual, na ordem do Windows: a da frente primeiro)
+//!   fse                    {"state","code","fg":{hwnd,pid,minimized}}: estado do shell (SHQueryUserNotificationState:
+//!                          "d3d_fullscreen" = algum app Direct3D em tela cheia exclusiva, sem confirmação) e a janela da frente
 //!   icon {exe}             o mesmo que --icon
 //!   front {hwnd}           passa a vigiar se a janela `hwnd` está coberta (0 para parar); avisa {"ev":"front","covered",...}
 //!   watch {on}             liga/desliga o aviso {"ev":"windows","list":[...]} quando a lista de janelas muda
@@ -72,9 +74,10 @@ pub fn run() {
         let Ok(req) = serde_json::from_str::<Value>(line) else { continue };
         let id = req["id"].clone();
         match req["op"].as_str().unwrap_or("") {
-            "hello" => reply(&id, Ok(json!({ "v": 1, "events": crate::events::NATIVE, "toast": crate::toast::available() }))),
+            "hello" => reply(&id, Ok(json!({ "v": 1, "events": crate::events::NATIVE, "toast": crate::toast::available(), "fse": true }))),
             "probe" => reply(&id, Ok(crate::sys::probe())),
             "windows" => reply(&id, Ok(crate::sys::windows())),
+            "fse" => reply(&id, Ok(crate::sys::fse())),
             "icon" => {
                 // pode demorar (shell do Windows): em outra thread, para não segurar os outros pedidos
                 let exe = req["exe"].as_str().unwrap_or("").to_string();

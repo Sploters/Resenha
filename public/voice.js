@@ -39,6 +39,11 @@ export const SCREEN_PRESETS = {
 // transmissão pelo programa nativo do app desktop (placa de vídeo) a partir deste fps; e quanto esperar o servidor confirmar
 // que os pacotes dele estão chegando antes de voltar ao Chromium
 export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
+// reinício automático do programa nativo (nativeRestart): até 3 tentativas em 30 s, 1 s depois da falha
+export const FSE_TICK = 3000, FSE_CONFIRM_TICKS = 2, FSE_FROZEN_TICKS = 4; // aviso de tela cheia exclusiva: a cada 3 s; 2 leituras com as duas evidências; 12 s sem quadro = "congelada"
+export const GOV_TICK = 2000, GOV_BAD = 3, GOV_VIEWERS_MS = 10e3; // controle da transmissão (govTick): leitura a cada 2 s, 6 s ruins para descer
+export const NATIVE_RESTARTS = 3, NATIVE_RESTART_WIN = 30e3, NATIVE_RESTART_DELAY = 1000;
+const NATIVE_FATAL = /janela transmitida foi fechada|nenhum codificador|não encontrado|desktop sem suporte/i;
 export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '64 kbps'], [128, '128 kbps'], [256, '256 kbps'], [384, '384 kbps']];
 // voz é mono: 48-64 kbps já soam perfeitos. Acima disso só faz sentido para música (e pesa no upload do servidor:
 // cada voz é repassada para todos os outros da sala)
@@ -494,6 +499,57 @@ export class Voice {
   }
   // captura PRETA: jogos em tela cheia exclusiva ou protegidos por anti-cheat (ex.: Valorant) entregam quadros totalmente pretos.
   // A cada 2 s olha uma miniatura (32x18) da própria transmissão; preto absoluto por ~6 s = aviso. Não tenta contornar a proteção.
+  // ---- tela cheia exclusiva (M12) ----
+  // O Windows diz se há um app Direct3D em tela cheia exclusiva (SHQueryUserNotificationState, pelo app desktop). É o mesmo
+  // critério do Discord, que admite falso positivo (jogo em "Tela cheia" que o Windows ainda compõe e a captura pega). Por
+  // isso o aviso só sai com DUAS evidências: o Windows dizendo isso (com a janela transmitida na frente) E a captura falhando
+  // de verdade (imagem preta, ou sem quadro novo por 12 s+ com a janela na frente). Só o Windows dizendo = "suspeita" (fica
+  // no painel, sem aviso). Nunca para a transmissão. A captura em si não muda: nada é injetado no jogo.
+  watchFse() {
+    clearInterval(this._fse); this.fse = null;
+    const d = window.lcDesktop; if (!d?.fseState) return;
+    let busy = false, conf = 0, frozen = 0;
+    const tick = async () => {
+      if (!this.screen) return clearInterval(this._fse);
+      if (busy) return; busy = true;
+      try {
+        const st = await d.fseState().catch(() => null); if (!this.screen) return;
+        if (!st?.available) { this.fse = { state: null, available: false }; return; }
+        const shell = st.state === 'd3d_fullscreen' && (st.kind !== 'window' || st.fgIsSource === true);
+        // capturando quase nada: no nativo, quadros novos da WGC (cap); no Chromium, quadros do capturador
+        const capNow = this.native ? this.native.stats?.cap : this.captureFps;
+        frozen = shell && capNow != null && capNow < 2 && !this.screenNote ? frozen + 1 : 0;
+        const bad = this.captureBlack || frozen >= FSE_FROZEN_TICKS;
+        conf = shell && bad ? conf + 1 : 0;
+        const prev = this.fse?.state, state = conf >= FSE_CONFIRM_TICKS ? 'confirmed' : shell ? 'suspected' : null;
+        this.fse = { available: true, state, shell: st.state, fgIsSource: st.fgIsSource, black: !!this.captureBlack, frozenSecs: frozen * FSE_TICK / 1000 };
+        if (state !== prev) { if (state === 'confirmed') this.onFse?.(this.fse); this.onUpdate(); }
+      } finally { busy = false; }
+    };
+    tick(); this._fse = setInterval(tick, FSE_TICK);
+  }
+  // ---- painel da captura (M13): método atual, quadros por método, fps efetivo, motivo de não estar no nativo ----
+  // Só o que já é medido (contadores do capturador do Chromium e do programa nativo, controle da transmissão, aviso de
+  // tela cheia); nada disso vai para a telemetria (o resumo da chamada já leva caminho, motivo e codificador).
+  async captureInfo() {
+    if (!this.screen) return null;
+    const n = this.native, o = this.screenOpts || {}, st = await this.screenStats().catch(() => null), top = st?.[0];
+    const method = n ? (n.restarting ? 'restarting' : n.pending ? 'starting' : 'native') : 'chromium';
+    const label = { native: 'Programa nativo (WGC → codificador da placa)', starting: 'Programa nativo (iniciando)', restarting: 'Programa nativo (reiniciando após falha)', chromium: 'Modo normal (captura e codificação do Chromium)' }[method];
+    const cs = this.capStats || { chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }, g = this.gov;
+    return {
+      method, label, want: { fps: +o.fps || 30, res: o.res || 1080 },
+      captureFps: n ? (n.stats?.cap ?? null) : this.captureFps, sentFps: top?.fps ?? null, size: top?.w ? `${top.w}x${top.h}` : null, encoder: top?.enc || this.screenEncoder || '', limit: top?.limit || null,
+      frames: [
+        { id: 'native', name: 'Programa nativo (WGC)', frames: cs.native.frames, secs: cs.native.secs, sent: cs.native.sent },
+        { id: 'chromium', name: 'Chromium (capturador do navegador)', frames: cs.chromium.frames, secs: cs.chromium.secs },
+      ],
+      fallback: method === 'chromium' ? { code: this._natWhy || null, text: this._natWhyText || null } : null,
+      restarts: this.natRestartCount || 0, lastError: this.natLastError || null,
+      gov: g ? { note: g.note, step: g.ladder[g.level], layersOff: g.layersOff, top: g.ladder[0] } : null,
+      fse: this.fse || null,
+    };
+  }
   meterBlack() {
     clearInterval(this._bk); this.captureBlack = false; let n = 0, src = null;
     const v = document.createElement('video'); v.muted = true; v.playsInline = true;
@@ -539,7 +595,8 @@ export class Voice {
     const fps = this.captureFps ?? top?.fps ?? null;
     if (this.screenNote === 'min') items.push(['bad', 'Janela minimizada: quem assiste vê a imagem parada. Restaure a janela (ou transmita a tela inteira).']);
     if (this.screenNote === 'closed') items.push(['bad', 'A janela transmitida foi fechada. Escolha outra fonte.']);
-    if (this.captureBlack) items.push(['bad', 'A imagem está saindo preta (tela cheia exclusiva ou anti-cheat). Use "Janela sem bordas".']);
+    if (this.fse?.state === 'confirmed') items.push(['bad', 'O jogo parece estar em tela cheia exclusiva: a captura não recebe a imagem. Mude o jogo para "Janela sem bordas" (a transmissão continua).']);
+    else if (this.captureBlack) items.push(['bad', 'A imagem está saindo preta (tela cheia exclusiva ou anti-cheat). Use "Janela sem bordas".']);
     if (this.appAudio?.state === 'waiting') items.push(['bad', `${this.appAudio.name || 'O jogo'} fechou: o áudio volta sozinho quando ele abrir de novo.`]);
     if (fps != null && !this.screenNote && fps < want * 0.6 && fps < 50) items.push(['warn', `${fps} de ${want} fps: ${top?.limit === 'cpu' ? 'o processador está no limite' : top?.limit === 'bandwidth' ? 'a internet está no limite' : 'a fonte está entregando menos quadros (conteúdo parado também conta)'}.`]);
     else if (top?.limit === 'bandwidth') items.push(['warn', 'A internet está limitando a qualidade.']);
@@ -567,6 +624,7 @@ export class Voice {
       if (hist.length < 2) return; // um intervalo de uma troca de fonte (contador recomeça) é descartado
       const [t0, f0] = hist[0]; if (f < f0) { hist.splice(0, hist.length - 1); return; }
       this.captureFps = Math.round((f - f0) / ((now - t0) / 1000));
+      const prev = hist.at(-2)?.[1]; if (this.capStats && prev != null && f >= prev) { this.capStats.chromium.frames += f - prev; this.capStats.chromium.secs++; }
     }, 1000);
   }
   // se o PC ou a internet de quem transmite limitam a imagem por vários segundos, baixa um degrau (nunca sobe sozinho)
@@ -587,11 +645,86 @@ export class Voice {
       await this.changeScreenQuality(next); this.onAutoAdjust?.(this.autoNote, next);
     }, 2000);
   }
+  // ---- controle da qualidade da transmissão pelo Chromium quando o codificador não dá conta (M2 + M3) ----
+  // Sem ele, o Chromium (maintain-framerate) encolhia a imagem sozinho: 1080p -> 720p -> 540p com o processador no limite,
+  // e o servidor mandava a camada "Alta" já encolhida (960x540 relatado). Agora, com o codificador sobrecarregado por 6 s:
+  //  1. desliga as camadas pequenas do simulcast se nenhum espectador precisa delas (medido: 1080p a 52-57 fps em vez de
+  //     36-40 com 3 camadas no mesmo processador). Voltam quando alguém com banda fraca aparece (op 'screen_viewers').
+  //  2. desce um degrau de custo (pixels x fps), mantendo a resolução enquanto der: 1080p60 -> 1080p48 -> 1080p40 ->
+  //     900p48 -> 720p60 -> 720p40. Nunca abaixo de 720p por conta própria (o codificador fica em maintain-resolution).
+  //  3. com folga por 30 s, sobe um degrau; se a sobrecarga voltar logo depois, espera o dobro antes de tentar de novo.
+  // O ajuste é só no codificador (a captura não muda). Desligado com "qualidade automática" (watchScreen, o modo antigo),
+  // no programa nativo e na malha P2P.
+  govLadder() {
+    const o = this.screenOpts || {}, vt = this.screen?.getVideoTracks()[0];
+    const H = o.res === 'source' ? (vt?.getSettings?.().height || 1080) : +o.res || 1080, F = +o.fps || 30;
+    const L = [{ h: H, f: F }];
+    for (const f of [60, 48, 40]) if (F > f && L.at(-1).f > f) L.push({ h: H, f });
+    for (const h of [1080, 900, 720]) if (h < H) L.push({ h, f: h === 720 ? F : Math.min(F, 48) });
+    if (H >= 720 && F > 40) L.push({ h: Math.min(H, 720), f: 40 });
+    const out = []; for (const x of L) if (!out.length || x.h * x.h * x.f < out.at(-1).h * out.at(-1).h * out.at(-1).f) out.push(x); // só degraus que custam menos (pixels x fps)
+    return out;
+  }
+  govStart() {
+    clearInterval(this._gt); this.gov = null;
+    if (!this.screen || this.native || !this.sfu?.producers.screen || this.prefs?.autoQuality) return;
+    const g = this.gov = { ladder: this.govLadder(), level: 0, layersOff: false, bad: 0, good: 0, upWait: 15, upAt: 0, cool: 0, steps: [], note: '' };
+    this._gt = setInterval(() => this.govTick(g).catch(() => { }), GOV_TICK);
+  }
+  async govTick(g) {
+    if (this.gov !== g || !this.screen || this.native) { clearInterval(this._gt); return; }
+    const p = this.sfu?.producers.screen; if (!p?.rtpSender) return;
+    if (g.cool > 0) { g.cool--; return; }
+    let top = null;
+    (await p.rtpSender.getStats()).forEach(r => { if (r.type === 'outbound-rtp' && r.kind === 'video' && (r.frameHeight || 0) >= (top?.frameHeight || 0) && r.framesPerSecond) top = r; });
+    if (!top || this.gov !== g) return;
+    const lv = g.ladder[g.level], cap = this.captureFps || lv.f, want = Math.min(lv.f, cap);
+    const shrunk = (top.frameHeight || 0) < Math.min(lv.h, this.screen.getVideoTracks()[0]?.getSettings?.().height || lv.h) * 0.9;
+    const slow = (top.framesPerSecond || 0) < want * 0.8;
+    const over = top.qualityLimitationReason === 'cpu' || slow || shrunk;
+    if (over) { g.bad++; g.good = 0; } else { g.bad = 0; if (top.qualityLimitationReason === 'none') g.good++; }
+    // espectador com banda fraca (ou perda) precisando da camada pequena: religa as camadas, mesmo custando processador
+    if (g.layersOff && Date.now() - (g.vAt || 0) > GOV_VIEWERS_MS) {
+      g.vAt = Date.now();
+      const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate);
+      if (v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7))) return this.govApply(g, { layersOff: false }, 'Um espectador com internet fraca: camadas leves religadas.');
+    }
+    if (g.bad >= GOV_BAD) {
+      if (g.upAt && Date.now() - g.upAt < 20e3) g.upWait = Math.min(g.upWait * 2, 150); // subiu e não aguentou: espera mais
+      g.upAt = 0;
+      if (!g.layersOff && (p.rtpSender.getParameters().encodings?.length || 0) > 1) {
+        const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate);
+        const need = v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7));
+        if (!need) return this.govApply(g, { layersOff: true }, 'Processador no limite: camadas leves desligadas (ninguém precisava delas).');
+      }
+      if (g.level < g.ladder.length - 1) { const n = g.ladder[g.level + 1]; return this.govApply(g, { level: g.level + 1 }, `Processador no limite: ${n.h}p a ${n.f} FPS.`); }
+      g.bad = 0; return;
+    }
+    if (g.good >= g.upWait / (GOV_TICK / 1000) && g.level > 0) { const n = g.ladder[g.level - 1]; g.upAt = Date.now(); return this.govApply(g, { level: g.level - 1 }, `Folga no processador: voltando a ${n.h}p a ${n.f} FPS.`); }
+  }
+  async govApply(g, ch, note) {
+    const p = this.sfu?.producers.screen; if (!p?.rtpSender || this.gov !== g) return;
+    Object.assign(g, ch); g.bad = 0; g.good = 0; g.cool = 2; g.note = note; g.steps.push({ at: Date.now(), note }); if (g.steps.length > 20) g.steps.shift();
+    const lv = g.ladder[g.level], capH = this.screen?.getVideoTracks()[0]?.getSettings?.().height || lv.h, s = Math.max(1, capH / lv.h);
+    try {
+      const prm = p.rtpSender.getParameters(), n = prm.encodings.length;
+      prm.encodings.forEach((e, i) => { e.scaleResolutionDownBy = s * 2 ** (n - 1 - i); e.maxFramerate = lv.f; if (i < n - 1) e.active = !g.layersOff; });
+      // engajado: a resolução fica com este controle (o codificador derruba quadros, não a imagem)
+      // passar por 'balanced' zera as restrições que o próprio WebRTC acumulou (ex.: fps cortado por CPU em 1080p). Sem
+      // isso, depois de descer para 720p o fps ficava preso nos ~34 da restrição antiga (medido: 720p fixo desde o
+      // início dá 60 fps sem limite no mesmo processador)
+      prm.degradationPreference = 'balanced'; await p.rtpSender.setParameters(prm);
+      const p2 = p.rtpSender.getParameters();
+      p2.degradationPreference = g.level > 0 || g.layersOff || this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+      await p.rtpSender.setParameters(p2);
+    } catch (e) { console.warn('controle da transmissão', e); }
+    this.onUpdate();
+  }
   async sfuTuneScreen() {
     const p = this.sfu?.producers.screen; if (!p?.rtpSender) return;
     try {
       const prm = p.rtpSender.getParameters(), enc = this.sfuEncodings('screen');
-      prm.encodings.forEach((e, i) => { const { scalabilityMode, ...rest } = enc[i] || {}; Object.assign(e, rest); }); // scalabilityMode não muda depois de criado
+      prm.encodings.forEach((e, i) => { const { scalabilityMode, ...rest } = enc[i] || {}; Object.assign(e, rest); e.active = true; }); // scalabilityMode não muda depois de criado; camadas que o controle desligou voltam
       prm.degradationPreference = this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
       await p.rtpSender.setParameters(prm);
     } catch (e) { console.warn('screen params', e); }
@@ -601,6 +734,7 @@ export class Voice {
       const fps = +this.screenOpts?.fps || 30, prm = p.rtpSender.getParameters();
       if (prm.encodings?.length && prm.encodings.some(e => e.maxFramerate !== fps)) { prm.encodings.forEach(e => { e.maxFramerate = fps; }); await p.rtpSender.setParameters(prm); }
     } catch { }
+    this.govStart(); // qualidade nova escolhida (ou transmissão nova): o controle recomeça do topo
   }
   // ---- chamada protegida: cada envio/recebimento passa pelo worker que cifra/decifra os quadros (e2ee-worker.js) ----
   e2eeLegacy() { return !!this.e2ee && !window.RTCRtpScriptTransform; } // Chromium sem RTCRtpScriptTransform: createEncodedStreams
@@ -1077,13 +1211,14 @@ export class Voice {
     } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name)); }
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
-    this.screenOpts = opts;
+    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null;
+    this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
     if (opts.audio && opts.appAudio && window.lcDesktop?.appAudioStart) await this.useAppAudio(opts.appAudio);
     if (!this.screen) return; // parou enquanto preparava o áudio
     const nat = await this.wantNative(opts);
     if (nat) { this.native = { pending: true }; this.previewOnly(vt, true); }
-    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource();
+    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource(); this.watchFse();
     if (nat) this.startNative().catch(() => { });
   }
 
@@ -1140,7 +1275,7 @@ export class Voice {
     const why = this.e2ee ? 'e2ee' : +o.fps < NATIVE_MIN_FPS ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
     if (why) { this._natWhy = why; return false; }
     const c = await this.nativeCapable();
-    this._natWhy = c.ok ? null : nativeWhy(c);
+    this._natWhy = c.ok ? null : nativeWhy(c); this._natWhyText = c.ok ? null : c.reason || null;
     return !!c.ok;
   }
   // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
@@ -1190,7 +1325,7 @@ export class Voice {
         this.nativeFallback('o servidor não recebeu o vídeo do app; as portas UDP da transmissão nativa podem estar fechadas');
       }, NATIVE_LIVE_MS);
       this.onUpdate();
-    } catch (e) { if (this.native === my) this.nativeFallback(e.message); }
+    } catch (e) { if (this.native === my) this.nativeRestart(e.message); }
   }
   // o servidor recebeu os primeiros pacotes do programa nativo (pode chegar antes de nativeStart responder)
   onNativeLive(d) {
@@ -1200,8 +1335,25 @@ export class Voice {
   }
   onNativeEvent(ev) {
     const n = this.native; if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
-    if (ev.t === 'stats') { n.busy0 ??= ev.busy; n.stats = ev; if (n.prevBusy != null && ev.busy > n.prevBusy) n.busy0 = n.prevBusy; n.prevBusy = ev.busy; }
-    else if (ev.t === 'error' || ev.t === 'exit') this.nativeFallback(ev.error || 'o programa de transmissão fechou');
+    if (ev.t === 'stats') {
+      n.busy0 ??= ev.busy; n.stats = ev; if (n.prevBusy != null && ev.busy > n.prevBusy) n.busy0 = n.prevBusy; n.prevBusy = ev.busy;
+      const c = this.capStats?.native; if (c) { c.frames += ev.cap || 0; c.sent += ev.fps || 0; c.secs++; }
+    }
+    else if ((ev.t === 'error' || ev.t === 'exit') && !n.restarting) this.nativeRestart(ev.error || 'o programa de transmissão fechou');
+  }
+  // o programa nativo falhou: tenta de novo até NATIVE_RESTARTS vezes em NATIVE_RESTART_WIN ms (Alt+Tab, troca de
+  // resolução, placa ocupada por um instante) antes de voltar ao Chromium. Erros que não passam sozinhos (janela fechada,
+  // sem codificador) vão direto ao Chromium. Quem assiste perde a imagem por ~1-2 s, em vez de cair para ~48 fps de vez.
+  nativeRestart(why) {
+    const n = this.native; if (!n || !this.screen) return;
+    if (NATIVE_FATAL.test(why)) return this.nativeFallback(why);
+    const now = Date.now(); this._natRestarts = (this._natRestarts || []).filter(t => now - t < NATIVE_RESTART_WIN);
+    if (this._natRestarts.length >= NATIVE_RESTARTS) return this.nativeFallback(why + '; falhou ' + (NATIVE_RESTARTS + 1) + ' vezes seguidas');
+    this._natRestarts.push(now); this.natRestartCount = (this.natRestartCount || 0) + 1; this.natLastError = why;
+    this.stopNative();
+    const wait = this.native = { pending: true, restarting: true }; // segura o lugar: a transmissão não volta ao Chromium no meio
+    setTimeout(() => { if (this.native === wait && this.screen) { this.native = null; this.startNative().catch(() => { }); } }, NATIVE_RESTART_DELAY);
+    this.onUpdate();
   }
   // o servidor encerrou a sessão nativa (reconexão, programa parou de mandar): tenta de novo uma vez, depois volta ao normal
   onNativeEnded(d) {
@@ -1212,7 +1364,7 @@ export class Voice {
   // o caminho nativo falhou: segue transmitindo pelo Chromium (até ~48 fps), sem derrubar a transmissão
   nativeFallback(why) {
     if (!this.native) return;
-    this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail';
+    this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail'; this._natWhyText = why;
     this.stopNative();
     const vt = this.screen?.getVideoTracks()[0];
     if (!vt) return;
@@ -1263,7 +1415,7 @@ export class Voice {
     const s = this[kind]; if (!s) return;
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { this.stopNative(); this.stopAppAudio(); clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
+    if (kind === 'screen') { this.stopNative(); this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();

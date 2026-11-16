@@ -283,6 +283,8 @@ function onEvent(t, d) {
       voice.isMusicBot = (uid) => S.voice.get(uid)?.bot?.kind === 'music';
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; }); }
+      // tela cheia exclusiva confirmada pela captura (voice.watchFse): avisa uma vez por transmissão; não para nada
+      voice.onFse = () => { if (!voice.fseToasted) { voice.fseToasted = true; toast('O jogo parece estar em tela cheia exclusiva e a captura não recebe a imagem. Mude para "Janela sem bordas" nas opções de vídeo do jogo. A transmissão continua; veja as opções em Ajustes da transmissão.', true); } renderVoiceUI(); };
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
       // vigias da transmissão (voice.js watchSource / app desktop appaudio.js): avisos só para quem transmite
       voice.onScreenNote = (n) => { if (n === 'min') toast('Sua janela transmitida foi minimizada: quem assiste vê a imagem parada até você restaurá-la.', true); else if (n === 'closed') toast('A janela que você transmitia foi fechada. Escolha outra fonte na barra da transmissão.', true); renderVoiceUI(); };
@@ -3456,7 +3458,7 @@ function renderVoiceUI(speakOnly) {
             tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); },
               // duplo clique: tela cheia (no 1º teste, cliques repetidos no vídeo procuravam isso)
               ondblclick: (e) => { if (S.annot === key || e.target.closest('button, input, .sctl, .annot-bar, .snote')) return; fullscreenStream(scr, inRoom ? { key, who: nm(uid) } : null); },
-              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && voice.captureBlack && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', boardTools('s:' + uid, h('button.ibtn', { title: 'Terminar', onclick: () => { S.annot = null; renderVoiceUI(); } }, icon('check', 16)))), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
     }
     const ckey = 'c:' + uid;
@@ -3814,8 +3816,47 @@ function clipButton(key, who, cls) {
 function liveShareModal() {
   const o = { ...voice.screenOpts };
   const blk = voice.captureBlack ? h('div.qinfo.warn', 'A transmissão está saindo PRETA. Se for um jogo (ex.: Valorant), coloque-o em "Janela sem bordas" nas opções de vídeo do jogo e transmita a tela inteira. Tela cheia exclusiva e alguns anti-cheats bloqueiam a captura, e a Resenha não contorna isso.') : null;
-  const body = h('div', blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }));
-  modal('Ajustes da transmissão', 'Mudam na hora, sem interromper o que você está transmitindo.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
+  // tela cheia exclusiva confirmada: as saídas possíveis, sem parar nada sozinho (a Resenha não injeta nada no jogo)
+  let m = null;
+  const fse = voice.fse?.state === 'confirmed' ? h('div.qinfo.warn.fsebox',
+    h('b', 'O jogo parece estar em tela cheia exclusiva.'), ' Nesse modo o Windows não entrega a imagem do jogo para captura (o Discord só consegue com um programa injetado no jogo, o que a Resenha não faz por causa dos anti-cheats). Opções:',
+    h('ul', h('li', h('b', 'Melhor: '), 'nas opções de vídeo do jogo, troque "Tela cheia" por "Janela sem bordas". A transmissão volta sozinha, sem reiniciar.'),
+      h('li', 'Transmitir a tela inteira em vez da janela: funciona em alguns jogos que o Windows ainda compõe (reinicia a transmissão).'),
+      h('li', 'Continuar assim: a transmissão segue no ar; quem assiste vê a última imagem até o jogo sair da tela cheia.')),
+    h('div.fsebtns', h('button.btn.sm', { onclick: () => { m?.close(); stopSharing(); setTimeout(() => startShare(), 300); } }, 'Escolher outra fonte'), h('button.btn.sm.link', { onclick: () => m?.close() }, 'Continuar assim'))) : null;
+  const diag = captureDiag();
+  const body = h('div', fse || blk, qualityPanel(o, async (n) => { await voice.changeScreenQuality(n); S.prefs.screen = { ...S.prefs.screen, res: n.res, fps: n.fps, bitrate: n.bitrate || 0 }; savePrefs(); }, { live: true }), diag.el);
+  m = modal('Ajustes da transmissão', 'Mudam na hora, sem interromper o que você está transmitindo.', body, [{ label: 'Pronto', cls: 'green' }], { width: '560px' });
+}
+// diagnóstico da captura (M13): método em uso, quadros por método, fps efetivo, motivo de não estar no programa nativo,
+// reinícios, o que o controle da transmissão decidiu e o aviso de tela cheia exclusiva. Atualiza a cada 1 s enquanto aberto.
+const NATIVE_WHY_TXT = { win10: 'Windows 10 (a captura nativa desenha uma borda amarela)', nohw: 'sem codificador de vídeo na placa', nocap: 'Windows sem a captura necessária', noexe: 'app desktop sem o componente (atualize o app)', web: 'fora do app desktop para Windows', e2ee: 'chamada protegida (só pelo Chromium)', lowfps: 'menos de 60 FPS pedidos (o nativo entra a partir de 60)', nosfu: 'servidor sem SFU', udp: 'portas UDP da transmissão fechadas', fail: 'o programa nativo falhou', other: 'outro motivo' };
+function captureDiag() {
+  const el = h('details.capdiag', h('summary', 'Diagnóstico da captura'), h('div.cd-body', 'medindo…'));
+  const fmtN = (n) => n.toLocaleString('pt-BR');
+  let t = 0, seen = false;
+  const draw = async () => {
+    if (el.isConnected) seen = true; else if (seen) return clearInterval(t); // ainda não entrou na janela: espera
+
+    const x = await voice.captureInfo(); const b = el.querySelector('.cd-body'); if (!b) return;
+    if (!x) { b.textContent = 'Sem transmissão.'; return; }
+    const row = (k, v) => v == null || v === '' ? null : h('div.cd-row', h('span', k), h('b', v));
+    const fseTxt = !x.fse ? null : !x.fse.available ? 'sem dados (app desktop antigo)' : x.fse.state === 'confirmed' ? 'confirmada (o Windows indica e a captura falhou)' : x.fse.state === 'suspected' ? 'só o Windows indica; a captura está recebendo imagem (provável falso positivo)' : 'não';
+    b.replaceChildren(
+      row('Método em uso', x.label),
+      row('Pedido', `${x.want.res === 'source' ? 'original' : x.want.res + 'p'} a ${x.want.fps} FPS`),
+      row('Capturando', x.captureFps != null ? `${x.captureFps} quadros/s` : '—'),
+      row('Enviando', x.sentFps != null ? `${x.sentFps} FPS${x.size ? ' · ' + x.size : ''}` : '—'),
+      row('Codificador', x.encoder ? x.encoder + (x.limit && x.limit !== 'none' ? ` (limitado: ${x.limit === 'cpu' ? 'processador' : x.limit === 'bandwidth' ? 'internet' : x.limit})` : '') : null),
+      h('div.cd-sub', 'Quadros capturados por método (desde o início)'),
+      ...x.frames.map(f => row(f.name, f.secs ? `${fmtN(f.frames)} quadros em ${f.secs} s · média ${Math.round(f.frames / f.secs)}/s${f.sent != null && f.secs ? ` · enviados ${Math.round(f.sent / f.secs)}/s` : ''}` : 'não usado')),
+      x.fallback && row('Por que não o nativo', x.fallback.text || NATIVE_WHY_TXT[x.fallback.code] || (x.fallback.code ? NATIVE_WHY_TXT.other : 'não tentado')),
+      x.restarts ? row('Reinícios do nativo', `${x.restarts}${x.lastError ? ' · último: ' + x.lastError : ''}`) : null,
+      x.gov?.note ? row('Ajuste automático', x.gov.note) : null,
+      row('Tela cheia exclusiva', fseTxt));
+  };
+  draw(); t = setInterval(draw, 1000);
+  return { el };
 }
 
 // latência até o servidor (SFU) ou pior par (malha): Wi-Fi colorido; passar o mouse = ms; clicar = gráfico do último minuto

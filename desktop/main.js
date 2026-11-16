@@ -390,6 +390,7 @@ ipcMain.on('app-audio-stop', () => appAudio.stop());
 // vigia do áudio do jogo (reconectou / jogo fechou, esperando) e estado da janela transmitida (minimizada / fechada)
 appAudio.setEventSink((ev) => { if (win && !win.isDestroyed()) win.webContents.send('app-audio-event', ev); });
 ipcMain.handle('source-state', () => appAudio.sourceState(pickedSource).catch(() => ({ kind: 'unknown' })));
+ipcMain.handle('fse-state', () => appAudio.fseState(pickedSource).catch(() => ({ available: false })));
 // jogo aberto agora (mesma detecção da transmissão): vira a atividade "Jogando X" para os amigos
 ipcMain.handle('detect-game', () => appAudio.detectGame().catch(() => null));
 // avisos do programa nativo quando a lista de janelas muda (eventos do Windows): o "Jogando X" aparece em 1 a 2 s em vez

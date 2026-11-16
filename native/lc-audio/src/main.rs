@@ -5,6 +5,8 @@
 //!
 //! Modos:
 //!   --probe     {"ok":bool,"build":n}  (o loopback por processo existe neste Windows?)
+//!   --fse [s]   uma linha JSON por segundo, por `s` segundos: {"t","state","code","fg":{hwnd,pid,title,exe,fullscreen}}
+//!               (SHQueryUserNotificationState e a janela da frente; kit de testes de tela cheia exclusiva)
 //!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","mon":[l,t,r,b]}...] (uma linha JSON; mon = monitor da
 //!               janela em pixels reais, para o áudio "só desta tela")
 //!   --front <hwnd> [ms]  vigia a janela da frente a cada `ms` (padrão 1000): uma linha JSON quando muda,
@@ -55,6 +57,21 @@ fn main() {
         return;
     }
     if has("--probe") { println!("{}", sys::probe()); return; }
+    // kit de testes do Windows (native/pacote-captura): o que o Windows diz sobre tela cheia exclusiva, 1 linha por segundo
+    if let Some(i) = args.iter().position(|a| a == "--fse") {
+        sys::dpi_aware();
+        let secs: u64 = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
+        let t0 = std::time::Instant::now();
+        for k in 0..secs {
+            let mut v = sys::fse();
+            // título e programa da janela da frente: só nesta saída de teste (o app não precisa deles)
+            if let Some(h) = v["fg"]["hwnd"].as_i64() { if let Some(w) = sys::windows().as_array().and_then(|a| a.iter().find(|w| w["hwnd"].as_i64() == Some(h)).cloned()) { v["fg"]["title"] = w["title"].clone(); v["fg"]["exe"] = w["exe"].clone(); v["fg"]["fullscreen"] = w["fullscreen"].clone(); } }
+            v["t"] = serde_json::json!(t0.elapsed().as_secs());
+            println!("{v}");
+            if k + 1 < secs { std::thread::sleep(std::time::Duration::from_secs(1)); }
+        }
+        return;
+    }
     if has("--windows") { sys::dpi_aware(); println!("{}", sys::windows()); return; } // pixels reais, como no --serve
     if let Some(i) = args.iter().position(|a| a == "--front") {
         let hwnd: isize = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -142,6 +159,11 @@ mod sys {
         serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "mon": [0, 0, 1920, 1080] }])
     }
     pub fn dpi_aware() {}
+    /// teste: o conteúdo de LC_FSE_TEST (JSON) ou "nada em tela cheia"
+    pub fn fse() -> serde_json::Value {
+        std::env::var_os("LC_FSE_TEST").and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| serde_json::json!({ "state": "normal", "code": 5, "fg": null }))
+    }
     pub fn front(_hwnd: isize) -> serde_json::Value {
         let on = std::env::var_os("LC_FRONT_TEST").and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim() == "1").unwrap_or(false);
         if on { serde_json::json!({ "covered": true, "pid": 42, "exe": "C:\\Games\\Teste\\teste.exe" }) } else { serde_json::json!({ "covered": false }) }
@@ -233,6 +255,24 @@ mod sys {
         let mut out: Vec<serde_json::Value> = Vec::new();
         unsafe { let _ = EnumWindows(Some(each), LPARAM(&mut out as *mut _ as isize)); }
         serde_json::Value::Array(out)
+    }
+
+    // ---------- tela cheia exclusiva (aviso da transmissão, M12) ----------
+    // SHQueryUserNotificationState é o mesmo critério que o Discord usa para decidir se um jogo está em tela cheia
+    // exclusiva. Só pergunta ao shell do Windows: não abre, não injeta e não toca no jogo. NÃO é uma confirmação: o próprio
+    // Discord diz que dá falso positivo; o app cruza com a captura (quadros chegando, tela preta) antes de avisar alguém.
+    // Junto vai a janela da frente (hwnd, pid), para o app saber se é a janela que está sendo transmitida.
+    pub fn fse() -> serde_json::Value {
+        use windows::Win32::UI::Shell::SHQueryUserNotificationState;
+        let (state, code) = match unsafe { SHQueryUserNotificationState() } {
+            Ok(q) => (match q.0 { 1 => "not_present", 2 => "busy", 3 => "d3d_fullscreen", 4 => "presentation", 5 => "normal", 6 => "quiet_time", 7 => "app", _ => "other" }, q.0),
+            Err(_) => ("error", 0),
+        };
+        let fg = unsafe {
+            let w = GetForegroundWindow();
+            if w.is_invalid() { serde_json::Value::Null } else { let mut pid = 0u32; GetWindowThreadProcessId(w, Some(&mut pid)); serde_json::json!({ "hwnd": w.0 as isize, "pid": pid, "minimized": IsIconic(w).as_bool() }) }
+        };
+        serde_json::json!({ "state": state, "code": code, "fg": fg })
     }
 
     // ---------- a janela da frente cobre a da Resenha? ----------

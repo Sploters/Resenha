@@ -655,3 +655,11 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 #active-now .an-av { display: inline-flex; flex: none; border-radius: 50%; cursor: pointer; }
 #active-now .an-av:hover { filter: brightness(1.1); }
 #active-now .an-card .an-top[title] { cursor: pointer; }
+
+/* tela cheia exclusiva (Ajustes da transmissão) e diagnóstico da captura */
+.fsebox ul { margin: 6px 0 8px 18px; padding: 0; } .fsebox li { margin: 3px 0; }
+.fsebtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.capdiag { margin-top: 12px; font-size: 13px; } .capdiag summary { cursor: pointer; color: var(--text-muted); }
+.cd-body { margin-top: 6px; display: grid; gap: 3px; }
+.cd-row { display: flex; gap: 10px; justify-content: space-between; } .cd-row span { color: var(--text-muted); flex: none; } .cd-row b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.cd-sub { margin-top: 6px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }

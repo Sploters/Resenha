@@ -324,6 +324,22 @@ async function sourceState(sourceId, list) {
   return { kind: 'window', exists: !!w, minimized: !!w?.minimized, title: w?.title || '' };
 }
 
+// ---------- tela cheia exclusiva (aviso da transmissão) ----------
+// O que o Windows diz (SHQueryUserNotificationState, o mesmo critério do Discord) e se a janela da frente é a transmitida.
+// Só um indício: quem decide se avisa é o app, cruzando com a captura (public/voice.js watchFse). Sem o programa (ou
+// versão antiga, sem o pedido 'fse'): { available: false }.
+async function fseState(sourceId) {
+  const h = process.platform === 'win32' ? getHelper() : null; if (!h) return { available: false };
+  const r = await h.call('fse').catch(() => null); if (!r || !r.state) return { available: false };
+  const m = /^window:(\d+):/.exec(String(sourceId || '')), fg = r.fg || null;
+  let fgIsSource = null;
+  if (m && fg) {
+    if (String(fg.hwnd) === m[1]) fgIsSource = true;
+    else { const w = (await listWindows({ cached: true })).find(x => String(x.hwnd) === m[1]); fgIsSource = !!w && w.pid === fg.pid; }
+  }
+  return { available: true, state: r.state, fgIsSource, kind: m ? 'window' : /^screen:/.test(String(sourceId || '')) ? 'screen' : 'unknown' };
+}
+
 function shutdown() { stop(); helper?.stop(); helper = null; winCache = null; }
 
-module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, startScreen, screenPids, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, _tick: tick, _state: () => cur };
+module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, startScreen, screenPids, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, fseState, _tick: tick, _state: () => cur };
