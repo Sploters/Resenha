@@ -10,7 +10,7 @@ import { openClip } from './clipsgallery.js';
 import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
 import { intentSection } from './intents.js';
-import { toggle, row, section, seg, factChips } from './ui.js';
+import { toggle, section, seg } from './ui.js';
 
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
 export const initActivity = (c) => Object.assign(ctx, c);
@@ -478,44 +478,59 @@ function scheduleFeed() {
 // ---------------------------------------------------------------- Configurações → Contas vinculadas
 const SYNC = { pending: 'Sincronizando…', ok: 'Sincronizado', private: 'Perfil privado: deixe o perfil e os "Detalhes do jogo" públicos',
   not_found: 'Perfil não encontrado', error: 'Steam fora do ar; tentando de novo', unavailable: 'Servidor sem acesso à Steam. Fale com o admin.' };
+// logotipos dos cartões (desenho simples, sem asset de terceiros)
+const LOGO = {
+  steam: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="15.4" cy="8.6" r="4.3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="15.4" cy="8.6" r="1.9" fill="currentColor"/><path d="M11.6 11.7 9.9 14.6M2.8 12.9l4.9 2.1" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><circle cx="8.6" cy="16.1" r="2.7" fill="currentColor"/></svg>',
+};
+const logo = (id, ic) => { const el = h('span.lk-logo.lk-' + id); if (LOGO[id]) el.innerHTML = LOGO[id]; else el.append(icon(ic || 'link', 26)); return el; };
+const pill = (tone, text) => h('span.lk-pill.' + tone, h('i'), text);
+const feats = (list) => h('ul.lk-feats', list.filter(Boolean).map(([ic, t]) => h('li', icon(ic, 16), h('span', t))));
 export function connectionsPage(reg) {
-  const box = h('div');
+  const box = h('div.lk-steamslot', h('div.lk-card', skeleton('rows', 2)));
+  const hiddenBox = h('div');
   const draw = async () => {
     let ints, hidden = [];
     try { [ints, hidden] = await Promise.all([api('GET', '/integrations'), api('GET', '/activity/hidden')]); S.integrations = ints; }
-    catch (e) { return box.replaceChildren(h('p', { style: { color: 'var(--red)' } }, 'Não foi possível carregar: ' + e.message)); }
-    box.replaceChildren(...ints.flatMap(i => {
+    catch (e) { return box.replaceChildren(h('div.lk-card', h('p.lk-err', icon('warn', 16), 'Não foi possível carregar: ' + e.message))); }
+    box.replaceChildren(...ints.map(i => {
       const a = i.account;
-      const head = h('div.accrow', a?.avatar ? h('img.conn-av', { src: a.avatar, alt: '' }) : h('div.conn-av.ph', icon('play', 28)), h('div', h('div.big', i.name), h('div.mut', a ? (a.display_name || 'Conta vinculada') + ' · ' + (!i.configured ? 'Falta a chave no servidor' : (SYNC[a.sync_state] || '')) : 'Não vinculada')));
-      if (!a) return [section(i.name), h('div.card2', head,
-        factChips([
-          ['Como funciona', 'ok', [['lock', 'Login oficial, sem senha'], ['gamepad', 'Mostra o jogo atual']]],
-          ['Precisa', 'info', [['eye', 'Perfil público'], ['eye', '"Detalhes do jogo" públicos']]],
-          !i.configured && ['Atenção', 'warn', [['warn', 'Jogo só aparece quando o admin configurar a chave']]]]),
-        h('button.btn', { onclick: async () => { const r = await tryApi('POST', `/integrations/${i.id}/link`); if (r?.url) { window.open(r.url, '_blank', 'noopener'); toast('Conclua o login na janela que abriu e volte aqui.'); } } }, 'Vincular com a ' + i.name))];
+      if (!a) return h('div.lk-card',
+        h('div.lk-top', logo(i.id), h('div.lk-name', h('b', i.name), h('small', 'Conta de jogos')), pill('off', 'Não vinculada')),
+        feats([['lock', 'Login oficial da ' + i.name + ', sem pedir sua senha'], ['gamepad', 'Mostra aos amigos o jogo que você está jogando'], ['gift', 'Traz sua biblioteca e a wishlist']]),
+        h('p.lk-note', icon('eye', 14), 'Precisa do perfil e dos "Detalhes do jogo" públicos na ' + i.name + '.'),
+        !i.configured && h('p.lk-note.warn', icon('warn', 14), 'O jogo atual só aparece quando o admin configurar a chave da ' + i.name + ' no servidor.'),
+        h('div.lk-foot', h('button.btn.lk-main', { onclick: async () => { const r = await tryApi('POST', `/integrations/${i.id}/link`); if (r?.url) { window.open(r.url, '_blank', 'noopener'); toast('Conclua o login na janela que abriu e volte aqui.'); } } }, icon('link', 16), 'Vincular com a ' + i.name)));
       const patch = (body) => tryApi('PATCH', `/integrations/${i.id}`, body).then(r => { if (r) draw(); });
-      return [section(i.name), h('div.card2', head,
-        a.profile_url && h('a.act-link', { href: a.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir perfil ' + i.name),
-        row('Mostrar aos amigos o que estou jogando', 'Só amigos, ao vivo e no feed. Desligado, nada é consultado.', toggle(a.visibility === 'friends', (on) => patch({ visibility: on ? 'friends' : 'off' }))),
-        row('Mostrar aos amigos que vinculei esta conta', 'Independe da opção acima.', toggle(a.link_visibility === 'friends', (on) => patch({ link_visibility: on ? 'friends' : 'off' }))),
-        h('button.btn.red', { onclick: async () => { if (await confirmBox('Desvincular ' + i.name, 'Para de consultar e apaga o histórico desta conta.', 'Desvincular')) { await tryApi('DELETE', `/integrations/${i.id}`); draw(); } } }, 'Desvincular')),
-      hidden.filter(g => g.platform === i.id).length > 0 && [section('Jogos escondidos'), h('div.card2', h('p.hintline', 'Nunca aparecem como atividade.'), ...hidden.filter(g => g.platform === i.id).map(g => row(g.title || 'Jogo ' + g.game_id, null, h('button.btn.grey', { onclick: async () => { await tryApi('PUT', `/activity/games/${g.platform}/${g.game_id}`, { hidden: false }); draw(); } }, 'Mostrar de novo'))))]].flat().filter(Boolean);
+      const sync = !i.configured ? ['warn', 'Falta a chave no servidor'] : a.sync_state === 'ok' ? ['ok', 'Conectada'] : a.sync_state === 'pending' ? ['info', 'Sincronizando'] : ['warn', 'Atenção'];
+      return h('div.lk-card.linked',
+        h('div.lk-top', logo(i.id), h('div.lk-name', h('b', i.name), h('small', 'Conta de jogos')), pill(sync[0], sync[1])),
+        h('div.lk-acc', a.avatar ? h('img.lk-av', { src: a.avatar, alt: '' }) : h('span.lk-av.ph', icon('user', 20)),
+          h('div.lk-acct', h('b', a.display_name || 'Conta vinculada'), h('small', SYNC[a.sync_state] || '')),
+          a.profile_url && h('a.btn.grey.sm.lk-open', { href: a.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir perfil', icon('external', 14))),
+        h('div.lk-opts',
+          h('div.lk-opt', h('span', h('b', 'Mostrar aos amigos o que estou jogando'), h('small', 'Só amigos, ao vivo e no feed. Desligado, nada é consultado.')), toggle(a.visibility === 'friends', (on) => patch({ visibility: on ? 'friends' : 'off' }))),
+          h('div.lk-opt', h('span', h('b', 'Mostrar aos amigos que vinculei esta conta'), h('small', 'Aparece no seu perfil para os amigos.')), toggle(a.link_visibility === 'friends', (on) => patch({ link_visibility: on ? 'friends' : 'off' })))),
+        h('div.lk-foot', h('button.btn.link.lk-unlink', { onclick: async () => { if (await confirmBox('Desvincular ' + i.name, 'Para de consultar e apaga o histórico desta conta.', 'Desvincular')) { await tryApi('DELETE', `/integrations/${i.id}`); draw(); } } }, 'Desvincular')));
     }));
+    hiddenBox.replaceChildren(...(hidden.length ? [section('Jogos escondidos'), h('div.card2.lk-hidden', h('p.hintline', 'Nunca aparecem como atividade, nem do PC nem da Steam.'),
+      ...hidden.map(g => h('div.lk-hrow', h('span', icon('eyeoff', 16), g.title || 'Jogo ' + g.game_id), h('button.btn.grey.sm', { onclick: async () => { await tryApi('PUT', `/activity/games/${g.platform}/${g.game_id}`, { hidden: false }); draw(); } }, 'Mostrar de novo'))))] : []));
   };
   S.refreshConnections = draw; reg?.(() => { S.refreshConnections = null; });
   draw();
-  return h('div', h('h2', 'Contas vinculadas'), pcActivityBlock(), box, gamesBlock());
+  return h('div.lk-page', h('h2', 'Contas vinculadas'),
+    h('p.lk-lead', 'Mostre aos amigos o que você está jogando e traga sua biblioteca da Steam. Você escolhe quem vê cada coisa.'),
+    h('div.lk-grid', pcActivityBlock(), box), hiddenBox, gamesBlock());
 }
 // jogo aberto no PC (app desktop detecta, como na transmissão): quem pode ver
-export const PC_VIS = { servers: 'Amigos e quem está nos meus servidores', friends: 'Só amigos', off: 'Ninguém' };
+export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigos', off: 'Ninguém' };
 function pcActivityBlock() {
-  const box = h('div.card2', h('div', 'Carregando…'));
-  const draw = (v) => box.replaceChildren(
-    factChips([
-      ['Como funciona', 'ok', [['layout', 'App desktop (Windows)'], ['gamepad', 'Detecta o jogo aberto'], ['user', 'Mostra "Jogando …"']]],
-      ['Privacidade', 'info', [['link', 'Sem vincular conta'], ['lock', 'Só o nome do jogo é enviado']]]]),
-    row('Quem pode ver meu jogo do PC', null, seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seu jogo não aparece mais para ninguém.' : 'Pronto.'); } })),
-    !window.lcDesktop?.detectGame && h('p.hintline.keep', { style: { color: 'var(--text-muted)' } }, 'Não funciona neste aparelho (só app desktop Windows 1.0.24+).'));
+  const on = !!window.lcDesktop?.detectGame;
+  const ctl = h('div.lk-ctl', h('div.lk-ctlh', 'Quem pode ver meu jogo do PC'), h('div.lk-seg', skeleton('rows', 1)));
+  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seu jogo não aparece mais para ninguém.' : 'Pronto.'); } }));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
-  return [section('Jogo aberto no PC'), box];
+  return h('div.lk-card',
+    h('div.lk-top', logo('pc', 'screen'), h('div.lk-name', h('b', 'Jogo aberto no PC'), h('small', 'App desktop do Resenha')), on ? pill('ok', 'Ativo neste PC') : pill('off', 'Só no app desktop')),
+    feats([['gamepad', 'Reconhece qualquer jogo aberto, não só os da Steam'], ['link', 'Não precisa vincular nenhuma conta'], ['lock', 'Só o nome do jogo é enviado']]),
+    !on && h('p.lk-note', icon('info', 14), 'Funciona no app desktop para Windows (1.0.24 ou mais novo).'),
+    ctl);
 }

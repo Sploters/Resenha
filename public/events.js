@@ -49,7 +49,7 @@ function paint(el, ev0, compact) {
   const manage = open && (ev.author_id === S.me.id || (g && can(g.id, PERM.MANAGE_GUILD)));
   const d = new Date(ev.starts_at);
   const rsvp = (st) => async (e) => { e.stopPropagation(); const r = await tryApi('PUT', `/events/${ev.id}/rsvp`, { state: mine === st ? null : st }); if (r) onEventUpdate({ event: r }); };
-  const banner = h('div.ev-banner');
+  const banner = h('div.ev-banner', h('span.ev-bph', { 'aria-hidden': 'true' }, icon(ev.game ? 'gamepad' : 'calendar', 30), ev.game && h('b', ev.game))); // sem capa: só na tela Eventos (CSS)
   el.className = 'evcard ev-' + ev.status + (compact ? ' compact' : '');
   el.replaceChildren(
     banner,
@@ -112,21 +112,43 @@ export function onEventReminder(d) {
 }
 
 // ---------- tela Eventos do servidor ----------
+// agrupa por dia (Hoje, Amanhã, sáb., 22 nov.) para a tela ler como uma agenda
+const dayLabel = (t) => {
+  const d = new Date(t), today = new Date(), tom = new Date(Date.now() + 864e5), y = new Date(Date.now() - 864e5);
+  if (sameDay(d, today)) return 'Hoje'; if (sameDay(d, tom)) return 'Amanhã'; if (sameDay(d, y)) return 'Ontem';
+  const s = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }); return s[0].toUpperCase() + s.slice(1);
+};
+const byDay = (list) => { const m = new Map(); for (const e of list) { const k = new Date(e.starts_at).toDateString(); (m.get(k) || m.set(k, []).get(k)).push(e); } return [...m.values()]; };
 export function renderGuildEvents(main, gid) {
   const root = h('div#eventsview'); main.replaceChildren(root);
   const g = guild(gid); let data = null, past = false;
   const draw = () => {
     if (!root.isConnected) return;
-    const list = (data || []).map(live), now = list.filter(e => e.status === 'live'), next = list.filter(e => e.status === 'scheduled'), old = list.filter(e => e.status === 'ended' || e.status === 'cancelled');
-    const sec = (cap, l) => l.length ? [h('div.ev-sec', cap), h('div.ev-list', l.map(e => eventCard(e)))] : [];
+    const list = (data || []).map(live), now = list.filter(e => e.status === 'live'), next = list.filter(e => e.status === 'scheduled'), old = list.filter(e => e.status === 'ended' || e.status === 'cancelled').reverse();
+    const cards = (l) => h('div.ev-list', l.map(e => eventCard(e)));
+    const days = (l) => byDay(l).map(grp => h('section.ev-day', h('div.ev-dayh', h('b', dayLabel(grp[0].starts_at)), h('span', `${grp.length} ${grp.length === 1 ? 'evento' : 'eventos'}`)), cards(grp)));
+    const tab = (on, label, n, fn) => h('button.ev-tab' + (on ? '.on' : ''), { type: 'button', role: 'tab', 'aria-selected': String(on), onclick: fn }, label, n ? h('span.ev-tabn', String(n)) : null);
+    const upcoming = now.length + next.length;
+    const empty = (title, text, cta) => h('div.ev-empty',
+      h('div.ev-empty-art', icon('calendar', 36)), h('b', title), h('p', text),
+      cta && [h('div.ev-steps',
+        h('div.ev-step', h('span.ev-stepn', '1'), h('div', h('b', 'Escolha dia e hora'), h('small', 'Cada pessoa vê no próprio fuso'))),
+        h('div.ev-step', h('span.ev-stepn', '2'), h('div', h('b', 'O pessoal responde'), h('small', 'Vou, Talvez ou Não vou'))),
+        h('div.ev-step', h('span.ev-stepn', '3'), h('div', h('b', 'Aviso na hora certa'), h('small', 'Com som, 30 min antes')))),
+        h('button.btn.ev-cta', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento')]);
     root.replaceChildren(
-      h('div#topbar', h('span.hash', icon('calendar', 24)), h('span', 'Eventos'), h('span.topic', data ? (next.length + now.length ? `${now.length ? now.length + ' acontecendo · ' : ''}${next.length} ${next.length === 1 ? 'marcado' : 'marcados'} em ${g?.name || 'este servidor'}` : g?.name || '') : '')),
-      h('div.cbody',
-        h('div.ctool', h('button.btn', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento'),
-          h('label.ev-past', h('input', { type: 'checkbox', checked: past, onchange: (e) => { past = e.target.checked; load(); } }), 'Mostrar os da última semana')),
-        !data ? skeleton('cards', 3) : (now.length + next.length + (past ? old.length : 0)) ? [...sec('Acontecendo agora', now), ...sec('Próximos', next), ...(past ? sec('Já aconteceram', old) : [])]
-          : h('div.cempty', h('div.ceart', icon('calendar', 40)), h('b', 'Nenhum evento marcado'), h('p', 'Marque uma jogatina: escolha o dia, a hora e a sala, e o pessoal responde Vou ou Talvez. Quem vai recebe um aviso com som 30 min antes.'),
-            h('button.btn', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento'))));
+      h('div#topbar', h('span.hash', icon('calendar', 24)), h('span', 'Eventos'), h('span.topic', g?.name || '')),
+      h('div.cbody', h('div.ev-wrap',
+        h('header.ev-head',
+          h('div.ev-headt', h('h1', 'Eventos'), h('p', data ? (upcoming ? `${now.length ? now.length + ' acontecendo agora · ' : ''}${next.length} ${next.length === 1 ? 'marcado' : 'marcados'} em ${g?.name || 'este servidor'}` : `Jogatinas marcadas em ${g?.name || 'este servidor'}`) : ' ')),
+          h('button.btn.ev-cta', { onclick: () => eventModal(gid) }, icon('plus', 16), 'Marcar evento')),
+        h('div.ev-tabs', { role: 'tablist' },
+          tab(!past, 'Próximos', data ? upcoming : null, () => { if (past) { past = false; draw(); } }),
+          tab(past, 'Última semana', null, () => { if (!past) { past = true; data = null; draw(); load(); } })),
+        !data ? skeleton('cards', 3)
+          : past ? (old.length ? days(old) : empty('Nada nos últimos 7 dias', 'Os eventos que já aconteceram (ou foram cancelados) ficam aqui por uma semana.'))
+          : upcoming ? [now.length > 0 && h('section.ev-day.ev-now', h('div.ev-dayh', h('b', h('span.ev-dot'), 'Acontecendo agora')), cards(now)), ...days(next)]
+          : empty('Nenhum evento marcado', 'Marque uma jogatina e chame o servidor todo. Quem confirmar recebe um aviso antes de começar.', true))));
   };
   const load = async () => { const r = await tryApi('GET', `/guilds/${gid}/events${past ? '?past=1' : ''}`); if (!r) return; keepUsers(r.users); data = r.events; for (const e of data) S.events.set(e.id, e); draw(); };
   const on = (e) => { if (!root.isConnected) return removeEventListener('rs-events', on); const ev = e.detail; if (ev.guild_id !== gid) return; if (!data) return; const i = data.findIndex(x => x.id === ev.id); if (i >= 0) data[i] = ev; else data.push(ev); data.sort((a, b) => a.starts_at - b.starts_at); draw(); };

@@ -76,7 +76,7 @@ try {
   await A.evaluate(() => document.querySelector('.lfgalert .switch').click()); await sleep(300);
   if (process.env.SHOTS) { await sleep(400); await B.screenshot({ path: `${OUT}/01-mural.png` }); }
   // carla (amiga) cria um anúncio pelo formulário → bruno é avisado
-  await C.evaluate(() => [...document.querySelectorAll('#lfgview #topbar .btn')].find(x => /Criar anúncio/.test(x.textContent)).click()); await sleep(400);
+  await C.evaluate(() => [...document.querySelectorAll('#lfgview .lfg-hero .btn')].find(x => /Criar anúncio/.test(x.textContent)).click()); await sleep(400);
   await C.evaluate(() => [...document.querySelectorAll('.lfgform .lchip')].find(x => x.textContent === 'Valorant').click()); await sleep(150);
   await C.evaluate(() => { const s = [...document.querySelectorAll('.lfgform label.f')].find(l => l.textContent.startsWith('Modo')).querySelector('select'); s.value = 'Premier'; s.dispatchEvent(new Event('change')); });
   await C.evaluate(() => { const s = [...document.querySelectorAll('.lfgform label.f')].find(l => l.textContent.startsWith('Vagas')).querySelector('select'); s.value = '1'; s.dispatchEvent(new Event('change')); });
@@ -149,7 +149,7 @@ try {
   await A.waitForSelector('.lfgchat input'); await A.type('.lfgchat input', 'tenho mic, jogo de sentinela'); await A.keyboard.press('Enter');
   ok(await A.waitForFunction(() => /tenho mic, jogo de sentinela/.test(document.querySelector('.lfgmsgs')?.textContent || ''), { timeout: 4000 }).then(() => true, () => false), 'mensagem aparece na conversa da alice');
   ok(await toastHas(B, 'alice escreveu no seu anúncio de Valorant'), 'autor é avisado da mensagem na conversa');
-  ok(await B.waitForFunction((id) => /Conversa \(1\)/.test(document.querySelector(`.lfgcard[data-id="${id}"]`)?.textContent || ''), { timeout: 4000 }, p3.id).then(() => true, () => false), 'contador da conversa atualiza no cartão');
+  ok(await B.waitForFunction((id) => document.querySelector(`.lfgcard[data-id="${id}"] .lfg-n`)?.textContent === '1', { timeout: 4000 }, p3.id).then(() => true, () => false), 'contador da conversa atualiza no cartão');
   await B.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => /^Conversa/.test(x.textContent)).click(), p3.id);
   await B.waitForFunction(() => /tenho mic/.test(document.querySelector('.lfgmsgs')?.textContent || ''), { timeout: 4000 }).catch(() => { });
   await B.type('.lfgchat input', 'fechou, cola'); await B.keyboard.press('Enter');

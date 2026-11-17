@@ -104,7 +104,7 @@ try {
 
   console.log('LFG: atalho e plano B');
   await E.evaluate(() => window.__lc.go('@me', 'lfg')); await sleep(1200);
-  ok(await waitTxt(E, '#lfgview #topbar .btn', 'A fim de jogar'), 'tela Procurar jogadores tem o atalho "A fim de jogar"');
+  ok(await waitTxt(E, '#lfgview .lfg-hero .btn', 'A fim de jogar'), 'tela Procurar jogadores tem o atalho "A fim de jogar"');
   await shot(E, 'after-7-lfg');
   // cancela e cria uma de CS2 que expira: o cartão oferece "Publicar no mural", que abre o anúncio preenchido
   const mine = await call(U.eu.tok, 'GET', '/intents');

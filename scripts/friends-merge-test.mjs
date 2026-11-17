@@ -77,7 +77,8 @@ try {
   // seção Jogos
   await P.evaluate(() => document.querySelector('#rail .rail-games .rail-item').click()); await sleep(1200);
   s = await P.evaluate(() => ({ kind: window.__lc.S.view.kind, head: document.querySelector('#side-head')?.textContent.trim(), rows: [...document.querySelectorAll('#side-list .ch .name')].map(e => e.textContent), railActive: !!document.querySelector('#rail .rail-games.active'), meActive: !!document.querySelector('#rail .rail-wrap.rail-fly.active') }));
-  ok(s.kind === 'lfg' && s.head === 'Jogos' && s.rows.join() === 'Jogos' && s.railActive && !s.meActive, 'ícone Jogos abre a seção: uma entrada só', s);
+  ok(s.kind === 'lfg' && s.head === 'Jogos' && s.rows.join() === 'Procurar jogadores,Início,Notícias,Torneios' && s.railActive && !s.meActive, 'ícone Jogos abre a seção: a lista ao lado navega entre as quatro áreas', s);
+  ok(await P.evaluate(() => document.querySelector('#side-list .gnav.active')?.dataset.k === 'lfg'), 'a área aberta fica marcada na lista ao lado');
   ok(await P.evaluate(() => [...document.querySelectorAll('#lfgview .gtabs .dtab')].map(x => x.textContent).join() === 'Procurar jogadores,Início,Notícias,Torneios'), 'Procurar jogadores e Descobrir são abas da mesma tela');
   await P.screenshot({ path: `${SHOTS}/fm-03-jogos.png` });
   await P.evaluate(() => [...document.querySelectorAll('#lfgview .gtabs .dtab')].find(e => /Notícias/.test(e.textContent)).click()); await sleep(1200);

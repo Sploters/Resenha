@@ -49,13 +49,13 @@ try {
 
   // ---- vincular pela interface (Configurações → Contas vinculadas) ----
   await pa.evaluate(() => window.__lc.openSettings('connections')); await sleep(800);
-  ok((await txt(pa, '.card2')).some(t => /Não vinculada/.test(t) || /Vincular com a Steam/.test(t)), 'página Contas vinculadas mostra a Steam como não vinculada');
+  ok((await txt(pa, '.lk-card')).some(t => /Não vinculada/.test(t) || /Vincular com a Steam/.test(t)), 'página Contas vinculadas mostra a Steam como não vinculada');
   const linkUrl = await pa.evaluate(async () => { const t = localStorage.lc_token; return (await (await fetch('/api/integrations/steam/link', { method: 'POST', headers: { authorization: 'Bearer ' + t } })).json()).url; });
   const rt = new URL(linkUrl).searchParams.get('openid.return_to'); const u = new URL(rt);
   for (const [k, v] of Object.entries({ 'openid.ns': 'http://specs.openid.net/auth/2.0', 'openid.mode': 'id_res', 'openid.op_endpoint': `http://127.0.0.1:${MOCK}/openid/login`, 'openid.claimed_id': `https://steamcommunity.com/openid/id/${id(1)}`, 'openid.identity': `https://steamcommunity.com/openid/id/${id(1)}`, 'openid.return_to': rt, 'openid.response_nonce': 'n1', 'openid.assoc_handle': '1', 'openid.signed': 's', 'openid.sig': 'OK' })) u.searchParams.set(k, v);
   await fetch(u);
-  ok(await waitFor(async () => (await txt(pa, '.card2')).some(t => /SteamAlice|Sincronizado/.test(t))), 'a página atualiza sozinha quando a conta é vinculada (evento em tempo real)');
-  const cardsTxt = (await txt(pa, '.card2')).join(' | ');
+  ok(await waitFor(async () => (await txt(pa, '.lk-card')).some(t => /SteamAlice|Sincronizado/.test(t))), 'a página atualiza sozinha quando a conta é vinculada (evento em tempo real)');
+  const cardsTxt = (await txt(pa, '.lk-card')).join(' | ');
   ok(/Mostrar aos amigos o que estou jogando/.test(cardsTxt) && /Mostrar aos amigos que vinculei/.test(cardsTxt) && /Desvincular/.test(cardsTxt), 'opções separadas: atividade, vínculo e desvincular');
   await pa.keyboard.press('Escape'); await sleep(300);
 
@@ -98,10 +98,10 @@ try {
 
   // ---- privacidade na interface ----
   await pa.evaluate(() => window.__lc.openSettings('connections')); await sleep(800);
-  await pa.evaluate(() => { const sw = [...document.querySelectorAll('.perm')].find(p => /o que estou jogando/.test(p.textContent)).querySelector('.switch'); sw.click(); });
+  await pa.evaluate(() => { const sw = [...document.querySelectorAll('.lk-opt')].find(p => /o que estou jogando/.test(p.textContent)).querySelector('.switch'); sw.click(); });
   ok(await waitFor(async () => !(await cards(pb)).some(t => /Counter-Strike/.test(t))), 'alice desliga "o que estou jogando": o cartão some para o bob na hora');
   ok(!(await txt(pb, '#active-now .an-row')).some(t => /Jogando/.test(t)) || true, 'painel lateral também deixa de mostrar o jogo');
-  await pa.evaluate(() => { const sw = [...document.querySelectorAll('.perm')].find(p => /o que estou jogando/.test(p.textContent)).querySelector('.switch'); sw.click(); });
+  await pa.evaluate(() => { const sw = [...document.querySelectorAll('.lk-opt')].find(p => /o que estou jogando/.test(p.textContent)).querySelector('.switch'); sw.click(); });
   ok(await waitFor(async () => (await cards(pb)).some(t => /Counter-Strike 2/.test(t))), 'religando, o cartão volta');
   // esconder jogo pelo cartão da própria alice
   await pa.keyboard.press('Escape'); await goPanel(pa); await sleep(500);
@@ -110,9 +110,9 @@ try {
   await pa.evaluate(() => window.__lc.openSettings('connections')); await sleep(900);
   ok((await txt(pa, '.card2')).some(t => /Counter-Strike 2/.test(t) && /Mostrar de novo/.test(t)), 'e aparece em "Jogos escondidos" com o nome do jogo');
   // desvincular pela interface
-  await pa.evaluate(() => [...document.querySelectorAll('.card2 button.red')].find(b => /Desvincular/.test(b.textContent))?.click()); await sleep(400);
+  await pa.evaluate(() => [...document.querySelectorAll('.lk-card .lk-unlink')].find(b => /Desvincular/.test(b.textContent))?.click()); await sleep(400);
   await pa.evaluate(() => [...document.querySelectorAll('.backdrop button, .modal button')].find(b => /^Desvincular$/.test(b.textContent.trim()))?.click());
-  ok(await waitFor(async () => (await txt(pa, '.card2')).some(t => /Não vinculada/.test(t))), 'desvincular pela interface volta ao estado "não vinculada"');
+  ok(await waitFor(async () => (await txt(pa, '.lk-card')).some(t => /Não vinculada/.test(t))), 'desvincular pela interface volta ao estado "não vinculada"');
   ok(await waitFor(async () => (await call(B.tok, 'GET', '/activity/feed')).data.friends.find(f => f.user_id === A.id)?.linked.length === 0), 'e o vínculo some do feed dos amigos');
   ok([pa, pb, pc].every(p => p.errors.length === 0), 'nenhum erro de JavaScript nas páginas', [pa, pb, pc].map(p => p.errors));
 } catch (e) { console.log('ERRO', e); fails++; }

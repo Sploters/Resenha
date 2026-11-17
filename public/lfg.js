@@ -77,24 +77,30 @@ function draw() {
   const alerts = S.prefs.lfgAlerts || {};
   const myGuilds = [...S.guilds.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   const gfilter = myGuilds.length > 0 && h('label.lfgguild', { title: 'Mostrar só anúncios de quem está neste servidor com você' }, icon('grid4', 16),
-    h('select', { onchange: (e) => { setLfgGuild(e.target.value); draw(); } }, h('option', { value: '' }, 'Todos os servidores e amigos'), myGuilds.map(x => h('option', { value: x.id, selected: x.id === st.guild }, x.name))));
-  const chips = h('div.lfgchips', gfilter, h('button.lchip' + (!st.game ? '.on' : ''), { onclick: () => { st.game = null; draw(); } }, 'Todos'),
+    h('select', { onchange: (e) => { setLfgGuild(e.target.value); draw(); } }, h('option', { value: '' }, 'Todos os servidores'), myGuilds.map(x => h('option', { value: x.id, selected: x.id === st.guild }, x.name))));
+  const chips = h('div.lfgchips.lfgscroll', h('button.lchip' + (!st.game ? '.on' : ''), { onclick: () => { st.game = null; draw(); } }, 'Todos'),
     games.map(x => h('button.lchip' + (st.game === x.id ? '.on' : ''), { style: { '--gc': x.color }, onclick: () => { st.game = x.id; draw(); } }, h('i'), x.name)));
-  const links = (g ? [g] : games).flatMap(x => x.links.map(l => ({ ...l, game: x.name })));
+  const links = g ? g.links.map(l => ({ ...l, game: g.name })) : []; // atalhos externos só com um jogo escolhido (todos juntos poluíam o topo)
+  const people = new Set(open.filter(p => p.author.id !== S.me.id).map(p => p.author.id)).size;
   root.replaceChildren(
     h('div#topbar', ...gamesTabs('lfg'),
       h('div.spacer'),
-      h('button.btn.grey.sm', { onclick: () => profileModal() }, icon('edit', 16), 'Meu perfil de jogador'),
-      // LFG invertido: em vez de esperar quem vê o mural, chama quem tem o jogo (public/intents.js)
-      h('button.btn.sm.in-lfgbtn', { title: 'O Resenha chama só quem tem ou joga e forma o grupo sozinho', onclick: () => ctx.intent?.({ game: st.game && st.game !== 'other' ? { lfg: st.game, name: G(st.game)?.name } : null }) }, icon('gamepad', 16), 'A fim de jogar'),
-      h('button.btn.green.sm', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio')),
-    h('div.lfgbody',
-      chips,
-      h('div.lfgbar',
-        g ? h('label.lfgalert', toggle(!!alerts[g.id], (v) => { (S.prefs.lfgAlerts ||= {})[g.id] = v; if (!v) delete S.prefs.lfgAlerts[g.id]; savePrefs(); toast(v ? `Você será avisado de novos anúncios de ${g.name}` : 'Aviso desligado'); }), h('span', `Avisar quando alguém anunciar ${g.name}`)) : h('span.lfghint', 'Escolha um jogo para filtrar e ligar avisos.'),
-        links.length > 0 && h('div.lfglinks', h('span', 'Procurar também em:'), links.map(l => h('a.lfglink', { href: l.url, target: '_blank', rel: 'noopener noreferrer', title: `${l.name} — ${l.game}` }, l.name + (g ? '' : ` · ${l.game}`), icon('external', 12))))),
-      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 40)), h('b', `Ninguém procurando ${st.game ? g?.name : 'grupo'}${gsel ? ' em ' + gsel.name : ''} agora`), h('p', 'Crie um anúncio: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.'), h('button.btn.green', { onclick: () => createModal() }, 'Criar anúncio')),
-      done.length > 0 && [h('h4.lfgsec', 'Seus anúncios encerrados (últimas 12 h)'), h('div.lfggrid.done', done.map(card))]));
+      h('button.btn.grey.sm.lfg-prof', { title: 'Nick, elo e funções que aparecem nos seus anúncios', onclick: () => profileModal() }, icon('edit', 16), h('span', 'Meu perfil de jogador'))),
+    h('div.lfgbody', h('div.lfg-wrap',
+      h('header.lfg-hero',
+        h('div.lfg-herot', h('h1', 'Procurar jogadores'),
+          h('p', st.posts.length || open.length ? [h('b', open.length === 1 ? '1 grupo' : `${open.length} grupos`), ` procurando gente${people ? ` · ${people} ${people === 1 ? 'pessoa' : 'pessoas'}` : ''}. Quem divide servidor com você ou é seu amigo vê o seu anúncio na hora.`] : 'Quem divide servidor com você ou é seu amigo vê o seu anúncio na hora e pode pedir para entrar.')),
+        h('div.lfg-heroa',
+          // LFG invertido: em vez de esperar quem vê o mural, chama quem tem o jogo (public/intents.js)
+          h('button.btn.grey.in-lfgbtn', { title: 'O Resenha chama só quem tem ou joga e forma o grupo sozinho', onclick: () => ctx.intent?.({ game: st.game && st.game !== 'other' ? { lfg: st.game, name: G(st.game)?.name } : null }) }, icon('gamepad', 16), 'A fim de jogar'),
+          h('button.btn.green', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio'))),
+      h('div.lfg-filters', chips, gfilter),
+      (g || links.length > 0) && h('div.lfgbar',
+        g && h('label.lfgalert', toggle(!!alerts[g.id], (v) => { (S.prefs.lfgAlerts ||= {})[g.id] = v; if (!v) delete S.prefs.lfgAlerts[g.id]; savePrefs(); toast(v ? `Você será avisado de novos anúncios de ${g.name}` : 'Aviso desligado'); }), h('span', `Avisar quando alguém anunciar ${g.name}`)),
+        links.length > 0 && h('div.lfglinks', h('span', 'Procurar também em'), links.map(l => h('a.lfglink', { href: l.url, target: '_blank', rel: 'noopener noreferrer', title: `${l.name} — ${l.game}` }, l.name, icon('external', 12))))),
+      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 36)), h('b', `Ninguém procurando ${st.game ? g?.name : 'grupo'}${gsel ? ' em ' + gsel.name : ''} agora`), h('p', g ? `Escolha "Avisar" acima para saber quando alguém anunciar ${g.name}, ou seja o primeiro.` : 'Crie um anúncio: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.'),
+        h('div.lfgempty-a', h('button.btn.green', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio'), h('button.btn.grey', { onclick: () => ctx.intent?.({ game: st.game && st.game !== 'other' ? { lfg: st.game, name: G(st.game)?.name } : null }) }, icon('gamepad', 16), 'A fim de jogar'))),
+      done.length > 0 && [h('h4.lfgsec', 'Seus anúncios encerrados (últimas 12 h)'), h('div.lfggrid.done', done.map(card))])));
 }
 
 function card(p) {
@@ -107,15 +113,15 @@ function card(p) {
     else if (myReq.state === 'pending') btns.push(h('button.btn.grey', { title: 'Cancelar o pedido', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && upsert(r)) }, 'Pedido enviado', icon('check', 14)));
   }
   if (myReq?.state === 'accepted') btns.push(h('span.lfgok', icon('check', 14), 'Você está no grupo'), !p.closed_reason || p.closed_reason === 'full' ? h('button.btn.link', { title: 'Libera a sua vaga', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && (upsert(r), toast('Você saiu do grupo'))) }, 'Sair') : null);
-  btns.push(h('button.btn.grey', { title: 'Converse antes de entrar: estilo de jogo, microfone, horário', onclick: () => chatModal(p) }, icon('forum', 16), p.msg_count ? `Conversa (${p.msg_count})` : 'Conversa'));
+  btns.push(h('button.btn.grey', { title: 'Converse antes de entrar: estilo de jogo, microfone, horário', onclick: () => chatModal(p) }, icon('forum', 16), 'Conversa', p.msg_count ? h('span.lfg-n', String(p.msg_count)) : null));
   if (myReq?.state === 'declined') btns.push(h('span.lfgno', 'Pedido recusado'));
-  btns.push(h('button.btn.grey', { title: 'Copia o anúncio em texto para colar em grupos de LFG', onclick: () => { navigator.clipboard?.writeText(adText(p)); toast('Anúncio copiado'); } }, icon('copy', 16), 'Copiar anúncio'));
+  btns.push(h('button.btn.grey.lfg-ic', { title: 'Copiar anúncio (texto para colar em grupos de LFG)', 'aria-label': 'Copiar anúncio', onclick: () => { navigator.clipboard?.writeText(adText(p)); toast('Anúncio copiado'); } }, icon('copy', 16), h('span.lfg-sr', 'Copiar anúncio')));
   if (me && !p.closed) btns.push(h('button.btn.link', { onclick: () => tryApi('POST', `/lfg/posts/${p.id}/close`).then(r => r && upsert(r)) }, 'Encerrar'));
   const pend = me ? p.requests.filter(r => r.state === 'pending') : [];
   const live = !p.closed && liveOf(p);
   return h('div.lfgcard' + (p.closed ? '.closed' : '') + (me ? '.mine' : ''), { 'data-id': p.id, style: { '--gc': g.color } },
-    h('div.lfgtop', h('span.lfggame', p.game_name), h('span.lfgmode', p.mode), h('span.lfgwhen' + (when === 'Agora' ? '.now' : ''), when),
-      p.closed && h('span.lfgstate', p.closed_reason === 'full' ? 'Completo' : p.closed_reason === 'expired' ? 'Expirado' : 'Encerrado')),
+    h('div.lfgtop', h('div.lfgtt', h('span.lfggame', p.game_name), h('span.lfgmode', p.mode)),
+      p.closed ? h('span.lfgstate', p.closed_reason === 'full' ? 'Completo' : p.closed_reason === 'expired' ? 'Expirado' : 'Encerrado') : h('span.lfgwhen' + (when === 'Agora' ? '.now' : ''), when === 'Agora' && h('span.lfgdot'), when)),
     live && h('div.lfglive', { title: `${p.author.display_name} está com ${live.game.title} aberto` }, h('span.lfgdot'), gameIcon(live, 18), h('b', 'Jogando agora'), h('span', `${live.game.title} · ${ago(live.since)}`),
       h('small', p.slots === 1 ? '1 vaga aberta' : `${p.slots} vagas abertas`)),
     h('div.lfgneed', h('b', p.closed && p.closed_reason === 'full' ? 'Grupo fechado' : `Precisa de ${p.slots}`), h('span', rankText(p)), h('span.lfgplat', { title: 'Entrar de outra plataforma não funciona, a não ser em crossplay' }, platName(p.platform)),
@@ -230,6 +236,7 @@ async function chatModal(p) {
 }
 
 // ---------- perfil de jogador ----------
+export const openLfgProfile = () => profileModal();
 async function profileModal() {
   const games = (await meta()).filter(g => g.id !== 'other');
   const mine = new Map(((await tryApi('GET', '/lfg/profile/@me')) || []).map(p => [p.game, p]));

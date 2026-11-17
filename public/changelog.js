@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-4', title: 'Visual novo: Jogos, Eventos e Contas vinculadas',
+    items: [
+      { i: 'gamepad', t: 'Jogos com menu ao lado', d: 'Procurar jogadores, Início, Notícias e Torneios agora ficam na lista ao lado, cada um com o que tem dentro, e com atalhos para Criar anúncio, A fim de jogar e Meu perfil de jogador.', try: 'lfg' },
+      { i: 'calendar', t: 'Eventos como agenda', d: 'A tela Eventos do servidor agrupa por dia (Hoje, Amanhã…), mostra a capa do jogo em cada evento e tem uma aba com os da última semana.' },
+      { i: 'link', t: 'Contas vinculadas mais claras', d: 'Jogo aberto no PC e Steam viraram cartões com o que cada um faz, se está ativo e quem pode ver.' },
+    ],
+  },
+  {
     id: '2026-11-17-3', title: 'A fim de jogar: o Resenha chama quem tem o jogo',
     items: [
       { i: 'gamepad', t: 'Diga o jogo, até quando e com quantos', d: 'No topo do Ativo agora (ou em Procurar jogadores), "A fim de jogar?". O Resenha mostra quem do seu círculo tem, está jogando ou jogou esse jogo, e por quê. Você escolhe quem chamar.', try: 'intent' },

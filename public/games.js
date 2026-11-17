@@ -202,7 +202,7 @@ export function dealsList(empty) {
 
 // ---------------------------------------------------------------- Configurações → Contas vinculadas → Biblioteca e wishlist
 export const DEAL_OPTS = { all: 'Qualquer desconto', big: '50% ou mais', off: 'Não avisar' };
-export const SHARE = { servers: 'Amigos e quem está nos meus servidores', friends: 'Só amigos', off: 'Ninguém' };
+export const SHARE = { servers: 'Amigos e meus servidores', friends: 'Só amigos', off: 'Ninguém' };
 const LIB = { ok: (n) => `${n} ${n === 1 ? 'jogo' : 'jogos'} na biblioteca`, private: () => 'Biblioteca privada na Steam: deixe "Detalhes do jogo" públicos e sincronize',
   nokey: () => 'O servidor não tem a chave da Steam: só a wishlist é copiada', error: () => 'A Steam não respondeu; tentando de novo mais tarde', pending: () => 'Sincronizando…' };
 export function gamesBlock() {

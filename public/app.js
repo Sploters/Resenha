@@ -39,7 +39,8 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
-import { initLfg, renderLfg, onLfgEvent, onLfgActivity, setLfgGuild, openLfgCreate } from './lfg.js';
+import { initLfg, renderLfg, onLfgEvent, onLfgActivity, setLfgGuild, openLfgCreate, openLfgProfile } from './lfg.js';
+import { gamesNav } from './gamestabs.js';
 import { initIntents, loadIntents, onIntentEvent, openIntentModal } from './intents.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
@@ -1101,9 +1102,8 @@ function renderSide() {
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inGames()) {
     // seção Jogos: própria, como um servidor (antes ficava dentro de Amigos)
     head = h('div#side-head.sh-plain', h('span.sh-title', 'Jogos'));
-    list = h('div#side-list',
-      // uma entrada só: Procurar jogadores e Descobrir viraram abas da mesma tela (gamestabs.js)
-      h('div.ch.lfgrow-side.active', { onclick: () => openGames(), title: 'Procurar jogadores, novidades, promoções e torneios' }, icon('gamepad'), h('span.name', 'Jogos')));
+    // as quatro áreas (Procurar jogadores, Início, Notícias, Torneios) e atalhos do mural (gamestabs.js)
+    list = gamesNav({ create: () => openLfgCreate(), intent: () => openIntentModal(), profile: () => openLfgProfile() });
   } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
     // com buscar e ordenar; fixadas no topo

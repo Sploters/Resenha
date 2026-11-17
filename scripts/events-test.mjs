@@ -47,7 +47,7 @@ try {
 
   // marcar pela tela Eventos
   ok(await P.evaluate(() => { const r = document.querySelector('#side-list .evrow'), f = document.querySelector('#side-list .wishrow'); return !!r && getComputedStyle(r).display === getComputedStyle(f).display && Math.abs(r.querySelector('.name').getBoundingClientRect().left - f.querySelector('.name').getBoundingClientRect().left) < 2; }), 'entrada "Eventos" na lista de canais, alinhada com as outras');
-  await P.evaluate(() => document.querySelector('#side-list .evrow').click()); await P.waitForSelector('#eventsview .cempty');
+  await P.evaluate(() => document.querySelector('#side-list .evrow').click()); await P.waitForSelector('#eventsview .ev-empty');
   ok(await P.evaluate(() => /Nenhum evento marcado/.test(document.querySelector('#eventsview').innerText)), 'tela Eventos vazia explica como funciona');
   await P.evaluate(() => [...document.querySelectorAll('#eventsview .btn')].find(b => /Marcar evento/.test(b.textContent)).click());
   await P.waitForSelector('.evform');
@@ -107,8 +107,8 @@ try {
   ok((await call(ana.tok, 'PATCH', `/events/${ev2.id}`, { title: 'Domingão' })).title === 'Domingão', 'dono do servidor pode editar o evento dos outros');
   await P.evaluate((gid) => window.__lc.go(gid, 'events'), g.id);
   await P.waitForFunction(() => document.querySelectorAll('#eventsview .evcard').length === 2); await sleep(500);
-  const secs = await P.evaluate(() => [...document.querySelectorAll('#eventsview .ev-sec')].map(s => s.textContent));
-  ok(secs.join() === 'Acontecendo agora,Próximos', 'tela Eventos: acontecendo agora e próximos', secs);
+  const secs = await P.evaluate(() => [...document.querySelectorAll('#eventsview .ev-dayh b')].map(s => s.textContent));
+  ok(secs[0] === 'Acontecendo agora' && secs.length === 2, 'tela Eventos: acontecendo agora e próximos (por dia)', secs);
   await P.screenshot({ path: OUT + '/03-tela-eventos.png' });
   await P.evaluate(() => [...document.querySelectorAll('#eventsview .evcard')].find(c => /Domingão/.test(c.innerText)).querySelector('.ev-more').click());
   await P.waitForSelector('.evform');
@@ -139,8 +139,8 @@ try {
   await P.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, text);
   ok(await waitFor(() => P.evaluate(() => { const c = [...document.querySelectorAll('#msgs .evcard')].find(c => /Noite do Jogo X/.test(c.innerText)); const img = c?.querySelector('.ev-banner img'); return !!(c?.classList.contains('has-art') && img && img.complete && img.naturalWidth > 0); })), 'cartão no chat mostra a capa do link');
   // formulário: jogo do catálogo puxa a capa sozinho (aqui sem internet: mostra o erro, sem travar), imagem enviada
-  await P.evaluate((gid) => window.__lc.go(gid, 'events'), g.id); await P.waitForSelector('#eventsview .ctool .btn');
-  await P.evaluate(() => document.querySelector('#eventsview .ctool .btn').click()); await P.waitForSelector('.evform .evc');
+  await P.evaluate((gid) => window.__lc.go(gid, 'events'), g.id); await P.waitForSelector('#eventsview .ev-head .btn');
+  await P.evaluate(() => document.querySelector('#eventsview .ev-head .btn').click()); await P.waitForSelector('.evform .evc');
   ok(await P.evaluate(() => document.querySelectorAll('#ev-games option').length >= 10), 'campo Jogo sugere os jogos do catálogo');
   const fileInput = await P.$('.evform .evc input[type=file]');
   fs.writeFileSync(DATA + '/capa.png', PNG); await fileInput.uploadFile(DATA + '/capa.png');
