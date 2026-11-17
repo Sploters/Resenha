@@ -4,7 +4,7 @@ Objetivo: o Resenha deixa de só esperar alguém chamar. Quem está a fim de jog
 pessoas**; o servidor descobre **quem dos amigos tem/joga aquele jogo**, convida só essas pessoas e, quando o mínimo topa,
 **escolhe a sala e manda o convite para a chamada** (ninguém é colocado na sala à força).
 
-Status: 🟡 em andamento · branch `claude/jolly-galileo-cin4x4`
+Status: ✅ concluído · branch `claude/jolly-galileo-cin4x4`
 
 ---
 
@@ -63,7 +63,7 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 - [x] atalho no LFG ("Chamar quem tem o jogo") e plano B no fim da intenção
 - [x] Configurações → Notificações: preferências de convites para jogar
 - **Pronto quando:** fluxo completo em 3 navegadores com capturas, sem erro de página.
-- ✅ `scripts/intents-ui-test.mjs` 37/37 (inclui erro 500 na prévia e queda de rede ao topar)
+- ✅ `scripts/intents-ui-test.mjs` 42/42 (com o painel de métricas) (inclui erro 500 na prévia e queda de rede ao topar)
 - Problemas encontrados: o aviso flutuante herdava o estilo por id do `#call-banner` e ficava sem posição (CSS próprio, desce quando os dois aparecem); título do aviso quebrava em 3 linhas (botões numa linha própria); seletor de preferência quebrava (rótulos mais curtos).
 
 ### Etapa 4: Métricas
@@ -73,10 +73,41 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 - ✅ conferido em `intents-test` (números exatos do roteiro) e `intents-ui-test` (painel). Sessão em andamento aparece como "agora" e só soma minutos ao terminar.
 
 ### Etapa 5: Qualidade
-- [ ] cenários de falha: rede, desconexão, offline, jogo sem dado, sala cheia, convite expirado, erro do servidor
-- [ ] regressão (LFG, convites, atividade, painel, jogos, eventos, recursos) + `npm run check`
-- [ ] build
+- [x] cenários de falha: rede, desconexão, offline, jogo sem dado, sala cheia, convite expirado, erro do servidor
+- [x] regressão (LFG, convites, atividade, painel, jogos, eventos, recursos) + `npm run check`
+- [x] build
 - **Pronto quando:** tudo verde, ou a pendência real registrada aqui.
+
+| Cenário | Onde é testado |
+|---|---|
+| Rede caindo ao topar (botão volta, erro na tela, depois forma) | `intents-ui-test` (modo offline do navegador) |
+| Erro 500 na prévia (mensagem + "Tentar de novo"; não deixa chamar sem a lista) | `intents-ui-test` (interceptação) |
+| Desconexão / offline (convite em silêncio, aparece ao voltar, retorno contado) | `intents-test` |
+| Jogo sem informação na Steam (plano B: amigos online) | `intents-unit-test`, `intents-test` |
+| Sala cheia (409 `full`; quem não respondeu sai da lista sem contar como "ignorou") | `intents-test` |
+| Convite para a chamada expirado ("Entrar na sala" da intenção continua valendo) | `intents-test` |
+| Concorrência: 6 topam ao mesmo tempo com 2 vagas → exatamente 2; forma uma vez só | `intents-test` |
+| Concorrência: duas intenções iguais ao mesmo tempo → uma criada, a outra "já existe" | `intents-test` |
+| Duas formações no mesmo servidor → salas diferentes (temporária criada e apagada) | `intents-test` |
+| Expiração (ignorados, aviso para quem criou, plano B do LFG) | `intents-test`, `intents-ui-test` |
+| Limites (3/h com som, 30 min por par, só amigos, jogo silenciado) | `intents-unit-test`, `intents-test` |
+| Reinício do servidor (intenção formada e "Entrar na sala" continuam) | `intents-test` |
+| Privacidade (quem esconde jogo/biblioteca/presença não é usado; bloqueio) | `intents-test` |
+
+**Regressão (32 suítes):** activepanel 22 · activity-group 8 · activity-invisible 13 · activity-servers 11 · activity 65 ·
+activity-ui 26 · pcactivity 27 · presence 12 · privacy 22 · callinvite 29 · lfg 62 · gamenight 23 · games 30 · gameshare 21 ·
+deals 20 · steam 25 · steamcard 17 · events 42 · features 14 · extras 78 · ux 68 · voice-mod 16 · voice-perms 7 ·
+roles-hierarchy 37 · community 20 · account-security 26 · gateway-limits 16 · polls 34 · health 15 · reorder 12 · e2e 62 —
+todas verdes, exceto `ui-test` (53 ok, 2 falhas **que já existiam**: rodado no commit anterior às mudanças, falha igual — o
+Chromium sem tela deste ambiente só tem 1 microfone falso e o teste precisa de 2 para "trocar de dispositivo").
+`ux-test` precisou de ajuste: ele conta os números do painel de Estatísticas, que ganhou os 4 da seção Encontros.
+`npm run check`: 298 arquivos ok.
+
+**Build:** imagem Docker de produção construída e testada (`/healthz` 200, rotas `/api/intents*` e `public/intents.js` servidos
+dentro do container). Neste ambiente o `apt-get` da imagem base não alcança os espelhos do Debian (o proxy só atende HTTPS),
+então a verificação usou uma cópia do Dockerfile sem as etapas de `apt`/`yt-dlp` (que não mudaram) e com a CA do proxy
+para o `npm ci`; o `Dockerfile` do repositório não foi alterado. O app desktop (Electron) não precisa ser refeito: ele
+carrega a interface do servidor e nada em `desktop/` mudou.
 
 ## 3. Riscos e possíveis regressões
 
@@ -93,4 +124,15 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 
 ## 4. Evidências
 
-Capturas em `.testshots/intents/` (antes/depois) e saída dos testes no fim deste documento.
+Capturas reais (geradas pelos testes) em `.testshots/intents/`: `before-*` (antes) e `after-*` (depois: Ativo agora,
+janela com a prévia, convite recebido, minha intenção, grupo formado, expirou, plano B do LFG, preferências, erro do
+servidor, métricas). Para gerar de novo: `BROWSER=… node scripts/intents-ui-test.mjs` e `PREFIX=before node scripts/intents-shots.mjs`.
+
+## 5. Pendências reais
+
+- **Vitórias/derrotas por jogo** não entram na compatibilidade: dependem de API de cada jogo (Riot exige chave aprovada).
+  Hoje a compatibilidade usa Steam, "Jogando…", histórico de 14 dias e perfil do LFG.
+- **Push com o app fechado** (celular): o convite chega em silêncio e aparece ao abrir; aviso no celular depende do Web Push,
+  que ainda não existe no Resenha.
+- **Retorno por "atividade"** é uma aproximação: voltou depois de 30+ min fora e, em até 15 min, entrou numa sala onde um
+  amigo estava.

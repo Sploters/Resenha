@@ -111,7 +111,7 @@ try {
   ok(await A.evaluate(() => [...document.querySelectorAll('#settings h6')].some(x => x.textContent === 'Administração')), 'administrador vê "Administração" nas Configurações');
   await A.evaluate(() => [...document.querySelectorAll('#settings .ni')].find(x => /Estatísticas de uso/.test(x.textContent)).click()); await sleep(1500);
   const panel = await A.evaluate(() => ({ tiles: document.querySelectorAll('.ux-tile').length, cards: [...document.querySelectorAll('.ux-card h3')].map(x => x.textContent), cols: document.querySelectorAll('.ux-col').length, split: document.querySelectorAll('.ux-split i').length, fun: document.querySelectorAll('.ux-fun').length }));
-  ok(panel.tiles === 11 && panel.cards.length >= 16 && panel.cols >= 60 && panel.split === 2 && panel.fun >= 2, 'painel: 11 números (8 + 3 dos vídeos enviados), todos os quadros, colunas por dia (eventos e pessoas), Esc × ícone e funis', panel);
+  ok(panel.tiles === 15 && panel.cards.length >= 22 && panel.cards.includes('Das intenções aos grupos') && panel.cols >= 60 && panel.split === 2 && panel.fun >= 2, 'painel: 15 números (8 + 4 dos Encontros + 3 dos vídeos enviados), todos os quadros, colunas por dia (eventos e pessoas), Esc × ícone e funis', panel);
   if (process.env.SHOTS) await A.screenshot({ path: process.env.SHOTS + '/ux-painel.png', fullPage: false });
   await A.evaluate(() => [...document.querySelectorAll('.uxstats .seg button, .uxstats .seg *')].find(x => x.textContent.trim() === '7 dias')?.click()); await sleep(900);
   ok(await A.evaluate(() => document.querySelectorAll('.ux-daily')[1]?.querySelectorAll('.ux-col').length === 7), 'trocar para 7 dias redesenha com 7 colunas');
