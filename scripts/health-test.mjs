@@ -31,12 +31,14 @@ try {
   const vc = await P.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 2).id, g.id);
   await P.evaluate(async (vc) => { await window.__lc.voice.join(vc); for (let i = 0; i < 100 && !window.__lc.voice.sfu?.ready; i++) await new Promise(r => setTimeout(r, 100)); }, vc);
   await sleep(2500);
+  // no CI (máquina lenta) o worker pode demorar a aparecer na amostra: espera até 15 s em vez de ler uma amostra só
   let h = (await api(adm, 'GET', '/health')).body;
+  for (let i = 0; i < 30 && !(h.now?.sfuAlive === 1 && h.now.workers?.[0]?.peers === 1); i++) { await sleep(500); h = (await api(adm, 'GET', '/health')).body; }
   const n = h.now;
   ok(n.cpu != null && n.memTotalMB > 0 && n.diskTotalGB > 0 && n.procMB > 0, 'CPU, memória, disco e memória do processo medidos', { cpu: n.cpu, mem: n.memUsedPct, disco: n.diskFreeGB });
   ok(n.upMbps != null && n.downMbps != null, 'rede medida (Mbps)', { up: n.upMbps, down: n.downMbps });
   ok(n.online === 1 && n.inCalls === 1 && n.calls === 1, 'pessoas conectadas e em chamada', { online: n.online, emChamada: n.inCalls, chamadas: n.calls });
-  ok(n.sfuAlive === 1 && n.workers[0].alive && n.workers[0].peers === 1, 'worker do SFU de pé, com a pessoa', n.workers[0]);
+  ok(n.sfuAlive === 1 && n.workers[0].alive && n.workers[0].peers === 1, 'worker do SFU de pé, com a pessoa', n.workers[0] || { sfuTotal: n.sfuTotal, servidor: out.split('\n').filter(l => /SFU|mediasoup|EADDRINUSE|worker/i.test(l)).slice(0, 8) });
   ok(h.history.length >= 2 && h.limits.uplink === 100, 'histórico e limites', { amostras: h.history.length });
   // worker morre: vira evento, alerta e é recriado
   const pid = workerPid(); process.kill(+pid, 'SIGKILL');
