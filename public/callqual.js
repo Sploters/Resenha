@@ -44,7 +44,7 @@ export function levelOf(s) {
   return [0, null];
 }
 // motivos de a transmissão não sair pelo programa nativo (placa de vídeo, 60+ fps)
-export const NATIVE_WHY = ['win10', 'nohw', 'nocap', 'noexe', 'web', 'e2ee', 'lowfps', 'nosfu', 'udp', 'fail', 'forced', 'other'];
+export const NATIVE_WHY = ['win10', 'nohw', 'nocap', 'noexe', 'web', 'e2ee', 'lowfps', 'nosfu', 'udp', 'fail', 'forced', 'nomf', 'other'];
 // codificador do Chromium: placa de vídeo (hw) ou processador (sw: libvpx, OpenH264, libaom…)
 export const encKind = (enc) => /libvpx|openh264|libaom|dav1d|svt|software/i.test(enc) && !/mediafoundation|nvenc|amf|qsv|vaapi|videotoolbox|external|accelerat/i.test(enc) ? 'sw' : 'hw';
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };

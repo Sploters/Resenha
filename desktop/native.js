@@ -21,9 +21,12 @@ function capable(mode) {
   if (process.platform !== 'win32') return Promise.resolve({ ok: false, code: 'web', reason: 'Só no app para Windows.' });
   const exe = helperPath(); if (!exe) return Promise.resolve({ ok: false, code: 'noexe', reason: 'Componente de transmissão nativa não encontrado. Atualize o app.' });
   const m = MODES.includes(mode) ? mode : null;
+  if (!hasMediaFoundation()) return Promise.resolve({ ok: false, code: 'nomf', reason: NOMF_MSG, modes: MODES, os: winBuild });
   if (!m && winBuild && winBuild < 20348) return Promise.resolve({ ok: false, code: 'win10', reason: BORDER_MSG, modes: MODES, os: winBuild });
   if (!probed) probed = new Promise((res) => execFile(exe, ['--probe'], { windowsHide: true, timeout: 10000 }, (err, out) => {
     let j = null; try { j = JSON.parse(String(out).trim().split(/\r?\n/).pop()); } catch { }
+    // 0xC0000135 (DLL não encontrada): o programa nem abriu, falta o mfplat.dll (Windows "N" sem o pacote de mídia)
+    if (!j && err && (err.code === 3221225781 || err.code === -1073741515)) { probed = null; return res({ ok: false, code: 'nomf', reason: NOMF_MSG }); }
     if (!j) { probed = null; return res({ ok: false, code: 'other', reason: 'Não consegui testar a placa de vídeo' + (err ? ': ' + err.message : '') }); }
     res(j);
   }));
@@ -37,6 +40,20 @@ function capable(mode) {
     return { ok: true, encoders: j.encoders, modes: MODES, os: winBuild, note };
   });
 }
+
+// Media Foundation (mfplat.dll): é por ela que o programa nativo e o Chromium chegam ao codificador H.264 da placa de
+// vídeo (NVENC/AMF/QuickSync). As edições "N"/"KN" do Windows vêm sem ela até instalar o Pacote de Recursos de Mídia
+// (Configurações > Aplicativos > Recursos opcionais); sem ela o lc-stream.exe nem abre e a transmissão sai em VP8 pela CPU.
+const sys32 = () => path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32');
+let mfCache;
+function hasMediaFoundation() {
+  if (process.platform !== 'win32') return true;
+  if (mfCache === undefined) mfCache = ['mfplat.dll', 'mf.dll'].every(f => { try { return fs.statSync(path.join(sys32(), f)).isFile(); } catch { return false; } });
+  return mfCache;
+}
+const NOMF_MSG = 'Este Windows está sem os recursos de mídia (edição "N"). Instale o Pacote de Recursos de Mídia em Configurações > Aplicativos > Recursos opcionais e reinicie o PC.';
+// o que o painel de codecs mostra (Configurações > Transmissão)
+const codecEnv = () => ({ platform: process.platform, build: winBuild || null, mediaFoundation: hasMediaFoundation() });
 
 // Windows 10: a captura do programa nativo (WGC) sempre desenha uma borda amarela em volta da tela/janela, e só o Windows
 // 11 deixa tirar. Lá a transmissão fica no caminho normal (até 60 FPS), que captura sem a borda.
@@ -98,4 +115,4 @@ async function start(o) {
   });
 }
 
-module.exports = { capable, start, stop, onNativeEvent: (cb) => { onEvent = cb; }, shutdown: stop };
+module.exports = { capable, codecEnv, start, stop, onNativeEvent: (cb) => { onEvent = cb; }, shutdown: stop };

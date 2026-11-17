@@ -55,4 +55,7 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   nativeStart: (o) => ipcRenderer.invoke('native-start', o),
   nativeStop: () => ipcRenderer.send('native-stop'),
   onNativeEvent: (cb) => ipcRenderer.on('native-event', (_e, ev) => cb(ev)),
+  // codecs: o Windows tem a Media Foundation (edições "N" vêm sem)? e atalho para instalar (Configurações > Transmissão)
+  codecEnv: () => ipcRenderer.invoke('codec-env'),
+  openOptionalFeatures: () => ipcRenderer.send('open-optional-features'),
 });

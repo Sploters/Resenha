@@ -513,6 +513,18 @@ export function fsVideo(attrs = {}, cls = '') {
   v.addEventListener('waiting', () => box.classList.add('loading')); for (const ev of ['playing', 'canplay', 'pause']) v.addEventListener(ev, () => box.classList.remove('loading'));
   paintVol();
 
+  // ---- codec que este aparelho não toca (ex.: H.265/HEVC de celular num PC sem decodificação pela placa de vídeo) ----
+  // Sem isto ficava a rodinha girando ou só o som com a imagem preta. Avisa e oferece baixar o arquivo.
+  const unplayable = (why) => {
+    if (box.classList.contains('vc-err')) return;
+    box.classList.remove('loading', 'playing'); box.classList.add('vc-err'); v.pause();
+    const src = v.currentSrc || v.src;
+    box.append(h('div.vc-errbox', { onclick: (e) => e.stopPropagation() }, icon('warn', 24), h('b', 'Este aparelho não consegue reproduzir este vídeo'), h('small', why),
+      src && !src.startsWith('blob:') ? h('a.btn.sm', { href: src, download: '', target: '_blank', rel: 'noopener' }, 'Baixar o vídeo') : null));
+  };
+  v.addEventListener('error', () => { const c = v.error?.code; if (c === 3 || c === 4) unplayable(c === 3 ? 'O arquivo está corrompido ou usa um codec que este aparelho não decodifica.' : 'O formato ou o codec do vídeo (ex.: H.265/HEVC) não é suportado aqui. Veja Configurações > Transmissão > Codecs de vídeo.'); });
+  v.addEventListener('loadedmetadata', () => { if (v.videoWidth === 0 && v.videoHeight === 0 && !v.poster) unplayable('Só o áudio tocaria: o codec da imagem (ex.: H.265/HEVC) não é suportado aqui. Veja Configurações > Transmissão > Codecs de vídeo.'); });
+
   // ---- some sozinho: 2,5 s parado com o vídeo tocando (cursor some junto) ----
   let idle = 0;
   const wake = () => { box.classList.add('awake'); clearTimeout(idle); idle = setTimeout(() => { if (!v.paused && !scrub && !box.matches(':has(.vc-bar:hover)')) box.classList.remove('awake'); }, 2500); };

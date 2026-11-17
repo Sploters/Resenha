@@ -95,7 +95,7 @@ export function qualityPanel(o, onChange, { live = false, extra = null } = {}) {
       h('option', { value: 'detail', selected: o.hint === 'detail' }, 'Texto mais nítido (telas e apresentações)'));
     const fps = +o.fps, nat = fps >= 60;
     // só avisa quando o pedido não vai ser atendido (sem a placa de vídeo o navegador para em ~48 FPS)
-    const note = nat && !S.nativeOk ? h('div.qinfo.warn.ssq-note', { title: S.nativeWhy || '' }, icon('warn', 14), h('span', 'Sem placa de vídeo: máximo de ~48 FPS.')) : null;
+    const note = nat && !S.nativeOk ? h('div.qinfo.warn.ssq-note', { title: S.nativeWhy || '' }, icon('warn', 14), h('span', S.nativeCode === 'nomf' ? 'Windows sem os recursos de mídia: máximo de ~48 FPS.' : 'Sem placa de vídeo: máximo de ~48 FPS.')) : null;
     const more = h('details.ss-more', { open: moreOpen, ontoggle: (e) => { moreOpen = e.target.open; } }, h('summary', 'Mais opções'),
       h('div.ss-opt', h('div.ss-lbl', 'Taxa de dados', h('small', `~${estMbps(o)} Mbps por pessoa`)), seg([[0, 'Auto'], [8, '8'], [16, '16'], [24, '24'], [32, '32'], [50, '50 Mbps']], +o.bitrate || 0, v => set('bitrate', +v))),
       ...(typeof extra === 'function' ? [extra()].flat() : extra ? [extra].flat() : []));

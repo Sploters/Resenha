@@ -17,6 +17,7 @@ import { refreshFreeze } from './freeze.js';
 import { connectionsPage } from './activity.js';
 import { litePage, liteOn } from './lite.js';
 import { openNativeTest } from './nativetest.js';
+import { codecPanel } from './codecs.js';
 import { newsPage } from './changelog.js';
 import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
@@ -106,7 +107,7 @@ function compactHints(pane) {
 const USER_GROUPS = [
   ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
-  ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
+  ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade codec codecs h264 hevc av1 vp9 placa de vídeo'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
@@ -640,7 +641,8 @@ function streamPage() {
     card(h('label.f', 'Método de captura (Beta)', seg(CAPTURE_METHODS, captureMode(S.prefs), v => { S.prefs.captureMethod = v; save(); })),
       hint('Automático troca sozinho entre WGC e DXGI se a imagem falhar. Clássico = versão anterior. Vale a partir de 60 FPS no app para Windows.')),
     card(row('Teste: transmissão a 120 FPS', 'A transmissão normal fica limitada a ~48 FPS pelo Windows. Este teste usa um programa à parte (pacote de teste) que captura sem esse limite, e mede aqui quantos quadros chegam. Entre numa sala de voz antes.',
-      h('button.btn', { onclick: () => openNativeTest() }, 'Abrir teste'))));
+      h('button.btn', { onclick: () => openNativeTest() }, 'Abrir teste'))),
+    section('Codecs de vídeo'), card(codecPanel()));
 }
 
 // ============================ Sons do app ============================

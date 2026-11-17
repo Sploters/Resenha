@@ -67,7 +67,7 @@ export const UX_SEND_LIMITS = { none: 'Nada (enviou o que capturou)', cpu: 'Proc
 // sua transmissão (public/callqual.js): por onde saiu, por que não foi pelo programa nativo, quem comprimiu, se encolheu
 export const UX_SEND_PATH = { native: 'Programa nativo (placa de vídeo, 60+ FPS)', chromium: 'Modo normal (Chromium, até ~48 FPS)' };
 export const UX_NATIVE_WHY = { win10: 'Windows 10 (borda amarela)', nohw: 'Sem codificador na placa de vídeo', nocap: 'Windows sem a captura necessária', noexe: 'App desktop antigo ou sem o componente',
-  web: 'Navegador (fora do app desktop)', e2ee: 'Chamada protegida', lowfps: 'Pediu menos de 60 FPS', nosfu: 'Servidor sem SFU', udp: 'Portas UDP da transmissão fechadas', fail: 'O programa falhou e voltou', forced: 'Chromium forçado nas configurações', other: 'Outro motivo' };
+  web: 'Navegador (fora do app desktop)', e2ee: 'Chamada protegida', lowfps: 'Pediu menos de 60 FPS', nosfu: 'Servidor sem SFU', udp: 'Portas UDP da transmissão fechadas', fail: 'O programa falhou e voltou', forced: 'Chromium forçado nas configurações', nomf: 'Windows N sem o pacote de mídia', other: 'Outro motivo' };
 export const UX_SEND_ENC = { hw: 'Placa de vídeo', sw: 'Processador (CPU)' };
 export const UX_SEND_SHRINK = { yes: 'Abaixo da pedida (o codificador encolheu)', no: 'A pedida' };
 // as quatro medidas acima da MESMA transmissão: caminho.motivo.codificador.encolheu ('-' = sem dado)

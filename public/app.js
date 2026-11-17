@@ -282,7 +282,7 @@ function onEvent(t, d) {
       setNewsActions(newsActions);
       voice.isMusicBot = (uid) => S.voice.get(uid)?.bot?.kind === 'music';
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
-      if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; }); }
+      if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; S.nativeCode = r.code || ''; }); }
       // tela cheia exclusiva confirmada pela captura (voice.watchFse): avisa uma vez por transmissão; não para nada
       voice.onFse = () => { if (!voice.fseToasted) { voice.fseToasted = true; toast('O jogo parece estar em tela cheia exclusiva e a captura não recebe a imagem. Mude para "Janela sem bordas" nas opções de vídeo do jogo. A transmissão continua; veja as opções em Ajustes da transmissão.', true); } renderVoiceUI(); };
       voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
@@ -3893,7 +3893,7 @@ function liveShareModal() {
 }
 // diagnóstico da captura (M13): método em uso, quadros por método, fps efetivo, motivo de não estar no programa nativo,
 // reinícios, o que o controle da transmissão decidiu e o aviso de tela cheia exclusiva. Atualiza a cada 1 s enquanto aberto.
-const NATIVE_WHY_TXT = { win10: 'Windows 10 (a captura nativa desenha uma borda amarela)', nohw: 'sem codificador de vídeo na placa', nocap: 'Windows sem a captura necessária', noexe: 'app desktop sem o componente (atualize o app)', web: 'fora do app desktop para Windows', e2ee: 'chamada protegida (só pelo Chromium)', lowfps: 'menos de 60 FPS pedidos (o nativo entra a partir de 60)', nosfu: 'servidor sem SFU', udp: 'portas UDP da transmissão fechadas', fail: 'o programa nativo falhou', forced: 'Chromium forçado nas configurações (Transmissão > Método de captura)', other: 'outro motivo' };
+const NATIVE_WHY_TXT = { win10: 'Windows 10 (a captura nativa desenha uma borda amarela)', nohw: 'sem codificador de vídeo na placa', nocap: 'Windows sem a captura necessária', noexe: 'app desktop sem o componente (atualize o app)', web: 'fora do app desktop para Windows', e2ee: 'chamada protegida (só pelo Chromium)', lowfps: 'menos de 60 FPS pedidos (o nativo entra a partir de 60)', nosfu: 'servidor sem SFU', udp: 'portas UDP da transmissão fechadas', fail: 'o programa nativo falhou', forced: 'Chromium forçado nas configurações (Transmissão > Método de captura)', nomf: 'Windows sem os recursos de mídia (edição "N"): veja Configurações > Transmissão > Codecs', other: 'outro motivo' };
 // escolha do método (WGC / DXGI / Chromium): pedido, ativo, por quê, FPS capturado e codificado, resolução, erros e o
 // histórico de trocas com o motivo de cada uma (eventos "method"/"capnote" do lc-stream, ver native/lc-stream/src/select.rs)
 const CAPM = { wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium' };

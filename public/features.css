@@ -980,6 +980,28 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .fsvid .vc-hold { position: absolute; top: 12px; left: 50%; z-index: 3; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font: 700 13px/1 var(--font, inherit); pointer-events: none; display: none; }
 .fsvid.held .vc-hold { display: block; }
 .fsvid .vc-shorts { display: none; }
+/* Configurações > Transmissão > Codecs de vídeo (codecs.js) */
+.codecs .cx-wait { margin: 0; opacity: .7; }
+.codecs .cx-warn { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; line-height: 1.4; }
+.codecs .cx-warn > svg { flex: none; margin-top: 2px; }
+.codecs .cx-sum { margin-bottom: 10px; line-height: 1.4; } .codecs .cx-sum small { opacity: .7; }
+.codecs .cx-tab { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+.codecs .cx-tab th, .codecs .cx-tab td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border, rgba(127,127,127,.2)); }
+.codecs .cx-tab thead th { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; opacity: .7; }
+.codecs .cx-tab tbody th { font-weight: 600; white-space: nowrap; }
+.codecs .cx-hw { color: var(--green, #23a55a); font-weight: 600; }
+.codecs .cx-sw { color: inherit; }
+.codecs .cx-no { color: var(--red, #f23f43); font-weight: 600; }
+.codecs .cx-na { opacity: .45; }
+@media (max-width: 520px) { .codecs .cx-tab { font-size: 12px; } .codecs .cx-tab th, .codecs .cx-tab td { padding: 5px 4px; } }
+/* vídeo com codec que o aparelho não toca (util.js, unplayable) */
+.fsvid.vc-err { min-width: min(340px, 100%); min-height: 220px; }
+.fsvid.vc-err .vc-bar, .fsvid.vc-err .vc-big { display: none; }
+.fsvid .vc-errbox { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 16px; text-align: center; line-height: 1.35; color: #fff; background: rgba(0,0,0,.82); cursor: default; }
+.fsvid .vc-errbox svg { fill: #f0b232; }
+.fsvid .vc-errbox b { font-size: 14px; }
+.fsvid .vc-errbox small { font-size: 12.5px; opacity: .8; max-width: 320px; }
+.fsvid .vc-errbox .btn { margin-top: 8px; line-height: normal; display: inline-flex; align-items: center; text-decoration: none; }
 .fsvid.vert .vc-shorts { display: flex; }
 
 /* ---------- teste da transmissão nativa (120 FPS) ---------- */

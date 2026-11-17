@@ -443,6 +443,9 @@ app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shut
 ipcMain.handle('native-capable', (_e, mode) => native.capable(mode));
 ipcMain.handle('native-start', (_e, o) => native.start({ ...(o || {}), sourceId: (o && o.sourceId) || pickedSource }));
 ipcMain.on('native-stop', () => native.stop());
+ipcMain.handle('codec-env', () => native.codecEnv());
+// só esta página das Configurações do Windows (onde fica o Pacote de Recursos de Mídia das edições "N")
+ipcMain.on('open-optional-features', () => { if (process.platform === 'win32') shell.openExternal('ms-settings:optionalfeatures').catch(() => { }); });
 native.onNativeEvent((ev) => { if (win && !win.isDestroyed()) win.webContents.send('native-event', ev); });
 // modo leve: deixa o Chromium desacelerar a página escondida (o renderer só liga fora de chamada)
 ipcMain.on('set-throttle', (_e, on) => { if (win && !win.isDestroyed()) win.webContents.setBackgroundThrottling(!!on); });
