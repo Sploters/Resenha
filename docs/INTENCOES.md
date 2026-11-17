@@ -68,8 +68,9 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 
 ### Etapa 4: Métricas
 - [x] sessões com 2+ pessoas, retornos por convite/atividade, interações, intenções → grupos, convites aceitos/ignorados/recusados
-- [ ] painel do administrador (Estatísticas de uso → Encontros)
+- [x] painel do administrador (Estatísticas de uso → Encontros)
 - **Pronto quando:** teste confere os números depois de um fluxo conhecido.
+- ✅ conferido em `intents-test` (números exatos do roteiro) e `intents-ui-test` (painel). Sessão em andamento aparece como "agora" e só soma minutos ao terminar.
 
 ### Etapa 5: Qualidade
 - [ ] cenários de falha: rede, desconexão, offline, jogo sem dado, sala cheia, convite expirado, erro do servidor

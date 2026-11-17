@@ -158,6 +158,17 @@ try {
   await click(D, '#active-now .in-card .btn', 'Topo');
   ok(await waitTxt(D, '#intent-banner, #call-banner, #active-now', 'Entrar|formado|Grupo', 6000), 'rede de volta: topa e o grupo forma');
   void inv2;
+
+  console.log('métricas (administrador)');
+  await E.evaluate(() => window.__lc.openSettings('uxstats'));
+  ok(await waitTxt(E, '.uxstats .ux-block h3', 'Encontros', 8000), 'Estatísticas de uso → Encontros');
+  const tiles = await txt(E, '.uxstats .ux-tile');
+  ok(tiles.some(t => /sessões de voz com 2\+ pessoas/.test(t) && (/^[1-9]/.test(t) || /[1-9] agora/.test(t))), 'sessões com 2+ pessoas contadas (a que ainda está acontecendo aparece como "agora")', tiles);
+  ok(tiles.some(t => /das intenções viram grupo/.test(t)), 'taxa de intenções que viram grupo', tiles);
+  ok(tiles.some(t => /convites para jogar são aceitos/.test(t)), 'taxa de convites aceitos');
+  await E.evaluate(() => [...document.querySelectorAll('.uxstats .ux-block h3')].find(x => x.textContent === 'Encontros').scrollIntoView({ block: 'start' })); await sleep(500);
+  await shot(E, 'after-12-metricas');
+  const D2 = await call(U.duda.tok, 'GET', '/social/metrics'); ok(D2.error && !D2.sessoes, 'quem não é administrador não vê as métricas');
 } catch (e) { console.log('  FAIL exceção', e.stack); fails++; }
 finally { await browser.close(); await stop(); }
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');

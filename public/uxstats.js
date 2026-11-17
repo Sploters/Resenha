@@ -190,14 +190,45 @@ function netq(q) {
     h('div.ux-grid', Object.values(I).filter(v => v.medidas).map(v => h('div', h('h4.ux-sub', v.nome), bars(v.faixas.map(f => [f.faixa, { total: f.n }]), { text: (o) => nf(o.total) + ' · ' + pct(o.total, v.medidas) + '%' })))));
 }
 
+// Encontros ("A fim de jogar", server/social.js): o Resenha está fazendo os amigos se encontrarem?
+const RET = { intent_invite: 'Convite para jogar', call_invite: 'Convite para a chamada', intent_formed: 'Grupo formado', activity: 'Atividade de um amigo (entrou na sala dele)' };
+const INTER = { join: 'Topou', decline: 'Agora não', leave: 'Saiu do grupo', more: 'Chamar mais', enter: 'Entrou na sala do grupo', lfg_fallback: 'Plano B: mural do LFG', cancel: 'Cancelou' };
+const FORM = { '0-5': 'Até 5 min', '5-15': '5 a 15 min', '15-30': '15 a 30 min', '30+': 'Mais de 30 min' };
+const asBars = (obj, names, order) => bars((order || Object.keys(obj || {})).filter(k => obj?.[k]).map(k => [names[k] || k, { total: obj[k] }]).sort((a, b) => (order ? 0 : b[1].total - a[1].total)));
+function social(s) {
+  if (!s) return [empty('Métricas de encontros indisponíveis.')];
+  const I = s.intencoes, C = s.convites, S2 = s.sessoes, ci = s.convites_chamada || {};
+  const callRow = (k, nome) => ci[k] ? { nome, n: ci[k].accepted, de: ci[k].total } : null;
+  return [
+    h('div.ux-tiles',
+      tile(nf(S2.intent.n + S2.other.n), 'sessões de voz com 2+ pessoas', `${nf(S2.intent.n)} vieram de um "A fim de jogar" · ${nf(S2.intent.minutos + S2.other.minutos)} min juntos${S2.intent.agora + S2.other.agora ? ` · ${S2.intent.agora + S2.other.agora} agora` : ''}`),
+      tile(nf(s.retornos.total), s.retornos.total === 1 ? 'pessoa voltou por um chamado' : 'retornos por um chamado', `${nf(s.retornos.agiram)} agiram em até 30 min`),
+      tile(I.taxa_formacao == null ? '—' : I.taxa_formacao + '%', 'das intenções viram grupo', `${nf(I.formadas)} de ${nf(I.criadas)}`),
+      tile(C.taxa_aceite == null ? '—' : C.taxa_aceite + '%', 'dos convites para jogar são aceitos', `${nf(C.toparam)} toparam · ${nf(C.recusaram)} não · ${nf(C.ignoraram)} sem resposta`)),
+    h('div.ux-grid',
+      card('Das intenções aos grupos', 'Cada etapa sobre a anterior', funnelRows([
+        { nome: 'Tiveram resposta de alguém (2ª interação)', n: I.com_resposta, de: I.criadas },
+        { nome: 'Viraram grupo', n: I.formadas, de: I.criadas },
+        { nome: 'Convites para jogar aceitos', n: C.toparam, de: C.toparam + C.recusaram + C.ignoraram },
+        callRow('intent', 'Convite da sala do grupo aceito'), callRow('manual', 'Convite para a chamada (manual) aceito')].filter(Boolean))),
+      card('Resposta aos convites para jogar', `${nf(C.enviados)} enviados: ${nf(C.com_aviso)} com som, ${nf(C.em_silencio)} em silêncio (offline, não perturbe ou limite)`,
+        asBars({ toparam: C.toparam, recusaram: C.recusaram, ignoraram: C.ignoraram, sairam: C.sairam }, { toparam: 'Toparam', recusaram: 'Agora não', ignoraram: 'Não responderam', sairam: 'Saíram depois' }, ['toparam', 'recusaram', 'ignoraram', 'sairam']))),
+    h('div.ux-grid',
+      card('Por que voltaram', 'Estava fora do app, recebeu um chamado e abriu (em até 12 h)', asBars(s.retornos.por_origem, RET)),
+      card('O que as intenções geraram', 'Ações das pessoas a partir de um "A fim de jogar"', asBars(s.interacoes, INTER))),
+    h('div.ux-grid',
+      card('Tempo para formar o grupo', `${nf(I.expiradas)} expiraram sem grupo · ${nf(I.canceladas)} canceladas`, asBars(I.tempo_para_formar, FORM, Object.keys(FORM))),
+      card('Encontros por dia', 'Intenções, sessões com 2+ pessoas, convites e retornos', daily(s.por_dia || [], s.desde, s.dias, 'contagens')))];
+}
+
 export function uxStatsPage() {
   const body = h('div.ux-body', h('p.ux-empty', 'Carregando…'));
-  let days = 30, version = '', data = null;
+  let days = 30, version = '', data = null, soc = null;
   const digest = digestCard(); // não depende do período: é sempre a última semana
   const verSel = h('select.ux-ver', { 'aria-label': 'Versão do app', onchange: () => { version = verSel.value; load(); } }, h('option', { value: '' }, 'Todas as versões'));
   const load = async () => {
     body.classList.add('loading');
-    try { data = await api('GET', `/ux?days=${days}${version ? '&version=' + encodeURIComponent(version) : ''}`); draw(); } catch (e) { body.replaceChildren(h('p.ux-empty', 'Não foi possível carregar: ' + e.message)); }
+    try { [data, soc] = await Promise.all([api('GET', `/ux?days=${days}${version ? '&version=' + encodeURIComponent(version) : ''}`), api('GET', `/social/metrics?days=${days}`).catch(() => null)]); draw(); } catch (e) { body.replaceChildren(h('p.ux-empty', 'Não foi possível carregar: ' + e.message)); }
     body.classList.remove('loading');
   };
   const drawVersions = () => {
@@ -220,6 +251,9 @@ export function uxStatsPage() {
         tile(nf(E.js_error?.total), (E.js_error?.total || 0) === 1 ? 'erro do app' : 'erros do app', pl(E.error_shown?.total || 0, 'aviso de erro mostrado', 'avisos de erro mostrados')),
         tile(st ? pct(dn, st) + '%' : '—', 'dos fluxos são concluídos', st ? `${nf(dn)} de ${nf(st)}` : 'sem dados')),
       digest,
+
+      block('Encontros', 'O "A fim de jogar" está juntando os amigos? Só contagens, sem quem (vale para todas as versões)'),
+      ...social(soc),
 
       block('Pessoas', 'Contado pelo servidor, sem guardar quem: só um código embaralhado por pessoa, para não contar duas vezes'),
       ...[people(data.pessoas, data)].flat(),
