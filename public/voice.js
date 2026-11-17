@@ -1558,6 +1558,7 @@ export class Voice {
       n.busy0 ??= ev.busy; n.stats = ev; if (n.prevBusy != null && ev.busy > n.prevBusy) n.busy0 = n.prevBusy; n.prevBusy = ev.busy;
       const c = this.capStats?.native; if (c) { c.frames += ev.cap || 0; c.sent += ev.fps || 0; c.secs++; }
     }
+    else if (ev.t === 'resized') { n.w = ev.w; n.h = ev.h; this.onUpdate(); } // janela cresceu (ex.: jogo restaurado depois de minimizado): codificador recriado
     else if ((ev.t === 'error' || ev.t === 'exit') && !n.restarting) this.nativeRestart(ev.error || 'o programa de transmissão fechou');
   }
   // o programa nativo falhou: tenta de novo até NATIVE_RESTARTS vezes em NATIVE_RESTART_WIN ms (Alt+Tab, troca de

@@ -271,6 +271,64 @@ pub(crate) fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: 
     Ok(WinLayer { enc, vproc, venum, ring, ow, oh, fps: l.fps, need: 0, next_due: 0.0, slot: 0, last_slot: None, last_input: 0.0, last_st: 0, inflight: HashMap::new(), inputs: 0, pending: None })
 }
 
+/// Tamanho para dimensionar o codificador a partir de uma janela. Janela MINIMIZADA (jogo em tela cheia depois de um
+/// Alt+Tab) mede ~160x28 no Windows — só a barra de título. O codificador era criado com esse tamanho e a transmissão
+/// inteira saía em 146x28 mesmo depois de o jogo voltar. Aqui: minimizada ou minúscula → o tamanho normal da janela
+/// (o que ela tem quando restaurada); sem ele, o monitor onde ela está; sem nada, 1920x1080.
+pub(crate) fn usable_window_size(h: HWND, cur: Option<(u32, u32)>) -> (u32, u32) {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, IsIconic, WINDOWPLACEMENT};
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    let ok = |(w, hh): (u32, u32)| w >= MIN_SRC_W && hh >= MIN_SRC_H;
+    let iconic = unsafe { IsIconic(h) }.as_bool();
+    if let Some(c) = cur { if !iconic && ok(c) { return (c.0 & !1, c.1 & !1); } }
+    let mut wp = WINDOWPLACEMENT { length: std::mem::size_of::<WINDOWPLACEMENT>() as u32, ..Default::default() };
+    if unsafe { GetWindowPlacement(h, &mut wp) }.is_ok() {
+        let r = wp.rcNormalPosition; let s = ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32);
+        if ok(s) { return (s.0 & !1, s.1 & !1); }
+    }
+    let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    if unsafe { GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mut mi) }.as_bool() {
+        let r = mi.rcMonitor; let s = ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32);
+        if ok(s) { return (s.0 & !1, s.1 & !1); }
+    }
+    (1920, 1080)
+}
+pub(crate) const MIN_SRC_W: u32 = 320;
+pub(crate) const MIN_SRC_H: u32 = 180;
+
+/// tamanho de saída que make_layer daria para uma imagem cw x ch nesta camada
+fn out_size(cw: u32, ch: u32, l: &Layer) -> (u32, u32) {
+    let ch = ch.max(2); let oh = (l.height.min(ch) / 2) * 2; ((cw as u64 * oh as u64 / ch as u64) as u32 / 2 * 2, oh)
+}
+/// A imagem capturada cresceu bem além do tamanho para o qual o codificador foi criado (janela que começou pequena ou
+/// minimizada e depois foi restaurada/maximizada): vale recriar as camadas no tamanho novo. Encolher não recria (fica
+/// com barras pretas), para não ficar recriando enquanto alguém arrasta a borda da janela.
+pub(crate) fn wants_bigger(layers: &[(usize, WinLayer)], o: &Opts, w: u32, h: u32) -> bool {
+    let Some((_, top)) = layers.last() else { return false };
+    if w < MIN_SRC_W || h < MIN_SRC_H { return false; }
+    let (ww, wh) = out_size(w, h, o.top());
+    wh > top.oh + top.oh / 4 || ww > top.ow + top.ow / 4
+}
+/// Recria as camadas (codificadores) para uma imagem de w x h no mesmo device. Os codificadores antigos são encerrados
+/// antes (algumas placas limitam quantas sessões de codificação ficam abertas). Se o tamanho novo não abrir, volta ao
+/// antigo. Devolve o aviso de camada que falhou (como em make_layer), ou Err se nem o antigo reabriu.
+pub(crate) fn rebuild_layers(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: &ID3D11VideoContext, luid: u64, o: &Opts, layers: &mut Vec<(usize, WinLayer)>, w: u32, h: u32, verbose: bool) -> R<String> {
+    let old = layers.last().map(|(_, l)| (l.ow, l.oh)).unwrap_or((w, h));
+    for (_, l) in layers.iter() { unsafe { let _ = l.enc.mft.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0); } }
+    layers.clear();
+    let top_i = o.layers.len() - 1;
+    let (top, (cw, ch)) = match make_layer(device, vdev, vctx, luid, w, h, &o.layers[top_i], verbose) {
+        Ok(x) => (x, (w, h)),
+        Err(x) => (make_layer(device, vdev, vctx, luid, old.0, old.1, &o.layers[top_i], verbose).map_err(|y| format!("{x}; e o tamanho anterior: {y}"))?, old),
+    };
+    let mut err = String::new();
+    for (i, l) in o.layers.iter().enumerate().take(top_i) {
+        match make_layer(device, vdev, vctx, luid, cw, ch, l, verbose) { Ok(x) => layers.push((i, x)), Err(x) => err = format!("camada {}p{}: {x}", l.height, l.fps) }
+    }
+    layers.push((top_i, top));
+    Ok(err)
+}
+
 impl WinLayer {
     pub(crate) fn set_rects(&self, vctx: &ID3D11VideoContext, w: u32, h: u32) { unsafe {
         vctx.VideoProcessorSetStreamSourceRect(&self.vproc, 0, true, Some(&RECT { left: 0, top: 0, right: w as i32, bottom: h as i32 }));
@@ -319,7 +377,7 @@ pub fn run(o: &Opts) -> R<()> {
     let closed = Arc::new(AtomicBool::new(false));
     { let c = closed.clone(); let _ = item.Closed(&TypedEventHandler::new(move |_, _| { c.store(true, Ordering::Relaxed); Ok(()) })); }
     let mut size = e(item.Size(), "Size")?;
-    let (cw, ch) = (size.Width.max(2) as u32, size.Height.max(2) as u32);
+    let (cw, ch) = match o.source { Source::Window(hwnd) => usable_window_size(HWND(hwnd as *mut core::ffi::c_void), Some((size.Width.max(2) as u32, size.Height.max(2) as u32))), _ => (size.Width.max(2) as u32, size.Height.max(2) as u32) };
     let pool = e(Direct3D11CaptureFramePool::CreateFreeThreaded(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size), "FramePool")?;
     let session = e(pool.CreateCaptureSession(&item), "CaptureSession")?;
     let _ = session.SetIsCursorCaptureEnabled(o.cursor);
@@ -341,14 +399,15 @@ pub fn run(o: &Opts) -> R<()> {
         match make_layer(&device, &vdev, &vctx, luid, cw, ch, l, !o.app) { Ok(x) => layers.push((i, x)), Err(x) => { layer_err = format!("camada {}p{}: {x}", l.height, l.fps); say(format!("  {layer_err}")); } }
     }
     layers.push((top_i, top));
-    for (_, l) in &layers { l.set_rects(&vctx, cw, ch); }
-    let (ow, oh) = (layers.last().unwrap().1.ow, layers.last().unwrap().1.oh);
+    for (_, l) in &layers { l.set_rects(&vctx, size.Width.max(2) as u32, size.Height.max(2) as u32); } // a imagem que chega agora (o codificador pode ter sido dimensionado maior: janela minimizada)
+    let (mut ow, mut oh) = (layers.last().unwrap().1.ow, layers.last().unwrap().1.oh);
     say(format!("  fonte {}x{} -> {}", cw, ch, layers.iter().map(|(_, l)| format!("{}x{}@{}", l.ow, l.oh, l.fps)).collect::<Vec<_>>().join(" + ")));
     say(format!("  codificador em uso: {}", layers.last().unwrap().1.enc.name));
     let mut tx = sender(o)?;
     for (i, l) in &layers { if let Some(h) = l.enc.seq_header() { tx.set_params(*i, &h); } }
 
     let mut m = Meter::new(o); m.size = (ow, oh);
+    let mut last_grow = -10.0f64;
     let (mut blt_err, mut in_err) = (None::<String>, None::<String>);
     let ivd = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC { FourCC: 0, ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D, Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: 0 } } };
     e(session.StartCapture(), "StartCapture")?;
@@ -397,7 +456,20 @@ pub fn run(o: &Opts) -> R<()> {
         // janela mudou de tamanho: recria o pool e reposiciona (barras pretas mantêm a proporção)
         if let Ok(cs) = frame.ContentSize() {
             if cs.Width != size.Width || cs.Height != size.Height {
-                if cs.Width > 0 && cs.Height > 0 { size = cs; let _ = pool.Recreate(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size); for (_, l) in &layers { l.set_rects(&vctx, size.Width as u32, size.Height as u32); } }
+                if cs.Width > 0 && cs.Height > 0 {
+                    size = cs; let _ = pool.Recreate(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
+                    let (sw, sh) = (size.Width as u32, size.Height as u32);
+                    // começou pequena (minimizada) e cresceu: codificador no tamanho novo, senão a transmissão fica minúscula
+                    if wants_bigger(&layers, o, sw, sh) && now - last_grow >= 2.0 {
+                        last_grow = now;
+                        layer_err = rebuild_layers(&device, &vdev, &vctx, luid, o, &mut layers, sw & !1, sh & !1, !o.app)?;
+                        ow = layers.last().unwrap().1.ow; oh = layers.last().unwrap().1.oh; m.size = (ow, oh);
+                        for (i, l) in &layers { if let Some(h) = l.enc.seq_header() { tx.set_params(*i, &h); } l.enc.force_key(); }
+                        if o.app { emit(serde_json::json!({ "t": "resized", "w": ow, "h": oh, "srcW": sw, "srcH": sh })); }
+                        say(format!("  janela cresceu para {sw}x{sh}: codificador agora em {ow}x{oh}"));
+                    }
+                    for (_, l) in &layers { l.set_rects(&vctx, sw, sh); }
+                }
                 continue;
             }
         }

@@ -11,7 +11,7 @@
 //! de vídeo for perdida (TDR/driver), mantendo o RTP.
 //! Nada é injetado no jogo: WGC e DXGI são APIs do Windows para capturar a tela.
 use crate::select::{Action, Health, Method, Mode, Selector};
-use crate::win::{e, make_layer, tune, WinLayer, R, NV12_RING};
+use crate::win::{e, make_layer, rebuild_layers, tune, usable_window_size, wants_bigger, WinLayer, R, NV12_RING};
 use crate::{emit, sender, summary, Meter, Opts, Source};
 use serde_json::{json, Value};
 use std::mem::ManuallyDrop;
@@ -425,10 +425,11 @@ fn build_pipe(o: &Opts, w: u32, h: u32) -> R<(Pipe, String)> {
 fn open_src(g: &Gpu, m: Method, t: Target, cursor: bool, signal: &Arc<(Mutex<bool>, Condvar)>) -> R<Box<dyn Src>> {
     Ok(match m { Method::Wgc => Box::new(Wgc::open(g, t, cursor, signal)?), Method::Dxgi => Box::new(Dxgi::open(g, t)?) })
 }
-/// tamanho inicial da imagem, para dimensionar o codificador (a saída é fixa; depois disso mudanças viram barras pretas)
+/// tamanho inicial da imagem, para dimensionar o codificador (se a janela crescer bem além dele, as camadas são recriadas;
+/// encolher vira barras pretas). Janela minimizada (~160x28) usa o tamanho normal dela / o monitor: usable_window_size
 fn target_size(t: Target) -> (u32, u32) {
     let r = match t {
-        Target::Window(h) => window_rect(h),
+        Target::Window(h) => return usable_window_size(h, window_rect(h).map(|r| ((r.right - r.left).max(2) as u32, (r.bottom - r.top).max(2) as u32))),
         Target::Monitor(m) => { let mut mi = windows::Win32::Graphics::Gdi::MONITORINFO { cbSize: std::mem::size_of::<windows::Win32::Graphics::Gdi::MONITORINFO>() as u32, ..Default::default() }; if unsafe { windows::Win32::Graphics::Gdi::GetMonitorInfoW(m, &mut mi) }.as_bool() { Some(mi.rcMonitor) } else { None } }
     };
     r.map(|r| (((r.right - r.left).max(2) as u32) & !1, ((r.bottom - r.top).max(2) as u32) & !1)).unwrap_or((1920, 1080))
@@ -457,7 +458,7 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
     let window_src = matches!(t, Target::Window(_));
     let mut sel = Selector::new(mode, build, window_src);
     let (w0, h0) = target_size(t);
-    let (mut p, layer_err) = build_pipe(o, w0, h0)?;
+    let (mut p, mut layer_err) = build_pipe(o, w0, h0)?;
     let signal = Arc::new((Mutex::new(false), Condvar::new()));
     let mut m = Meter::new(o);
     let clock = Instant::now();
@@ -482,8 +483,9 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
     let mut tx = sender(o)?;
     let top_i = o.layers.len() - 1;
     for (i, l) in &p.layers { if let Some(hh) = l.enc.seq_header() { tx.set_params(*i, &hh); } }
-    let (ow, oh) = (p.layers.last().unwrap().1.ow, p.layers.last().unwrap().1.oh);
+    let (mut ow, mut oh) = (p.layers.last().unwrap().1.ow, p.layers.last().unwrap().1.oh);
     m.size = (ow, oh);
+    let mut last_grow = -10.0f64;
     let enc_name = p.layers.last().unwrap().1.enc.name.clone();
     if !o.app { eprintln!("  placa de video: {}\n  codificador: {enc_name}\n  {}", p.g.name, sel.plan_why); }
     let started_ms = now_s(&clock) * 1000.0;
@@ -663,7 +665,20 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
         };
         m.captured();
         probe.sample(&p.g, &f, now);
-        if f.src != p.src_rect { p.src_rect = f.src; src_size = ((f.src.right - f.src.left) as u32, (f.src.bottom - f.src.top) as u32); for (_, l) in &p.layers { l.set_src(&p.g.vctx, f.src); } }
+        if f.src != p.src_rect {
+            p.src_rect = f.src; src_size = ((f.src.right - f.src.left) as u32, (f.src.bottom - f.src.top) as u32);
+            // a janela começou pequena (minimizada: ~146x28) e cresceu: recria os codificadores no tamanho novo. Antes a
+            // saída ficava presa no tamanho do início e a transmissão inteira saía minúscula
+            if wants_bigger(&p.layers, o, src_size.0, src_size.1) && now - last_grow >= 2.0 {
+                last_grow = now;
+                layer_err = rebuild_layers(&p.g.device, &p.g.vdev, &p.g.vctx, p.g.luid, o, &mut p.layers, src_size.0 & !1, src_size.1 & !1, !o.app)?;
+                ow = p.layers.last().unwrap().1.ow; oh = p.layers.last().unwrap().1.oh; m.size = (ow, oh);
+                for (i, l) in &p.layers { if let Some(hh) = l.enc.seq_header() { tx.set_params(*i, &hh); } l.enc.force_key(); }
+                out(o, json!({ "t": "capnote", "at": r1(now), "msg": format!("a imagem cresceu para {}x{}: codificador recriado em {ow}x{oh}", src_size.0, src_size.1) }));
+                if o.app { emit(json!({ "t": "resized", "w": ow, "h": oh, "srcW": src_size.0, "srcH": src_size.1 })); }
+            }
+            for (_, l) in &p.layers { l.set_src(&p.g.vctx, f.src); }
+        }
         // 1º quadro depois de uma troca: quadro-chave em todas as camadas e o evento com a latência
         // ms: da troca até o 1º quadro da nova fonte no codificador (o tempo sem imagem nova); testMs: quanto os dois
         // métodos ficaram lado a lado sendo comparados antes (sem afetar a transmissão)

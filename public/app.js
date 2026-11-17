@@ -1251,7 +1251,7 @@ function watchFromList(v) {
   const ch = channelById(v.channel_id); if (!ch) return;
   go(ch.guild_id || '@me', ch.id);
   if (voice.channelId !== ch.id) joinVoice(ch.id);
-  if (v.user_id !== S.me.id) { voice.openStream(v.user_id); S.focus = 's:' + v.user_id; }
+  if (v.user_id !== S.me.id) watchOnly(v.user_id);
   renderVoiceUI();
 }
 function vuserRow(g, v) {
@@ -1525,7 +1525,7 @@ function fxHotkey() {
 function watchFriend(uid, ch) {
   const g = ch.type === 1 ? null : guild(ch.guild_id);
   go(g ? g.id : '@me', ch.id);
-  if (voice.channelId === ch.id) { voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); return; }
+  if (voice.channelId === ch.id) { watchOnly(uid); renderVoiceUI(); return; }
   S.autoWatch = { uid, exp: Date.now() + 20000 };
   joinVoice(ch.id);
 }
@@ -1813,7 +1813,7 @@ function callUserMenu(e, uid, gid) {
     canCallInvite(uid) && { label: 'Convidar para a chamada', fn: () => sendCallInvite(uid) },
     // transmissão desta pessoa na sala em que estou: assistir (em destaque) ou parar de assistir
     ...(S.voice.get(uid)?.screen && S.voice.get(uid).channel_id === voice.channelId ? ['-', voice.closedStreams.has(uid)
-      ? { label: 'Assistir à transmissão', icon: 'eye', fn: () => { voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); } }
+      ? { label: 'Assistir à transmissão', icon: 'eye', fn: () => { watchOnly(uid); renderVoiceUI(); } }
       : { label: 'Parar de assistir à transmissão', icon: 'eyeoff', fn: () => { voice.closeStream(uid); if (S.focus === 's:' + uid) S.focus = null; renderVoiceUI(); } }] : []),
     '-',
     voice.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
@@ -3490,11 +3490,11 @@ function renderVoiceUI(speakOnly) {
     const cam = mine ? voice.cam : (S.prefs.hiddenVideo?.[uid] ? null : p?.streams.cam), scr = mine ? voice.screen : p?.streams.screen;
     if (!v.screen) voice.closedStreams.delete(uid);
     if (scr && v.screen && !mine && voice.closedStreams.has(uid)) {
-      // multistream (como no Discord): "Assistir" abre e já põe esta em destaque; o olho só junta ao palco, sem tirar o
-      // destaque de quem você já está assistindo
+      // multistream (como no Discord): "Assistir" fecha as outras e fica só com esta; o olho junta ao palco, mantendo as que
+      // você já está assistindo (e o destaque)
       tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`),
         h('div.cs-acts',
-          h('button.btn.green', { title: 'Abrir e assistir em destaque', onclick: (e) => { e.stopPropagation(); voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); } }, 'Assistir'),
+          h('button.btn.green', { title: 'Assistir só esta (fecha as outras transmissões abertas)', onclick: (e) => { e.stopPropagation(); watchOnly(uid); renderVoiceUI(); } }, 'Assistir'),
           h('button.cs-multi', { title: 'Assistir junto com as outras (multistream): entra no palco sem mudar o destaque', 'aria-label': 'Assistir junto com as outras transmissões', onclick: (e) => { e.stopPropagation(); voice.openStream(uid); renderVoiceUI(); } }, icon('eye', 18))))));
     } else if (scr && v.screen) {
       const key = 's:' + uid; live.add(key);
@@ -3806,6 +3806,11 @@ function screenOptItems() {
 // transmissões abertas agora (as que estou assistindo) nesta sala
 function watchedStreams() {
   return [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.screen && v.user_id !== S.me.id && !voice.closedStreams.has(v.user_id));
+}
+// "Assistir" (não o olho do multistream): fica só com esta transmissão — fecha as outras que estavam abertas e põe esta em destaque
+function watchOnly(uid) {
+  for (const v of watchedStreams()) if (v.user_id !== uid) { voice.closeStream(v.user_id); if (S.focus === 's:' + v.user_id) S.focus = null; }
+  voice.openStream(uid); S.focus = 's:' + uid;
 }
 function stopWatching(uids) { for (const u of uids) { voice.closeStream(u); if (S.focus === 's:' + u) S.focus = null; } renderVoiceUI(); }
 function watchOptItems() {
