@@ -596,7 +596,7 @@ export class Voice {
       fallback: method === 'chromium' ? { code: this._natWhy || null, text: this._natWhyText || null } : null,
       restarts: this.natRestartCount || 0, lastError: this.natLastError || null,
       gov: g ? { note: g.note, step: g.ladder[g.level], layersOff: g.layersOff, top: g.ladder[0] } : null,
-      fse: this.fse || null,
+      fse: this.fse || null, chromiumSource: this._swapWhy || null,
       // escolha do método (captura com WGC/DXGI): o pedido, o que o programa decidiu e por quê, e o histórico de trocas
       capture: {
         mode: captureMode(this.prefs), applied: n ? (cap?.mode || (this._capMode ? null : 'classic')) : null, active: method === 'chromium' ? 'chromium' : cm,
@@ -1276,7 +1276,7 @@ export class Voice {
     if (opts.res !== 'source') { video.height = { ideal: +opts.res, max: +opts.res }; video.width = { ideal: Math.round(+opts.res * 16 / 9) }; }
     const gdm = () => navigator.mediaDevices.getDisplayMedia({ video, audio: opts.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true, suppressLocalAudioPlayback: true } : false, systemAudio: 'include', selfBrowserSurface: 'exclude' });
     const cid = this.channelId;
-    this._natWinId = await this.gameWindowViaScreen(opts);
+    this._swapWhy = null; this._natWinId = await this.gameWindowViaScreen(opts);
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
       try { this.screen = await gdm(); } catch (e) {
@@ -1289,11 +1289,12 @@ export class Voice {
           try { this.screen = await gdm(); break; } catch (e2) { if (e2.name !== 'NotReadableError' || i >= 5) throw e2; await new Promise(r => setTimeout(r, 400)); }
         }
       }
-    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo.' : '')); }
+    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo.' : '') + (this._swapWhy ? ` [${this._swapWhy}]` : '')); }
     if (!this.channelId || this.channelId !== cid) { this.screen?.getTracks().forEach(t => t.stop()); this.screen = null; return; } // saiu da sala enquanto abria
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
     this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false;
+    if (this._swapWhy) this.capLog({ t: 'capnote', msg: 'captura reserva do Chromium (Windows 10): ' + this._swapWhy });
     this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
     if (opts.audio && opts.appAudio && window.lcDesktop?.appAudioStart) await this.useAppAudio(opts.appAudio);
@@ -1310,15 +1311,25 @@ export class Voice {
   // Só com um monitor (com vários, não dá para saber daqui em qual o jogo está). Devolve o id da janela ou null.
   async gameWindowViaScreen(o) {
     const si = o.srcInfo, d = window.lcDesktop;
-    if (!si || si.type !== 'window' || !(si.game || si.fullscreen) || !/^window:/.test(si.id || '') || !d?.selectSource || !d.getSources) return null;
+    // por que trocou ou não (vai no relatório da captura e na mensagem de erro: sem isso não dá para saber o que houve no PC)
+    const why = (w) => { this._swapWhy = w; return null; };
+    if (!si) return why('sem dados da fonte');
+    if (si.type !== 'window') return why('fonte é ' + si.type);
+    if (!(si.game || si.fullscreen)) return why('janela não é jogo');
+    if (!/^window:/.test(si.id || '')) return why('sem id da janela');
+    if (!d?.selectSource || !d.getSources) return why('app sem suporte');
     try {
       const c = await this.nativeCapable(captureMode(this.prefs));
-      if (!c.ok || !(+c.os > 0 && +c.os < 22000) || !(await this.wantNative(o))) return null;
+      if (!c.ok) return why('nativo indisponível: ' + (c.code || c.reason || '?'));
+      if (!(+c.os > 0)) return why('app não informa o Windows');
+      if (+c.os >= 22000) return why('Windows 11');
+      if (!(await this.wantNative(o))) return why('não vai pelo nativo: ' + (this._natWhy || '?'));
       const screens = (await d.getSources()).filter(x => x.type === 'screen');
-      if (screens.length !== 1) return null;
-      if (!(await d.selectSource(screens[0].id, screens[0].name))) return null;
+      if (screens.length !== 1) return why(screens.length + ' monitores');
+      if (!(await d.selectSource(screens[0].id, screens[0].name))) return why('selectSource falhou');
+      this._swapWhy = 'ok: Chromium na tela, nativo na janela';
       return si.id;
-    } catch { return null; }
+    } catch (e) { return why('erro: ' + (e.message || e)); }
   }
   // antes de mandar o vídeo pelo Chromium: se ele estava na tela só para a prévia (acima), volta para a JANELA do jogo
   // (nunca transmitir a tela inteira no lugar da janela escolhida). Sem conseguir, para a transmissão.
