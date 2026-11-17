@@ -4,10 +4,10 @@
 // Estado em memória (reiniciar o servidor invalida os convites pendentes; o cartão na DM mostra "expirado").
 import crypto from 'node:crypto';
 
-export const CALL_INVITE_TTL = 5 * 60 * 1000;
+export const CALL_INVITE_TTL = +process.env.CALL_INVITE_TTL_MS || 5 * 60 * 1000; // CALL_INVITE_TTL_MS: só para testes
 const RESEND_MS = 20 * 1000; // o mesmo convite pendente não é reenviado (nem toca de novo) antes disso
 
-export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, userPub, dispatch, postDm, canCall = () => true, now = () => Date.now() }) {
+export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, userPub, dispatch, postDm, canCall = () => true, onState = () => { }, now = () => Date.now() }) {
   const invites = new Map(); // id -> { id, from, to, guild_id, channel_id, created, expires, state }
 
   const stateOf = (i) => (i.state === 'pending' && now() > i.expires ? 'expired' : i.state);
@@ -16,13 +16,17 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     return { id: i.id, state: stateOf(i), from: userPub(i.from), to: i.to, guild: g || { id: i.guild_id, name: '?' }, channel: ch || { id: i.channel_id, name: '?' },
       expires_at: i.expires, in_call: roomSize(i.channel_id), from_in_call: voiceChannelOf(i.from) === i.channel_id, member: isMember(i.guild_id, i.to) };
   };
-  const notifyBoth = (i, extra = {}) => dispatch([i.from, i.to], 'CALL_INVITE_UPDATE', { ...pub(i), ...extra });
-  // limpeza: convites resolvidos/expirados há mais de 1 h somem da memória
-  const sweep = () => { const t = now(); for (const [id, i] of invites) if (t > i.expires + 3600e3) invites.delete(id); };
+  const notifyBoth = (i, extra = {}) => { dispatch([i.from, i.to], 'CALL_INVITE_UPDATE', { ...pub(i), ...extra }); report(i); };
+  // métricas (server/social.js): cada convite conta uma vez por resultado (aceito, recusado, expirado, cancelado)
+  const report = (i) => { const st = stateOf(i); if (st === 'pending' || i.reported === st) return; i.reported = st; try { onState(i, st); } catch { } };
+  // limpeza: convites resolvidos/expirados há mais de 1 h somem da memória; os que expiraram sem resposta são contados
+  const sweep = () => { const t = now(); for (const [id, i] of invites) { if (stateOf(i) === 'expired') report(i); if (t > i.expires + 3600e3) invites.delete(id); } };
 
-  function create(from, to) {
+  // opts.channelId: convida para uma sala onde quem convida ainda não está (grupo formado pelo "A fim de jogar",
+  // server/intents.js); opts.source marca a origem nas métricas. Sem opts, é o convite de sempre: "vem para onde eu estou".
+  function create(from, to, opts = {}) {
     sweep();
-    const cid = voiceChannelOf(from);
+    const cid = opts.channelId || voiceChannelOf(from);
     const ch = cid && get('SELECT id,guild_id,type FROM channels WHERE id=?', cid);
     if (!ch || ch.type !== 2 || !ch.guild_id) return { error: 'Entre numa sala de voz de um servidor para convidar alguém', status: 400 };
     if (!to || to === from || !get('SELECT 1 x FROM users WHERE id=?', to)) return { error: 'Usuário inválido', status: 400 };
@@ -39,7 +43,7 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
         i.state = 'canceled'; notifyBoth(i); // pendente antigo: substitui por um novo (toca de novo)
       }
     }
-    const i = { id: crypto.randomBytes(9).toString('base64url'), from, to, guild_id: ch.guild_id, channel_id: cid, created: now(), expires: now() + CALL_INVITE_TTL, state: 'pending' };
+    const i = { id: crypto.randomBytes(9).toString('base64url'), from, to, guild_id: ch.guild_id, channel_id: cid, created: now(), expires: now() + CALL_INVITE_TTL, state: 'pending', source: opts.source || 'manual' };
     invites.set(i.id, i);
     postDm(from, to, `📞 /call/${i.id}`); // o cartão da DM guarda o histórico e funciona mesmo se o aviso for perdido
     dispatch([to], 'CALL_INVITE', pub(i));
@@ -62,7 +66,7 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
       return { invite: pub(i) };
     }
     if (uid !== i.to) return { error: 'Sem permissão', status: 403 };
-    if (st === 'expired') return { error: 'Este convite expirou', status: 410 };
+    if (st === 'expired') { report(i); return { error: 'Este convite expirou', status: 410 }; }
     if (st === 'canceled') return { error: 'O convite foi cancelado', status: 410 };
     if (action === 'decline') {
       if (st === 'pending') { i.state = 'declined'; notifyBoth(i); }
@@ -83,5 +87,5 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     return [...invites.values()].filter(i => i.to === uid && stateOf(i) === 'pending').sort((a, b) => b.created - a.created).map(pub);
   }
 
-  return { create, read, respond, pendingFor, _invites: invites };
+  return { create, read, respond, pendingFor, sweep, _invites: invites };
 }

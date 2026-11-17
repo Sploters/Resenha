@@ -43,16 +43,18 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 
 ### Etapa 1: Regras de compatibilidade e formação (puro + testes de unidade)
 - [x] `server/intentmatch.js`: chave do jogo, pontuação de compatibilidade com motivos, ranking, limites de aviso, formação, validade
-- [x] `scripts/intents-unit-test.mjs` (59 casos, todos passando)
+- [x] `scripts/intents-unit-test.mjs` (63 casos, todos passando)
 - **Pronto quando:** todos os casos de unidade passam (compatibilidade, jogo sem dado da Steam, preferências, limites, formação, validade).
 
 ### Etapa 2: Servidor (intenções, convites, formação, sala, expiração)
-- [ ] tabelas e rotas em `server/intents.js` (prévia, criar, responder, chamar mais, cancelar, listar)
-- [ ] formação automática atômica (sem passar das vagas, sem duas salas)
-- [ ] escolha/criação de sala + convite para a chamada (`callinvites.js` com sala informada)
-- [ ] expiração (intenção e convites), "ignorou", aviso para quem criou e plano B (LFG)
-- [ ] deduplicação: intenção aberta do mesmo jogo no círculo → oferecer entrar nela
+- [x] tabelas e rotas em `server/intents.js` (prévia, criar, responder, chamar mais, cancelar, listar)
+- [x] formação automática atômica (sem passar das vagas, sem duas salas)
+- [x] escolha/criação de sala + convite para a chamada (`callinvites.js` com sala informada)
+- [x] expiração (intenção e convites), "ignorou", aviso para quem criou e plano B (LFG)
+- [x] deduplicação: intenção aberta do mesmo jogo no círculo → oferecer entrar nela
 - **Pronto quando:** testes de integração, concorrência e expiração passam e os testes antigos de LFG/convites continuam passando.
+- ✅ `scripts/intents-test.mjs` 105/105 · `lfg-test` 62/62 · `callinvite-test` 29/29
+- Problema encontrado: "VALORANT" (Jogando…/digitado) e "Valorant" (catálogo) viravam chaves diferentes e a deduplicação falhava. Corrigido: nome ou appid do catálogo do LFG vira o jogo do catálogo.
 
 ### Etapa 3: Interface
 - [ ] seção "A fim de jogar" no topo do Ativo agora (minha intenção + convites para mim)
@@ -63,7 +65,7 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 - **Pronto quando:** fluxo completo em 3 navegadores com capturas, sem erro de página.
 
 ### Etapa 4: Métricas
-- [ ] sessões com 2+ pessoas, retornos por convite/atividade, interações, intenções → grupos, convites aceitos/ignorados/recusados
+- [x] sessões com 2+ pessoas, retornos por convite/atividade, interações, intenções → grupos, convites aceitos/ignorados/recusados
 - [ ] painel do administrador (Estatísticas de uso → Encontros)
 - **Pronto quando:** teste confere os números depois de um fluxo conhecido.
 

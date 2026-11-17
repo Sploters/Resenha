@@ -36,7 +36,9 @@ import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
 import { mountUx, uxSeen, uxSignup, uxFirst, uxServerCount } from './ux.js';
-import { mountLfg } from './lfg.js';
+import { mountLfg, GAMES as LFG_GAMES } from './lfg.js';
+import { mountIntents } from './intents.js';
+import { createSocial, mountSocial } from './social.js';
 import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
 import { mountGames } from './games.js';
@@ -384,6 +386,9 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
 mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
+// métricas sociais (server/social.js): encontros, retornos e convites; mesma regra de privacidade da telemetria
+const social = createSocial({ db, all, get, run, optedOut: (uid) => { try { return JSON.parse(getUser(uid)?.settings || '{}')?.uxStats === false; } catch { return false; } }, isOnline: (uid) => conns.has(uid) });
+mountSocial(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid, social });
 mountUx(app, { auth, wrap, bad, isAdmin: (uid) => reportAdmin()?.id === uid, prefsOf: (uid) => { const s = getUser(uid)?.settings; return s ? JSON.parse(s) : {}; },
   sendDigest: (d) => { // resumo da semana: no app do administrador e, com webhook, no celular (ntfy ou canal do Discord)
     const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_DIGEST', { titulo: d.titulo, texto: d.texto });
@@ -811,6 +816,7 @@ app.delete('/api/channels/:id', auth, wrap((req, res) => {
   run('UPDATE channels SET parent_id=NULL WHERE parent_id=?', ch.id);
   run('DELETE FROM channels WHERE id=?', ch.id);
   audit(ch.guild_id, req.uid, 'channel_delete', ch.id, ch.name);
+  intents.onChannelDeleted(ch.id);
   dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_DELETE', { id: ch.id, guild_id: ch.guild_id });
   res.json({});
 }));
@@ -954,6 +960,7 @@ const callInv = createCallInvites({
   isBlocked: (a, b) => !!get('SELECT 1 x FROM relationships WHERE ((user_id=? AND other_id=?) OR (user_id=? AND other_id=?)) AND type=2', a, b, b, a),
   joinGuild: (gid, uid) => joinGuild(gid, uid), userPub, dispatch, postDm: (a, b, c) => postDm(a, b, c),
   canCall: (a, b) => privacy.canCall(a, b),
+  onState: (i, st) => social.count('callinv', `${i.source || 'manual'}:${st}`, 1, i.to), // métricas: aceito, recusado, expirado, cancelado
 });
 const callInvRate = new Map(); // uid -> instantes dos últimos convites (no máx. 10 por minuto)
 const callOut = (res, r) => (r.error ? bad(res, r.error, r.status) : res.json(r));
@@ -961,12 +968,13 @@ app.post('/api/call-invites', auth, wrap((req, res) => {
   const t = Date.now(), recent = (callInvRate.get(req.uid) || []).filter(x => t - x < 60e3);
   if (recent.length >= 10) return bad(res, 'Muitos convites em pouco tempo; espere um pouco', 429);
   const r = callInv.create(req.uid, String(req.body.user_id || ''));
+  if (r.invite && !r.repeated && !conns.has(r.invite.to)) social.pull(r.invite.to, 'call_invite');
   if (!r.error && !r.repeated) callInvRate.set(req.uid, [...recent, t]);
   callOut(res, r);
 }));
 app.get('/api/call-invites', auth, wrap((req, res) => res.json(callInv.pendingFor(req.uid))));
 app.get('/api/call-invites/:id', auth, wrap((req, res) => { const r = callInv.read(req.params.id, req.uid); if (r.error && req.query.peek) return res.json({ gone: true }); callOut(res, r); })); // peek: cartão na DM (convites ficam na memória e somem ao reiniciar)
-app.post('/api/call-invites/:id/:action(accept|decline|cancel)', auth, wrap((req, res) => callOut(res, callInv.respond(req.params.id, req.uid, req.params.action))));
+app.post('/api/call-invites/:id/:action(accept|decline|cancel)', auth, wrap((req, res) => { const r = callInv.respond(req.params.id, req.uid, req.params.action); if (!r.error && req.params.action === 'accept') social.acted(req.uid); callOut(res, r); }));
 
 // Emojis personalizados
 app.post('/api/guilds/:id/emojis', auth, wrap((req, res) => {
@@ -1809,6 +1817,39 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
 const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), log: console.log });
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
+// ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
+const intents = mountIntents(app, {
+  auth, wrap, bad, db, get, all, run, newId, dispatch, userPub, clean, log: console.log,
+  audienceOf: lfgAudience, isFriend: (a, b) => !!get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=1', a, b),
+  presenceVisible: (viewer, owner) => privacy.presenceVisible(viewer, owner), realStatus: (uid) => { const u = getUser(uid); return u ? realStatus(u) : 'offline'; },
+  prefsOf: (uid) => { try { return JSON.parse(getUser(uid)?.settings || '{}') || {}; } catch { return {}; } },
+  activity, games, lfgGames: LFG_GAMES, isOnline: (uid) => conns.has(uid), social,
+  guildsOf: (uid) => all('SELECT g.id, g.name FROM guilds g JOIN members m ON m.guild_id=g.id WHERE m.user_id=?', uid),
+  isMember: (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid), joinGuild: (gid, uid) => joinGuild(gid, uid),
+  canConnect: (ch, uid) => !timedOut(ch.guild_id, uid) && chp.chCan(ch, uid, CH.CONNECT),
+  voiceChannelOf: (uid) => currentVoice(uid), roomPeople: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : [],
+  // sala temporária do grupo: criada pelo Resenha (registro de auditoria em nome de quem chamou) e apagada quando esvazia
+  createVoiceChannel: (gid, name, by) => {
+    const id = newId(), pos = (get('SELECT MAX(position) m FROM channels WHERE guild_id=?', gid).m ?? 0) + 1;
+    run('INSERT INTO channels(id,guild_id,type,name,position,parent_id,created_at) VALUES(?,?,?,?,?,?,?)', id, gid, 2, name, pos, null, Date.now());
+    const ch = get('SELECT * FROM channels WHERE id=?', id);
+    dispatch(guildMemberIds(gid), 'CHANNEL_CREATE', ch); audit(gid, by, 'intent_room', id, name);
+    return ch;
+  },
+  deleteChannel: (ch) => {
+    if (voice.has(ch.id)) for (const u of [...voice.get(ch.id).keys()]) leaveVoice(u, ch.id);
+    run('DELETE FROM channels WHERE id=?', ch.id);
+    dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_DELETE', { id: ch.id, guild_id: ch.guild_id });
+  },
+  callInvite: (from, to, opts) => { const r = callInv.create(from, to, opts); if (r.invite && !r.repeated && !conns.has(to)) social.pull(to, 'call_invite'); return r; },
+});
+// sessões de voz com 2+ pessoas (métricas): chamado depois de cada entrada/saída
+const voicePeople = (cid) => (voice.has(cid) ? [...voice.get(cid).values()].filter(st => !st.bot).length : 0);
+function socialVoice(cid, joined = null) {
+  const isIntent = intents.isIntentRoom(cid);
+  const friendThere = joined && voice.has(cid) && [...voice.get(cid).keys()].some(u => u !== joined && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=1', joined, u));
+  social.onVoice(cid, voicePeople(cid), { intent: isIntent, joined, friendThere });
+}
 const linkStates = new Map(); // state -> { uid, platform, returnTo, exp } (uso único, 10 min)
 const publicBase = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const accountPub = (a) => !a ? null : ({ platform: a.platform, external_id: a.external_id, display_name: a.display_name, avatar: a.avatar, profile_url: a.profile_url, visibility: a.visibility, link_visibility: a.link_visibility, linked_at: a.linked_at, last_sync: a.last_sync, sync_state: a.sync_state });
@@ -2006,6 +2047,7 @@ function leaveVoice(uid, cid, reason) {
   if (ch) dispatch(channelAudience(ch), 'VOICE_STATE', { channel_id: null, prev_channel_id: cid, user_id: uid, guild_id: ch.guild_id, ...(reason ? { reason } : {}) });
   for (const [, s] of m) send(s.ws, 'VOICE_PEER_LEFT', { channel_id: cid, user_id: uid });
   musicOnLeave(cid);
+  socialVoice(cid);
 }
 // Bot de música: participante sem conexão WebSocket (ws "morto" faz send() ser ignorado)
 // bot: { kind: 'music', n, name } — vai no estado de voz para o app desenhá-lo como bot (não é um membro do servidor)
@@ -2077,6 +2119,7 @@ wss.on('connection', (ws) => {
   ws.alive = true; ws.on('pong', () => (ws.alive = true));
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   uxSeen(uid); // telemetria: usou o app hoje (uma vez por dia, sem guardar quem)
+  if (first) social.onConnect(uid); // métricas: voltou por causa de um convite/atividade?
   { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin(), now: Date.now() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastStatus(uid); activity.poke(); }
   if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
@@ -2161,6 +2204,7 @@ wss.on('connection', (ws) => {
           if (!sfuEnabled()) send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers });
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(ch.id, uid, st), guild_id: ch.guild_id });
           uxFirst(uid, 'voice');
+          intents.onVoiceJoin(uid, ch.id); socialVoice(ch.id, uid);
           musicOnJoin(ch.id, ws);
           if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));
@@ -2315,7 +2359,7 @@ wss.on('connection', (ws) => {
     const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
     if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c, 'drop');
-    if (set && !set.size) { conns.delete(uid); broadcastStatus(uid); }
+    if (set && !set.size) { conns.delete(uid); broadcastStatus(uid); social.onDisconnect(uid); }
     else { if (ws.active) pushDevices(uid); pushPlatforms(uid); }
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou
   });

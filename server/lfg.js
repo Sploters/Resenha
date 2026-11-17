@@ -15,16 +15,17 @@ export const GAMES = [
     ranks: R('Ferro', 'Bronze', 'Prata', 'Ouro', 'Platina', 'Esmeralda', 'Diamante', 'Mestre', 'Grão-Mestre', 'Desafiante'),
     roles: R('Topo', 'Selva', 'Meio', 'Atirador', 'Suporte', 'Preenche'),
     links: [{ name: 'DUO.OP.GG', url: 'https://duo.op.gg/pt/lol/' }] },
-  { id: 'cs2', name: 'Counter-Strike 2', color: '#de9b35', idLabel: 'Nick (Steam/Faceit)', idHint: 'seu nick',
+  { id: 'cs2', name: 'Counter-Strike 2', color: '#de9b35', steam: '730', idLabel: 'Nick (Steam/Faceit)', idHint: 'seu nick',
     modes: R('Premier', 'Competitivo', 'Faceit', 'Wingman', 'Casual'),
     ranks: R('Faceit 1–3', 'Faceit 4–6', 'Faceit 7–8', 'Faceit 9–10', 'Premier até 10 mil', 'Premier 10–15 mil', 'Premier 15–20 mil', 'Premier 20 mil+'),
     roles: R('Entry', 'AWP', 'Suporte', 'Lurker', 'IGL'),
     links: [{ name: 'DUO.OP.GG (Steam)', url: 'https://duo.op.gg/pt/steam/' }] },
-  { id: 'peak', name: 'PEAK', color: '#7cb342', modes: R('Casual'), ranks: [], roles: [], links: [] },
-  { id: 'repo', name: 'R.E.P.O.', color: '#8e6cd1', modes: R('Casual'), ranks: [], roles: [], links: [] },
+  { id: 'peak', name: 'PEAK', color: '#7cb342', steam: '3527290', modes: R('Casual'), ranks: [], roles: [], links: [] },
+  { id: 'repo', name: 'R.E.P.O.', color: '#8e6cd1', steam: '3241660', modes: R('Casual'), ranks: [], roles: [], links: [] },
   { id: 'minecraft', name: 'Minecraft', color: '#5d9c3a', modes: R('Sobrevivência', 'Criativo', 'Minigames', 'Modpack'), ranks: [], roles: [], links: [] },
   { id: 'other', name: 'Outro jogo', color: '#5865f2', modes: R('Casual', 'Ranqueada'), ranks: [], roles: [], links: [] },
 ];
+// steam: appid da loja ("A fim de jogar" usa para saber quem tem o jogo na biblioteca; server/intents.js)
 const G = new Map(GAMES.map(g => [g.id, g]));
 // onde o grupo joga: entrar de outra plataforma não funciona (o FAQ do Discord avisa o mesmo), então o anúncio diz qual é
 export const PLATFORMS = [['pc', 'PC'], ['playstation', 'PlayStation'], ['xbox', 'Xbox'], ['switch', 'Switch'], ['mobile', 'Celular'], ['cross', 'Crossplay']];
