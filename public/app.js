@@ -1483,6 +1483,7 @@ const newsActions = {
   gifs: () => { const b = $('#composer .gifbtn'); if (b) b.click(); else toast('Abra um chat e clique em GIF, ao lado do emoji.'); },
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },
   lfg: () => go('@me', 'lfg'),
+  intent: () => openIntentModal(),
   clipsettings: () => openSettings('clips', ctxSettings()),
   messages: () => openMessages(),
   notifications: () => openSettings('notifications', ctxSettings()),

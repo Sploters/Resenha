@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-3', title: 'A fim de jogar: o Resenha chama quem tem o jogo',
+    items: [
+      { i: 'gamepad', t: 'Diga o jogo, até quando e com quantos', d: 'No topo do Ativo agora (ou em Procurar jogadores), "A fim de jogar?". O Resenha mostra quem do seu círculo tem, está jogando ou jogou esse jogo, e por quê. Você escolhe quem chamar.', try: 'intent' },
+      { i: 'users', t: 'O grupo se forma sozinho', d: 'Quando o mínimo topa, o Resenha escolhe a sala (a sua, uma vazia ou uma temporária) e manda o convite para a chamada. Ninguém é colocado na sala à força: cada um entra quando quiser.' },
+      { i: 'bell', t: 'Sem virar barulho', d: 'Só quem tem o jogo recebe; no máximo 3 convites com som por hora; em "não perturbe" ou offline chega em silêncio. Dá para silenciar um jogo por hoje ou escolher quem pode te chamar em Notificações.', try: 'notifications' },
+    ],
+  },
+  {
     id: '2026-11-17-2', title: 'Procurar jogadores: conversa, entrada direta e "Jogando agora"',
     items: [
       { i: 'forum', t: 'Conversa em cada anúncio', d: 'Cada anúncio tem a própria conversa: combine estilo de jogo, microfone e horário antes de entrar. Quem criou o anúncio é avisado quando alguém escreve.', try: 'lfg' },
