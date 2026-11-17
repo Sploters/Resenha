@@ -181,12 +181,14 @@ export function applyTheme() {
   r.dataset.theme = grad ? grad.base : (SOLID_THEMES[S.prefs.theme] ? S.prefs.theme : 'dark'); paintTheme(r, grad); r.style.fontSize = S.prefs.zoom + '%';
   const a = S.prefs.accent || '#5865f2';
   r.style.setProperty('--brand', a); r.style.setProperty('--brand-hover', `color-mix(in srgb, ${a} 80%, black)`);
-  r.classList.toggle('reduce-motion', !!S.prefs.reduceMotion); r.classList.toggle('anim', S.prefs.animations !== false && !S.prefs.reduceMotion && !matchMedia('(prefers-reduced-motion: reduce)').matches); // também o "reduzir movimento" do sistema
-  r.classList.toggle('high-contrast', !!S.prefs.highContrast); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
+  const rm = reduceMotionOn();
+  r.classList.toggle('reduce-motion', rm); r.classList.toggle('anim', S.prefs.animations !== false && !rm && !systemReduceMotion()); // também o "reduzir movimento" do sistema
+  r.classList.toggle('high-contrast', highContrastOn()); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
-  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); r.classList.toggle('sat-on', (S.prefs.saturation ?? 100) != 100); setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
+  r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); r.style.setProperty('--con', (S.prefs.contrast ?? 100) + '%'); r.classList.toggle('sat-on', (S.prefs.saturation ?? 100) != 100 || (S.prefs.contrast ?? 100) != 100);
+  if (!sysWatch && typeof matchMedia === 'function') { sysWatch = true; for (const q of ['(forced-colors: active)', '(prefers-contrast: more)', '(prefers-reduced-motion: reduce)']) matchMedia(q).addEventListener?.('change', () => applyTheme()); } setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));
@@ -262,12 +264,28 @@ export function loadMembers(gid) {
   memberLoads.set(gid, p); return p;
 }
 export function nameOf(uid, gid) { return member(gid, uid)?.nickname || user(uid).display_name || user(uid).username; }
-export function roleColor(gid, uid) {
-  if (S.prefs.roleColors === false) return '';
-  const g = guild(gid), m = g?.members.get(uid); if (!g || !m) return '';
-  const rs = g.roles.filter(r => m.roles.includes(r.id) && r.color && r.color !== '#99aab5').sort((a, b) => b.position - a.position);
-  return rs[0]?.color || '';
+// Cores dos cargos (Acessibilidade): 'name' pinta o nome, 'dot' põe uma bolinha da cor ao lado do nome (o nome fica na cor
+// do texto, sempre legível em qualquer tema), 'off' não mostra. roleColors=false é a opção antiga (liga/desliga).
+export const roleColorMode = () => S.prefs.roleColorMode || (S.prefs.roleColors === false ? 'off' : 'name');
+export function topRole(gid, uid) {
+  const g = guild(gid), m = g?.members.get(uid); if (!g || !m) return null;
+  return g.roles.filter(r => m.roles.includes(r.id) && r.color && r.color !== '#99aab5').sort((a, b) => b.position - a.position)[0] || null;
 }
+export function roleColor(gid, uid) { return roleColorMode() === 'name' ? topRole(gid, uid)?.color || '' : ''; }
+export function roleDot(gid, uid) {
+  if (roleColorMode() !== 'dot') return null;
+  const r = topRole(gid, uid); return r ? h('span.role-dot', { style: { background: r.color }, title: 'Cargo: ' + r.name }) : null;
+}
+// "Sincronizar temas de perfil": cartões de perfil dos outros usam o tema do app em vez das cores escolhidas pela pessoa
+export const profileThemeOn = (u) => !!(u?.theme_primary && u?.theme_accent) && !(S.prefs.syncProfileThemes && u.id !== S.me?.id);
+// alto contraste / menos movimento do sistema operacional (Windows: Temas de contraste; macOS/iOS/Android: Aumentar contraste
+// e Reduzir movimento), seguidos enquanto "Sincronizar com o sistema" estiver ligado
+const mq = (q) => typeof matchMedia === 'function' && matchMedia(q);
+export const systemContrast = () => !!(mq('(forced-colors: active)')?.matches || mq('(prefers-contrast: more)')?.matches);
+export const systemReduceMotion = () => !!mq('(prefers-reduced-motion: reduce)')?.matches;
+export const highContrastOn = () => !!S.prefs.highContrast || (S.prefs.syncContrast !== false && systemContrast());
+export const reduceMotionOn = () => !!S.prefs.reduceMotion || (S.prefs.syncMotion !== false && systemReduceMotion());
+let sysWatch = false;
 export function perms(gid) {
   const g = guild(gid); if (!g) return 0;
   if (g.owner_id === S.me.id) return 0xffffff;

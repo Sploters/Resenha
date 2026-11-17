@@ -17,7 +17,8 @@ import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
 import { reconnectDelay } from './backoff.js';
 import { h, morph, place, icon, avatar, fsVideo, whenGone, thumbUrl, md, esc, stamp, clock, dayLabel, sameDay, bytes, onlyEmoji, isImageUrl, SHORT, inviteCodes, callCodes, stripInvites, clipLinkIds, stripClipLinks, clipLink, inviteText, parsePos, framePos, initials, busy, skeleton, screenSkeleton, debounce, imgUrl, cleanLinks, plainTs, platformIcons } from './util.js';
 import { timestampModal } from './timestamp.js';
-import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh } from './state.js';
+import { S, api, tryApi, user, botOf, guild, channelById, member, loadMembers, nameOf, roleColor, can, perms, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, emojiPicker, warmEmojis, lightbox, closeFloating, beep, notify, closeNotifs, quietHere, tabId, notifPolicy, channelMuted, channelUnmuted, serverMuted, setChannelUnmuted, desktop, applyTheme, emojiUrl, allEmojis, savePrefs, relite, alertAllowed, focusOn, prefsDirty, prefsBase, setPrefsBase, mergeRemote, pushPrefsNow, restoreDevicePrefs, resolveDevices, DEVICE_PREF_KEYS, setDevice, CH, CH_LABELS, chCan, CH_KINDS, isChatCh, roleDot, profileThemeOn } from './state.js';
+import { speak, speakableText, ttsSupported, ttsSpeaking, ttsStop } from './tts.js';
 import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice, CAPTURE_METHODS, captureMode } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
@@ -1672,7 +1673,7 @@ async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigo
   mergeUser(u);
   const m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);
   const roles = g && m ? g.roles.filter(r => m.roles.includes(r.id)) : [];
-  const tp = u.theme_primary, ta = u.theme_accent, themed = !!(tp && ta), color = themed ? tp : u.banner_color || u.color || '#5865f2';
+  const tp = u.theme_primary, ta = u.theme_accent, themed = profileThemeOn(u), color = themed ? tp : u.banner_color || u.color || '#5865f2';
   const rt = relType(uid), notes = (S.prefs.notes ||= {});
   const date = (t) => new Date(+t || Date.now()).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' });
   const sec = (title, ...body) => h('section.upsec', h('h4', title), ...body);
@@ -2218,7 +2219,7 @@ function msgEl(m, prev) {
   else el.append(h('div.time-s', clock(m.created_at)));
   if (m.reply) el.append(h('div.reply-ref', { onclick: () => jumpTo(m.reply.id) },
     m.reply.deleted ? h('i', 'A mensagem original foi excluída') : [avatar(user(m.reply.author.id), 16, { status: false }), h('span.rn', '@' + nameOf(m.reply.author.id, gid)), h('span.rt', plainTs(inviteText(themeText(m.reply.content))) || 'Clique para ver o anexo')]));
-  if (!grouped) el.append(h('div.head', impName ? h('span.author.imp-author', impName) : styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style),
+  if (!grouped) el.append(h('div.head', impName ? h('span.author.imp-author', impName) : styleName(h('span.author', { style: col ? { color: col } : null, onclick: (e) => profile(e.currentTarget, m.author_id, gid), oncontextmenu: (e) => { e.stopPropagation(); userMenu(e, m.author_id, gid); } }, nameOf(m.author_id, gid)), a.name_style), !impName && roleDot(gid, m.author_id),
     m.imported && h('span.imp-tag', { title: `Importada do Discord por ${user(m.imported.by)?.display_name || 'alguém'}${m.imported.re ? ' · respondia a ' + m.imported.re : ''}` }, icon('inbox', 11), 'Discord'), h('span.ts', stamp(m.created_at)), m.pinned && h('span.pin', icon('pin', 12)), m.e2ee === true && h('span.e2-ic', { title: 'Protegida de ponta a ponta' }, icon('lock', 12))));
   if (m.forwarded) el.append(h('div.fwd-tag', icon('arrowr', 14), 'Encaminhada'));
   const spoilFrom = el.childNodes.length; // daqui para baixo (texto, cartões, anexos) é o que o spoiler cobre
@@ -2394,8 +2395,9 @@ function appendAttachments(el, m, canDel) {
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
   // cada foto pode vir coberta (spoiler no envio ou "Esconder mídia até clicar") e GIF fica parado com "GIFs parados" (mediasafe.js)
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) => {
-    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
+    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.alt || f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
     const tile = h('div.mtile' + (f.spoiler ? '.spoilfile' : ''), coverMedia(im, coverReason(m, f), m.id + ':' + i), del(f, i), favStarFor(f));
+    if (f.alt) tile.append(h('button.alt-tag', { type: 'button', title: f.alt, 'aria-label': 'Texto alternativo: ' + f.alt, onclick: (e) => { e.stopPropagation(); popout(e.currentTarget, h('div.alt-pop', h('b', 'Texto alternativo'), h('p', f.alt))); } }, 'ALT'));
     if (isGifName(f.name)) { tile.classList.add('giftile'); tile.append(h('span.gtag', 'GIF')); freezeGif(im, f.url, tile); }
     return tile;
   })));
@@ -2527,6 +2529,7 @@ function msgMenu(e, m) {
     { label: 'Responder', fn: () => setReply(m) },
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
+    m.content && ttsSupported() && (ttsSpeaking() ? { label: 'Parar leitura', fn: () => ttsStop() } : { label: 'Ler em voz alta', hint: 'Voz do aparelho', fn: () => speak(`${nameOf(m.author_id, gid)} disse: ${speakableText(m.content, { nameOf: (id) => nameOf(id, gid) })}`, { localOnly: !!m.e2ee }) }),
     canForward(m) && { label: 'Encaminhar', hint: 'Para outras conversas e canais', fn: () => forwardModal(m) },
     ...favMenuItems(m),
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },
@@ -2975,7 +2978,8 @@ function renderPendingPrev() {
   box.classList.toggle('hidden', !S.pending.length);
   // olho: marca o anexo como spoiler (borrado para todos até clicarem; mediasafe.js)
   box.replaceChildren(...S.pending.map(p => h('div.prev-item' + (p.spoiler ? '.spoil' : ''), p.preview ? h('img', { src: p.preview }) : icon('file', 40),
-    h('button.pv-spoil' + (p.spoiler ? '.on' : ''), { type: 'button', title: p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-label': p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-pressed': String(!!p.spoiler), onclick: () => { p.spoiler = !p.spoiler; renderPendingPrev(); } }, icon(p.spoiler ? 'eyeoff' : 'eye', 14)), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
+    h('button.pv-spoil' + (p.spoiler ? '.on' : ''), { type: 'button', title: p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-label': p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-pressed': String(!!p.spoiler), onclick: () => { p.spoiler = !p.spoiler; renderPendingPrev(); } }, icon(p.spoiler ? 'eyeoff' : 'eye', 14)),
+    p.preview && !p.e2ee && h('button.pv-alt' + (p.alt ? '.on' : ''), { type: 'button', title: p.alt ? 'Texto alternativo: ' + p.alt : 'Adicionar texto alternativo (descrição para quem usa leitor de tela)', 'aria-label': p.alt ? 'Editar texto alternativo' : 'Adicionar texto alternativo', onclick: async () => { const v = await promptBox('Texto alternativo', 'Descreva a imagem para quem não consegue vê-la (leitores de tela leem este texto)', p.alt || '', 'Salvar'); if (v == null) return; p.alt = v.trim().slice(0, 1000); renderPendingPrev(); } }, 'ALT'), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
     h('button.x', { onclick: () => { p.ctrl?.abort(); freePending([p]); S.pending = S.pending.filter(x => x !== p); renderPendingPrev(); } }, icon('x', 14)))));
 }
 const renderPending = () => { };
@@ -3021,7 +3025,7 @@ async function sendMsg(ta, ch) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
   ta.value = ''; clearTimeout(ta._dt); saveDraft(ch.id, ''); $('.ac')?.remove();
-  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee, spoiler, vc }) => ({ url, name, size, type, ...(vc ? { vc } : {}), ...(spoiler ? { spoiler: true } : {}), ...(e2ee ? { _e2ee: e2ee } : {}) })) };
+  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee, spoiler, vc, alt }) => ({ url, name, size, type, ...(vc ? { vc } : {}), ...(spoiler ? { spoiler: true } : {}), ...(alt && !e2ee ? { alt } : {}), ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {
@@ -3120,7 +3124,7 @@ function renderMembers() {
   const buildRow = ({ m, u }, offline, vc) => {
     return h('div.mem' + (offline ? '.off' : '') + (u.id === S.me.id ? '.me' : ''), { 'data-uid': u.id, onclick: (e) => profile(e.currentTarget, u.id, g.id), oncontextmenu: (e) => userMenu(e, u.id, g.id) },
       avatar(u, 32, { ring: 'var(--bg-sec)' }),
-      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
+      h('div', { style: { minWidth: 0, flex: 1 } }, h('div.mn', { style: { color: roleColor(g.id, u.id) || (offline ? '' : 'var(--header)') } }, styleName(h('span.mnn', nm({ m, u })), u.name_style), roleDot(g.id, u.id), g.owner_id === u.id && h('span.crown', { title: 'Dono do servidor', style: { marginLeft: '4px' } }, icon('crown', 12)), !offline && platformIcons(u, 13)), activityOf(u.id) && !offline ? h('div.cs.playing', { title: playingLine(activityOf(u.id)) }, gameIcon(activityOf(u.id), 14), 'Jogando ', h('b', activityOf(u.id).game.title)) : u.custom_status && h('div.cs', u.custom_status)),
       vc && h('span.mem-vc', { title: 'Em chamada: ' + chName(vc) }, icon('voice', 14)));
   };
   const head = (k, name, color, list) => {

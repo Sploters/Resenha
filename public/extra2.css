@@ -86,7 +86,7 @@ html, body, button, input, textarea, select { font-family: var(--font, "gg sans"
 .msg.first { margin-top: var(--msg-gap, 17px); }
 /* só com a saturação mudada: o filtro sempre ligado (mesmo em 100%) fazia o Chrome promover cada mensagem e avatar a uma
    camada própria (86 camadas com 37 mensagens na tela, centenas rolando o histórico): mais trabalho a cada quadro e memória de vídeo */
-:root.sat-on #app { filter: saturate(var(--sat, 100%)); }
+:root.sat-on #app { filter: saturate(var(--sat, 100%)) contrast(var(--con, 100%)); }
 .modal, .popout, .menu, .tile, .sbtn, .ncard { border-radius: var(--radius, 8px); }
 .high-contrast { --text-muted: #d0d4da; --divider: #6b6f78; --interactive: #e6e8ec; }
 .high-contrast .msg:hover { background: rgba(255,255,255,.08); }
@@ -713,3 +713,13 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .ss-more .ss-opt .seg { display: flex; width: 100%; flex-wrap: nowrap; }
 .ss-more .ss-opt .seg button { flex: 1 1 0; text-align: center; justify-content: center; padding: 7px 4px; }
 .ssq-cols .seg button, .ss .ss-aud .seg button { text-align: center; }
+
+/* Cores dos cargos "ao lado do nome" (Acessibilidade): bolinha na cor do cargo, o nome fica na cor do texto */
+.role-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 5px 0 4px; vertical-align: middle; flex: none; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.high-contrast .role-dot { box-shadow: 0 0 0 1px var(--text-normal, #fff); }
+/* Windows com tema de contraste: deixa o sistema mandar nas cores (bordas visíveis nos botões e cartões) */
+@media (forced-colors: active) { .btn, .card2, .modal, .vh-item, .hl-chk { border: 1px solid CanvasText; } .role-dot { forced-color-adjust: none; } }
+/* Acessibilidade: prévias */
+.ac-rc { display: inline-flex; align-items: center; gap: 2px; font-size: 15px; } .ac-rc b { color: var(--header); } .ac-rc small { margin-left: 6px; color: var(--text-muted); }
+.ac-pt { display: inline-flex; align-items: center; gap: 8px; } .ac-pt i { width: 28px; height: 36px; border-radius: 6px; border: 1px solid var(--divider); } .ac-pt b { color: var(--text-muted); }
+.ac-sys { display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; }

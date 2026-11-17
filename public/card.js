@@ -1,5 +1,5 @@
 import { h, icon, avatar, framePos, imgUrl, platformIcons } from './util.js';
-import { lightbox, S } from './state.js';
+import { lightbox, S, profileThemeOn } from './state.js';
 import { gameIcon, gameBanner, gameModal } from './activity.js';
 import { isLightPair, styleName } from './themes.js';
 
@@ -15,7 +15,7 @@ export const STATUS_TXT = { online: 'Online', idle: 'Ausente', dnd: 'Não pertur
 
 // Cartão de perfil (usado no popout e na prévia da tela de perfil)
 export function profileCard(u, { nickname, roles = [], since, extra, top, accent, onImage, onEditAvatar, onEditBanner } = {}) { // top: logo abaixo do nome/status
-  const tp = u.theme_primary, ta = u.theme_accent, themed = !!(tp && ta);
+  const tp = u.theme_primary, ta = u.theme_accent, themed = profileThemeOn(u) || !!(onEditBanner && tp && ta); // edição do próprio perfil sempre mostra o tema
   const color = themed ? tp : accent || u.banner_color || u.color || '#5865f2'; // com tema, o banner sem imagem segue a cor principal
   const banner = h('div.banner', { style: { background: color, position: 'relative', overflow: 'hidden' }, ...(u.banner && !onEditBanner ? { title: onImage ? 'Ver perfil completo' : 'Ver banner', onclick: () => (onImage ? onImage() : lightbox(u.banner)) } : {}) });
   if (u.banner) banner.append(framePos(h('img', { src: imgUrl(u.banner, 960), alt: '', draggable: false, style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }), u.banner_pos));

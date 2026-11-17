@@ -1,7 +1,7 @@
 // Prévia de canal: mostra as últimas mensagens ao passar o mouse (ou Shift + mouse / clique do meio) num canal da lista,
 // sem abrir o canal nem marcá-lo como lido.
 import { h, icon, avatar, md, stamp, inviteText, skeleton } from './util.js';
-import { S, api, user, nameOf, roleColor, channelById, dmPeer, emojiUrl } from './state.js';
+import { S, api, user, nameOf, roleColor, roleDot, channelById, dmPeer, emojiUrl } from './state.js';
 import { styleName, themeText } from './themes.js';
 import { chName } from './chnames.js';
 
@@ -53,7 +53,7 @@ function msgRow(m, prev, gid) {
   return h('div.pmsg' + (grouped ? '.grouped' : ''),
     grouped ? h('i.pav') : h('div.pav', avatar(user(m.author_id), 28, { status: false })),
     h('div.pm',
-      !grouped && h('div.phead', styleName(h('b', { style: col ? { color: col } : null }, nameOf(m.author_id, gid)), user(m.author_id).name_style), h('span.ts', stamp(m.created_at))),
+      !grouped && h('div.phead', styleName(h('b', { style: col ? { color: col } : null }, nameOf(m.author_id, gid)), user(m.author_id).name_style), roleDot(gid, m.author_id), h('span.ts', stamp(m.created_at))),
       m.reply && h('div.preply', icon('reply', 14), ' ', h('b', '@' + nameOf(m.reply.author?.id, gid)), ' ', themeText(m.reply.content) || 'anexo'),
       (m.content || !files.length) && body, thumbs.length > 0 && h('div.pthumbs', thumbs), others));
 }

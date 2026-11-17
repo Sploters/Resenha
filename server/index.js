@@ -1168,6 +1168,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
       const o = { url: a.url, name: clean(a.name, 200), size: +a.size || 0, type: clean(a.type, 100) };
       if (VIDEO_KINDS.includes(a.vc)) o.vc = a.vc; // codec da imagem do vídeo (finalizeUpload), para medir quem não consegue assistir
       if (a.spoiler === true) o.spoiler = true; // anexo marcado como spoiler no envio: fica borrado para todos até clicar
+      if (typeof a.alt === 'string' && a.alt.trim() && a.enc !== true) o.alt = clean(a.alt, 1000); // texto alternativo (descrição para leitor de tela)
       if (a.enc === true) o.enc = true; // arquivo cifrado no aparelho (conversa protegida): nome e tipo de verdade vão dentro da mensagem cifrada
       if (a.voice === true) { // mensagem de voz: forma de onda (base64, até 256 barras) e duração
         o.voice = true; o.duration = Math.max(0, Math.min(3600, +a.duration || 0));

@@ -1,5 +1,5 @@
 import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
-import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, perms, outranks, roleBelow, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById } from './state.js';
+import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, perms, outranks, roleBelow, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById, roleColorMode, systemContrast, systemReduceMotion } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHODS, captureMode } from './voice.js';
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
@@ -23,6 +23,7 @@ import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { openVoiceHelp, resetVoiceSettings } from './voicehelp.js';
+import { speak, ttsStop, ttsVoices, ttsSupported } from './tts.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { localClipsUsage, clearLocalClips, onLocalClips } from './cliplocal.js';
 import { openMyClips, mb } from './myclips.js';
@@ -110,7 +111,7 @@ function compactHints(pane) {
 // ============================ shell ============================
 const USER_GROUPS = [
   ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
-  ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
+  ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação cores dos cargos texto para voz tts leitura voz alta tema de perfil animações sistema windows'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade codec codecs h264 hevc av1 vp9 placa de vídeo'], ['clips', 'Clipes', 'clipe gravar atalho duração 2 minutos fps 60 120 quadros codificação placa armazenamento aparelho local compartilhar'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
@@ -458,10 +459,8 @@ function appearancePage() {
       h('label.f', 'Arredondamento dos cartões', slider(0, 20, S.prefs.radius, 1, set('radius'), v => v + 'px')),
       h('label.f', 'Formato da hora'), choiceCards([[0, '24 horas', h('span.hr-prev', '21:30')], [1, '12 horas', h('span.hr-prev', '9:30 PM')]], S.prefs.hour12 ? 1 : 0, (v) => { S.prefs.hour12 = !!v; save(); applyTheme(); }),
       row('Mostrar prévias de links no chat', 'Pré-visualiza imagens (.png/.jpg/.gif), vídeos do YouTube/TikTok/Instagram e jogos da loja da Steam.', toggle(S.prefs.embedLinks !== false, v => { S.prefs.embedLinks = v; save(); })),
-      row('Cores dos cargos nos nomes', null, toggle(S.prefs.roleColors !== false, v => { S.prefs.roleColors = v; save(); })),
       row('Enviar imagens no tamanho original', 'Desligado: as fotos são comprimidas antes de enviar (WebP, até 2560 px), ficando bem mais leves para enviar e abrir. GIFs nunca são alterados.', toggle(!!S.prefs.imgOriginal, v => { S.prefs.imgOriginal = v; save(); }))),
-    section('Animações'), card(row('Animações aprimoradas', 'Transições suaves ao trocar de canal, abrir janelas e menus e receber mensagens. "Reduzir animações" em Acessibilidade tem prioridade.', toggle(S.prefs.animations !== false, set('animations')))),
-    section('Avatares e banners animados'), card(h('label.f', 'Avatares e banners em GIF/WebP', seg({ always: 'Sempre', speak: 'Na chamada, só quando fala', never: 'Nunca (desligar todas)' }, S.prefs.animMode || 'always', (v) => { S.prefs.animMode = v; save(); refreshFreeze(); }))),
+    section('Animações'), card(row('Animações aprimoradas', 'Transições suaves ao trocar de canal, abrir janelas e menus e receber mensagens. "Reduzir animações" em Acessibilidade tem prioridade. Cores dos cargos, avatares animados e contraste ficam em Acessibilidade.', toggle(S.prefs.animations !== false, set('animations')))),
     section('Tradução'), card(
       h('label.f', 'Traduzir mensagens para', (() => { const s = h('select', { onchange: () => { S.prefs.trLang = s.value; save(); } }, Object.entries(LANGS).map(([k, l]) => h('option', { value: k, selected: myLang() === k }, l))); return s; })()),
       row('Manter o original ao enviar com $idioma', 'Ex.: "$en bom dia" envia "good morning" e, em spoiler, o texto original.', toggle(!!S.prefs.trSendOriginal, v => { S.prefs.trSendOriginal = v; save(); }))),
@@ -536,14 +535,43 @@ function extrasPage(ctx) {
 function accessibilityPage() {
   const set = (k) => (v) => { S.prefs[k] = v; save(); applyTheme(); };
   const sat = h('div.ac-sat', ['#5865f2', '#23a559', '#f0b232', '#f23f43', '#eb459e'].map(c => h('i', { style: { background: c } })));
-  const paintSat = () => { sat.style.filter = `saturate(${(S.prefs.saturation ?? 100) / 100})`; };
+  const paintSat = () => { sat.style.filter = `saturate(${(S.prefs.saturation ?? 100) / 100}) contrast(${(S.prefs.contrast ?? 100) / 100})`; };
   paintSat();
+  const sysNote = (on, what) => h('small.ac-sys', on ? `O seu sistema está com ${what} ligado agora.` : `O seu sistema está com ${what} desligado agora.`);
+  // cores dos cargos: prévia de como um nome aparece em cada modo
+  const rcPrev = (mode) => h('span.ac-rc', h('b', { style: mode === 'name' ? { color: '#f47fff' } : null }, 'Ana'), mode === 'dot' && h('span.role-dot', { style: { background: '#f47fff' } }), h('small', 'oi!'));
+  // texto para voz
+  const tts = h('div');
+  if (!ttsSupported()) tts.append(note('Este navegador não tem leitura em voz alta.'));
+  else {
+    const voiceSel = h('select', { onchange: () => { S.prefs.ttsVoice = voiceSel.value; save(); } }, h('option', { value: '' }, 'Automática (português, se houver)'));
+    ttsVoices().then(vs => voiceSel.append(...vs.sort((a, b) => (b.lang.startsWith('pt') - a.lang.startsWith('pt')) || a.name.localeCompare(b.name)).map(v => h('option', { value: v.voiceURI, selected: S.prefs.ttsVoice === v.voiceURI }, `${v.name} (${v.lang})${v.localService ? '' : ' · online'}`))));
+    tts.append(h('label.f', 'Velocidade da leitura', slider(0.5, 2, S.prefs.ttsRate ?? 1, 0.1, (v) => { S.prefs.ttsRate = v; save(); }, v => v.toFixed(1).replace('.', ',') + 'x')),
+      h('label.f', 'Voz', voiceSel),
+      h('div.btns', h('button.btn.grey', { onclick: () => speak('Esta é a velocidade em que as mensagens serão lidas para você.') }, icon('vol', 16), 'Prévia'), h('button.btn.link', { onclick: () => ttsStop() }, 'Parar')),
+      hint('Clique direito numa mensagem → "Ler em voz alta". A voz é a do seu aparelho; vozes marcadas "online" enviam o texto ao serviço do navegador, então mensagens protegidas só são lidas com vozes do aparelho.'));
+  }
   return h('div', h('h2', 'Acessibilidade'),
-    card(toggleCards([
-      { on: S.prefs.reduceMotion, label: 'Reduzir animações', desc: 'Desliga transições e movimentos da interface.', prev: h('span.ac-motion', h('i.am-box'), h('i.am-arrow', '→'), h('i.am-box.still')), fn: set('reduceMotion') },
-      { on: S.prefs.highContrast, label: 'Alto contraste', desc: 'Bordas e textos mais fortes.', prev: h('span.ac-contrast', h('span.lo', 'Aa'), h('span.hi', 'Aa')), fn: set('highContrast') },
-      { on: S.prefs.underlineLinks, label: 'Sublinhar links', desc: 'Todo link no chat aparece sublinhado.', prev: h('span.ac-link', 'veja ', h('u', 'este link')), fn: set('underlineLinks') }]),
-      h('label.f', { style: { marginTop: '12px' } }, 'Saturação das cores', slider(0, 100, S.prefs.saturation, 5, (v) => { set('saturation')(v); paintSat(); }, v => v + '%')), sat),
+    section('Cores'), card(
+      h('label.f', 'Saturação', slider(0, 100, S.prefs.saturation ?? 100, 5, (v) => { set('saturation')(v); paintSat(); }, v => v + '%')),
+      h('label.f', 'Contraste', slider(50, 150, S.prefs.contrast ?? 100, 5, (v) => { set('contrast')(v); paintSat(); }, v => v + '%')), sat,
+      hint('Saturação baixa ajuda quem tem sensibilidade a cores; contraste acima de 100% deixa textos e bordas mais fortes em qualquer tema.')),
+    section('Contraste alto'), card(toggleCards([
+      { on: !!S.prefs.highContrast, label: 'Modo de contraste alto', desc: 'Bordas, textos secundários e ícones mais fortes em todos os temas.', prev: h('span.ac-contrast', h('span.lo', 'Aa'), h('span.hi', 'Aa')), fn: set('highContrast') },
+      { on: S.prefs.syncContrast !== false, label: 'Sincronizar com o sistema', desc: 'Liga o contraste alto sozinho quando o sistema estiver com contraste alto (Windows: Temas de contraste; Mac/iPhone: Aumentar contraste).', prev: h('span.ac-contrast', icon('screen', 22)), fn: set('syncContrast') }]),
+      sysNote(systemContrast(), 'contraste alto')),
+    section('Movimento'), card(toggleCards([
+      { on: !!S.prefs.reduceMotion, label: 'Reduzir animações', desc: 'Desliga transições e movimentos da interface.', prev: h('span.ac-motion', h('i.am-box'), h('i.am-arrow', '→'), h('i.am-box.still')), fn: set('reduceMotion') },
+      { on: S.prefs.syncMotion !== false, label: 'Sincronizar com o sistema', desc: 'Reduz as animações sozinho quando o sistema pedir menos movimento.', prev: h('span.ac-motion', icon('screen', 22)), fn: set('syncMotion') }]),
+      sysNote(systemReduceMotion(), '"reduzir movimento"'),
+      h('label.f', { style: { marginTop: '12px' } }, 'Avatares e banners animados', seg({ always: 'Sempre animar', speak: 'Só ao falar na chamada', never: 'Nunca animar' }, S.prefs.animMode || 'always', (v) => { S.prefs.animMode = v; save(); refreshFreeze(); }))),
+    section('Cores dos cargos'), card(choiceCards([['name', 'Nos nomes', rcPrev('name')], ['dot', 'Ao lado dos nomes', rcPrev('dot')], ['off', 'Não mostrar', rcPrev('off')]], roleColorMode(),
+      (v) => { S.prefs.roleColorMode = v; S.prefs.roleColors = v !== 'off'; save(); window.__lc?.renderMessages?.(true); }),
+      hint('"Ao lado dos nomes" deixa o nome na cor do texto (sempre legível no seu tema) e mostra a cor do cargo numa bolinha.')),
+    section('Cartões de perfil'), card(toggleCards([{ on: !!S.prefs.syncProfileThemes, label: 'Sincronizar temas de perfil', sub: 'Todos os cartões com as cores do seu tema', desc: 'Os cartões de perfil dos outros deixam de usar as cores que cada pessoa escolheu e seguem o tema do app, mais fácil de ler. O seu próprio perfil continua como você montou.',
+      prev: h('span.ac-pt', h('i', { style: { background: 'linear-gradient(#f47fff,#5865f2)' } }), h('b', '→'), h('i', { style: { background: 'var(--bg-float)' } })), fn: (v) => { S.prefs.syncProfileThemes = v; save(); } }])),
+    section('Texto para voz'), card(tts),
+    section('Links'), card(toggleCards([{ on: !!S.prefs.underlineLinks, label: 'Sublinhar links', desc: 'Todo link no chat aparece sublinhado.', prev: h('span.ac-link', 'veja ', h('u', 'este link')), fn: set('underlineLinks') }])),
     // ideia "Spoiler Button and GIF Freeze Option" (Stoat #1374): para epilepsia fotossensível e sensibilidade à luz
     section('Imagens, vídeos e GIFs'),
     card(h('p.mut', 'Esconder mídia até clicar: fotos, vídeos, GIFs e prévias de links aparecem como um bloco "Mídia escondida" (sem carregar nada por baixo) até você clicar. As suas nunca são escondidas. Quem envia também pode marcar um anexo como spoiler (o olho na prévia do anexo).'),
