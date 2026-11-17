@@ -46,6 +46,8 @@ export function mountLfg(app, d) {
       when_at: p.when_at, note: p.note, platform: p.platform || 'pc', join_mode: p.join_mode === 'open' ? 'open' : 'ask',
       msg_count: get('SELECT COUNT(*) n FROM lfg_messages WHERE post_id=?', p.id).n, created_at: p.created_at, expires_at: p.expires_at, closed: !open(p), closed_reason: p.closed_at ? (p.slots <= 0 ? 'full' : 'closed') : (p.slots <= 0 ? 'full' : p.expires_at <= now() ? 'expired' : null),
       author: userPub(p.author_id), author_profile: profileOf(p.author_id, p.game),
+      // servidores em comum entre o autor e quem vê (filtro "só deste servidor"); a sala de voz do anúncio também conta
+      guilds: [...new Set([...all('SELECT m1.guild_id g FROM members m1 JOIN members m2 ON m2.guild_id=m1.guild_id WHERE m1.user_id=? AND m2.user_id=?', p.author_id, viewer).map(r => r.g), ...(ch ? [ch.guild_id] : [])])],
       channel: ch ? { id: ch.id, name: ch.name, guild_id: ch.guild_id, in_call: voiceCount(ch.id) } : null,
       // o autor vê todos os pedidos; os outros só o próprio
       requests: reqs.filter(r => viewer === p.author_id || r.user_id === viewer).map(r => ({ user: userPub(r.user_id), state: r.state, profile: profileOf(r.user_id, p.game) })),

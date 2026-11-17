@@ -10,7 +10,10 @@ import { activityOf, gameIcon } from './activity.js';
 
 let ctx = {}; // injetado por app.js: go, profile(anchor, uid), inVoice, voiceChannel, settings(page)
 export const initLfg = (c) => { ctx = c; };
-const st = { games: null, platforms: [], posts: [], game: null, root: null, mine: [], chat: null };
+// filtro por servidor: só anúncios de quem está naquele servidor com você (ou com a sala de voz nele)
+export function setLfgGuild(gid) { st.guild = gid || null; ls.set('lc_lfg_guild', st.guild); }
+const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { } } };
+const st = { guild: ls.get('lc_lfg_guild'), games: null, platforms: [], posts: [], game: null, root: null, mine: [], chat: null };
 const G = (id) => st.games?.find(g => g.id === id);
 const meta = async () => { if (!st.games) { const r = await tryApi('GET', '/lfg/meta'); st.games = r?.games || []; st.platforms = r?.platforms || []; } return st.games; };
 const platName = (id) => st.platforms.find(p => p[0] === id)?.[1] || 'PC';
@@ -67,10 +70,15 @@ export async function renderLfg(main) {
 function draw() {
   const root = st.root; if (!root || !document.body.contains(root)) return;
   const games = st.games || [], g = st.game && G(st.game);
-  const list = st.posts.filter(p => !st.game || p.game === st.game);
+  if (st.guild && !guild(st.guild)) setLfgGuild(null); // saiu do servidor
+  const gsel = st.guild && guild(st.guild);
+  const list = st.posts.filter(p => (!st.game || p.game === st.game) && (!gsel || p.author.id === S.me.id || p.guilds?.includes(gsel.id))); // os meus aparecem em todos: os membros de cada servidor veem
   const open = list.filter(p => !p.closed), done = list.filter(p => p.closed && p.author.id === S.me.id);
   const alerts = S.prefs.lfgAlerts || {};
-  const chips = h('div.lfgchips', h('button.lchip' + (!st.game ? '.on' : ''), { onclick: () => { st.game = null; draw(); } }, 'Todos'),
+  const myGuilds = [...S.guilds.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const gfilter = myGuilds.length > 0 && h('label.lfgguild', { title: 'Mostrar só anúncios de quem está neste servidor com você' }, icon('grid4', 16),
+    h('select', { onchange: (e) => { setLfgGuild(e.target.value); draw(); } }, h('option', { value: '' }, 'Todos os servidores e amigos'), myGuilds.map(x => h('option', { value: x.id, selected: x.id === st.guild }, x.name))));
+  const chips = h('div.lfgchips', gfilter, h('button.lchip' + (!st.game ? '.on' : ''), { onclick: () => { st.game = null; draw(); } }, 'Todos'),
     games.map(x => h('button.lchip' + (st.game === x.id ? '.on' : ''), { style: { '--gc': x.color }, onclick: () => { st.game = x.id; draw(); } }, h('i'), x.name)));
   const links = (g ? [g] : games).flatMap(x => x.links.map(l => ({ ...l, game: x.name })));
   root.replaceChildren(
@@ -83,7 +91,7 @@ function draw() {
       h('div.lfgbar',
         g ? h('label.lfgalert', toggle(!!alerts[g.id], (v) => { (S.prefs.lfgAlerts ||= {})[g.id] = v; if (!v) delete S.prefs.lfgAlerts[g.id]; savePrefs(); toast(v ? `Você será avisado de novos anúncios de ${g.name}` : 'Aviso desligado'); }), h('span', `Avisar quando alguém anunciar ${g.name}`)) : h('span.lfghint', 'Escolha um jogo para filtrar e ligar avisos.'),
         links.length > 0 && h('div.lfglinks', h('span', 'Procurar também em:'), links.map(l => h('a.lfglink', { href: l.url, target: '_blank', rel: 'noopener noreferrer', title: `${l.name} — ${l.game}` }, l.name + (g ? '' : ` · ${l.game}`), icon('external', 12))))),
-      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 40)), h('b', st.posts.length && st.game ? `Ninguém procurando ${g?.name} agora` : 'Ninguém procurando grupo agora'), h('p', 'Crie um anúncio: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.'), h('button.btn.green', { onclick: () => createModal() }, 'Criar anúncio')),
+      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 40)), h('b', `Ninguém procurando ${st.game ? g?.name : 'grupo'}${gsel ? ' em ' + gsel.name : ''} agora`), h('p', 'Crie um anúncio: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.'), h('button.btn.green', { onclick: () => createModal() }, 'Criar anúncio')),
       done.length > 0 && [h('h4.lfgsec', 'Seus anúncios encerrados (últimas 12 h)'), h('div.lfggrid.done', done.map(card))]));
 }
 

@@ -164,6 +164,22 @@ try {
   await sleep(3200); // o servidor aceita uma atualização de jogo a cada 3 s por conexão
   await B.evaluate(() => window.__lc.voice.send('ACTIVITY_LOCAL', { game: { id: 'lol', title: 'League of Legends' } }));
   ok(await A.waitForFunction((id) => !document.querySelector(`.lfgcard[data-id="${id}"] .lfglive`), { timeout: 5000 }, p3.id).then(() => true, () => false), 'trocou de jogo: "Jogando agora" some (é outro jogo)');
+  // ---------- filtro por servidor ----------
+  // alice vê o anúncio do bruno (servidor Jogatina) e o da carla (amiga, sem servidor em comum)
+  const pc = await call(c.tok, 'GET', '/lfg/posts').then(r => r.find(x => x.author.id === c.id && !x.closed));
+  const vis = () => A.evaluate(() => [...document.querySelectorAll('#lfgview .lfggrid:not(.done) .lfgcard')].map(x => x.dataset.id));
+  await A.evaluate(() => { const b = [...document.querySelectorAll('#lfgview .lchip')].find(x => x.textContent === 'Todos'); b?.click(); }); await sleep(200);
+  let v = await vis();
+  ok(v.includes(p3.id) && v.includes(pc?.id), 'sem filtro: anúncios do servidor e da amiga', v.length);
+  ok((await call(a.tok, 'GET', '/lfg/posts')).find(x => x.id === p3.id)?.guilds?.includes(g.id), 'API diz o servidor em comum com o autor');
+  await A.evaluate((gid) => { const s = document.querySelector('.lfgguild select'); s.value = gid; s.dispatchEvent(new Event('change')); }, g.id); await sleep(200);
+  v = await vis();
+  ok(v.includes(p3.id) && !v.includes(pc?.id), 'filtro "Jogatina": só o anúncio de quem está no servidor', v);
+  if (process.env.SHOTS) { await sleep(200); await A.screenshot({ path: `${OUT}/07-filtro-servidor.png` }); }
+  await A.reload(); await A.waitForSelector('#rail .rail-wrap'); await A.evaluate(() => window.__lc.go('@me', 'lfg')); await sleep(1200);
+  ok(await A.evaluate((gid) => document.querySelector('.lfgguild select')?.value === gid, g.id), 'o filtro continua escolhido depois de recarregar');
+  await A.evaluate(() => { const s = document.querySelector('.lfgguild select'); s.value = ''; s.dispatchEvent(new Event('change')); }); await sleep(200);
+  ok((await vis()).includes(pc?.id), 'voltar para "Todos" mostra de novo o anúncio da amiga');
 } catch (err) { console.log('  ERRO', err); fails++; }
 await browser.close(); srv.kill();
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');

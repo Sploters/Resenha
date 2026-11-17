@@ -889,6 +889,9 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .lfgform .lfgroles.pick { margin-bottom: 4px; } .lfgform .lfgroles.pick button { padding: 5px 11px; font-size: 13px; }
 .lfgform .lfgset { margin-top: 16px; }
 #side-list .lfgrow-side svg { color: var(--interactive); }
+.lfgguild { display: flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; margin-right: 6px; border: 1px solid var(--divider, #3f4147); border-radius: 999px; background: var(--bg-sec, #2b2d31); color: var(--interactive); }
+.lfgguild select { max-width: 220px; padding: 5px 4px; border: 0; background: transparent; color: var(--header); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.lfgguild select option { background: var(--bg-sec, #2b2d31); }
 /* LFG: sessão ao vivo, plataforma, entrada direta e conversa do anúncio */
 .lfglive { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--green, #23a55a) 14%, var(--bg-tert, #1e1f22)); font-size: 13px; color: var(--text-normal, var(--header)); }
 .lfglive b { color: var(--green, #23a55a); } .lfglive small { margin-left: auto; color: var(--header); font-weight: 700; }

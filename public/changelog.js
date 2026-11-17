@@ -11,6 +11,7 @@ export const NEWS = [
       { i: 'forum', t: 'Conversa em cada anúncio', d: 'Cada anúncio tem a própria conversa: combine estilo de jogo, microfone e horário antes de entrar. Quem criou o anúncio é avisado quando alguém escreve.', try: 'lfg' },
       { i: 'gamepad', t: '"Jogando agora" ao vivo', d: 'Com o jogo aberto (app do Resenha no PC ou Steam vinculada), o anúncio mostra que você está jogando e quantas vagas faltam. Pode abrir o jogo depois de publicar: aparece e some sozinho.' },
       { i: 'users', t: 'Entrada direta e sair do grupo', d: 'Ao criar o anúncio, escolha "Entrada direta": quem clicar em Entrar já está no grupo, sem esperar você aceitar. Quem entrou pode sair e a vaga volta para o anúncio.' },
+      { i: 'grid4', t: 'Filtro por servidor', d: 'No topo do mural, escolha um servidor para ver só os anúncios de quem está nele com você. Atalho: clique direito no servidor → Procurar jogadores neste servidor.' },
       { i: 'layout', t: 'Plataforma do grupo', d: 'O anúncio diz onde o grupo joga (PC, PlayStation, Xbox, Switch, celular ou crossplay), para ninguém tentar entrar pela plataforma errada.' },
     ],
   },

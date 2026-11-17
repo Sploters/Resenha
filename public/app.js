@@ -38,7 +38,7 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
-import { initLfg, renderLfg, onLfgEvent, onLfgActivity } from './lfg.js';
+import { initLfg, renderLfg, onLfgEvent, onLfgActivity, setLfgGuild } from './lfg.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
 import { reportVideoCaps } from './codecs.js';
@@ -1011,6 +1011,7 @@ function guildMenu(e, g) {
   menu(e, [
     { label: 'Convidar pessoas', fn: () => inviteModal(g) },
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
+    { label: 'Procurar jogadores neste servidor', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
     { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
     { label: 'Apagar minhas mensagens neste servidor…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
