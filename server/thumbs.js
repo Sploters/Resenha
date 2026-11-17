@@ -6,11 +6,24 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+// ffprobe vem junto com o ffmpeg (mesma pasta quando FFMPEG_PATH aponta para um caminho)
+const FFPROBE = process.env.FFPROBE_PATH || (process.env.FFMPEG_PATH ? process.env.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1') : 'ffprobe');
 const VIDEO = /^[a-f0-9]{24}\.(webm|mp4)$/;
 // fotos (anexos, perfis, ícones de servidor): versões menores em WebP no tamanho em que a tela mostra. GIF fica de fora
 // (perderia a animação). GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp>?s=<lado>
 const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp)$/i;
 const SIZES = [64, 128, 256, 480, 960, 1600];
+
+// HDR = curva PQ (HDR10/Dolby Vision) ou HLG (o HDR do iPhone); 10 bits sem HDR também pesa para decodificar
+export const VIDEO_KINDS = ['h264', 'h264_10', 'h264_hdr', 'hevc', 'hevc10', 'hevc_hdr', 'vp8', 'vp9', 'vp9_hdr', 'av1', 'av1_hdr', 'other'];
+export function videoKind(s) {
+  if (!s?.codec_name) return null;
+  const c = { h264: 'h264', hevc: 'hevc', vp8: 'vp8', vp9: 'vp9', av1: 'av1' }[s.codec_name] || 'other';
+  if (c === 'other' || c === 'vp8') return c;
+  const hdr = /^(smpte2084|arib-std-b67)$/.test(s.color_transfer || ''), deep = /1[02]le|1[02]be|p010/.test(s.pix_fmt || '');
+  const k = hdr ? c + '_hdr' : deep ? c + (c === 'hevc' ? '10' : '_10') : c;
+  return VIDEO_KINDS.includes(k) ? k : c;
+}
 
 export function createThumbs(dir) {
   const UPLOAD_DIR = path.resolve(dir);
@@ -147,5 +160,18 @@ export function createThumbs(dir) {
     f = path.basename(f); fs.unlink(thumbOf(f), () => { }); fs.unlink(stripOf(f), () => { });
     for (const sz of SIZES) fs.unlink(imgOf(f, sz), () => { });
   };
-  return { route, ensure, remove, stripRoute, faststart, moovFirst };
+  // codec da imagem de um vídeo enviado, em forma curta: 'h264', 'hevc', 'hevc10', 'hevc_hdr', 'vp9', 'av1'… (null = não
+  // deu para ler, ex.: arquivo cifrado da conversa protegida). Usado na medição de quem consegue tocar o quê (server/ux.js)
+  // e guardado no anexo (vc) para o app contar as falhas por codec.
+  function probe(f) {
+    const src = path.join(UPLOAD_DIR, path.basename(f));
+    return new Promise((res) => {
+      let p, out = ''; try { p = spawn(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt,color_transfer', '-of', 'json', src], { stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return res(null); }
+      const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch { } res(null); }, 15000);
+      p.stdout.on('data', (c) => { if (out.length < 8192) out += c; });
+      p.on('error', () => { clearTimeout(t); res(null); });
+      p.on('exit', (c) => { clearTimeout(t); try { res(c === 0 ? videoKind(JSON.parse(out).streams?.[0]) : null); } catch { res(null); } });
+    });
+  }
+  return { route, ensure, remove, stripRoute, faststart, moovFirst, probe };
 }

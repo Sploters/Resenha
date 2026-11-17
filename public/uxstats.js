@@ -37,6 +37,32 @@ function bars(entries, { label = (k) => k, value = (v) => v.total, text = (v) =>
 }
 const list = (ev, n = 10, label) => bars(Object.entries(ev?.detalhes || {}).slice(0, n), { label });
 
+// vídeos no chat: medição para decidir se vale converter HEVC/HDR no servidor (server/ux.js video_upload/cap/play)
+const VKIND = { h264: 'H.264', h264_10: 'H.264 10 bits', h264_hdr: 'H.264 HDR', hevc: 'HEVC', hevc10: 'HEVC 10 bits', hevc_hdr: 'HEVC HDR (iPhone)', vp8: 'VP8', vp9: 'VP9', vp9_hdr: 'VP9 HDR', av1: 'AV1', av1_hdr: 'AV1 HDR', other: 'Outro', nd: 'Sem dado (enviado antes da medição)' };
+const VCAP = { hevc: 'HEVC', hevc10: 'HEVC 10 bits', hevc_hdr: 'HEVC HDR (iPhone)' };
+function videoStats(E) {
+  const up = Object.entries(E.video_upload?.detalhes || {}), upN = up.reduce((n, [, v]) => n + v.total, 0);
+  const hard = up.filter(([k]) => /^hevc|_hdr$|_10$/.test(k)).reduce((n, [, v]) => n + v.total, 0);
+  const play = E.video_play?.detalhes || {}, by = {}; let ok = 0, bad = 0;
+  for (const [k, v] of Object.entries(play)) { const [r, c] = k.split(':'); if (r === 'ok') ok += v.total; else { bad += v.total; (by[c] ||= { total: 0 }).total += v.total; } }
+  const cap = E.video_cap?.detalhes || {};
+  const caps = Object.entries(VCAP).map(([k, nome]) => {
+    const n = (r) => cap[k + ':' + r]?.total || 0, all = n('hw') + n('sw') + n('no');
+    return [nome, { total: n('no'), all, tip: `placa de vídeo: ${nf(n('hw'))} · processador: ${nf(n('sw'))} · não toca: ${nf(n('no'))}` }];
+  });
+  const capAll = caps[0][1].all;
+  return [
+    h('div.ux-tiles',
+      tile(nf(upN), upN === 1 ? 'vídeo enviado' : 'vídeos enviados', upN ? `${pct(hard, upN)}% em HEVC, 10 bits ou HDR` : 'sem envios no período'),
+      tile(ok + bad ? pct(bad, ok + bad) + '%' : '—', 'das vezes o vídeo não tocou', ok + bad ? `${nf(bad)} de ${nf(ok + bad)} tentativas` : 'ninguém deu play ainda'),
+      tile(capAll ? pct(caps[0][1].total, capAll) + '%' : '—', 'dos aparelhos não tocam HEVC', capAll ? `HDR do iPhone: ${pct(caps[2][1].total, caps[2][1].all)}% não tocam` : 'sem medições')),
+    h('div.ux-grid',
+      card('Codec dos vídeos enviados', 'Lido pelo servidor em cada envio', bars(up, { label: (k) => VKIND[k] || k })),
+      card('Vídeos que não tocaram', 'Por codec do vídeo', bars(Object.entries(by).sort((a, b) => b[1].total - a[1].total), { label: (k) => VKIND[k] || k }))),
+    card('Aparelhos que NÃO tocam', 'Cada aparelho conta uma vez por dia; passe o mouse para ver placa de vídeo × processador', bars(caps.filter(([, v]) => v.all), { text: (v) => `${nf(v.total)} de ${nf(v.all)} (${pct(v.total, v.all)}%)`, max: Math.max(1, ...caps.map(([, v]) => v.all)) })),
+  ];
+}
+
 // número grande com legenda (sem gráfico: é um valor só)
 const tile = (value, label, sub) => h('div.ux-tile', h('b', value), h('span', label), sub && h('small', sub));
 
@@ -206,6 +232,9 @@ export function uxStatsPage() {
       card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
       card('Qualidade técnica das chamadas', 'Medida pela conexão em toda chamada, sem perguntar: atraso, perda de pacotes, oscilação, voz picotada, vídeo travando e quedas', netq(data.qualidade)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
+
+      block('Vídeos no chat', 'Para decidir se vale o servidor converter vídeos HEVC/HDR (de celular) para H.264: quantos chegam, quantos aparelhos não tocam e quantas vezes alguém deu play e não funcionou'),
+      ...videoStats(E),
 
       block('Erros', 'Agrupados pela forma: números, nomes entre aspas e endereços viram marcadores'),
       h('div.ux-grid',

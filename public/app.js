@@ -40,6 +40,7 @@ import { pollModal, pollCard } from './polls.js';
 import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
+import { reportVideoCaps } from './codecs.js';
 import { track, flow, watchClicks, startTimer, stopTimer, cancelTimer, timing, navTo } from './ux.js';
 let discoverMod = null;
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
@@ -295,7 +296,7 @@ function onEvent(t, d) {
       e2eeLoad(true);
       if (!ready) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
-      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); initCallRating(); initVrrFix();
+      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
@@ -2462,7 +2463,9 @@ function attachEl(f) {
   if (f.voice) return voiceEl(f);
   if (isImg(f)) return h('div.attach', h('img', { src: url, alt: f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(url) }));
   // o vídeo só baixa no play (antes cada vídeo do chat começava a baixar ao abrir o canal); a miniatura vem do servidor
-  if (/^(mp4|webm|mov|m4v)$/.test(ext)) { const poster = thumbUrl(url), box = fsVideo({ src: url, preload: 'none', ...(poster ? { poster } : {}) }); prepVideo(box, poster); return h('div.attach', box); }
+  if (/^(mp4|webm|mov|m4v)$/.test(ext)) { const poster = thumbUrl(url), box = fsVideo({ src: url, preload: 'none', ...(poster ? { poster } : {}) }); prepVideo(box, poster);
+    box.addEventListener('vc-result', (e) => track('video_play', e.detail + ':' + (f.vc || 'nd'))); // medição: tocou ou não, por codec (server/ux.js)
+    return h('div.attach', box); }
   if (/^(mp3|ogg|wav|m4a)$/.test(ext)) return h('div.attach', h('audio', { src: url, controls: true, preload: 'none' }));
   return h('div.file', icon('file', 32), h('div', h('a.fn', { href: dl, download: f.name }, f.name), h('div.fs', bytes(f.size))), h('a.ibtn', { href: dl, download: f.name, style: { marginLeft: 'auto' } }, icon('dl')));
 }
@@ -2495,7 +2498,7 @@ function forwardModal(m) {
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Encaminhar', fn: async () => {
       if (!picked.size) { toast('Escolha para onde encaminhar', true); return false; }
       const body = { content: m.content || '', forward: { channel_id: m.channel_id, message_id: m.id },
-        attachments: (m.attachments || []).map(({ url, name, size, type, voice, duration, waveform }) => ({ url, name, size, type, ...(voice ? { voice, duration, waveform } : {}) })) };
+        attachments: (m.attachments || []).map(({ url, name, size, type, vc, voice, duration, waveform }) => ({ url, name, size, type, ...(vc ? { vc } : {}), ...(voice ? { voice, duration, waveform } : {}) })) };
       let ok = 0;
       for (const cid of picked) {
         try { await api('POST', `/channels/${cid}/messages`, body); ok++; if (note.value.trim()) await api('POST', `/channels/${cid}/messages`, { content: note.value.trim() }); }
@@ -3005,7 +3008,7 @@ async function sendMsg(ta, ch) {
     try { const t = await translateOutgoing(content); if (t) content = t; } catch (e) { return toast('Não foi possível traduzir: ' + e.message, true); }
   }
   ta.value = ''; clearTimeout(ta._dt); saveDraft(ch.id, ''); $('.ac')?.remove();
-  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee, spoiler }) => ({ url, name, size, type, ...(spoiler ? { spoiler: true } : {}), ...(e2ee ? { _e2ee: e2ee } : {}) })) };
+  const body = { content, reply_to: S.replyTo?.id, attachments: atts.map(({ url, name, size, type, e2ee, spoiler, vc }) => ({ url, name, size, type, ...(vc ? { vc } : {}), ...(spoiler ? { spoiler: true } : {}), ...(e2ee ? { _e2ee: e2ee } : {}) })) };
   const sent = S.pending; S.replyTo = null; S.pending = []; renderReplyBar(); renderPendingPrev();
   const ghost = optimistic(ch.id, body); // aparece na hora, "enviando"; a definitiva entra quando o servidor confirma
   try {

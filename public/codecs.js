@@ -37,6 +37,21 @@ export async function codecReport() {
   return { rows, env };
 }
 
+// Medição (Estatísticas de uso > Vídeos no chat): este aparelho toca HEVC normal, HEVC de 10 bits e o HDR do iPhone
+// (HLG)? Uma vez por dia por aparelho, para comparar com quantos vídeos assim são enviados (server/ux.js video_cap).
+const CAPS = [['hevc', 'video/mp4; codecs="hvc1.1.6.L120.90"'], ['hevc10', 'video/mp4; codecs="hvc1.2.4.L120.90"'], ['hevc_hdr', 'video/mp4; codecs="hvc1.2.4.L120.90"', 'hlg']];
+export async function reportVideoCaps(track) {
+  const today = new Date().toISOString().slice(0, 10);
+  try { if (localStorage.getItem('lc_vcap_day') === today) return; } catch { return; }
+  if (!navigator.mediaCapabilities) return;
+  for (const [k, ct, tf] of CAPS) {
+    let r = 'no';
+    try { const x = await navigator.mediaCapabilities.decodingInfo({ type: 'file', video: { contentType: ct, ...SIZE, ...(tf ? { transferFunction: tf, colorGamut: 'rec2020' } : {}) } }); r = !x.supported ? 'no' : x.powerEfficient ? 'hw' : 'sw'; } catch { }
+    track('video_cap', `${k}:${r}`, { bg: true });
+  }
+  try { localStorage.setItem('lc_vcap_day', today); } catch { }
+}
+
 const cell = (x) => x === undefined ? h('td.cx-na', { title: 'O Resenha não usa este codec nas chamadas' }, '—')
   : x === null ? h('td.cx-na', '?')
     : !x.ok ? h('td.cx-no', 'Não')

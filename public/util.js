@@ -515,7 +515,11 @@ export function fsVideo(attrs = {}, cls = '') {
 
   // ---- codec que este aparelho não toca (ex.: H.265/HEVC de celular num PC sem decodificação pela placa de vídeo) ----
   // Sem isto ficava a rodinha girando ou só o som com a imagem preta. Avisa e oferece baixar o arquivo.
-  const unplayable = (why) => {
+  // 'vc-result' (uma vez por vídeo): 'ok' tocou, 'fail' erro de decodificação/formato, 'noimg' só o som (medição em app.js)
+  let told = false; const tell = (r) => { if (!told) { told = true; box.dispatchEvent(new CustomEvent('vc-result', { detail: r })); } };
+  v.addEventListener('playing', () => { if (v.videoWidth > 0) tell('ok'); });
+  const unplayable = (why, r = 'fail') => {
+    tell(r);
     if (box.classList.contains('vc-err')) return;
     box.classList.remove('loading', 'playing'); box.classList.add('vc-err'); v.pause();
     const src = v.currentSrc || v.src;
@@ -523,7 +527,7 @@ export function fsVideo(attrs = {}, cls = '') {
       src && !src.startsWith('blob:') ? h('a.btn.sm', { href: src, download: '', target: '_blank', rel: 'noopener' }, 'Baixar o vídeo') : null));
   };
   v.addEventListener('error', () => { const c = v.error?.code; if (c === 3 || c === 4) unplayable(c === 3 ? 'O arquivo está corrompido ou usa um codec que este aparelho não decodifica.' : 'O formato ou o codec do vídeo (ex.: H.265/HEVC) não é suportado aqui. Veja Configurações > Transmissão > Codecs de vídeo.'); });
-  v.addEventListener('loadedmetadata', () => { if (v.videoWidth === 0 && v.videoHeight === 0 && !v.poster) unplayable('Só o áudio tocaria: o codec da imagem (ex.: H.265/HEVC) não é suportado aqui. Veja Configurações > Transmissão > Codecs de vídeo.'); });
+  v.addEventListener('loadedmetadata', () => { if (v.videoWidth === 0 && v.videoHeight === 0) unplayable('Só o áudio tocaria: o codec da imagem (ex.: H.265/HEVC) não é suportado aqui. Veja Configurações > Transmissão > Codecs de vídeo.', 'noimg'); });
 
   // ---- some sozinho: 2,5 s parado com o vídeo tocando (cursor some junto) ----
   let idle = 0;

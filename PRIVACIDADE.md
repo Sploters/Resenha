@@ -14,7 +14,7 @@ A Resenha roda no servidor de quem montou o grupo (um PC, um Umbrel, uma VPS). N
 | Servidores | Membros, cargos, canais, convites, banimentos, registro de auditoria. | Membros (auditoria: quem gerencia o servidor) |
 | Contas vinculadas | Steam: ID, nome, biblioteca (jogos e horas) e wishlist. | Amigos e quem divide servidor (padrão), só amigos ou ninguém — você escolhe |
 | "Jogando…" e histórico | Jogo aberto detectado pelo app desktop e o histórico da semana. Desliga no modo invisível ou em Privacidade. | Conforme a sua configuração de presença |
-| Estatísticas de uso | Contagens por dia, **sem identificar ninguém**, apagadas em 60 dias. Desliga em Privacidade e segurança. | Só o administrador da instalação |
+| Estatísticas de uso | Contagens por dia, **sem identificar ninguém**, apagadas em 60 dias. Inclui o formato (codec) dos vídeos enviados e se os vídeos do chat tocaram no seu aparelho, nunca o conteúdo. Desliga em Privacidade e segurança. | Só o administrador da instalação |
 | Qualidade das chamadas | Faixas (ex.: "atraso 100–200 ms") e a nota, sem conteúdo. | Só o administrador da instalação |
 
 **Endereço IP:** o servidor usa o IP só na memória, para limitar tentativas de login e de criação de contas; ele **não fica gravado** no banco e **não aparece para moderadores**.

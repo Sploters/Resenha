@@ -19,7 +19,7 @@ import { createCallInvites } from './callinvites.js';
 import { createPrivacy, cleanPrivacy } from './privacy.js';
 import { createRemote } from './remote.js';
 import { mountStatic } from './static.js';
-import { createThumbs } from './thumbs.js';
+import { createThumbs, VIDEO_KINDS } from './thumbs.js';
 import { mountStorage } from './storage.js';
 import { mountMyMessages } from './mymessages.js';
 import { mountE2ee, messageContent, isE2ee } from './e2ee.js';
@@ -35,7 +35,7 @@ import { trimWebm, keyframeTimes } from '../public/webm.js';
 import { mountGifs } from './gifs.js';
 import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
-import { mountUx, uxSeen, uxSignup, uxFirst } from './ux.js';
+import { mountUx, uxSeen, uxSignup, uxFirst, uxServerCount } from './ux.js';
 import { mountLfg } from './lfg.js';
 import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
@@ -1146,6 +1146,7 @@ app.post('/api/channels/:id/messages', auth, wrap((req, res) => {
     .filter(a => a && isFileUrl(a.url))
     .map(a => {
       const o = { url: a.url, name: clean(a.name, 200), size: +a.size || 0, type: clean(a.type, 100) };
+      if (VIDEO_KINDS.includes(a.vc)) o.vc = a.vc; // codec da imagem do vídeo (finalizeUpload), para medir quem não consegue assistir
       if (a.spoiler === true) o.spoiler = true; // anexo marcado como spoiler no envio: fica borrado para todos até clicar
       if (a.enc === true) o.enc = true; // arquivo cifrado no aparelho (conversa protegida): nome e tipo de verdade vão dentro da mensagem cifrada
       if (a.voice === true) { // mensagem de voz: forma de onda (base64, até 256 barras) e duração
@@ -1626,13 +1627,16 @@ app.post('/api/translate', auth, wrap(async (req, res) => {
 }));
 
 // arquivo já gravado em uploads/: vídeo com o índice no começo (toca na hora) e .mov do iPhone vira .mp4 (server/thumbs.js faststart)
-async function finalizeUpload(fname, name, size, type) {
+// Vídeo: o codec da imagem vai no anexo (vc) e entra na medição de quem consegue assistir (server/ux.js, video_upload)
+async function finalizeUpload(fname, name, size, type, uid) {
   let f = fname, n = name;
   try {
     const r = await thumbs.faststart(fname);
     if (r !== fname) { f = r; n = name.replace(/\.[^.]*$/, '') + '.mp4'; type = 'video/mp4'; size = fs.statSync(path.join(UPLOAD_DIR, f)).size; }
   } catch { }
-  return { url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type };
+  let vc = null;
+  if (/\.(mp4|webm)$/i.test(f)) { vc = await thumbs.probe(f).catch(() => null); if (vc) uxServerCount(uid, 'video_upload', vc); }
+  return { url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type, ...(vc ? { vc } : {}) };
 }
 // Uploads (corpo bruto)
 app.post('/api/upload', auth, (req, res) => {
@@ -1654,7 +1658,7 @@ app.post('/api/upload', auth, (req, res) => {
   req.pipe(out);
   out.on('finish', async () => {
     if (aborted) return;
-    const r = await finalizeUpload(fname, name, size, clean(req.headers['content-type'], 100));
+    const r = await finalizeUpload(fname, name, size, clean(req.headers['content-type'], 100), req.uid);
     if (!res.headersSent) res.json(r);
   });
   out.on('error', () => { if (!res.headersSent) bad(res, 'Falha no upload', 500); });

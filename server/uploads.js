@@ -62,7 +62,7 @@ export function mountUploads(app, { auth, wrap, bad, clean, uploadDir, maxUpload
     const ext = path.extname(u.m.name).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 10);
     const fname = crypto.randomBytes(12).toString('hex') + ext;
     fs.renameSync(partOf(u.id), path.join(uploadDir, fname)); fs.unlink(metaOf(u.id), () => { });
-    finalize(fname, u.m.name, u.m.size, u.m.type).then((r) => res.json(r), () => bad(res, 'Falha ao concluir o envio', 500));
+    finalize(fname, u.m.name, u.m.size, u.m.type, req.uid).then((r) => res.json(r), () => bad(res, 'Falha ao concluir o envio', 500));
   }));
   app.delete('/api/uploads/:id', auth, wrap((req, res) => { const u = load(req, res); if (!u) return; drop(u.id); res.json({}); }));
 

@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db, all, get, run, DATA_DIR } from './db.js';
+import { VIDEO_KINDS } from './thumbs.js';
 
 export const UX_KEEP_DAYS = 60;
 export const UX_ENABLED = () => process.env.UX_TELEMETRY !== '0';
@@ -108,6 +109,10 @@ export const UX_EVENTS = {
   call_net: (d) => NET_RE.test(d),
   call_qcause: (d) => Object.hasOwn(UX_NET_CAUSES, d),
   call_rating_q: (d) => /^(good|bad|ignored):(good|fair|poor)$/.test(d),
+  // vídeos no chat (medição para decidir se vale converter HEVC/HDR no servidor): o que cada aparelho decodifica (no
+  // máximo 1 vez por dia por aparelho) e cada vídeo do chat que tocou ou não, com o codec dele (anexo antigo: 'nd')
+  video_cap: (d) => /^(hevc|hevc10|hevc_hdr):(hw|sw|no)$/.test(d),
+  video_play: (d) => { const [r, k] = d.split(':'); return /^(ok|fail|noimg)$/.test(r) && (k === 'nd' || VIDEO_KINDS.includes(k)); },
 };
 // detalhes que podem conter algo digitado ou um nome: no painel, só aparecem com pelo menos MIN_COUNT ocorrências
 const SENSITIVE = new Set(['settings_search_empty', 'error_shown']);
@@ -135,6 +140,12 @@ function salt() {
 const hashOf = (uid) => crypto.createHash('sha256').update(salt() + ':' + uid).digest('hex').slice(0, 20);
 let optedOut = () => false; // definido no mountUx (lê a preferência da conta)
 const seenToday = new Set(); let seenDay = '';
+// contagem feita pelo próprio servidor (não vem do app, então o app não consegue forjar): ex.: codec de cada vídeo enviado.
+// Fica no aparelho 'server'. Respeita quem desligou as estatísticas.
+export function uxServerCount(uid, event, detail) {
+  if (!UX_ENABLED() || !uid || optedOut(uid)) return;
+  run('INSERT INTO ux_daily(day,version,device,event,detail,n) VALUES(?,?,?,?,?,1) ON CONFLICT(day,version,device,event,detail) DO UPDATE SET n = n + 1', day(), '', 'server', event, String(detail).slice(0, 40));
+}
 // chamado quando a pessoa conecta (abre o app): no máximo uma gravação por pessoa por dia
 export function uxSeen(uid) {
   if (!UX_ENABLED() || !uid) return;
