@@ -23,7 +23,7 @@ import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
 import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover } from './soundboard.js';
-import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
+import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl, applyOutput } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
@@ -1451,7 +1451,7 @@ function voicePanel() {
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
       fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label)),
     h('div.row',
-      h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera', onclick: () => voiceAct(() => voice.toggleCam()) }, icon('video', 20)),
+      h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera (clique direito: escolher a câmera)', onclick: () => voiceAct(() => voice.toggleCam()), oncontextmenu: async (e) => { e.preventDefault(); const t = e.currentTarget; menuAbove(t, camOptItems(await mediaDevs())); } }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão' + shareKeyHint(), onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
       ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
       sbButton()));
@@ -1799,6 +1799,10 @@ function callUserMenu(e, uid, gid) {
     { label: 'Mensagem', fn: async () => { const dm = await ensureDM(uid); if (dm) go('@me', dm.id); } },
     { label: 'Iniciar Ligação', fn: () => callUser(uid) },
     canCallInvite(uid) && { label: 'Convidar para a chamada', fn: () => sendCallInvite(uid) },
+    // transmissão desta pessoa na sala em que estou: assistir (em destaque) ou parar de assistir
+    ...(S.voice.get(uid)?.screen && S.voice.get(uid).channel_id === voice.channelId ? ['-', voice.closedStreams.has(uid)
+      ? { label: 'Assistir à transmissão', icon: 'eye', fn: () => { voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); } }
+      : { label: 'Parar de assistir à transmissão', icon: 'eyeoff', fn: () => { voice.closeStream(uid); if (S.focus === 's:' + uid) S.focus = null; renderVoiceUI(); } }] : []),
     '-',
     voice.peers.has(uid) && { node: volumeControl(voice, uid, 'mic', 'Volume do usuário') },
     voice.peers.get(uid)?.screenAudioEl && { node: volumeControl(voice, uid, 'screen', 'Áudio da transmissão') },
@@ -3357,6 +3361,7 @@ function layoutMenu(e) {
   draw();
   const pop = popout(btn, h('div.lpanel', h('div.lhead', icon('layout', 18), h('b', 'Layout do palco')), grid,
     h('div.lsep'),
+    opt('showNoVideo', 'Mostrar participantes sem vídeo', 'Desligado: só câmeras e transmissões no palco (a voz de todos continua)'),
     opt('followSpot', 'Acompanhar destaques da sala', 'Quando alguém destaca uma transmissão, ela abre grande para você'),
     opt('autoPause', 'Pausar vídeo fora da tela', 'Economiza banda: quadros escondidos pausam o vídeo (o áudio continua)')));
   pop.classList.add('layoutpop'); anchorRight(pop, btn, 8);
@@ -3411,6 +3416,9 @@ function watchStage() {
 }
 
 const seenLive = new Set(); // transmissões já vistas nesta sala: só as novas começam fechadas
+// transmissão que acabou de parar: se a mesma pessoa volta a transmitir logo (trocou de janela em "Alterar janela", ou a
+// captura reiniciou), quem estava assistindo continua assistindo, em vez de ter que clicar em Assistir de novo
+const recentLive = new Map(), RELIVE_MS = 20e3; // chave -> { t, open }
 function autoClosed() {
   const now = new Set();
   if (voice.active) for (const v of S.voice.values()) {
@@ -3418,11 +3426,13 @@ function autoClosed() {
     const k = voice.channelId + ':' + v.user_id; now.add(k);
     if (!seenLive.has(k)) {
       seenLive.add(k);
+      const prev = recentLive.get(k); recentLive.delete(k);
       if (S.autoWatch?.uid === v.user_id && S.autoWatch.exp > Date.now()) { S.focus = 's:' + v.user_id; S.autoWatch = null; } // veio do botão "Assistir" do feed: abre direto
-      else voice.closeStream(v.user_id);
+      else if (!(prev?.open && Date.now() - prev.t < RELIVE_MS)) voice.closeStream(v.user_id);
     }
   }
-  for (const k of [...seenLive]) if (!now.has(k)) seenLive.delete(k);
+  for (const k of [...seenLive]) if (!now.has(k)) { seenLive.delete(k); recentLive.set(k, { t: Date.now(), open: !voice.closedStreams.has(k.slice(k.indexOf(':') + 1)) }); }
+  for (const [k, r] of recentLive) if (Date.now() - r.t > RELIVE_MS) recentLive.delete(k);
 }
 // pedidos seguidos na mesma rodada (mutar 10x pelo atalho, entrar + câmera + estado) viram UM redesenho, com o estado final.
 // Antes cada um redesenhava a lista lateral e o palco inteiros na hora (~400 elementos por vez).
@@ -3462,7 +3472,12 @@ function renderVoiceUI(speakOnly) {
     const cam = mine ? voice.cam : (S.prefs.hiddenVideo?.[uid] ? null : p?.streams.cam), scr = mine ? voice.screen : p?.streams.screen;
     if (!v.screen) voice.closedStreams.delete(uid);
     if (scr && v.screen && !mine && voice.closedStreams.has(uid)) {
-      tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`), h('button.btn.green', { onclick: (e) => { e.stopPropagation(); voice.openStream(uid); renderVoiceUI(); } }, 'Assistir'))));
+      // multistream (como no Discord): "Assistir" abre e já põe esta em destaque; o olho só junta ao palco, sem tirar o
+      // destaque de quem você já está assistindo
+      tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`),
+        h('div.cs-acts',
+          h('button.btn.green', { title: 'Abrir e assistir em destaque', onclick: (e) => { e.stopPropagation(); voice.openStream(uid); S.focus = 's:' + uid; renderVoiceUI(); } }, 'Assistir'),
+          h('button.cs-multi', { title: 'Assistir junto com as outras (multistream): entra no palco sem mudar o destaque', 'aria-label': 'Assistir junto com as outras transmissões', onclick: (e) => { e.stopPropagation(); voice.openStream(uid); renderVoiceUI(); } }, icon('eye', 18))))));
     } else if (scr && v.screen) {
       const key = 's:' + uid; live.add(key);
       const vid = mine && !S.selfPreview && S.annot !== key ? h('div.selfpause', h('span.live.sp-live', 'Ao vivo'), h('b', 'Sua transmissão continua ativa!'), h('span', 'Pausamos esta prévia para economizar recursos.')) : videoFor(key, scr), info = h('span.sinfo');
@@ -3481,16 +3496,22 @@ function renderVoiceUI(speakOnly) {
     }
     const ckey = 'c:' + uid;
     if (cam && v.video) live.add(ckey);
-    const t = h('div.tile.utile' + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
+    const t = h('div.tile.utile' + (cam && v.video ? '.hasvid' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
       cam && v.video ? videoFor(ckey, cam) : avatar(user(uid), 96, { status: false }),
-      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v)));
+      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v)),
+      // opções do participante à vista (antes só no clique direito): volume, silenciar, desativar vídeo, parar de assistir
+      inRoom && h('button.tmore', { title: 'Opções de ' + nm(uid), 'aria-label': 'Opções de ' + nm(uid), onclick: (e) => { e.stopPropagation(); userMenu(e, uid, gid); } }, icon('more', 16)));
     tiles.push(paintTile(t, user(uid)));
   }
   const room = S.room?.cid === voice.channelId ? S.room : null;
   if (inRoom && room?.wb) tiles.push(h('div.tile.wbtile', { 'data-key': 'wb' }, boardCanvas('wb', { interactive: true }), h('div.wbbar', boardTools('wb', [h('button.ibtn', { title: 'Destacar / voltar à grade', onclick: () => { S.focus = S.focus === 'wb' ? null : 'wb'; renderVoiceUI(); } }, icon('expand', 16)), h('button.ibtn', { title: 'Fechar a lousa para todos', onclick: () => { clearBoard('wb'); voice.send('ROOM_ACT', { act: 'wb', on: false }); } }, icon('x', 16))]))));
   if (inRoom && room?.code) tiles.push(codeTile({ onFocus: () => { S.focus = S.focus === 'code' ? null : 'code'; renderVoiceUI(); }, onClose: () => voice.send('ROOM_ACT', { act: 'code', on: false }) }));
   const hasScreen = tiles.some(t => t.classList.contains('screen') || t.classList.contains('cstream'));
+  const allTiles = tiles.length; // antes dos filtros: o botão de layout (onde se religa o filtro) não pode sumir por causa dele
   if (S.hideMembers && hasScreen) tiles.splice(0, tiles.length, ...tiles.filter(t => !t.classList.contains('utile'))); // oculta os participantes: só as transmissões
+  // "Mostrar participantes sem vídeo" desligado (painel de layout): só quem tem câmera, transmissões, lousa e código ficam no
+  // palco; a voz de todo mundo continua. Se não sobrar nada com vídeo, mostra todos (palco vazio confundiria)
+  if (S.prefs.showNoVideo === false) { const vis = tiles.filter(t => !t.classList.contains('utile') || t.classList.contains('hasvid')); if (vis.length) tiles.splice(0, tiles.length, ...vis); }
   for (const [k, v] of [...vidCache]) if (!live.has(k)) { v.srcObject = null; vidCache.delete(k); } // solta o fluxo na hora (sem esperar o GC)
   pruneZoom(live); pruneBoardCanvases(new Set([...live, ...(inRoom && room?.wb ? ['wb'] : [])]));
   if (inRoom) pruneBuffers(live);
@@ -3510,8 +3531,10 @@ function renderVoiceUI(speakOnly) {
     // (em tela estreita o painel some: aí eles voltam a aparecer aqui, .solo-narrow)
     btn(voice.muted ? 'micoff' : 'mic', voice.muted ? 'Ativar microfone (clique direito: redução de ruído)' : 'Silenciar (clique direito: redução de ruído)', voice.muted, () => voiceToggle('mute'), '.mic.solo-narrow'),
     btn(voice.deafened ? 'headoff' : 'headset', 'Ensurdecer', voice.deafened, () => voiceToggle('deaf'), '.solo-narrow'),
-    btn('video', 'Câmera', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'),
-    btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio)' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''),
+    ctxOpts(btn('video', 'Câmera (clique direito: escolher a câmera)', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'), async () => camOptItems(await mediaDevs())),
+    ctxOpts(btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio) · clique direito: opções rápidas' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''), async () => [...screenOptItems(), ...(watchOptItems().length ? ['-', ...watchOptItems()] : [])]),
+    // seta das opções avançadas: câmera, qualidade/janela da transmissão, microfone e saída, parar de assistir
+    h('button.roundbtn.optbtn', { title: 'Opções da chamada: câmera, transmissão, voz e áudio', 'aria-label': 'Opções da chamada', 'aria-haspopup': 'menu', onclick: callOptionsMenu }, icon('chevdown', 22)),
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
@@ -3528,7 +3551,7 @@ function renderVoiceUI(speakOnly) {
   document.querySelector('.vc-join-top')?.classList.toggle('hidden', !!inRoom); // dentro da sala: some o "Entrar" do topo
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
-  if (slot) slot.replaceChildren(...(inRoom && tiles.length > 1 ? [h('button#vc-layout' + (document.querySelector('.layoutpop') ? '.open' : ''), { title: 'Mudar o layout do palco', onclick: layoutMenu }, icon('layout', 18), h('span', STAGE_LAYOUTS.find(l => l.id === layout).label), icon('chevdown', 14))] : []));
+  if (slot) slot.replaceChildren(...(inRoom && allTiles > 1 ? [h('button#vc-layout' + (document.querySelector('.layoutpop') ? '.open' : ''), { title: 'Mudar o layout do palco', onclick: layoutMenu }, icon('layout', 18), h('span', STAGE_LAYOUTS.find(l => l.id === layout).label), icon('chevdown', 14))] : []));
   if (hasScreen) bar.append(h('button.partbtn' + (S.hideMembers ? '.membershid' : ''), { title: S.hideMembers ? 'Mostrar participantes' : 'Ocultar participantes', onclick: () => { S.hideMembers = !S.hideMembers; renderVoiceUI(); } }, icon('caret', 16), icon('users', 18)));
   for (const t of screens) { const sid = t.dataset.sid; if (sid && sid !== S.me.id) voice.setStreamLayer(sid, focusTile && t !== focusTile ? 0 : screens.length > 2 && !focusTile ? 1 : 2); } // miniaturas e grades cheias pedem a camada menor
   const rest = focusTile ? tiles.filter(t => t !== focusTile) : tiles;
@@ -3580,8 +3603,10 @@ function noiseMenu(e) {
 const CAP_SHORT = { auto: 'Auto', wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium', classic: 'Clássico' };
 const capMethodOpt = (after) => h('div.ss-opt', { title: 'Automático escolhe sozinho; Clássico = a versão anterior' }, h('div.ss-lbl', 'Método de captura', h('small.beta-tag', 'Beta')),
   seg(Object.keys(CAPTURE_METHODS).map(k => [k, CAP_SHORT[k]]), captureMode(S.prefs), (v) => { S.prefs.captureMethod = v; savePrefs(); after(); }));
-async function startShare() {
-  if (voice.screen) return liveShareModal();
+// swap: "Alterar janela" durante a transmissão: escolhe a nova fonte primeiro; a troca (parar + começar) só acontece no
+// clique em Trocar, e quem assiste continua com ela aberta (ver autoClosed)
+async function startShare({ swap = false } = {}) {
+  if (voice.screen && !swap) return liveShareModal();
   if (!voice.active) return toast('Entre em uma sala de voz primeiro.', true);
   const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen };
   let src = null, list = [], tab = 'screen', timer, loaded = false, touched = false;
@@ -3685,11 +3710,11 @@ async function startShare() {
     const screenAudio = src?.type === 'screen' && scrCap() && (mode === 'screen' || mode === 'system') ? mode : (S.prefs.screen?.screenAudio || 'screen');
     S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, screenAudio, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
     m?.close();
-    voiceAct(() => voice.toggleScreen({ ...o, appAudio, srcInfo: srcInfo(src) }));
+    voiceAct(async () => { if (voice.screen) await voice.toggleScreen(); await voice.toggleScreen({ ...o, appAudio, srcInfo: srcInfo(src) }); });
   };
   const backBtn = h('button.btn.grey', { type: 'button', onclick: () => go_('pick') }, 'Voltar');
   const nextBtn = h('button.btn', { type: 'button', onclick: () => { if (!src) return toast('Selecione uma tela ou janela', true); go_('cfg'); } }, 'Continuar');
-  const goBtn = h('button.btn.green', { type: 'button', onclick: goLive }, icon('live', 16), 'Transmitir');
+  const goBtn = h('button.btn.green', { type: 'button', onclick: goLive }, icon(swap ? 'refresh' : 'live', 16), swap ? 'Trocar' : 'Transmitir');
   const foot = h('div.ss-foot', h('button.btn.link', { type: 'button', onclick: cancel }, 'Cancelar'), h('span.ss-sp'), backBtn, nextBtn, goBtn);
   const body = h('div.ss', pick, cfg, foot);
   // clicar numa fonte escolhe e já vai para a configuração (como os outros apps de chamada)
@@ -3700,7 +3725,7 @@ async function startShare() {
     timer = setInterval(() => { if (!document.body.contains(body)) return clearInterval(timer); refresh().then(() => { if (step === 'cfg') drawSrc(); }); }, 3000);
     desktop.appAudioCapable?.().then(r => { appCap = r || { ok: false }; drawAudio(); }).catch(() => { });
   }
-  m = modal('Transmitir tela', '', body, [], { width: desktop ? '780px' : '560px' });
+  m = modal(swap ? 'Alterar janela' : 'Transmitir tela', '', body, [], { width: desktop ? '780px' : '560px' });
   m.el.querySelector('.modal')?.classList.add('ss-modal');
   go_(step);
 }
@@ -3718,6 +3743,79 @@ const pipCtx = {
 };
 // parar de compartilhar a tela (sem sair da chamada)
 function stopSharing() { if (voice.screen) voice.toggleScreen(); }
+// ---------- opções avançadas durante a chamada (seta ao lado dos botões, como no Discord) ----------
+// Tudo o que antes exigia sair da sala para as Configurações: qual câmera, qualidade/fonte da transmissão, microfone e saída
+// de áudio, e quais transmissões parar de assistir. Cada parte também abre sozinha no clique direito do botão dela.
+async function mediaDevs() { return (await navigator.mediaDevices?.enumerateDevices?.().catch(() => null)) || []; }
+const devRadios = (ds, kind, key, after) => [{ deviceId: '', label: 'Padrão do sistema' }, ...ds.filter(d => d.kind === kind && !/^(default|communications)$/.test(d.deviceId))]
+  .map((d, i) => ({ label: d.label || `Dispositivo ${i}`, radio: (S.prefs[key] || '') === d.deviceId, fn: () => { if ((S.prefs[key] || '') === d.deviceId) return; setDevice(key, d.deviceId, d.label); after?.(d); } }));
+function camOptItems(ds) {
+  const cams = devRadios(ds, 'videoinput', 'videoId', () => voiceAct(async () => { await voice.switchCam(); if (voice.cam) toast('Câmera trocada'); }));
+  return [
+    { label: voice.cam ? 'Desligar câmera' : 'Ligar câmera', icon: 'video', fn: () => voiceAct(() => voice.toggleCam()) },
+    '-', ...(cams.length > 1 ? cams : [{ label: 'Nenhuma câmera encontrada', fn: () => { } }]),
+    '-', { label: 'Configurações de vídeo', icon: 'sliders', fn: () => openSettings('voice', ctxSettings()) },
+  ];
+}
+const OPT_RES = [[720, '720p'], [1080, '1080p'], [1440, '1440p'], ['source', 'Original']];
+async function setShareQuality(n) {
+  await voice.changeScreenQuality(n);
+  const o = voice.screenOpts || {}; S.prefs.screen = { ...S.prefs.screen, res: o.res, fps: o.fps }; savePrefs();
+}
+function screenOptItems() {
+  if (!voice.screen) return [{ label: 'Transmitir tela', icon: 'screen', fn: startShare }];
+  const o = voice.screenOpts || {}, fps = [15, 30, 60, ...(S.nativeOk ? [120] : [])];
+  return [
+    { label: 'Qualidade da transmissão', icon: 'sliders', sub: [
+      { label: 'Resolução', sub: OPT_RES.map(([v, l]) => ({ label: l, radio: String(o.res) === String(v), fn: () => voiceAct(() => setShareQuality({ res: v })) })) },
+      { label: 'Quadros por segundo', sub: fps.map(v => ({ label: v + ' FPS', radio: +o.fps === v, fn: () => voiceAct(() => setShareQuality({ fps: v })) })) },
+      '-', { label: 'Mais ajustes…', hint: 'Taxa de dados, tipo de conteúdo, captura', fn: liveShareModal },
+    ] },
+    { label: 'Alterar janela', icon: 'refresh', hint: 'Escolher outra tela ou janela', fn: () => startShare({ swap: true }) },
+    '-', { label: 'Parar transmissão', icon: 'screenoff', danger: true, fn: stopSharing },
+  ];
+}
+function audioOptItems(ds) {
+  const cur = S.prefs.noiseMode || 'standard';
+  return [
+    { label: 'Dispositivo de entrada', icon: 'mic', sub: devRadios(ds, 'audioinput', 'inputId', () => voice.active && voice.rebuildMic()) },
+    { label: 'Dispositivo de saída', icon: 'headset', sub: devRadios(ds, 'audiooutput', 'outputId', () => applyOutput(voice)) },
+    { label: 'Redução de ruído', icon: 'waves', sub: [['off', 'Nenhuma'], ['standard', 'Padrão (navegador)'], ['rnnoise', 'Alta — RNNoise (IA)'], ['gtcrn', 'Máxima — GTCRN (IA)']].map(([k, l]) => ({ label: l, radio: cur === k, fn: async () => { if (cur === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })) },
+    '-', { label: 'Configurações de voz', icon: 'sliders', hint: 'Fechar as configurações volta direto para a chamada', fn: () => openSettings('voice', ctxSettings()) },
+  ];
+}
+// transmissões abertas agora (as que estou assistindo) nesta sala
+function watchedStreams() {
+  return [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.screen && v.user_id !== S.me.id && !voice.closedStreams.has(v.user_id));
+}
+function stopWatching(uids) { for (const u of uids) { voice.closeStream(u); if (S.focus === 's:' + u) S.focus = null; } renderVoiceUI(); }
+function watchOptItems() {
+  const ws = watchedStreams(), ch = channelById(voice.channelId), nm = (u) => (ch?.type === 1 ? user(u).display_name : nameOf(u, ch?.guild_id));
+  if (!ws.length) return [];
+  return [{ label: 'Parar de assistir', icon: 'eyeoff', sub: [
+    ...ws.map(v => ({ label: nm(v.user_id), fn: () => stopWatching([v.user_id]) })),
+    ws.length > 1 && '-', ws.length > 1 && { label: 'Todas as transmissões', danger: true, fn: () => stopWatching(ws.map(v => v.user_id)) },
+  ] }];
+}
+// clique direito num botão da barra abre só a parte dele das opções da chamada
+const ctxOpts = (el, items) => { el.oncontextmenu = async (e) => { e.preventDefault(); menuAbove(el, await items()); }; return el; };
+// abre um menu ancorado acima do botão (a barra fica no rodapé do palco)
+function menuAbove(btn, items) {
+  const r = btn.getBoundingClientRect();
+  menu({ preventDefault() { }, clientX: r.left, clientY: r.top, target: btn, currentTarget: btn }, items);
+  const m = [...document.querySelectorAll('.menu[data-depth="0"]:not(.leaving)')].pop();
+  m?.classList.add('callopts'); // a barra da chamada fica à vista enquanto o menu está aberto (ux.css)
+  if (m) m.style.top = Math.max(8, r.top - m.getBoundingClientRect().height - 8) + 'px';
+}
+async function callOptionsMenu(e) {
+  const btn = e.currentTarget, ds = await mediaDevs();
+  menuAbove(btn, [
+    { label: 'Câmera', icon: 'video', sub: camOptItems(ds) },
+    { label: 'Transmissão', icon: 'screen', sub: screenOptItems() },
+    { label: 'Voz e áudio', icon: 'mic', sub: audioOptItems(ds) },
+    ...watchOptItems(),
+  ]);
+}
 // ---------- "Você está ao vivo" ----------
 // Relato do 1º teste: o "Parar transmissão" era difícil de achar (vermelho igual ao "Sair da chamada", ao lado dele, e no
 // palco os controles da transmissão somem com o mouse parado). Agora: faixa fixa "AO VIVO" no painel de voz (aparece em
@@ -3826,8 +3924,13 @@ function healthPill() {
 // opções de uma transmissão: as mesmas no botão "Mais opções" e no clique direito no vídeo (antes o clique direito só
 // tinha o volume — 47 de 48 vezes o menu foi fechado sem uso no 1º teste: as pessoas procuravam as opções ali)
 function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
-  const on = remoteControlling(uid), wait = remotePending(uid);
+  const on = remoteControlling(uid), wait = remotePending(uid), sMuted = voice.streamVolumes[uid] === 0;
   return [
+      // opções do participante (como no Discord): parar de assistir, silenciar o som da transmissão ou a voz da pessoa
+      !mine && inRoom && { ux: 'pararassistir', icon: 'eyeoff', label: 'Parar de assistir', hint: 'Você continua na chamada', fn: () => { voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); } },
+      !mine && inRoom && { ux: 'mudotransm', icon: sMuted ? 'vol' : 'volmute', label: sMuted ? 'Ativar som da transmissão' : 'Silenciar transmissão', fn: () => { if (sMuted) voice.setStreamVolume(uid, S.prefs.streamVolPrev?.[uid] || 100); else { (S.prefs.streamVolPrev ||= {})[uid] = voice.streamVolumes[uid] ?? 100; voice.setStreamVolume(uid, 0); } savePrefs(); } },
+      !mine && inRoom && { ux: 'mudousuario', icon: isLocalMuted(uid) ? 'mic' : 'micoff', label: isLocalMuted(uid) ? `Ativar voz de ${who}` : `Silenciar ${who}`, fn: () => toggleLocalMute(uid) },
+      !mine && inRoom && '-',
       mine && { ux: 'previa', icon: S.selfPreview ? 'eyeoff' : 'eye', label: S.selfPreview ? 'Pausar prévia' : 'Ver prévia', fn: () => { S.selfPreview = !S.selfPreview; renderVoiceUI(); } },
       mine && { ux: 'ajustes', icon: 'sliders', label: 'Ajustes', hint: 'Qualidade, áudio e fonte', fn: liveShareModal },
       inRoom && { ux: 'clipes', icon: clipping(key) ? 'clip' : 'clipsparkle', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },

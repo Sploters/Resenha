@@ -1268,6 +1268,22 @@ export class Voice {
     if (!this.channelId || this.channelId !== cid) { this.cam?.getTracks().forEach(t => t.stop()); this.cam = null; return; } // saiu da sala enquanto abria
     this.publish('cam', this.cam); playSound('camOn');
   }
+  // trocar de câmera durante a chamada (menu de opções da chamada): abre a nova e troca a faixa no lugar, sem desligar o vídeo
+  // para quem assiste. Câmera desligada: só a preferência muda (vale na próxima vez que ligar).
+  switchCam() { return this.cam ? this.once('_camBusy', () => this.switchCamNow()) : Promise.resolve(); }
+  async switchCamNow() {
+    const old = this.cam; if (!old) return;
+    let next;
+    try {
+      next = await navigator.mediaDevices.getUserMedia({ video: { deviceId: this.prefs.videoId ? { exact: this.prefs.videoId } : undefined, height: { ideal: +(this.prefs.camRes || 720) }, width: { ideal: Math.round(+(this.prefs.camRes || 720) * 16 / 9) }, frameRate: { ideal: +(this.prefs.camFps || 30) } } });
+    } catch (e) { throw new Error('Não foi possível abrir esta câmera: ' + (e.message || e.name)); }
+    if (this.cam !== old) { next.getTracks().forEach(t => t.stop()); return; } // desligou ou saiu enquanto abria
+    const track = next.getVideoTracks()[0];
+    if (this.sfu) await this.sfuProduce('cam', track);
+    else for (const p of this.peers.values()) { const s = p.senders.camvideo; if (s) await s.replaceTrack(track).catch(() => { }); }
+    this.cam = next; old.getTracks().forEach(t => t.stop());
+    this.onUpdate();
+  }
   // opts: { res: 720|1080|1440|'source', fps: 15|30|60, audio: bool, hint: 'motion'|'detail' }
   toggleScreen(opts) {
     if (this._scrWait) { this._scrWait.cancel(); return Promise.resolve(); } // esperando o jogo voltar: clicar de novo desiste
