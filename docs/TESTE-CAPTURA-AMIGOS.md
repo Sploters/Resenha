@@ -117,3 +117,8 @@ descartado; prioridade ALTA de GPU para o processo (como o OBS) e a maior priori
 enviados (antes 46/40), codificador ocupado 3 vezes em 328 s (antes descartava ~1.500), codificação 6,5 ms (antes 12,4),
 12,5 Mbps somando as duas camadas. Visto também: janela de 1914x1080 saindo em 1900x1080 (redimensionada, borra). Corrigido
 no lc-stream: janela que cobre quase o monitor inteiro (até 32 px de folga) é capturada como o monitor, 1:1.
+**3º teste (app novo: prioridade de GPU aceita, classe ALTA e thread 7; ainda sem o 1:1):** 48 capturados / 44 enviados,
+codificador nunca ocupado, 10 Mbps. Variação de cena entre testes é grande: não dá para atribuir a diferença à prioridade.
+Mudanças: o ritmo da camada aceitava mal quadros em rajada (48 -> 44 sem codificador ocupado): agora tolera 0,55 do
+intervalo e limita pela média; e `screenUpdatesPerFrame` (AccumulatedFrames/quadro) no painel: ~1,0 = a tela só mudou
+isso (jogo/compositor no limite); bem acima de 1 = perdemos quadros na busca.

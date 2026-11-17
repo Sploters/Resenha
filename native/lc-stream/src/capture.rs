@@ -179,7 +179,10 @@ impl Src for Wgc {
 /// e Intel). Janela = recorte do monitor onde ela está: mostra o que estiver por cima (limitação do DXGI).
 struct Dxgi { target: Target, hmon: HMONITOR, output: IDXGIOutput1, origin: (i32, i32), mw: u32, mh: u32, dup: Option<IDXGIOutputDuplication>, held: bool,
     lost_since: Option<f64>, retry_at: f64, tries: u32, recreates: Vec<f64>, lost_total: u32, invalid_call: u32, last_err: String, api: &'static str,
-    copy: Option<ID3D11Texture2D>, direct: Option<bool>, frames: u32, ptr_only: u64, sysmem: bool, crop: Option<RECT>, hidden: bool }
+    copy: Option<ID3D11Texture2D>, direct: Option<bool>, frames: u32, ptr_only: u64, sysmem: bool, crop: Option<RECT>, hidden: bool,
+    /// quadros da tela que o Windows juntou (AccumulatedFrames) x os que pegamos: ~1 = a tela mudou só isso (jogo/DWM);
+    /// bem acima de 1 = a tela mudou mais e o laço daqui demorou a buscar (perda nossa)
+    accumulated: u64, presents: u64 }
 fn find_output(adapter: &IDXGIAdapter, hmon: HMONITOR) -> Option<IDXGIOutput1> {
     let mut j = 0;
     while let Ok(o) = unsafe { adapter.EnumOutputs(j) } { j += 1; if unsafe { o.GetDesc() }.map(|d| d.Monitor == hmon).unwrap_or(false) { return o.cast().ok(); } }
@@ -190,7 +193,7 @@ impl Dxgi {
         let hmon = match t { Target::Monitor(m) => m, Target::Window(h) => { if !unsafe { IsWindow(Some(h)) }.as_bool() { return Err(CLOSED.into()); } unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) } } };
         let (output, origin, mw, mh) = Self::output_for(g, hmon)?;
         let mut s = Self { target: t, hmon, output, origin, mw, mh, dup: None, held: false, lost_since: None, retry_at: 0.0, tries: 0, recreates: vec![], lost_total: 0, invalid_call: 0, last_err: String::new(), api: "",
-            copy: None, direct: None, frames: 0, ptr_only: 0, sysmem: false, crop: None, hidden: false };
+            copy: None, direct: None, frames: 0, ptr_only: 0, sysmem: false, crop: None, hidden: false, accumulated: 0, presents: 0 };
         s.dup(g).map_err(|x| if x.starts_with("indisponivel") { x } else { format!("DXGI: {x}") })?;
         if let Target::Window(h) = t { s.crop = s.crop_of(h); }
         Ok(s)
@@ -283,6 +286,7 @@ impl Src for Dxgi {
         }
         self.held = true;
         if info.LastPresentTime == 0 { self.ptr_only += 1; return Ok(None); } // só o ponteiro do mouse mexeu
+        self.presents += 1; self.accumulated += info.AccumulatedFrames as u64;
         let tex: ID3D11Texture2D = match res.map(|r| r.cast::<ID3D11Texture2D>()) { Some(Ok(t)) => t, _ => return Ok(None) };
         let mut td = D3D11_TEXTURE2D_DESC::default(); unsafe { tex.GetDesc(&mut td) };
         self.mw = td.Width; self.mh = td.Height;
@@ -314,7 +318,7 @@ impl Src for Dxgi {
     fn size(&self) -> (u32, u32) {
         match (self.target, self.crop) { (Target::Window(_), Some(c)) => ((c.right - c.left) as u32, (c.bottom - c.top) as u32), _ => (self.mw, self.mh) }
     }
-    fn info(&self) -> Value { json!({ "api": self.api, "accessLost": self.lost_total, "invalidCall": self.invalid_call, "lastError": self.last_err, "directInput": self.direct, "pointerOnly": self.ptr_only, "sysmem": self.sysmem, "window": matches!(self.target, Target::Window(_)), "hidden": self.hidden, "cursor": false }) }
+    fn info(&self) -> Value { json!({ "api": self.api, "accessLost": self.lost_total, "invalidCall": self.invalid_call, "lastError": self.last_err, "directInput": self.direct, "pointerOnly": self.ptr_only, "screenUpdatesPerFrame": if self.presents > 0 { (self.accumulated as f64 / self.presents as f64 * 100.0).round() / 100.0 } else { 0.0 }, "sysmem": self.sysmem, "window": matches!(self.target, Target::Window(_)), "hidden": self.hidden, "cursor": false }) }
     fn overlap(&self) -> bool { matches!(self.target, Target::Window(_)) }
 }
 
@@ -674,9 +678,11 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
         let st = (now * 1e7) as i64;
         let mut want: Vec<usize> = Vec::new();
         for (k, (_i, l)) in p.layers.iter_mut().enumerate() {
+            // ritmo da camada: na média no máximo l.fps, mas aceita um quadro que chega colado no anterior (rajada). Antes
+            // descartava esse quadro mesmo com a captura abaixo do fps da camada (48 capturados, 44 enviados)
             let iv = 1.0 / l.fps as f64;
-            if now + iv * 0.3 < l.next_due { continue; }
-            l.next_due = if l.next_due < now - iv { now + iv } else { l.next_due + iv };
+            if now + iv * 0.55 < l.next_due { continue; } // 0,55: num monitor de 144 Hz (6,9 ms) não manda dois quadros colados a 60 fps
+            l.next_due = l.next_due.max(now - iv * 0.5) + iv;
             want.push(k); // codificador ocupado (need == 0): converte e deixa esperando (pending) em vez de descartar
         }
         for k in want {
