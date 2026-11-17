@@ -76,6 +76,7 @@ import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon } from './activity.js';
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
+import { openVoiceHelp } from './voicehelp.js';
 import { initPwa } from './pwa.js';
 import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify, callKey, protectFiles, encryptFile, openFile, openedFileUrl } from './e2ee.js';
 import { rumReady } from './rum.js';
@@ -403,7 +404,10 @@ function onEvent(t, d) {
       if (d.user_id === S.me.id && d.channel_id && d.channel_id === voice?.channelId) {
         if (!!d.mod_mute !== !!prevVs?.mod_mute && prevVs?.channel_id === d.channel_id) toast(d.mod_mute ? 'A moderação mutou você nas salas deste servidor' : 'A moderação liberou o seu microfone');
         if (!!d.mod_deaf !== !!prevVs?.mod_deaf && prevVs?.channel_id === d.channel_id) toast(d.mod_deaf ? 'A moderação ensurdeceu você nas salas deste servidor' : 'A moderação liberou o seu áudio');
-        voice.setModeration(d.mod_mute, d.mod_deaf);
+        if (!!d.no_speak !== !!prevVs?.no_speak && prevVs?.channel_id === d.channel_id) toast(d.no_speak ? 'Você não tem mais permissão para falar nesta sala' : 'Agora você pode falar nesta sala');
+        if (!!d.no_video !== !!prevVs?.no_video && prevVs?.channel_id === d.channel_id) toast(d.no_video ? 'Você não tem mais permissão de vídeo nesta sala: câmera e tela foram desligadas' : 'Agora você pode usar câmera e tela nesta sala');
+        voice.setModeration(d.mod_mute || d.no_speak, d.mod_deaf);
+        voice.setRoomPerms(d.no_speak, d.no_video);
       }
       if (d.bot?.kind === 'music' && !prevVs?.bot) voice?.applyVolume(d.user_id); // áudio do bot chegou antes do estado: aplica o volume da música
       if (S.view.kind === 'home') { setTimeout(renderActiveNow); setTimeout(refreshFeedView); }
@@ -1399,7 +1403,8 @@ function channelSettings(g, c) {
   let synced = !cat && !!c.parent_id && c.perm_sync !== 0, dirty = false, wantSync = false;
   const load = (id) => new Map((g.channel_perms?.[id] || []).map(o => [o.target, { allow: o.allow, deny: o.deny }]));
   let ows = load(synced ? c.parent_id : c.id), target = 'everyone';
-  const bits = CH_LABELS.filter(([b]) => cat || (c.type === 2 ? true : b !== CH.CONNECT));
+  const VOICE_BITS = CH.CONNECT | CH.SPEAK | CH.VIDEO; // só fazem sentido em sala de voz (e na categoria, que pode ter salas)
+  const bits = CH_LABELS.filter(([b]) => cat || c.type === 2 || !(b & VOICE_BITS));
   const targets = () => [{ id: 'everyone', name: '@everyone', color: '' }, ...g.roles.filter(r => r.name !== '@everyone').map(r => ({ id: r.id, name: r.name, color: r.color }))];
   const permBox = h('div.chp');
   const draw = () => {
@@ -1766,7 +1771,7 @@ const initialsOf = (s) => (s || '?').split(/\s+/).map(w => w[0]).join('').slice(
 // mute: silencia a voz da pessoa só para você (nas chamadas)
 const isLocalMuted = (uid) => !!S.prefs.mutedUsers?.[uid];
 // ícone de microfone cortado: cinza se a própria pessoa se silenciou, vermelho se fui eu que a silenciei (mesmo ícone, só muda a cor)
-const muteIco = (v) => { const lm = isLocalMuted(v.user_id), mm = !!v.mod_mute; return (v.mute || lm || mm) && h('span.mico' + (lm || mm ? '.lmute' : ''), { title: mm ? 'Mutado pela moderação' : lm ? 'Silenciado por você' : null }, icon('micoff', 14)); };
+const muteIco = (v) => { const lm = isLocalMuted(v.user_id), mm = !!v.mod_mute, ns = !!v.no_speak; return (v.mute || lm || mm || ns) && h('span.mico' + (lm || mm || ns ? '.lmute' : ''), { title: mm ? 'Mutado pela moderação' : ns ? 'Sem permissão para falar nesta sala' : lm ? 'Silenciado por você' : null }, icon('micoff', 14)); };
 function toggleLocalMute(uid) {
   const m = (S.prefs.mutedUsers ||= {});
   if (m[uid]) delete m[uid]; else m[uid] = true;
@@ -3625,6 +3630,7 @@ const capMethodOpt = (after) => h('div.ss-opt', { title: 'Automático escolhe so
 async function startShare({ swap = false } = {}) {
   if (voice.screen && !swap) return liveShareModal();
   if (!voice.active) return toast('Entre em uma sala de voz primeiro.', true);
+  if (voice.noVideo) return toast('Você não tem permissão de vídeo nesta sala: a transmissão de tela está bloqueada.', true);
   const o = { res: 1080, fps: 30, hint: 'motion', audio: true, cursor: true, ...S.prefs.screen };
   let src = null, list = [], tab = 'screen', timer, loaded = false, touched = false;
   // áudio: 'game' = só o programa (o jogo), 'system' = tudo do PC menos a Resenha, 'none'
@@ -3798,6 +3804,7 @@ function audioOptItems(ds) {
     { label: 'Dispositivo de entrada', icon: 'mic', sub: devRadios(ds, 'audioinput', 'inputId', () => voice.active && voice.rebuildMic()) },
     { label: 'Dispositivo de saída', icon: 'headset', sub: devRadios(ds, 'audiooutput', 'outputId', () => applyOutput(voice)) },
     { label: 'Redução de ruído', icon: 'waves', sub: NOISE_OPTS().map(([k, l]) => ({ label: l, radio: cur === k, fn: async () => { if (cur === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })) },
+    '-', { label: 'Verificar problemas de voz', icon: 'info', hint: 'Confere mute, permissões, aparelhos, sinal do microfone e conexão', fn: () => openVoiceHelp(voice, { nameOf, openVoiceSettings: () => openSettings('voice', ctxSettings()) }) },
     '-', { label: 'Configurações de voz', icon: 'sliders', hint: 'Fechar as configurações volta direto para a chamada', fn: () => openSettings('voice', ctxSettings()) },
   ];
 }

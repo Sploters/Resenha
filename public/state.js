@@ -287,9 +287,10 @@ export function rankOf(gid, uid) {
 export const outranks = (gid, uid) => uid !== S.me.id && rankOf(gid, S.me.id) > rankOf(gid, uid);
 export const roleBelow = (gid, r) => r.position < rankOf(gid, S.me.id);
 // permissões por canal/categoria (espelho de server/chperms.js): canal sincronizado segue a categoria; post de fórum segue o fórum
-export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8 }, CH_ALL = 15;
+export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8, SPEAK: 16, VIDEO: 32 }, CH_ALL = 63;
 export const CH_LABELS = [[CH.SEND, 'Enviar mensagens', 'Escrever no chat (e criar posts, num fórum)'], [CH.ATTACH, 'Enviar arquivos', 'Anexar imagens, vídeos e outros arquivos'],
-  [CH.REACT, 'Adicionar reações', 'Sem ela, ainda dá para somar a uma reação que já está lá'], [CH.CONNECT, 'Conectar', 'Entrar na sala de voz']];
+  [CH.REACT, 'Adicionar reações', 'Sem ela, ainda dá para somar a uma reação que já está lá'], [CH.CONNECT, 'Conectar', 'Entrar na sala de voz'],
+  [CH.SPEAK, 'Falar', 'Sem ela, a pessoa entra e ouve, mas ninguém escuta o microfone dela'], [CH.VIDEO, 'Vídeo', 'Ligar a câmera e transmitir a tela na sala']];
 export function permSource(g, ch) {
   if (!g || !ch) return ch;
   if (ch.type === 11 && ch.parent_id) ch = g.channels.find(c => c.id === ch.parent_id) || ch;

@@ -175,6 +175,12 @@ export function sfuModerate(cid, uid, { mute, deaf }) {
   }
 }
 
+// perdeu a permissão Vídeo da sala no meio da chamada: fecha câmera e tela (os outros recebem SFU_PRODUCER_CLOSED)
+export function sfuDropVideo(cid, uid) {
+  const peer = rooms.get(cid)?.peers.get(uid); if (!peer) return;
+  for (const src of ['cam', 'screen', 'screenaudio']) peer.producers.get(src)?.close();
+}
+
 const producerInfo = (p, uid) => ({ producer_id: p.id, user_id: uid, kind: p.kind, source: p.appData.source });
 
 // "Falando" medido no servidor (AudioLevelObserver): para quem está ensurdecido, que não recebe as vozes (economiza banda e

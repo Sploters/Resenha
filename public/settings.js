@@ -22,6 +22,7 @@ import { newsPage } from './changelog.js';
 import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
+import { openVoiceHelp, resetVoiceSettings } from './voicehelp.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { localClipsUsage, clearLocalClips, onLocalClips } from './cliplocal.js';
 import { openMyClips, mb } from './myclips.js';
@@ -663,7 +664,9 @@ function voicePage(ctx, reg) {
   const camPrev = h('video', { autoplay: true, muted: true, playsInline: true, style: { width: '100%', borderRadius: '8px', background: '#000', display: 'none', marginTop: '12px' } });
   let camStream; reg(() => camStream?.getTracks().forEach(t => t.stop()));
   const camBtn = h('button.btn.grey', { onclick: async () => { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; camPrev.style.display = 'none'; return; } try { camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: S.prefs.videoId ? { exact: S.prefs.videoId } : undefined, height: { ideal: S.prefs.camRes }, frameRate: { ideal: S.prefs.camFps } } }); camPrev.srcObject = camStream; camPrev.style.display = 'block'; } catch (e) { toast('Câmera: ' + e.message, true); } } }, 'Testar câmera');
-  return h('div', h('h2', 'Voz e vídeo'),
+  // "Redefinir voz e vídeo": redesenha a página com os valores novos
+  const redraw = () => { stopTest(); camStream?.getTracks().forEach(t => t.stop()); root.replaceWith(voicePage(ctx, reg)); };
+  const root = h('div', h('h2', 'Voz e vídeo'),
     card(sel('audioinput', 'inputId', 'Dispositivo de entrada', restartTest), sel('audiooutput', 'outputId', 'Dispositivo de saída', () => { applyOutput(voice); test?.setOutput?.(S.prefs.outputId); }),
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
@@ -683,9 +686,14 @@ function voicePage(ctx, reg) {
     section('Qualidade da voz'), card(h('label.f', 'Taxa de bits do áudio', seg(VOICE_BITRATES, S.prefs.voiceBitrate ?? 'auto', v => { S.prefs.voiceBitrate = v; save(); voice?.retuneAudio(); })), hint('Automático: voz mono a 64 kbps, que já soa perfeita; desce para 48 ou 32 kbps se a sua conexão tiver perda ou ping alto. 128 kbps ou mais só faz diferença para música e pesa para todos: o servidor repassa a sua voz para cada pessoa da sala. O nível atual aparece no painel de voz.')),
     section('Efeitos de voz'), card(toggleCards([{ on: S.prefs.hearFx !== false, label: 'Ouvir efeitos de voz dos outros', sub: 'Desligado: todo mundo com a voz normal', desc: 'Dá também para desligar só de uma pessoa: clique direito nela → "Ouvir sem efeito de voz".', prev: h('span.vp-fx', icon('mask', 30), h('i.fx-w'), h('i.fx-w.w2')), fn: v => { S.prefs.hearFx = v; save(); if (voice) for (const uid of voice.peers.keys()) voice.applyVolume(uid); } }])),
     section('Câmera'), card(sel('videoinput', 'videoId', 'Câmera'), h('label.f', 'Resolução', seg({ 360: '360p', 720: '720p', 1080: '1080p' }, S.prefs.camRes, v => { S.prefs.camRes = v; save(); })), h('label.f', 'Quadros por segundo', seg({ 15: '15', 30: '30', 60: '60' }, S.prefs.camFps, v => { S.prefs.camFps = v; save(); })), camBtn, camPrev),
+    section('Solução de problemas'), card(hint('Não ouve ninguém, ninguém ouve você ou o vídeo não funciona? A verificação confere sozinha mute, permissões da sala e do navegador, aparelhos, o sinal do microfone e a conexão, e mostra o conserto.'),
+      h('div.btns', h('button.btn.green', { onclick: () => openVoiceHelp(voice, { nameOf }) }, icon('info', 16), 'Verificar problemas de voz'),
+        h('button.btn.grey', { onclick: () => resetVoiceSettings(voice).then(ok => ok && redraw()) }, 'Redefinir voz e vídeo')),
+      note('"Redefinir voz e vídeo" volta só microfone, saída, câmera, volumes, modo de entrada e filtros para o padrão. Tema, atalhos e volumes por pessoa ficam.')),
     section('Diagnóstico'), card(h('button.btn.grey', { onclick: async () => { const st = voice.active ? await voice.stats() : []; modal('Diagnóstico de voz', voice.active ? 'Conexões com os outros participantes' : 'Você não está em uma sala de voz', h('div', ...st.map(s => row(user(s.uid).display_name, `estado: ${s.state}`, h('b', s.rtt != null ? s.rtt + ' ms' : '—'))), !st.length && hint('Entre em uma sala de voz para ver os dados.')), [{ label: 'Fechar' }]); } }, 'Ver conexões agora'),
       h('button.btn.grey', { style: { marginLeft: '8px' }, onclick: () => { voice.active ? voice.rebuildMic().then(() => toast('Áudio reiniciado')) : toast('Entre em uma sala primeiro', true); } }, 'Reiniciar áudio')),
     !window.isSecureContext && card(note([h('span.hint-ic', icon('warn', 16)), 'Conexão não segura (HTTP): navegadores só liberam microfone/câmera/tela em HTTPS. Use https://…:3443 ou o aplicativo desktop.'])));
+  return root;
 }
 
 // ============================ Transmissão ============================

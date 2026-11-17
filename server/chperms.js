@@ -6,8 +6,10 @@
 // Conta como em qualquer servidor: dono, administrador e quem gerencia canais nunca são barrados. Ordem: tudo liberado →
 // @everyone (nega, depois permite) → cargos da pessoa (soma o que todos negam, depois soma o que algum permite: o permitir
 // de um cargo vence o negar de outro). Ver o canal continua livre para todo membro (canais privados ainda não existem).
-export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8 };
-export const CH_ALL = 15;
+// SPEAK e VIDEO (como no Discord: Conectar, Falar e Vídeo): sem Falar a pessoa entra na sala, mas o servidor não repassa a
+// voz dela; sem Vídeo não liga câmera nem transmite a tela. Ajustes gravados antes destes bits continuam valendo (liberados).
+export const CH = { SEND: 1, ATTACH: 2, REACT: 4, CONNECT: 8, SPEAK: 16, VIDEO: 32 };
+export const CH_ALL = 63;
 
 export function createChPerms({ db, all, get, run, memberPerms, P }) {
   try { db.exec('ALTER TABLE channels ADD COLUMN perm_sync INTEGER DEFAULT 1'); } catch { /* já existe */ }

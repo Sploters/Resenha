@@ -1264,7 +1264,9 @@ export class Voice {
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)
   // Parar continua imediato; a trava só vale enquanto abre.
   once(key, fn) { if (this[key]) return this[key]; const p = this[key] = fn(); p.finally(() => { if (this[key] === p) this[key] = null; }).catch(() => { }); return p; }
-  toggleCam() { return this.cam ? Promise.resolve(this.stopLocal('cam')) : this.once('_camBusy', () => this.toggleCamNow()); }
+  // permissões Falar/Vídeo da sala (estado de voz no_speak/no_video, vindo do servidor)
+  setRoomPerms(noSpeak, noVideo) { this.noSpeak = !!noSpeak; this.noVideo = !!noVideo; if (noVideo) { if (this.cam) this.stopLocal('cam'); if (this.screen) this.stopLocal('screen'); } this.onUpdate(); }
+  toggleCam() { if (!this.cam && this.noVideo) return Promise.reject(new Error('Você não tem permissão de vídeo nesta sala: câmera e transmissão de tela estão bloqueadas pela moderação.')); return this.cam ? Promise.resolve(this.stopLocal('cam')) : this.once('_camBusy', () => this.toggleCamNow()); }
   async toggleCamNow() {
     if (this.cam) return this.stopLocal('cam');
     const cid = this.channelId;
@@ -1293,6 +1295,7 @@ export class Voice {
   // opts: { res: 720|1080|1440|'source', fps: 15|30|60, audio: bool, hint: 'motion'|'detail' }
   toggleScreen(opts) {
     if (this._scrWait) { this._scrWait.cancel(); return Promise.resolve(); } // esperando o jogo voltar: clicar de novo desiste
+    if (!this.screen && this.noVideo) return Promise.reject(new Error('Você não tem permissão de vídeo nesta sala: câmera e transmissão de tela estão bloqueadas pela moderação.'));
     return this.screen ? Promise.resolve(this.stopLocal('screen')) : this.once('_scrBusy', () => this.toggleScreenNow(opts));
   }
   async toggleScreenNow(opts) {

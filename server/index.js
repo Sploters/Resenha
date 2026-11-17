@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
 import { imageSize } from './imgsize.js';
-import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
+import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
 import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
@@ -216,7 +216,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -670,6 +670,7 @@ app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
     for (const r of roles) if (want.has(r.id)) run('INSERT OR IGNORE INTO member_roles VALUES(?,?,?)', gid, target, r.id);
   }
   dispatch(guildMemberIds(gid), 'MEMBER_UPDATE', { guild_id: gid, ...memberObj(gid, target) });
+  if (Array.isArray(req.body.roles)) refreshVoicePerms(gid);
   res.json({});
 }));
 // Moderação de voz (Moderar voz + hierarquia): mutar/ensurdecer para o servidor (vale em todas as salas e continua ao
@@ -690,7 +691,7 @@ app.patch('/api/guilds/:id/voice/:uid', auth, wrap((req, res) => {
     if (mute !== !!cur.m) audit(gid, req.uid, mute ? 'voice_mute' : 'voice_unmute', target);
     if (deaf !== !!cur.d) audit(gid, req.uid, deaf ? 'voice_deaf' : 'voice_undeaf', target);
     if (st) {
-      st.modMute = mute; st.modDeaf = deaf; sfuModerate(c, target, { mute, deaf });
+      st.modMute = mute; st.modDeaf = deaf; sfuModerate(c, target, { mute: mute || !!st.noSpeak, deaf });
       dispatch(channelAudience(here), 'VOICE_STATE', { ...vsObj(c, target, st), guild_id: gid });
     }
   }
@@ -736,6 +737,7 @@ app.patch('/api/roles/:id', auth, wrap((req, res) => {
   run('UPDATE roles SET name=?,color=?,perms=? WHERE id=?', clean(req.body.name, 50) || r.name, clean(req.body.color, 9) || r.color, req.body.perms !== undefined ? Number(req.body.perms) | 0 : r.perms, r.id);
   dispatch(guildMemberIds(r.guild_id), 'ROLE_UPDATE', { guild_id: r.guild_id, role: get('SELECT * FROM roles WHERE id=?', r.id) });
   audit(r.guild_id, req.uid, 'role_update', r.id, get('SELECT name FROM roles WHERE id=?', r.id).name);
+  refreshVoicePerms(r.guild_id); // virar administrador / gerenciar canais libera Falar e Vídeo
   res.json({});
 }));
 // reordenar: ids do mais alto para o mais baixo (todos os cargos do servidor). Os cargos do seu nível para cima não mudam de lugar.
@@ -766,6 +768,7 @@ app.delete('/api/roles/:id', auth, wrap((req, res) => {
   dispatch(mids, 'ROLE_DELETE', { guild_id: r.guild_id, id: r.id });
   renumberRoles(r.guild_id); // fecha o buraco na ordem
   for (const x of all('SELECT * FROM roles WHERE guild_id=? AND position>=?', r.guild_id, r.position)) dispatch(mids, 'ROLE_UPDATE', { guild_id: r.guild_id, role: x });
+  refreshVoicePerms(r.guild_id);
   res.json({});
 }));
 // Channels
@@ -813,7 +816,24 @@ app.delete('/api/channels/:id', auth, wrap((req, res) => {
 }));
 // permissões do canal ou da categoria: { overwrites: [{ target: cargo|'everyone', allow, deny }] } ou { sync: true }
 // (volta a seguir a categoria). Ajustar um canal sincronizado tira a sincronia; na categoria, vale para os sincronizados.
-const chPermsEvent = (ch) => dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_PERMS', { guild_id: ch.guild_id, channel_id: ch.id, overwrites: chp.overwrites(ch.id), perm_sync: ch.perm_sync ?? 1 });
+// Falar/Vídeo por canal valem ao vivo: mudou ajuste de canal, cargo ou cargos de alguém → recalcula quem está nas salas
+// do servidor. Sem Falar: o SFU pausa o microfone (como o mute da moderação). Sem Vídeo: fecha câmera e tela.
+function voicePermsOf(ch, uid) { return ch?.guild_id ? { noSpeak: !chp.chCan(ch, uid, CH.SPEAK), noVideo: !chp.chCan(ch, uid, CH.VIDEO) } : { noSpeak: false, noVideo: false }; }
+function refreshVoicePerms(gid) {
+  for (const [cid, room] of voice) {
+    const ch = get('SELECT * FROM channels WHERE id=? AND guild_id=?', cid, gid); if (!ch) continue;
+    for (const [uid, st] of room) {
+      if (st.bot) continue;
+      const { noSpeak, noVideo } = voicePermsOf(ch, uid);
+      if (noSpeak === !!st.noSpeak && noVideo === !!st.noVideo) continue;
+      st.noSpeak = noSpeak; st.noVideo = noVideo;
+      sfuModerate(cid, uid, { mute: !!st.modMute || noSpeak });
+      if (noVideo) { sfuDropVideo(cid, uid); if (natives.has(uid)) endNative(uid, 'no_video'); st.video = false; st.screen = false; }
+      dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, uid, st), guild_id: gid });
+    }
+  }
+}
+const chPermsEvent = (ch) => { refreshVoicePerms(ch.guild_id); dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_PERMS', { guild_id: ch.guild_id, channel_id: ch.id, overwrites: chp.overwrites(ch.id), perm_sync: ch.perm_sync ?? 1 }); };
 app.put('/api/channels/:id/perms', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
   if (!ch || !ch.guild_id || ch.type === 11 || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS) || !can(ch.guild_id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
@@ -2135,6 +2155,7 @@ wss.on('connection', (ws) => {
           const peers = [...room.keys()];
           const st = { ws, mute: false, deaf: false, video: false, screen: false };
           if (ch.guild_id) { const vm = get('SELECT voice_mute m, voice_deaf d FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, uid); st.modMute = !!vm?.m; st.modDeaf = !!vm?.d; } // vale em todas as salas do servidor
+          Object.assign(st, voicePermsOf(ch, uid));
           room.set(uid, st);
           if (!sfuEnabled()) send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers });
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(ch.id, uid, st), guild_id: ch.guild_id });
@@ -2145,7 +2166,7 @@ wss.on('connection', (ws) => {
           if (!sfuEnabled()) break;
           sfuJoin(ch.id, uid, (t, x) => send(ws, t, { ...x, channel_id: ch.id })).then(sfu => {
             if (voice.get(ch.id)?.get(uid) !== st) return sfuLeave(ch.id, uid); // saiu enquanto entrava
-            if (st.modMute || st.modDeaf) sfuModerate(ch.id, uid, { mute: st.modMute, deaf: st.modDeaf });
+            if (st.modMute || st.modDeaf || st.noSpeak) sfuModerate(ch.id, uid, { mute: st.modMute || st.noSpeak, deaf: st.modDeaf });
             send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers, sfu });
           }).catch(e => { console.error('sfu join', e.message); if (voice.get(ch.id)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: ch.id, reason: 'join' }); }); // o app tenta de novo (ex.: worker sendo recriado)
           break;
@@ -2164,6 +2185,8 @@ wss.on('connection', (ws) => {
         case 'SFU': { // sinalização do SFU: requisição/resposta
           const c = currentVoice(uid), rid = d.rid;
           if (!c || voice.get(c).get(uid).ws !== ws) return send(ws, 'SFU_RES', { rid, error: 'fora da sala' });
+          { const me = voice.get(c).get(uid); // sem a permissão Vídeo da sala: nada de câmera nem tela
+            if (me.noVideo && (d.op === 'native_start' || (d.op === 'produce' && String(d.source) !== 'mic'))) { send(ws, 'SFU_RES', { rid, error: 'Você não tem permissão de vídeo nesta sala (câmera e transmissão de tela)' }); break; } }
           if (d.op === 'native_start') { // transmissão a 120 fps pelo programa nativo do app desktop (só o vídeo; áudio segue pelo WebRTC)
             startNative(uid, c, true, Math.max(1, Math.min(3, d.layers | 0 || 1))).then(n => send(ws, 'SFU_RES', { rid, data: nativeOut(n, null) }), e => send(ws, 'SFU_RES', { rid, error: e.message }));
             break;
@@ -2254,7 +2277,7 @@ wss.on('connection', (ws) => {
         case 'VOICE_STATE': {
           const c = currentVoice(uid); if (!c) return;
           const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
-          for (const k of ['mute', 'deaf', 'video', 'screen']) if (typeof d[k] === 'boolean') st[k] = d[k];
+          for (const k of ['mute', 'deaf', 'video', 'screen']) if (typeof d[k] === 'boolean') st[k] = d[k]; if (st.noVideo) st.video = st.screen = false;
           st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
           if (d.fx !== undefined && Date.now() - (st.fxAt || 0) > 500) { const fx = VOICE_FX.has(d.fx) ? d.fx : null; if (fx !== (st.fx || null)) { st.fx = fx; st.fxAt = Date.now(); } }
