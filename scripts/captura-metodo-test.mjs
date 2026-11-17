@@ -46,7 +46,7 @@ async function page(tok, desk) {
       window.__natCalls = [];
       const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { }, selectSource: async () => true,
         // __oldApp: app desktop anterior (sem escolha de método)
-        nativeCapable: async (mode) => { window.__natCalls.push(mode ?? null); return window.__oldApp ? { ok: true, encoders: ['teste'] } : { ok: true, encoders: ['teste'], modes: ['auto', 'wgc', 'dxgi'], os: 26200 }; },
+        nativeCapable: async (mode) => { window.__natCalls.push(mode ?? null); return window.__oldApp ? { ok: true, encoders: ['teste'] } : { ok: true, encoders: ['teste'], modes: ['auto', 'wgc', 'dxgi'], os: window.__os || 26200 }; },
         nativeStart: (o) => window.__natStart(o), nativeStop: () => window.__natStop(), onNativeEvent: (cb) => { window.__natCb = cb; } };
       window.lcDesktop = new Proxy(fns, { get: (t, k) => (k in t ? t[k] : () => Promise.resolve(true)) });
     }
@@ -62,10 +62,10 @@ const viewerFrames = (B, uid) => B.evaluate(async (uid) => {
   let e, a; for (let i = 0; i < 40 && !(e = find(), a = e && await rd(e)); i++) await new Promise(r => setTimeout(r, 250));
   if (!a) return -1; await new Promise(r => setTimeout(r, 3000)); const b = await rd(e); return (b?.framesDecoded || 0) - (a.framesDecoded || 0);
 }, uid);
-async function share(A, sim, mode) {
+async function share(A, sim, mode, extra = {}) {
   SIM = sim; helpers.length = 0;
   await A.evaluate((m) => { const S = window.__lc.S; if (m) S.prefs.captureMethod = m; else delete S.prefs.captureMethod; }, mode);
-  await A.evaluate(() => window.__lc.voice.toggleScreen({ res: 720, fps: 120, audio: false, hint: 'motion' }));
+  await A.evaluate((x) => window.__lc.voice.toggleScreen({ res: 720, fps: 120, audio: false, hint: 'motion', ...x }), extra);
   await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending || window.__lc.voice.sfu?.producers?.screen, { timeout: 15000 }).catch(() => { });
 }
 // quem assiste clica para assistir a cada transmissão nova
@@ -175,6 +175,35 @@ try {
   await A.waitForFunction(() => window.__lc.voice.native?.method === 'wgc', { timeout: 15000 }).catch(() => { });
   c = await info(A);
   ok(c?.order?.[0] === 'dxgi' && /Windows 10/.test(c.plan) && c.active === 'wgc' && c.history.some(e => e.kind === 'method' && e.from === 'dxgi' && /falhou/.test(e.why)), 'Windows 10 começa no DXGI; erro -> WGC, com o motivo', { order: c?.order, active: c?.active });
+  await unshare(A);
+
+  // 9) 30 FPS (o padrão): jogo no Windows 10 vai pelo nativo (DXGI pega a tela cheia exclusiva; o Chromium congelava);
+  //    no Windows 11, ou sem ser jogo, continua no Chromium como antes
+  console.log('-- 9. 30 FPS: jogo no Windows 10 -> nativo; Windows 11 ou tela -> Chromium');
+  const game = { type: 'window', game: true, fullscreen: true };
+  await A.evaluate(() => { window.__os = 19045; window.__lc.voice._natCap = null; });
+  await share(A, '', 'auto', { fps: 30, srcInfo: game });
+  s = await state(A);
+  ok(s.native && !s.chromiumVideo && helpers[0]?.cfg.capture === 'auto' && helpers[0]?.cfg.fps === 30, 'Windows 10, jogo a 30 FPS: sai pelo programa nativo (capture=auto, 30 fps)', { s, fps: helpers[0]?.cfg.fps });
+  await watch(B, a.id);
+  ok(await viewerFrames(B, a.id) > 20, 'quem assiste vê a transmissão nativa de 30 FPS');
+  await unshare(A);
+  await share(A, '', 'auto', { fps: 30, srcInfo: { type: 'screen' } });
+  s = await state(A);
+  ok(!s.native && s.chromiumVideo && s.why === 'lowfps' && helpers.length === 0, 'Windows 10, tela inteira a 30 FPS: Chromium como antes', s);
+  await unshare(A);
+  await A.evaluate(() => { window.__os = 26200; window.__lc.voice._natCap = null; });
+  await share(A, '', 'auto', { fps: 30, srcInfo: game });
+  s = await state(A);
+  ok(!s.native && s.chromiumVideo && s.why === 'lowfps' && helpers.length === 0, 'Windows 11, jogo a 30 FPS: Chromium como antes', s);
+  // 10) tela cheia exclusiva confirmada com a transmissão no ar (Chromium congelado): passa sozinho para o nativo
+  console.log('-- 10. tela cheia congelou o Chromium -> nativo');
+  await A.evaluate(() => { const v = window.__lc.voice; v._fseNative = true; return v.switchToNative(); });
+  await A.waitForFunction(() => window.__lc.voice.native && !window.__lc.voice.native.pending, { timeout: 15000 }).catch(() => { });
+  s = await state(A);
+  ok(s.native && !s.chromiumVideo && helpers.length === 1, 'troca ao vivo do Chromium para o nativo', s);
+  await watch(B, a.id);
+  ok(await viewerFrames(B, a.id) > 20, 'quem assiste segue vendo depois da troca');
   await unshare(A);
 } catch (e) { console.log('  ERRO', e.stack); fails++; }
 finally {

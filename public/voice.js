@@ -560,7 +560,16 @@ export class Voice {
         conf = shell && bad ? conf + 1 : 0;
         const prev = this.fse?.state, state = conf >= FSE_CONFIRM_TICKS ? 'confirmed' : shell ? 'suspected' : null;
         this.fse = { available: true, state, shell: st.state, fgIsSource: st.fgIsSource, black: !!this.captureBlack, frozenSecs: frozen * FSE_TICK / 1000 };
-        if (state !== prev) { if (state === 'confirmed') this.onFse?.(this.fse); this.onUpdate(); }
+        if (state !== prev) {
+          if (state === 'confirmed') {
+            // no Chromium e o jogo em tela cheia exclusiva congelou a captura: passa para o nativo (DXGI) uma vez, sozinho
+            if (!this.native && !this._fseNative && captureMode(this.prefs) !== 'chromium') {
+              this._fseNative = true; this.capLog({ t: 'capnote', msg: 'tela cheia exclusiva congelou a captura do Chromium: tentando o programa nativo' });
+              this.switchToNative().catch(() => { });
+            } else this.onFse?.(this.fse);
+          }
+          this.onUpdate();
+        }
       } finally { busy = false; }
     };
     tick(); this._fse = setInterval(tick, FSE_TICK);
@@ -1283,7 +1292,7 @@ export class Voice {
     if (!this.channelId || this.channelId !== cid) { this.screen?.getTracks().forEach(t => t.stop()); this.screen = null; return; } // saiu da sala enquanto abria
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
-    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null;
+    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false;
     this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
     if (opts.audio && opts.appAudio && window.lcDesktop?.appAudioStart) await this.useAppAudio(opts.appAudio);
@@ -1372,9 +1381,16 @@ export class Voice {
   // _natWhy: por que esta transmissão não saiu pelo programa nativo (telemetria da chamada, public/callqual.js NATIVE_WHY)
   async wantNative(o) {
     const mode = captureMode(this.prefs);
-    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : +o.fps < NATIVE_MIN_FPS ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
+    // jogo (janela de jogo ou em tela cheia): abaixo de 60 FPS ainda vale o nativo NO WINDOWS 10 (decidido abaixo, quando
+    // o app diz o build). Lá o Chromium captura a janela pela WGC, que congela num jogo em tela cheia exclusiva (1 quadro
+    // e só o cursor andando, visto com Valorant); o nativo vai pelo DXGI, que pega a tela cheia (autoteste: 144 fps).
+    // Também quando a tela cheia exclusiva foi confirmada com a transmissão no ar (watchFse).
+    const si = o.srcInfo || {}, game = this._fseNative || (si.type === 'window' && (si.game || si.fullscreen));
+    const low = +o.fps < NATIVE_MIN_FPS;
+    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
     if (why) { this._natWhy = why; this._natWhyText = null; return false; }
     const c = await this.nativeCapable(mode);
+    if (c.ok && low && !this._fseNative && !(+c.os > 0 && +c.os < 22000)) { this._natWhy = 'lowfps'; this._natWhyText = null; return false; } // Windows 11: o Chromium dá conta
     this._natWhy = c.ok ? null : nativeWhy(c); this._natWhyText = c.ok ? null : c.reason || null;
     // app antigo (sem escolha de método): segue no caminho clássico; o painel avisa
     this._capMode = c.ok && ['auto', 'wgc', 'dxgi'].includes(mode) && Array.isArray(c.modes) && c.modes.includes(mode) ? mode : null;
@@ -1497,6 +1513,16 @@ export class Voice {
     window.lcDesktop?.nativeStop?.();
     // ainda preparando: a sessão é fechada quando a resposta chegar (startNative); senão fecha esta
     if (!n.pending) this.sfuReq('native_stop', { producer_id: n.producerId }).catch(() => { });
+  }
+  // Chromium -> nativo com a transmissão no ar (jogo em tela cheia congelou a captura); se o nativo não der, avisa como antes
+  async switchToNative() {
+    const vt = this.screen?.getVideoTracks()[0]; if (!vt || this.native) return;
+    const nat = await this.wantNative(this.screenOpts || {});
+    if (!this.screen || this.native) return;
+    if (!nat) { this.onFse?.(this.fse); return; }
+    this._natRestarts = []; this._natRetry = 0;
+    this.sfuStop('screen'); this.native = { pending: true }; this.previewOnly(vt, true); this.startNative().catch(() => { });
+    this.onUpdate();
   }
   // método de captura trocado nas configurações com a transmissão no ar: reinicia só o vídeo (1-2 s), voz e sala seguem
   async applyCaptureMode() {

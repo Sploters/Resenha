@@ -1462,6 +1462,8 @@ function sbButton() {
   quickSoundsHover(b, voice, full);
   return b;
 }
+// o que a transmissão precisa saber da fonte escolhida (jogo em tela cheia no Windows 10 vai pelo nativo: voice.js wantNative)
+const srcInfo = (src) => (src ? { type: src.type, game: !!src.game, fullscreen: !!src.fullscreen, minimized: !!src.minimized } : null);
 const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
 const newsActions = {
@@ -3680,7 +3682,7 @@ async function startShare() {
     const screenAudio = src?.type === 'screen' && scrCap() && (mode === 'screen' || mode === 'system') ? mode : (S.prefs.screen?.screenAudio || 'screen');
     S.prefs.screen = { res: o.res, fps: o.fps, hint: o.hint, audio: o.audio, audioMode: keep ? (S.prefs.screen?.audioMode || 'game') : mode, screenAudio, cursor: o.cursor !== false, bitrate: o.bitrate || 0 }; savePrefs();
     m?.close();
-    voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
+    voiceAct(() => voice.toggleScreen({ ...o, appAudio, srcInfo: srcInfo(src) }));
   };
   const backBtn = h('button.btn.grey', { type: 'button', onclick: () => go_('pick') }, 'Voltar');
   const nextBtn = h('button.btn', { type: 'button', onclick: () => { if (!src) return toast('Selecione uma tela ou janela', true); go_('cfg'); } }, 'Continuar');
@@ -3774,7 +3776,7 @@ async function quickShare(src, { best = false } = {}) {
     appAudio = mode === 'game' && src.pid ? { mode: 'include', pid: src.pid, name: src.name }
       : src.type === 'screen' && cap.screen && desktop.appAudioScreen && o.screenAudio !== 'system' ? { mode: 'screen', source: src.id } : { mode: 'exclude' };
   if (src && !(await desktop.selectSource(src.id, src.name).catch(() => false))) { clipFlash(false, 'Transmissão não iniciada', null, 'share'); return; }
-  await voiceAct(() => voice.toggleScreen({ ...o, appAudio }));
+  await voiceAct(() => voice.toggleScreen({ ...o, appAudio, srcInfo: srcInfo(src) }));
   if (voice.screen) clipFlash(true, 'Transmitindo', src?.name, 'share');
   else clipFlash(false, 'Transmissão não iniciada', null, 'share');
 }
