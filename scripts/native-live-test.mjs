@@ -159,7 +159,7 @@ try {
   const s60 = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers) }));
   const cfg60 = helpers[2]?.cfg || {};
   ok(s60.native && !s60.prod.includes('screen') && helpers.length === 3 && helpers[1].stopped, 'mudar para 60 fps: segue pelo programa nativo (reiniciado com o fps novo)', { ...s60, n: helpers.length });
-  ok(cfg60.fps === 60 && cfg60.layers?.[0]?.fps === 60 && cfg60.layers?.[1]?.fps === 60, 'programa recebe 60 fps nas duas camadas', cfg60.layers);
+  ok(cfg60.fps === 60 && cfg60.layers?.[0]?.fps === 30 && cfg60.layers?.[1]?.fps === 60, 'programa recebe 60 fps na camada cheia e 30 na leve (metade: as duas dividem o codificador)', cfg60.layers);
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoHeight >= 720, { timeout: 20000 }, a.id).catch(() => { });
   const f60 = await viewerFps(B, a.id);
   ok(f60 >= 52 && f60 <= 66, 'espectador recebe ~60 fps (não os ~48 do Chromium)', f60);

@@ -68,11 +68,15 @@ const opusHi = (sdp) => {
 const nativeWhy = (c) => c.code || (/Só no app/.test(c.reason || '') ? 'web' : /Windows 10.*borda|borda amarela/.test(c.reason || '') ? 'win10'
   : /não encontrado/.test(c.reason || '') ? 'noexe' : /captura de tela necessária/.test(c.reason || '') ? 'nocap' : /codificador/.test(c.reason || '') ? 'nohw' : 'other');
 export const capFps = (fps) => ({ ideal: +fps, max: Math.ceil(+fps * 1.25) });
-const bitrateFor = (res, fps, mbps) => {
+// game: jogo com "Vídeo mais fluido" (a tela inteira muda o tempo todo). Com a taxa de tela comum (1080p60 = 7,2 Mbps)
+// um jogo de corrida saía muito comprimido (Need for Speed, codificador AMD): +50% a 60 FPS ou mais, +25% abaixo.
+// Quem assiste sem banda para isso continua na camada leve; o ajuste automático baixa se a rede não aguentar.
+const bitrateFor = (res, fps, mbps, game = false) => {
   if (+mbps > 0) return Math.round(Math.min(+mbps, 64) * 1e6); // taxa escolhida (até 64 Mbps)
   const base = { 720: 2.2, 1080: 4.5, 1440: 8, source: 9 }[res] || 4.5;
-  return Math.round(base * (fps >= 120 ? 2.4 : fps >= 60 ? 1.6 : fps <= 15 ? .6 : 1) * 1e6);
+  return Math.round(base * (fps >= 120 ? 2.4 : fps >= 60 ? 1.6 : fps <= 15 ? .6 : 1) * (game ? (fps >= 60 ? 1.5 : 1.25) : 1) * 1e6);
 };
+export const isGameShare = (o) => !!o && o.hint !== 'detail' && !!(o.srcInfo?.game || o.srcInfo?.fullscreen);
 
 async function ensureModule(ctx, name, url = `${NS}/${name}/workletProcessor.js`) {
   let set = loadedModules.get(ctx); if (!set) loadedModules.set(ctx, set = new Set());
@@ -449,7 +453,7 @@ export class Voice {
       { rid: 'r1', scaleResolutionDownBy: 2, maxBitrate: 500_000 },
       { rid: 'r2', scaleResolutionDownBy: 1, maxBitrate: 2_000_000 }];
     if (source === 'screen') {
-      const top = bitrateFor(o.res || 1080, o.fps || 30, o.bitrate);
+      const top = bitrateFor(o.res || 1080, o.fps || 30, o.bitrate, isGameShare(o));
       // fps vem da restrição da trilha (prioridade/fps por camada não são aceitos pelo Chromium no simulcast)
       // 3 camadas: quem tem internet fraca recebe a pequena, o resto a cheia; L1T3 deixa o servidor reduzir só os fps antes da resolução
       const t = temporal ? { scalabilityMode: 'L1T3' } : {};
@@ -469,7 +473,7 @@ export class Voice {
     if (source === 'screenaudio') opts.codecOptions = { opusStereo: true, opusFec: true, opusMaxAverageBitrate: 128000 };
     if (source === 'screen') {
       // começa já perto do bitrate alvo: com a partida baixa o Chromium só liga as camadas grandes depois de minutos
-      opts.codecOptions = { videoGoogleStartBitrate: Math.round(bitrateFor(this.screenOpts?.res || 1080, this.screenOpts?.fps || 30, this.screenOpts?.bitrate) * 0.8 / 1000) };
+      opts.codecOptions = { videoGoogleStartBitrate: Math.round(bitrateFor(this.screenOpts?.res || 1080, this.screenOpts?.fps || 30, this.screenOpts?.bitrate, isGameShare(this.screenOpts)) * 0.8 / 1000) };
       // placa de vídeo codifica H.264 sem pesar na CPU (que o jogo está usando); sem hardware fica o VP8 com camadas temporais
       if (!this.e2ee && await this.hwH264()) {
         const c = s.device.rtpCapabilities.codecs.find(x => x.mimeType.toLowerCase() === 'video/h264' && /^64/.test(String(x.parameters?.['profile-level-id']).toLowerCase()));
@@ -596,7 +600,7 @@ export class Voice {
       fallback: method === 'chromium' ? { code: this._natWhy || null, text: this._natWhyText || null } : null,
       restarts: this.natRestartCount || 0, lastError: this.natLastError || null,
       gov: g ? { note: g.note, step: g.ladder[g.level], layersOff: g.layersOff, top: g.ladder[0] } : null,
-      fse: this.fse || null, chromiumSource: this._swapWhy || null,
+      fse: this.fse || null, chromiumSource: this._swapWhy || null, nativePrio: this.native?.prio || null, encoderBusy: this.native?.stats?.busy ?? null, nativeKbps: this.native?.stats?.kbps ?? null,
       // escolha do método (captura com WGC/DXGI): o pedido, o que o programa decidiu e por quê, e o histórico de trocas
       capture: {
         mode: captureMode(this.prefs), applied: n ? (cap?.mode || (this._capMode ? null : 'classic')) : null, active: method === 'chromium' ? 'chromium' : cm,
@@ -744,14 +748,14 @@ export class Voice {
     // espectador com banda fraca (ou perda) precisando da camada pequena: religa as camadas, mesmo custando processador
     if (g.layersOff && Date.now() - (g.vAt || 0) > GOV_VIEWERS_MS) {
       g.vAt = Date.now();
-      const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate);
+      const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate, isGameShare(this.screenOpts));
       if (v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7))) return this.govApply(g, { layersOff: false }, 'Um espectador com internet fraca: camadas leves religadas.');
     }
     if (g.bad >= GOV_BAD) {
       if (g.upAt && Date.now() - g.upAt < 20e3) g.upWait = Math.min(g.upWait * 2, 150); // subiu e não aguentou: espera mais
       g.upAt = 0;
       if (!g.layersOff && (p.rtpSender.getParameters().encodings?.length || 0) > 1) {
-        const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate);
+        const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate, isGameShare(this.screenOpts));
         const need = v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7));
         if (!need) return this.govApply(g, { layersOff: true }, 'Processador no limite: camadas leves desligadas (ninguém precisava delas).');
       }
@@ -963,7 +967,7 @@ export class Voice {
         const prm = s.getParameters(); if (!prm.encodings?.length) prm.encodings = [{}];
         const o = this.screenOpts || {};
         if (kind === 'screen') {
-          prm.encodings[0].maxBitrate = bitrateFor(o.res || 1080, o.fps || 30, o.bitrate); prm.encodings[0].maxFramerate = +o.fps || 30;
+          prm.encodings[0].maxBitrate = bitrateFor(o.res || 1080, o.fps || 30, o.bitrate, isGameShare(o)); prm.encodings[0].maxFramerate = +o.fps || 30;
           prm.degradationPreference = o.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
         } else prm.encodings[0].maxBitrate = 2_000_000;
         prm.encodings[0].networkPriority = 'high';
@@ -1479,9 +1483,11 @@ export class Voice {
     const my = this.native = { pending: true };
     if (!this._natEv) { this._natEv = true; d.onNativeEvent?.((ev) => this.onNativeEvent(ev)); }
     try {
-      // duas camadas: a cheia e uma leve (540p ou 360p a 60 fps) que o servidor manda a quem não tem banda para a cheia
+      // duas camadas: a cheia e uma leve (540p ou 360p) que o servidor manda a quem não tem banda para a cheia. A leve vai
+      // na metade do FPS (60 -> 30, 120 -> 60): as duas dividem o codificador da placa, e com a leve a 60 o da AMD
+      // ficava ocupado e descartava quadros da cheia (46 capturados, 40 enviados)
       const topH = o.res === 'source' ? 2160 : +o.res || 1080, lowH = topH >= 1080 ? 540 : 360;
-      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate) / 1000) }, low = { height: lowH, fps: Math.min(60, +o.fps), kbps: lowH >= 540 ? 2500 : 1200 };
+      const top = { height: topH, fps: +o.fps, kbps: Math.round(bitrateFor(o.res || 1080, +o.fps, o.bitrate, isGameShare(o)) / 1000) }, low = { height: lowH, fps: +o.fps >= 60 ? Math.min(60, Math.round(+o.fps / 2)) : +o.fps, kbps: lowH >= 540 ? 2500 : 1200 };
       const r = await this.sfuReq('native_start', { layers: 2 });
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];

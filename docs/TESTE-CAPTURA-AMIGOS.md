@@ -105,3 +105,11 @@ Só não existe imagem do jogo enquanto ele está minimizado, e é exatamente a�
 Ainda falta: (1) transmitir o Valorant na Resenha com o servidor atualizado; (2) o mesmo autoteste num **Windows 10**.
 Não medido aqui: uma sessão de WGC aberta com o jogo minimizado volta a entregar quadros quando ele é restaurado?
 (o autoteste reabre a captura depois de voltar). Com a correção a transmissão só começa com o jogo na tela.
+
+### 2026-11-17 · Windows 10 (19045) · AMD (AMDh264Encoder) · Need for Speed Rivals em tela cheia, 1080p60
+Relatório: DXGI capturou **46** quadros/s, saíram **40**; `limit: cpu` (no nativo = codificador sem vaga de entrada,
+quadros descartados); 7,5 Mbps; CPU do programa 6%; GPU do PC 80-90%. Imagem muito comprimida.
+Mudanças: bitrate automático +50% para jogo a 60 FPS (1080p60: 7,2 -> 10,8 Mbps); camada leve na metade do FPS (as
+duas camadas dividem o codificador); quadro que chega com o codificador ocupado espera a próxima vaga em vez de ser
+descartado; prioridade ALTA de GPU para o processo (como o OBS) e a maior prioridade de thread de GPU aceita. Painel:
+`encoderBusy`, `nativeKbps`, `nativePrio`. **Falta medir de novo** (precisa do app novo).

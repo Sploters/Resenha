@@ -30,15 +30,21 @@ use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
 pub(crate) type R<T> = Result<T, String>;
 
+#[link(name = "gdi32")]
+extern "system" { fn D3DKMTSetProcessSchedulingPriorityClass(process: windows::Win32::Foundation::HANDLE, class: i32) -> i32; }
+const GPU_CLASS_HIGH: i32 = 4; // D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH
 /// Prioridades para a transmissão não perder quadros quando o jogo puxa CPU/GPU (o programa roda sem janela, em segundo
 /// plano, e o Windows 11 tende a tratá-lo como tarefa de fundo):
 /// - sem EcoQoS (o Windows 11 pode pôr processo de fundo em núcleos de economia e com o relógio mais lento) e sem
 ///   ignorar a resolução de timer;
 /// - thread da captura/codificação acima do normal (não tempo real: o laço acorda a cada quadro e não pode tomar o
 ///   processador do jogo);
-/// - prioridade de GPU um degrau acima do normal (o ajuste existe de -7 a 7; alguns drivers ignoram).
+/// - prioridade de GPU: o processo na classe ALTA do agendador da placa (D3DKMTSetProcessSchedulingPriorityClass, o que
+///   o OBS faz) e as threads no máximo que o Windows aceitar (SetGPUThreadPriority, 7 -> 1). Com o jogo usando 80-90% da
+///   placa, a captura e a conversão ficavam na fila atrás dele e o DXGI entregava ~46 de 60 quadros (Windows 10, AMD).
+///   O trabalho do lc-stream na placa é pequeno (conversão de cor; o codificador é um bloco à parte), então tirar a
+///   frente custa pouco ao jogo. Tempo real (REALTIME) exige administrador e pode travar a tela: não usa.
 /// Cada passo é independente; o resultado vai no evento "started" para o diagnóstico.
-const GPU_PRIORITY: i32 = 1;
 pub(crate) fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
     use windows::Win32::System::Threading::*;
     let eco = unsafe {
@@ -46,8 +52,9 @@ pub(crate) fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
         SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &st as *const _ as *const core::ffi::c_void, std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32).is_ok()
     };
     let thread = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL).is_ok() };
-    let gpu = unsafe { dxgi.SetGPUThreadPriority(GPU_PRIORITY).is_ok() };
-    serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpu": gpu })
+    let class = unsafe { D3DKMTSetProcessSchedulingPriorityClass(GetCurrentProcess(), GPU_CLASS_HIGH) } >= 0;
+    let gpu = [7, 5, 3, 1].into_iter().find(|&p| unsafe { dxgi.SetGPUThreadPriority(p) }.is_ok());
+    serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpuClassHigh": class, "gpu": gpu.is_some(), "gpuThread": gpu })
 }
 pub(crate) fn e<T>(r: windows::core::Result<T>, what: &str) -> R<T> { r.map_err(|x| format!("{what}: {} (0x{:08X})", x.message(), x.code().0 as u32)) }
 
@@ -227,6 +234,9 @@ pub(crate) struct WinLayer {
     pub(crate) ring: Vec<(ID3D11Texture2D, ID3D11VideoProcessorOutputView)>, pub(crate) ow: u32, pub(crate) oh: u32, pub(crate) fps: u32,
     pub(crate) need: u32, pub(crate) next_due: f64, pub(crate) slot: usize, pub(crate) last_slot: Option<usize>, pub(crate) last_input: f64, pub(crate) last_st: i64,
     pub(crate) inflight: HashMap<i64, Instant>, pub(crate) inputs: u64,
+    /// quadro já convertido esperando o codificador pedir entrada (ele estava ocupado): entra no próximo NeedInput
+    /// em vez de ser descartado; um mais novo substitui o anterior (só aí um quadro se perde)
+    pub(crate) pending: Option<(usize, i64)>,
 }
 
 pub(crate) fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: &ID3D11VideoContext, luid: u64, cw: u32, ch: u32, l: &Layer, verbose: bool) -> R<WinLayer> {
@@ -258,7 +268,7 @@ pub(crate) fn make_layer(device: &ID3D11Device, vdev: &ID3D11VideoDevice, vctx: 
         ring.push((t, ov.unwrap()));
     }
     let enc = make_encoder(device, luid, ow, oh, l.fps, l.kbps, verbose)?;
-    Ok(WinLayer { enc, vproc, venum, ring, ow, oh, fps: l.fps, need: 0, next_due: 0.0, slot: 0, last_slot: None, last_input: 0.0, last_st: 0, inflight: HashMap::new(), inputs: 0 })
+    Ok(WinLayer { enc, vproc, venum, ring, ow, oh, fps: l.fps, need: 0, next_due: 0.0, slot: 0, last_slot: None, last_input: 0.0, last_st: 0, inflight: HashMap::new(), inputs: 0, pending: None })
 }
 
 impl WinLayer {

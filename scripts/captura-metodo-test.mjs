@@ -207,6 +207,8 @@ try {
   await share(A, '', 'auto', { fps: 60, srcInfo: valo });
   let sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
   ok(s.native && sel.at(-1) === 'screen:0:0' && helpers[0]?.srcId === 'window:4242:0', 'Chromium capturando a tela e o nativo a janela do jogo', { sel, srcId: helpers[0]?.srcId, s });
+  const L = helpers[0]?.cfg.layers || [], topL = L.at(-1), lowL = L[0];
+  ok(topL?.kbps === 5280 && topL?.fps === 60 && lowL?.fps === 30, 'jogo a 60 FPS: bitrate automático +50% (720p60 = 5,3 Mbps) e camada leve a 30 FPS', L.map(x => ({ h: x.height, fps: x.fps, kbps: x.kbps })));
   await unshare(A);
   await A.evaluate(() => { window.__sel.length = 0; window.__twoScreens = true; });
   await share(A, '', 'auto', { fps: 60, srcInfo: valo });

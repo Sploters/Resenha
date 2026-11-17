@@ -522,7 +522,11 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
             loop {
                 let ev = match unsafe { l.enc.events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } { Ok(ev) => ev, Err(_) => break };
                 let typ = unsafe { ev.GetType() }.unwrap_or(0);
-                if typ == METransformNeedInput.0 as u32 { l.need += 1; }
+                if typ == METransformNeedInput.0 as u32 {
+                    l.need += 1;
+                    // quadro que chegou com o codificador ocupado: entra agora
+                    if let Some((ps, pst)) = l.pending.take() { if l.feed(ps, pst).is_ok() { l.need -= 1; l.inputs += 1; l.last_slot = Some(ps); l.last_input = now; l.last_st = pst; } }
+                }
                 else if typ == METransformHaveOutput.0 as u32 {
                     let out_ = match l.enc.take_output() { Ok(x) => x, Err(x) => { if p.g.lost().is_some() { break; } return Err(x); } };
                     if let Some((data, ts100)) = out_ {
@@ -664,12 +668,11 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
         // quais camadas querem este quadro (cada uma no seu fps)
         let st = (now * 1e7) as i64;
         let mut want: Vec<usize> = Vec::new();
-        for (k, (i, l)) in p.layers.iter_mut().enumerate() {
+        for (k, (_i, l)) in p.layers.iter_mut().enumerate() {
             let iv = 1.0 / l.fps as f64;
             if now + iv * 0.3 < l.next_due { continue; }
             l.next_due = if l.next_due < now - iv { now + iv } else { l.next_due + iv };
-            if l.need == 0 { if *i == top_i { m.skipped_busy += 1; } continue; }
-            want.push(k);
+            want.push(k); // codificador ocupado (need == 0): converte e deixa esperando (pending) em vez de descartar
         }
         for k in want {
             let l = &mut p.layers[k].1;
@@ -680,6 +683,12 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
             let r = unsafe { p.g.vctx.VideoProcessorBlt(&l.vproc, &l.ring[cur].1, 0, std::slice::from_ref(&stream)) };
             unsafe { ManuallyDrop::drop(&mut stream.pInputSurface); }
             if let Err(x) = r { blt_err.get_or_insert(format!("VideoProcessorBlt: {}", x.message())); continue; }
+            if l.need == 0 {
+                // ocupado: guarda este (o mais novo); só conta como perdido se substituiu um que ainda esperava
+                if l.pending.replace((cur, st)).is_some() && p.layers[k].0 == top_i { m.skipped_busy += 1; }
+                continue;
+            }
+            l.pending = None;
             match l.feed(cur, st) { Ok(()) => { l.need -= 1; l.inputs += 1; l.last_slot = Some(cur); l.last_input = now; l.last_st = st; } Err(x) => { in_err.get_or_insert(format!("ProcessInput: {} (0x{:08X})", x.message(), x.code().0 as u32)); } }
         }
         drop(f); active.release();
