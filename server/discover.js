@@ -236,13 +236,14 @@ export function mountDiscover(app, { auth, dataDir }) {
         data_request: { include_assets: true, include_reviews: true, include_all_purchase_options: true, include_tag_count: 3, include_basic_info: true, include_release: true, include_platforms: true } }).catch(() => null);
       for (const it of r?.response?.store_items || []) if (it.success === 1 && it.appid) cache.set('sitem:' + it.appid, { at: Date.now(), v: it });
     }
-    const tags = await tagNames().catch(() => ({}));
+    // as tags são enfeite: não seguram a resposta (a atividade do PC espera por isto para mostrar o nome certo)
+    const tags = await Promise.race([tagNames().catch(() => ({})), new Promise(r => setTimeout(r, 1500, {}))]);
     const out = {};
     for (const id of ids) {
       const it = cache.get('sitem:' + id)?.v; if (!it) continue;
       const a = it.assets || {}, img = (f) => (f && a.asset_url_format ? (conf().steamAssets || ASSETS) + a.asset_url_format.replace('${FILENAME}', f) : '');
       const bp = it.best_purchase_option, rv = it.reviews?.summary_filtered;
-      out[id] = { appid: id, title: it.name, url: `https://store.steampowered.com/app/${id}/`, image: img(a.header), thumb: img(a.small_capsule) || img(a.header),
+      out[id] = { appid: id, title: it.name, url: `https://store.steampowered.com/app/${id}/`, image: img(a.header), thumb: img(a.small_capsule) || img(a.header), cover: img(a.library_capsule_2x || a.library_capsule),
         free: !!it.is_free, price: it.is_free ? 'Gratuito' : bp?.formatted_final_price || '', old: bp?.discount_pct ? bp.formatted_original_price || '' : '', discount: bp?.discount_pct || 0,
         ends: bp?.discount_pct ? (Math.max(0, ...(bp.active_discounts || []).map(d => +d.discount_end_date || 0)) * 1000 || null) : null,
         reviews: rv?.review_count ? { pct: rv.percent_positive, label: rv.review_score_label, count: rv.review_count } : null,
@@ -308,9 +309,21 @@ export function mountDiscover(app, { auth, dataDir }) {
     try {
       const it = await storeItems(ids.map(Number));
       res.set('Cache-Control', 'private, max-age=3600');
-      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
+      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, cover: x.cover, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
     } catch { res.json({}); }
   });
+  // jogo aberto no PC sem o número da Steam (EA app, Battle.net, Epic, Xbox…): procura pelo nome na loja da Steam
+  // para mostrar a arte oficial. Só aceita o nome igual (sem ™/®, maiúsculas e pontuação): "The Sims 4" -> 1222670.
+  const nameKey = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[™®©]/g, '').replace(/[^a-z0-9]+/g, '');
+  async function findApp(name) {
+    const k = nameKey(name); if (k.length < 2) return null;
+    return cached('sfind:' + k, 7 * 864e5, async () => {
+      const r = await get(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(String(name).slice(0, 80))}&l=english&cc=${country()}`, 'json', 6000);
+      const hit = (r?.items || []).find(x => x.type === 'app' && nameKey(x.name) === k);
+      return hit ? { appid: String(hit.id), title: String(hit.name).replace(/[™®]/g, '').replace(/\s+/g, ' ').trim() } : null;
+    }).catch(() => null);
+  }
   // preços para o alerta de promoção da wishlist (server/games.js): { appid: item } ou null se a Steam estiver desligada
-  return { storeItems: (ids, maxAge) => (off() || conf().steam === false ? Promise.resolve(null) : storeItems(ids.map(Number), maxAge)) };
+  return { storeItems: (ids, maxAge) => (off() || conf().steam === false ? Promise.resolve(null) : storeItems(ids.map(Number), maxAge)),
+    findApp: (name) => (off() || conf().steam === false ? Promise.resolve(null) : findApp(name)) };
 }

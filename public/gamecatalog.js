@@ -22,6 +22,38 @@ export const KNOWN_GAMES = [
   { key: 'gla', title: 'Grand Line Adventures', ids: ['grandlineadventures', 'grand line adventures', 'gla'], titles: ['grandlineadventures', 'gla'],
     links: [{ name: 'Site oficial', url: 'https://grandlineadventures.com/en/' }] },
   { key: 'helldivers2', title: 'HELLDIVERS 2', steam: '553850', ids: ['helldivers2'], titles: ['helldivers2'] },
+  { key: 'deadasdisco', title: 'Dead as Disco', steam: '3404260', ids: ['pagoda', 'pagoda-win64-shipping', 'deadasdisco', 'deadasdisco-win64-shipping'], titles: ['deadasdisco', 'pagoda'] },
+
+  // EA app: o executável tem nome interno (TS4_x64); a arte vem da loja da Steam, onde os mesmos jogos estão
+  { key: 'sims4', title: 'The Sims 4', steam: '1222670', ids: ['ts4_x64', 'ts4_dx9_x64', 'ts4'], titles: ['thesims4', 'sims4'],
+    links: [{ name: 'EA app', url: 'https://www.ea.com/pt-br/games/the-sims/the-sims-4' }] },
+  { key: 'apex', title: 'Apex Legends', steam: '1172470', ids: ['r5apex', 'r5apex_dx12'], titles: ['apexlegends'] },
+  { key: 'bf6', title: 'Battlefield 6', steam: '2807960', ids: ['bf6', 'bf6event'], titles: ['battlefield6'] },
+  { key: 'bf2042', title: 'Battlefield 2042', steam: '1517290', ids: ['bf2042'], titles: ['battlefield2042'] },
+  { key: 'fc26', title: 'EA SPORTS FC 26', steam: '3405690', ids: ['fc26'], titles: ['easportsfc26', 'fc26'] },
+  { key: 'ittakestwo', title: 'It Takes Two', steam: '1426210', ids: ['ittakestwo'], titles: ['ittakestwo'] },
+  { key: 'splitfiction', title: 'Split Fiction', steam: '2001120', ids: ['splitfiction'], titles: ['splitfiction'] },
+  { key: 'nfsunbound', title: 'Need for Speed Unbound', steam: '1846380', ids: ['needforspeedunbound'], titles: ['needforspeedunbound'] },
+
+  // Battle.net: os que também estão na Steam usam a arte de lá; os só da Battle.net, a imagem do site oficial
+  { key: 'overwatch', title: 'Overwatch 2', steam: '2357570', ids: ['overwatch'], titles: ['overwatch', 'overwatch2'],
+    links: [{ name: 'Site oficial', url: 'https://overwatch.blizzard.com/pt-br/' }] },
+  { key: 'diablo4', title: 'Diablo IV', steam: '2344520', ids: ['diablo iv', 'diabloiv'], titles: ['diabloiv', 'diablo4'],
+    links: [{ name: 'Site oficial', url: 'https://diablo4.blizzard.com/pt-br/' }] },
+  { key: 'cod', title: 'Call of Duty', steam: '1938090', ids: ['cod', 'cod24-cod', 'cod25-cod', 'blackops6', 'blackops7'], titles: ['callofduty', 'callofdutyblackops6', 'callofdutyblackops7', 'callofdutywarzone'] },
+  { key: 'wow', title: 'World of Warcraft', ids: ['wow', 'wowclassic', 'wow-64'], titles: ['worldofwarcraft'],
+    icon: 'https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/bltb5a24e5ab1e2cfb0/6a88e3589b942efdb6f74110/wow-thumbnail-homepage.jpg',
+    banner: 'https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/bltb5a24e5ab1e2cfb0/6a88e3589b942efdb6f74110/wow-thumbnail-homepage.jpg',
+    links: [{ name: 'Site oficial', url: 'https://worldofwarcraft.blizzard.com/pt-br/' }] },
+  { key: 'hearthstone', title: 'Hearthstone', ids: ['hearthstone'], titles: ['hearthstone'],
+    banner: 'https://d39zum0jwvcigt.cloudfront.net/_next/static/images/default-475d770302527dbab7708dca2af05afd.jpg',
+    links: [{ name: 'Site oficial', url: 'https://hearthstone.blizzard.com/pt-br' }] },
+  { key: 'sc2', title: 'StarCraft II', ids: ['sc2_x64', 'sc2'], titles: ['starcraftii', 'starcraft2'],
+    banner: 'https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/bltbe2068a317e02d9f/6966bac0fb2fd910dbda4a26/og_image.webp',
+    links: [{ name: 'Site oficial', url: 'https://starcraft2.blizzard.com/pt-br/' }] },
+  { key: 'diablo3', title: 'Diablo III', ids: ['diablo iii64', 'diablo iii'], titles: ['diabloiii', 'diablo3'],
+    banner: 'https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blte3178c04d93773f1/67ce27f440e6651e27e17582/og_image.webp',
+    links: [{ name: 'Site oficial', url: 'https://diablo3.blizzard.com/pt-br/' }] },
 ];
 
 // executáveis que não são o jogo: anticheat que abre o jogo (Easy Anti-Cheat, BattlEye) e o Java. O ícone deles

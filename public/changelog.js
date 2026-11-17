@@ -10,7 +10,8 @@ export const NEWS = [
     items: [
       { i: 'voice', t: 'Aceito? Já está na sala', d: 'Quando o anúncio tem sala de voz, quem é aceito (ou entra direto) já entra no servidor dela e recebe o convite para a chamada. O botão "Ir para a sala" leva para lá na hora do jogo. A conversa do anúncio mostra o anúncio inteiro no topo.' },
       { i: 'x', t: 'Esc fecha', d: 'Clipes, o popup do jogo e as outras janelas fecham com a tecla Esc.' },
-      { i: 'gamepad', t: 'Jogos com nome e imagem certos', d: 'Jogos com anticheat (Helldivers 2) e o Minecraft não mostram mais o ícone do anticheat ou do Java, e o nome vem da loja em vez da janela. Valorant, LoL, Minecraft e Grand Line Adventures ganharam ícone, banner e links oficiais.' },
+      { i: 'gamepad', t: 'Jogos com nome e imagem certos', d: 'O ícone e o banner vêm da capa oficial da Steam (não mais do ícone do anticheat ou do Java) e o nome vem da loja em vez da janela: Helldivers 2 e Dead as Disco aparecem certos. Valorant, LoL, Minecraft e Grand Line Adventures ganharam ícone, banner e links oficiais.' },
+      { i: 'gamepad', t: 'Jogos da EA app e da Battle.net', d: 'The Sims 4, Apex, Battlefield, EA FC, Overwatch 2, Diablo, World of Warcraft, Hearthstone e outros são reconhecidos, com o nome e o banner certos.' },
     ],
   },
   {

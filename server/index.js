@@ -1920,7 +1920,18 @@ app.put('/api/activity/games/:platform/:gameId', auth, wrap((req, res) => { // e
 }));
 app.get('/api/activity/hidden', auth, wrap((req, res) => res.json(all('SELECT gp.platform, gp.game_id, (SELECT a.title FROM activities a WHERE a.user_id=gp.user_id AND a.platform=gp.platform AND a.game_id=gp.game_id ORDER BY a.created_at DESC LIMIT 1) title FROM game_prefs gp WHERE gp.user_id=? AND gp.hidden=1', req.uid))));
 // ícone do jogo (PNG pequeno mandado pelo app desktop): confere que é PNG de verdade, até 32 KB e 128x128; devolve o hash
-const steamNames = new Map(); // appid -> nome na loja da Steam (corrige o nome do jogo detectado no PC)
+// nome e número na Steam do jogo aberto no PC (por executável + título + appid mandados pelo app desktop)
+const localNames = new Map();
+const storeTitle = (t) => String(t || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim();
+async function resolveLocalGame(title, steam, known) {
+  if (known) return { title: known.title, steam: steam || known.steam || null, known: known.key };
+  try {
+    if (steam) { const it = await discover.storeItems([steam], 7 * 864e5); return { title: storeTitle(it?.[steam]?.title) || title, steam }; }
+    const f = await discover.findApp(title);
+    if (f) { const k = knownGame({ steam: f.appid }); return { title: k?.title || f.title, steam: f.appid, ...(k ? { known: k.key } : {}) }; }
+  } catch { /* loja fora do ar: fica o nome mandado pelo app */ }
+  return { title, steam };
+}
 function saveGameIcon(b64) {
   if (typeof b64 !== 'string' || b64.length > 44000) return null;
   const buf = Buffer.from(b64, 'base64');
@@ -2323,16 +2334,16 @@ wss.on('connection', (ws) => {
           if (wrapper) icon = null;
           ws.localGame = gid; ws.localIcon = icon;
           if (icon) run('UPDATE game_icons SET used_at=? WHERE hash=?', Date.now(), icon);
-          // o nome certo: catálogo (Valorant, LoL, Minecraft…) ou o nome da loja da Steam; o título da janela pode ser
-          // um aviso ("GPU drivers are out of date") ou o nome interno do motor ("Pagoda")
-          const id = wrapper ? (known?.key || (steam ? 'steam-' + steam : gid)) : gid;
-          const report = (t) => activity.reportLocal(uid, { id, title: t, icon, steam, ...(known ? { known: known.key } : {}) });
-          if (known) { report(known.title); break; }
-          if (!steam) { report(title); break; }
-          const cachedName = steamNames.get(steam);
-          if (cachedName) { report(cachedName); break; }
-          Promise.race([discover.storeItems([steam], 7 * 864e5), new Promise(r => setTimeout(r, 4000, null))])
-            .then(it => { const n = String(it?.[steam]?.title || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); if (n) steamNames.set(steam, n); report(n || title); }, () => report(title));
+          // o nome certo e a arte: catálogo (Valorant, LoL, Minecraft…), o nome da loja da Steam pelo número do jogo, ou
+          // o jogo procurado pelo nome na Steam (EA app, Battle.net, Epic: The Sims 4). O título da janela pode ser um
+          // aviso ("GPU drivers are out of date") ou o nome interno do motor ("Pagoda").
+          const report = (r) => { if (ws.localGame !== gid) return; const k = r.known || known?.key; activity.reportLocal(uid, { id: wrapper ? (k || (r.steam ? 'steam-' + r.steam : gid)) : gid, title: r.title, icon, steam: r.steam || null, ...(k ? { known: k } : {}) }); };
+          const key = gid + '|' + title + '|' + (steam || ''), done = localNames.get(key);
+          if (done) { report(done); break; }
+          // espera até 5 s pela loja; se demorar, publica o que tem e corrige sozinho quando a resposta chegar
+          let sent = false;
+          const timer = setTimeout(() => { sent = true; report({ title: known?.title || title, steam: steam || known?.steam || null }); }, 5000);
+          resolveLocalGame(title, steam, known).then(r => { localNames.set(key, r); if (localNames.size > 2000) localNames.delete(localNames.keys().next().value); clearTimeout(timer); if (!sent || r.title !== title || r.steam !== steam) report(r); });
           break;
         }
         case 'VOICE_LEAVE': { const c = currentVoice(uid); if (c) leaveVoice(uid, c); break; }

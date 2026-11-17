@@ -8,7 +8,7 @@ const PORT = 3237, BASE = `http://localhost:${PORT}`, DIR = './.testdata-lfgroom
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 fs.rmSync(DIR, { recursive: true, force: true });
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DIR, DISCOVER: '0' }, stdio: 'ignore' });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DIR, DISCOVER_OFF: '1' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => { const j = await r.json().catch(() => ({})); return Array.isArray(j) ? Object.assign(j, { status: r.status }) : { status: r.status, ...j }; });
 const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };
@@ -66,6 +66,15 @@ try {
   await send({ id: 'valorant-win64-shipping', title: 'VALORANT  ', icon: png });
   gm = upd();
   ok(gm?.known === 'valorant' && gm.title === 'VALORANT', 'Valorant reconhecido pelo catálogo (ícone e banner oficiais na página)', gm);
+  await send({ id: 'pagoda-win64-shipping', title: 'Pagoda', icon: png });
+  gm = upd();
+  ok(gm?.title === 'Dead as Disco' && gm.steam === '3404260', 'Dead as Disco (janela "Pagoda", sem o número da Steam): nome e arte certos', gm);
+  await send({ id: 'ts4_x64', title: 'The Sims 4', icon: png });
+  gm = upd();
+  ok(gm?.title === 'The Sims 4' && gm.steam === '1222670', 'The Sims 4 pela EA app: número da Steam para o banner', gm);
+  await send({ id: 'wow', title: 'World of Warcraft', icon: png });
+  gm = upd();
+  ok(gm?.known === 'wow' && gm.title === 'World of Warcraft', 'World of Warcraft (Battle.net) reconhecido', gm);
   await send({ id: 'someindie', title: 'Some Indie', icon: png });
   gm = upd();
   ok(gm?.title === 'Some Indie' && !!gm.icon && !gm.known, 'jogo fora do catálogo segue com o ícone do programa', gm);

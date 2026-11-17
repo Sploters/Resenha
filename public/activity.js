@@ -40,7 +40,7 @@ export function clearActivities() { S.activities.clear(); S.integrations = null;
 
 const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 1) return 'menos de 1 min'; if (m < 60) return m + ' min'; const hh = Math.floor(m / 60), mm = m % 60; return hh + 'h' + (mm ? ' ' + mm + 'min' : ''); };
 const since = (t) => (Date.now() - t < 60000 ? 'começou agora' : 'há ' + dur(Date.now() - t));
-export const playingLine = (a) => `Jogando ${a.game.title}`;
+export const playingLine = (a) => `Jogando ${gameTitle(a)}`;
 
 // ---------------------------------------------------------------- imagem do jogo
 // 1) ícone do executável, mandado pelo app desktop de quem joga (/game-icons/<hash>.png)
@@ -66,9 +66,23 @@ function steamArt(id) { // Promise<{ image, thumb } | null>, em lote (vários ca
 export function gameIcon(a, size = 20) {
   const box = h('span.gicon', { style: { width: size + 'px', height: size + 'px' } });
   const set = (src, cover) => { const img = h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => box.replaceChildren(icon('gamepad', Math.round(size * .8))) }); if (cover) img.classList.add('cover'); box.replaceChildren(img); };
-  const kg = knownGame(a.game), ic = kg?.icon || iconUrl(a), sid = steamIdOf(a) || kg?.steam;
-  if (ic) set(ic, !!kg?.icon && !/\.svg(\?|$)/.test(kg.icon)); else { box.append(icon('gamepad', Math.round(size * .8))); if (sid) steamArt(sid).then(x => { if (x?.thumb) set(x.thumb, true); }); }
+  // ordem: ícone do catálogo (Valorant, LoL…) > capa oficial da Steam > ícone do programa > controle. O ícone do programa
+  // perde para a Steam porque pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo
+  const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, exe = iconUrl(a);
+  if (kg?.icon) set(kg.icon, !/\.svg(\?|$)/.test(kg.icon));
+  else {
+    if (exe) set(exe); else box.append(icon('gamepad', Math.round(size * .8)));
+    if (sid) steamArt(sid).then(x => { const src = x?.cover || x?.thumb; if (src && box.isConnected !== false) set(src, true); });
+  }
   return box;
+}
+// nome do jogo: o do catálogo, ou o da loja da Steam quando chega (o título da janela pode ser "Pagoda" ou um aviso)
+const cleanName = (t) => String(t || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim();
+export function gameTitle(a) { return knownGame(a.game)?.title || a.game.title; }
+export function titleEl(a, tag = 'span') {
+  const kg = knownGame(a.game), el = h(tag, kg?.title || a.game.title), sid = steamIdOf(a) || kg?.steam;
+  if (!kg && sid) steamArt(sid).then(x => { const t = cleanName(x?.title); if (t) el.textContent = t; });
+  return el;
 }
 // faixa com a arte da Steam (cartões maiores); some quando não há arte
 export function gameBanner(a) {
@@ -100,13 +114,14 @@ function gamePeople(a) {
 export function gameModal(a) {
   const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, ic = kg?.icon || iconUrl(a);
   const hero = h('div.gm-hero', ic ? h('img.gm-icon', { src: ic, alt: '', referrerPolicy: 'no-referrer' }) : h('span.gm-icon.gm-ph', icon('gamepad', 44)));
+  const swapIcon = (src) => { const old = hero.querySelector('.gm-icon'); const img = h('img.gm-icon.cover', { src, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.replaceWith(old) }); old.replaceWith(img); };
   if (kg?.banner) { hero.prepend(h('img.gm-art', { src: kg.banner, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => { e.target.remove(); hero.classList.remove('has-art'); } })); hero.classList.add('has-art'); }
   const meta = h('div.gm-meta'), tags = h('div.gm-tags');
   const ext = (name, url) => h('a.btn.gm-steam', { href: url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 16), name);
   const store = [...(kg?.links || []).map(l => ext(l.name, l.url)), sid && ext('Ver na Steam', `https://store.steampowered.com/app/${sid}/`)].filter(Boolean);
   const people = gamePeople(a);
   const body = h('div.gm', hero, h('div.gm-main',
-    h('div.gm-head', h('h2', kg?.title || a.game.title), store.length > 0 && h('div.gm-links', store)),
+    h('div.gm-head', titleEl(a, 'h2'), store.length > 0 && h('div.gm-links', store)),
     meta, tags,
     people.length ? [h('div.gm-cap', 'Amigos que jogaram'), h('div.gm-people', people)] : h('p.gm-none', 'Nenhum amigo jogou isto esta semana.')));
   const m = modal('', null, body, [], { width: 'min(560px, 94vw)' });
@@ -114,6 +129,7 @@ export function gameModal(a) {
   hero.append(h('button.inv-x.gm-x', { title: 'Fechar', onclick: m.close }, icon('x', 20)));
   if (sid) steamArt(sid).then(x => {
     if (!x) return;
+    if (!kg?.icon && (x.cover || x.thumb)) swapIcon(x.cover || x.thumb);
     if (x.image && !kg?.banner) { hero.prepend(h('img.gm-art', { src: x.image, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); hero.classList.add('has-art'); }
     const rv = x.reviews; meta.replaceChildren(...[rv && h('span.gm-rev', icon('star', 14), `${rv.label} · ${rv.pct}%`), (x.free || x.price) && h('span', x.free ? 'Gratuito' : x.price)].filter(Boolean));
     tags.replaceChildren(...(x.tags || []).map(t => h('span.gm-tag', t)));
@@ -139,7 +155,7 @@ function showGameCard(anchor, uid) {
     h('div.gc-row',
       h('button.gc-img', { title: `Sobre ${a.game.title}`, onclick: open }, gameIcon(a, 56)),
       h('div.gc-info',
-        h('button.gc-title', { title: `Sobre ${a.game.title}`, onclick: open }, a.game.title),
+        h('button.gc-title', { title: `Sobre ${gameTitle(a)}`, onclick: open }, titleEl(a)),
         a.state && h('div.gc-state', a.state),
         h('div.gc-badges', h('span.gc-badge.gc-play', { title: 'Tempo jogando' }, icon('gamepad', 12), time),
           a.platform !== 'pc' && h('span.gc-badge', platformName(a.platform))))),
@@ -192,7 +208,7 @@ function playCard(uid, a) {
     h('div.an-gamelink', { title: `Sobre ${a.game.title}`, onclick: openGame(a) }, gameBanner(a)),
     h('div.an-top', profAv(u, 40), h('div.an-who', nameEl(u), h('small', `${platformName(a.platform)} · ${since(a.since)}`)),
       h('button.ibtn.an-dm', { title: 'Mensagem', onclick: (e) => { e.stopPropagation(); ctx.openDM(uid); } }, icon('dm', 18))),
-    h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}`, onclick: openGame(a) }, gameIcon(a, 22), h('span', a.game.title)),
+    h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}`, onclick: openGame(a) }, gameIcon(a, 22), titleEl(a)),
     r && roomLine(r),
     lk && lk.profile_url && h('a.act-link', { href: lk.profile_url, target: '_blank', rel: 'noopener noreferrer', onclick: (e) => e.stopPropagation() }, `Perfil ${platformName(a.platform)}${lk.name ? ' de ' + lk.name : ''}`),
     h('div.act-btns', ...voiceActions(uid)));
@@ -238,7 +254,7 @@ function playGroupCard(list) {
   const a = list[0].a, uids = list.map(x => x.u.id);
   return h('div.an-card.an-play.an-group', { 'data-game': gameKey(a), onclick: openGame(a) },
     h('div.an-gamelink', { title: `Sobre ${a.game.title}` }, gameBanner(a)),
-    h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}` }, gameIcon(a, 22), h('span', a.game.title), h('small.an-count', `${list.length} amigos`)),
+    h('div.an-game.an-gamelink', { title: `Sobre ${a.game.title}` }, gameIcon(a, 22), titleEl(a), h('small.an-count', `${list.length} amigos`)),
     h('div.an-mems', ...list.map(({ u, a: x }) => memberRow(u, since(x.since)))),
     ...roomBlocks(uids));
 }
@@ -261,7 +277,7 @@ const dayHead = (t) => {
 function hlItem(x) {
   const u = uOf(x.user_id), a = x.game && { platform: x.platform, game: x.game };
   const who = h('b.hl-who', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, x.user_id); } }, x.user_id === S.me.id ? 'Você' : u.display_name);
-  const game = x.game && h('b', x.game.title);
+  const game = a && titleEl(a, 'b');
   let ic = a ? gameIcon(a, 18) : null, tag = null, text = [], open = a ? openGame(a) : (e) => ctx.profile(e.currentTarget, x.user_id), hint = a ? `Sobre ${x.game.title}` : '';
   if (x.kind === 'marathon') { tag = h('span.hl-tag.gold', icon('trophy', 12), 'Maratona'); text = [who, ' jogou ', game, ' por ', h('b', durShort(x.seconds))]; }
   else if (x.kind === 'session') text = [who, ' jogou ', game, ' por ', durShort(x.seconds)];
@@ -307,7 +323,7 @@ function hlGroup(g, day, redraw) {
     const a = { platform: x.platform, game: x.game }, secs = list.reduce((t, y) => t + (y.seconds || 0), 0), long = list.some(y => y.kind === 'marathon');
     return h('div.hl-item.hl-' + (long ? 'marathon' : 'session'), { title: `Sobre ${x.game.title}`, onclick: openGame(a), oncontextmenu: (e) => ctx.userMenu(e, x.user_id) },
       h('div.hl-ic', avatar(u, 32, { status: false }), h('span.hl-badge', gameIcon(a, 18))),
-      h('div.hl-txt', long && h('span.hl-tag.gold', icon('trophy', 12), 'Maratona'), h('span', who, ' jogou ', h('b', x.game.title), ' por ', h('b', durShort(secs)), ` em ${list.length} partidas`), h('small', timeRange(list))));
+      h('div.hl-txt', long && h('span.hl-tag.gold', icon('trophy', 12), 'Maratona'), h('span', who, ' jogou ', titleEl(a, 'b'), ' por ', h('b', durShort(secs)), ` em ${list.length} partidas`), h('small', timeRange(list))));
   }
   return hlItem(x); // jogo novo e sequência não se repetem no mesmo dia; se vier repetido, mostra o mais recente
 }

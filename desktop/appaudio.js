@@ -49,8 +49,8 @@ function capable() {
 // ---------- janelas ----------
 // jogo: pasta de loja/jogos, executável conhecido ou janela do tamanho do monitor; nunca navegador/chat/launcher
 const NOT_GAME = /\\(explorer|chrome|msedge|firefox|opera|opera_gx|brave|vivaldi|code|cursor|discord|resenha|electron|obs64|obs32|spotify|ms-teams|teams|slack|whatsapp|telegram|applicationframehost|systemsettings|textinputhost|shellexperiencehost|searchhost|steamwebhelper|steamservice|steam|epicgameslauncher|epicwebhelper|epiconlineservices\w*|riot client|riotclient\w*|battle\.net|battle\.net launcher|agent|eadesktop|eabackgroundservice|ealauncher|origin|originwebhelperservice|ubisoftconnect|upc|uplay\w*|ubisoftgamelauncher\w*|galaxyclient|galaxyclient helper|rockstarlauncher|launcher|socialclubhelper|playgtav|xboxpcapp|xboxapp|gamingservices|gamebar\w*|amazongames|amazon games ui|itch|playnite\.\w+|overwolf|curseforge|minecraftlauncher|hoyoplay|bsglauncher|heroic|nvidia app|nvidia share|nvcontainer|vlc|mpc-hc64|wmplayer|notepad|notepad\+\+|winword|excel|powerpnt|acrobat|photoshop|devenv|idea64|taskmgr|mstsc|parsecd|anydesk)\.exe$/i;
-const KNOWN_GAME = /\\(valorant-win64-shipping|league of legends|cs2|csgo|javaw|minecraft(\.windows)?|peak|repo|fortniteclient-win64-shipping|gta5|gta5_enhanced|rocketleague|r5apex|r5apex_dx12|overwatch|dota2|eldenring|tslgame|cod|modernwarfare|bf2042|fc2\d|eafc2\d|robloxplayerbeta|deadbydaylight-win64-shipping|rainbowsix|rainbowsix_be|lethal company|phasmophobia|among us|stardew valley|terraria|hollow knight)\.exe$/i;
-const GAME_DIR = /\\(steamapps\\common|epic games|riot games|gog galaxy\\games|gog games|ubisoft game launcher\\games|ea games|origin games|xboxgames|battle\.net\\.+\\|rockstar games|games)\\/i;
+const KNOWN_GAME = /\\(valorant-win64-shipping|league of legends|cs2|csgo|javaw|minecraft(\.windows)?|peak|repo|fortniteclient-win64-shipping|gta5|gta5_enhanced|rocketleague|r5apex|r5apex_dx12|overwatch|dota2|eldenring|tslgame|cod|modernwarfare|bf2042|fc2\d|eafc2\d|robloxplayerbeta|deadbydaylight-win64-shipping|rainbowsix|rainbowsix_be|lethal company|phasmophobia|among us|stardew valley|terraria|hollow knight|ts4_x64|ts4_dx9_x64|wow|wowclassic|hearthstone|sc2_x64|diablo iv|diablo iii64|bf6|fc2\d|ittakestwo|splitfiction|needforspeedunbound|helldivers2|start_protected_game)\.exe$/i;
+const GAME_DIR = /\\(steamapps\\common|epic games|riot games|gog galaxy\\games|gog games|ubisoft game launcher\\games|ea games|origin games|xboxgames|battle\.net\\.+\\|rockstar games|games|_retail_|_classic_|_classic_era_)\\/i;
 // lojas/launchers pelo título da janela (o executável pode mudar de nome a cada versão; o servidor também barra: server/launchers.js)
 const LAUNCHER_TITLE = /^(riot client|steam|epic games( launcher)?|(blizzard )?battle\.net|ea( app)?|origin|ubisoft connect|uplay|gog galaxy|rockstar games launcher|xbox|amazon games|itch|playnite|overwolf|curseforge|minecraft launcher|hoyoplay|battlestate games launcher|heroic games launcher|nvidia app|geforce experience)$/i;
 // programas da própria Resenha (lc-audio, lc-stream, lc-stream-poc com a janela de teste em tela cheia "Resenha PoC captura"…)
@@ -109,7 +109,11 @@ function watchWindows(fn) {
 const FRIENDLY = { 'valorant-win64-shipping': 'VALORANT', 'league of legends': 'League of Legends', cs2: 'Counter-Strike 2', csgo: 'Counter-Strike: Global Offensive',
   'fortniteclient-win64-shipping': 'Fortnite', gta5: 'Grand Theft Auto V', gta5_enhanced: 'Grand Theft Auto V', rocketleague: 'Rocket League', r5apex: 'Apex Legends', r5apex_dx12: 'Apex Legends',
   dota2: 'Dota 2', eldenring: 'ELDEN RING', tslgame: 'PUBG: BATTLEGROUNDS', robloxplayerbeta: 'Roblox', 'deadbydaylight-win64-shipping': 'Dead by Daylight', rainbowsix: 'Rainbow Six Siege',
-  rainbowsix_be: 'Rainbow Six Siege', peak: 'PEAK', repo: 'R.E.P.O.', 'minecraft.windows': 'Minecraft', 'lethal company': 'Lethal Company', phasmophobia: 'Phasmophobia', overwatch: 'Overwatch 2' };
+  rainbowsix_be: 'Rainbow Six Siege', peak: 'PEAK', repo: 'R.E.P.O.', 'minecraft.windows': 'Minecraft', 'lethal company': 'Lethal Company', phasmophobia: 'Phasmophobia', overwatch: 'Overwatch 2',
+  // EA app e Battle.net: o executável tem nome interno
+  ts4_x64: 'The Sims 4', ts4_dx9_x64: 'The Sims 4', wow: 'World of Warcraft', wowclassic: 'World of Warcraft Classic', hearthstone: 'Hearthstone', sc2_x64: 'StarCraft II',
+  'diablo iv': 'Diablo IV', 'diablo iii64': 'Diablo III', bf6: 'Battlefield 6', bf2042: 'Battlefield 2042', ittakestwo: 'It Takes Two', splitfiction: 'Split Fiction',
+  needforspeedunbound: 'Need for Speed Unbound', helldivers2: 'HELLDIVERS 2' };
 const cleanTitle = (t) => {
   t = String(t || '').replace(/\s+/g, ' ').trim();
   if (/^minecraft\b/i.test(t)) return 'Minecraft';
