@@ -29,7 +29,7 @@ async function page(tok, desk) {
     // o que desktop/native.js faz: passa "capture" e "osBuild" quando há método; o resto vai como veio
     await p.exposeFunction('__natStart', (o) => new Promise((resolve) => {
       const cfg = { ...o, sourceId: undefined, window: 1234, ...(o.capture ? { osBuild: OSB } : {}) };
-      const h = { cfg, sim: SIM, proc: spawn(BIN, ['--stdin'], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, LC_SIM: SIM } }), events: [] }; helpers.push(h);
+      const h = { cfg, srcId: o.sourceId || null, sim: SIM, proc: spawn(BIN, ['--stdin'], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, LC_SIM: SIM } }), events: [] }; helpers.push(h);
       let buf = '', done = false;
       h.proc.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); let ev; try { ev = JSON.parse(l); } catch { continue; } h.events.push(ev);
         if (!done && (ev.t === 'started' || ev.t === 'error')) { done = true; resolve(ev.t === 'started' ? { ok: true, ...ev } : { ok: false, error: ev.error }); }
@@ -44,7 +44,9 @@ async function page(tok, desk) {
     navigator.mediaDevices.getDisplayMedia = async () => { const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const x = cv.getContext('2d'); let n = 0; setInterval(() => { x.fillStyle = `hsl(${n++ % 360},60%,40%)`; x.fillRect(0, 0, 1280, 720); }, 33); return cv.captureStream(30); };
     if (desk) {
       window.__natCalls = [];
-      const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { }, selectSource: async () => true,
+      window.__sel = [];
+      const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { }, selectSource: async (id) => { window.__sel.push(id); return true; },
+        getSources: async () => [{ id: 'screen:0:0', name: 'Tela', type: 'screen' }, ...(window.__twoScreens ? [{ id: 'screen:1:0', name: 'Tela 2', type: 'screen' }] : []), { id: 'window:4242:0', name: 'VALORANT', type: 'window', game: true }],
         // __oldApp: app desktop anterior (sem escolha de método)
         nativeCapable: async (mode) => { window.__natCalls.push(mode ?? null); return window.__oldApp ? { ok: true, encoders: ['teste'] } : { ok: true, encoders: ['teste'], modes: ['auto', 'wgc', 'dxgi'], os: window.__os || 26200 }; },
         nativeStart: (o) => window.__natStart(o), nativeStop: () => window.__natStop(), onNativeEvent: (cb) => { window.__natCb = cb; } };
@@ -196,6 +198,31 @@ try {
   await share(A, '', 'auto', { fps: 30, srcInfo: game });
   s = await state(A);
   ok(!s.native && s.chromiumVideo && s.why === 'lowfps' && helpers.length === 0, 'Windows 11, jogo a 30 FPS: Chromium como antes', s);
+  await unshare(A);
+  // 11) Windows 10, jogo pelo nativo: o Chromium (prévia/reserva) fica na TELA (a captura de janela dele some com o cursor
+  //     do jogo) e o nativo recebe a janela pelo id; se o nativo falhar, volta para a JANELA antes de mandar pelo Chromium
+  console.log('-- 11. Windows 10: Chromium na tela, nativo na janela; falha -> Chromium na janela');
+  const valo = { id: 'window:4242:0', name: 'VALORANT', type: 'window', game: true, fullscreen: true };
+  await A.evaluate(() => { window.__os = 19045; window.__lc.voice._natCap = null; window.__sel.length = 0; });
+  await share(A, '', 'auto', { fps: 60, srcInfo: valo });
+  let sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
+  ok(s.native && sel.at(-1) === 'screen:0:0' && helpers[0]?.srcId === 'window:4242:0', 'Chromium capturando a tela e o nativo a janela do jogo', { sel, srcId: helpers[0]?.srcId, s });
+  await unshare(A);
+  await A.evaluate(() => { window.__sel.length = 0; window.__twoScreens = true; });
+  await share(A, '', 'auto', { fps: 60, srcInfo: valo });
+  sel = await A.evaluate(() => [...window.__sel]);
+  ok(!sel.length && !helpers[0]?.srcId, 'dois monitores: sem trocar a fonte (não dá para saber o monitor do jogo)', { sel, srcId: helpers[0]?.srcId });
+  await unshare(A);
+  await A.evaluate(() => { window.__sel.length = 0; window.__twoScreens = false; });
+  await share(A, 'wgc=fail@1,dxgi=nostart', 'auto', { fps: 60, srcInfo: valo });
+  await A.waitForFunction(() => !window.__lc.voice.native && window.__lc.voice.sfu?.producers?.screen, { timeout: 15000 }).catch(() => { });
+  sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
+  ok(!s.native && s.chromiumVideo && sel.at(-1) === 'window:4242:0', 'nativo falhou: o Chromium volta para a janela do jogo antes de transmitir (nunca a tela inteira)', { sel, s });
+  await watch(B, a.id);
+  ok(await viewerFrames(B, a.id) > 20, 'quem assiste vê pelo Chromium');
+  await unshare(A);
+  await A.evaluate(() => { window.__os = 26200; window.__lc.voice._natCap = null; });
+  await share(A, '', 'auto', { fps: 30, srcInfo: game });
   // 10) tela cheia exclusiva confirmada com a transmissão no ar (Chromium congelado): passa sozinho para o nativo
   console.log('-- 10. tela cheia congelou o Chromium -> nativo');
   await A.evaluate(() => { const v = window.__lc.voice; v._fseNative = true; return v.switchToNative(); });

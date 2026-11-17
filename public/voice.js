@@ -1276,6 +1276,7 @@ export class Voice {
     if (opts.res !== 'source') { video.height = { ideal: +opts.res, max: +opts.res }; video.width = { ideal: Math.round(+opts.res * 16 / 9) }; }
     const gdm = () => navigator.mediaDevices.getDisplayMedia({ video, audio: opts.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true, suppressLocalAudioPlayback: true } : false, systemAudio: 'include', selfBrowserSurface: 'exclude' });
     const cid = this.channelId;
+    this._natWinId = await this.gameWindowViaScreen(opts);
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
       try { this.screen = await gdm(); } catch (e) {
@@ -1303,6 +1304,46 @@ export class Voice {
     if (nat) this.startNative().catch(() => { });
   }
 
+  // Windows 10, jogo pela captura nativa: o Chromium (prévia e reserva) captura a TELA, não a janela. A captura de janela do
+  // Chromium no Windows 10 é a WGC, que some com o cursor do jogo para quem joga enquanto está aberta (confirmado: com a
+  // tela inteira o cursor aparece e volta ao parar). O nativo recebe a janela pelo id (recorte da janela no DXGI).
+  // Só com um monitor (com vários, não dá para saber daqui em qual o jogo está). Devolve o id da janela ou null.
+  async gameWindowViaScreen(o) {
+    const si = o.srcInfo, d = window.lcDesktop;
+    if (!si || si.type !== 'window' || !(si.game || si.fullscreen) || !/^window:/.test(si.id || '') || !d?.selectSource || !d.getSources) return null;
+    try {
+      const c = await this.nativeCapable(captureMode(this.prefs));
+      if (!c.ok || !(+c.os > 0 && +c.os < 22000) || !(await this.wantNative(o))) return null;
+      const screens = (await d.getSources()).filter(x => x.type === 'screen');
+      if (screens.length !== 1) return null;
+      if (!(await d.selectSource(screens[0].id, screens[0].name))) return null;
+      return si.id;
+    } catch { return null; }
+  }
+  // antes de mandar o vídeo pelo Chromium: se ele estava na tela só para a prévia (acima), volta para a JANELA do jogo
+  // (nunca transmitir a tela inteira no lugar da janela escolhida). Sem conseguir, para a transmissão.
+  async chromiumOnWindow() {
+    const id = this._natWinId; if (!id || !this.screen) return true;
+    const d = window.lcDesktop, old = this.screen.getVideoTracks()[0], o = this.screenOpts || {};
+    try {
+      await d.selectSource(id, o.srcInfo?.name || '');
+      const video = { frameRate: capFps(o.fps), cursor: o.cursor === false ? 'never' : 'always' };
+      if (o.res !== 'source') { video.height = { ideal: +o.res, max: +o.res }; video.width = { ideal: Math.round(+o.res * 16 / 9) }; }
+      const ns = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
+      const vt = ns.getVideoTracks()[0];
+      if (!this.screen) { vt.stop(); return false; }
+      this._natWinId = null;
+      if (old) { old.onended = null; this.screen.removeTrack(old); old.stop(); }
+      vt.contentHint = o.hint; vt.onended = () => this.stopLocal('screen');
+      this.screen.addTrack(vt);
+      return true;
+    } catch (e) {
+      this.capLog({ t: 'capnote', msg: 'não consegui voltar para a janela do jogo no Chromium: ' + (e.message || e.name) });
+      this.error = 'A transmissão parou: a captura nativa falhou e não consegui capturar a janela do jogo pelo modo normal. Tente de novo.';
+      this.stopLocal('screen'); this.onNativeFail?.(this.error); this.onUpdate();
+      return false;
+    }
+  }
   // janela escolhida está minimizada agora? (só o app desktop sabe; sem ele, não)
   async srcMinimized() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && !!s.minimized; } catch { return false; } }
   // espera a janela escolhida sair do minimizado (até 2 min). true = apareceu; false = desistiu/fechou/saiu da sala
@@ -1431,7 +1472,7 @@ export class Voice {
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];
       // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
-      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}) });
+      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}), ...(this._natWinId ? { sourceId: this._natWinId } : {}) });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
       Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id), capture: res.capture || null, method: my.method || res.capture?.method || (this._capMode ? null : 'wgc'), overlap: my.overlap ?? !!res.capture?.overlap });
@@ -1500,12 +1541,14 @@ export class Voice {
     this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail'; this._natWhyText = why;
     this.capLog({ t: 'method', m: 'chromium', from: this.native.method || null, why: 'último recurso: ' + why, auto: true });
     this.stopNative();
-    const vt = this.screen?.getVideoTracks()[0];
-    if (!vt) return;
-    this.previewOnly(vt, false);
-    if (this.sfu) this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
-    this.error = 'Transmissão pela placa de vídeo indisponível (' + why + '). Continuando pelo modo normal (até ~48 FPS).';
-    this.onNativeFail?.(this.error); this.onUpdate();
+    this.chromiumOnWindow().then((okw) => {
+      const vt = okw && this.screen?.getVideoTracks()[0];
+      if (!vt || this.native) return;
+      this.previewOnly(vt, false);
+      if (this.sfu) this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      this.error = 'Transmissão pela placa de vídeo indisponível (' + why + '). Continuando pelo modo normal (até ~48 FPS).';
+      this.onNativeFail?.(this.error); this.onUpdate();
+    });
   }
   stopNative() {
     const n = this.native; if (!n) return;
@@ -1534,6 +1577,8 @@ export class Voice {
     if (this.native) this.stopNative();
     if (nat) { this.sfuStop('screen'); this.native = { pending: true }; this.previewOnly(vt, true); this.startNative().catch(() => { }); }
     else {
+      if (!(await this.chromiumOnWindow())) return;
+      const vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
       this.previewOnly(vt, false);
       if (this.sfu && !this.sfu.producers.screen) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
       this.capLog({ t: 'method', m: 'chromium', from: null, why: this._natWhy === 'forced' ? 'forçado nas configurações' : 'nativo indisponível: ' + (this._natWhyText || this._natWhy || '?'), auto: this._natWhy !== 'forced' });
@@ -1542,7 +1587,7 @@ export class Voice {
   }
   // muda resolução/fps/otimização da transmissão em andamento
   async changeScreenQuality(opts) {
-    const vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
+    let vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
     const was = this.screenOpts || {}, o = this.screenOpts = { ...this.screenOpts, ...opts };
     // entrar/sair do modo 120 FPS ou mudar a qualidade dele: reinicia o programa nativo (1-2 s)
     const nat = await this.wantNative(o);
@@ -1552,7 +1597,12 @@ export class Voice {
       else window.lcDesktop?.nativeStop?.();
       this.startNative().catch(() => { }); this.onUpdate(); return;
     }
-    if (this.native) { this.stopNative(); this.previewOnly(vt, false); if (this.sfu) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e)); }
+    if (this.native) {
+      this.stopNative();
+      if (!(await this.chromiumOnWindow())) return;
+      vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
+      this.previewOnly(vt, false); if (this.sfu) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+    }
     const c = { frameRate: capFps(o.fps) };
     if (o.res !== 'source') { c.height = { ideal: +o.res, max: +o.res }; c.width = { ideal: Math.round(+o.res * 16 / 9) }; }
     try { await vt.applyConstraints(c); } catch (e) { console.warn('applyConstraints', e); }
@@ -1575,7 +1625,7 @@ export class Voice {
     const s = this[kind]; if (!s) return;
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { this.stopNative(); this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
+    if (kind === 'screen') { this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();
