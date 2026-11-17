@@ -563,8 +563,16 @@ function voicePage(ctx, reg) {
   };
   const meterBar = h('i'), gateMark = h('b.gatemark'), meterWrap = h('div.meter.big', meterBar, gateMark);
   const placeMark = () => { gateMark.style.left = Math.max(0, Math.min(100, (S.prefs.gateDb + 70) / 70 * 100)) + '%'; };
-  let test = null, raf = 0, loopback = false, testCtx;
-  const stopTest = () => { cancelAnimationFrame(raf); test?.dispose(); test = null; testCtx?.close(); testCtx = null; meterBar.style.width = '0'; testBtn.textContent = 'Testar microfone'; };
+  // como no Discord: o teste devolve a sua voz pelo dispositivo de saída (dá para desligar e a escolha fica salva)
+  let test = null, raf = 0, loopback = S.prefs.micTestLoop !== false, testCtx;
+  const noInput = note([h('span.hint-ic', icon('warn', 16)), 'O Resenha não está detectando nenhuma entrada do seu microfone. Verifique se você selecionou o dispositivo de entrada correto.']);
+  noInput.style.display = 'none';
+  const inCallNote = note('Você está em uma sala de voz: durante o teste, seu microfone e o áudio da sala ficam silenciados. Tudo volta ao parar o teste.');
+  inCallNote.style.display = 'none';
+  const stopTest = () => {
+    cancelAnimationFrame(raf); test?.dispose(); test = null; testCtx?.close(); testCtx = null; meterBar.style.width = '0'; testBtn.textContent = 'Testar microfone';
+    noInput.style.display = 'none'; inCallNote.style.display = 'none'; voice.setTestMute?.(false);
+  };
   reg(stopTest);
   // reiniciar o teste: um de cada vez (cliques seguidos viram um só); o anterior sempre é desligado antes
   let testBusy = null, testAgain = false;
@@ -581,9 +589,21 @@ function voicePage(ctx, reg) {
       const t = await createMic(S.prefs, myCtx);
       if (testCtx !== myCtx) { t.dispose(); myCtx.close(); return; } // parou (ou recomeçou) enquanto abria o microfone
       test = t; test.setLoopback(loopback);
+      if (voice.active) { voice.setTestMute?.(true); inCallNote.style.display = ''; }
       if (test.error) toast(test.error, true);
-      const buf = new Uint8Array(test.analyser.fftSize);
-      const loop = () => { test.analyser.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); const db = 20 * Math.log10(Math.max(p / 128, 1e-4)); meterBar.style.width = Math.max(0, Math.min(100, (db + 70) / 70 * 100)) + '%'; raf = requestAnimationFrame(loop); };
+      // sinal cru (antes de porta de ruído/supressão): um microfone de verdade sempre tem algum chiado; zero absoluto por
+      // alguns segundos = nada chegando (dispositivo errado, mutado no hardware/sistema ou desconectado)
+      const rawAn = myCtx.createAnalyser(); rawAn.fftSize = 2048; myCtx.createMediaStreamSource(test.raw).connect(rawAn);
+      const rawBuf = new Float32Array(rawAn.fftSize), buf = new Uint8Array(test.analyser.fftSize);
+      let heardAt = performance.now();
+      const loop = () => {
+        test.analyser.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); const db = 20 * Math.log10(Math.max(p / 128, 1e-4)); meterBar.style.width = Math.max(0, Math.min(100, (db + 70) / 70 * 100)) + '%';
+        rawAn.getFloatTimeDomainData(rawBuf); let rp = 0; for (const v of rawBuf) rp = Math.max(rp, Math.abs(v));
+        const now = performance.now(), live = test.raw.getAudioTracks().some(tr => tr.readyState === 'live' && !tr.muted);
+        if (rp > 1e-4 && live) heardAt = now;
+        noInput.style.display = now - heardAt > 4000 ? '' : 'none';
+        raf = requestAnimationFrame(loop);
+      };
       loop(); testBtn.textContent = 'Parar teste';
     } catch (e) { toast(e.message || 'Falha ao acessar o microfone', true); stopTest(); }
   };
@@ -612,7 +632,7 @@ function voicePage(ctx, reg) {
   let camStream; reg(() => camStream?.getTracks().forEach(t => t.stop()));
   const camBtn = h('button.btn.grey', { onclick: async () => { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; camPrev.style.display = 'none'; return; } try { camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: S.prefs.videoId ? { exact: S.prefs.videoId } : undefined, height: { ideal: S.prefs.camRes }, frameRate: { ideal: S.prefs.camFps } } }); camPrev.srcObject = camStream; camPrev.style.display = 'block'; } catch (e) { toast('Câmera: ' + e.message, true); } } }, 'Testar câmera');
   return h('div', h('h2', 'Voz e vídeo'),
-    card(sel('audioinput', 'inputId', 'Dispositivo de entrada', restartTest), sel('audiooutput', 'outputId', 'Dispositivo de saída', () => applyOutput(voice)),
+    card(sel('audioinput', 'inputId', 'Dispositivo de entrada', restartTest), sel('audiooutput', 'outputId', 'Dispositivo de saída', () => { applyOutput(voice); test?.setOutput?.(S.prefs.outputId); }),
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
       !navigator.mediaDevices?.enumerateDevices ? null : h('button.btn.grey', { onclick: dev('mic') }, 'Pedir permissão do microfone')),
@@ -622,7 +642,8 @@ function voicePage(ctx, reg) {
         { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },
         { on: S.prefs.agc !== false, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
       gateBox),
-    section('Teste de microfone'), card(h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(false, (v) => { loopback = v; test?.setLoopback(v); })), meterWrap),
+    section('Teste de microfone'), card(hint('Está com problemas no microfone? Comece um teste e fale algo: sua voz volta pelo dispositivo de saída escolhido acima e a barra mostra o nível que chega.'),
+      h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(loopback, (v) => { loopback = v; S.prefs.micTestLoop = v; save(); test?.setLoopback(v); })), meterWrap, noInput, inCallNote),
     section('Botão de entrar na sala'), card(row('Tamanho do botão no palco', 'Fora da chamada, a sala de voz mostra um botão para entrar. Compacto ocupa menos espaço; o botão "Entrar" pequeno no topo, ao lado do nome da sala, aparece sempre.',
       seg({ big: 'Grande', compact: 'Compacto' }, S.prefs.joinBtn === 'compact' ? 'compact' : 'big', (v) => { S.prefs.joinBtn = v; save(); document.dispatchEvent(new Event('join-btn-changed')); }))),
     section('Modo de entrada'), card(choiceCards([['vad', 'Atividade de voz', h('span.im-prev', icon('waves', 28), h('small', 'Fala e já sai'))], ['ptt', 'Push-to-talk', h('span.im-prev', icon('keyboard', 28), h('small', 'Segura a tecla para falar'))]], S.prefs.inputMode || 'vad', v => { S.prefs.inputMode = v; save(); voice.applyMute(); syncGlobalPtt(); }), h('div', { style: { marginTop: '12px' } }, pttBtn), hint(pttHint())),

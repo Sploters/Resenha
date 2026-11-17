@@ -163,7 +163,10 @@ export async function createMic(prefs, ctx) {
   out.setLoopback = (on) => {
     if (on === looping) return; looping = on;
     try { if (on) { g.connect(mono); merger.connect(ctx.destination); } else { g.disconnect(mono); merger.disconnect(ctx.destination); } } catch { }
+    if (on) out.setOutput(prefs.outputId);
   };
+  // a escuta própria sai pelo dispositivo de saída escolhido (não pelo padrão do sistema), como a voz dos outros
+  out.setOutput = (id) => { try { ctx.setSinkId?.(id || '').catch(() => { }); } catch { } };
   // mutado: o microfone sai da cadeia e a IA de ruído (RNNoise/GTCRN, na thread de áudio) para de processar — sem entrada
   // os nós de ruído não fazem nada. O que sai para a sala é silêncio de qualquer jeito (trilha desligada).
   let idle = false;
@@ -1071,7 +1074,7 @@ export class Voice {
   }
   applyVolume(uid) {
     const p = this.peers.get(uid); if (!p) return;
-    const master = (this.prefs.volume ?? 100) / 100;
+    const master = this.testMute ? 0 : (this.prefs.volume ?? 100) / 100;
     this.setLevel(p, 'audioEl', this.prefs.mutedUsers?.[uid] ? 0 : this.volOf(uid) / 100 * master); // "Mute" do menu do usuário
     this.setLevel(p, 'screenAudioEl', (this.streamVolumes[uid] ?? 100) / 100 * master);
   }
@@ -1223,9 +1226,12 @@ export class Voice {
 
   micEnabled() { return this.prefs.inputMode !== 'ptt' || this.ptt; }
   applyMute() {
-    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && !this.modMute && !this.modDeaf && this.micEnabled()));
-    this.micGraph?.setIdle?.((this.muted || this.deafened) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
+    this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && !this.modMute && !this.modDeaf && !this.testMute && this.micEnabled()));
+    this.micGraph?.setIdle?.((this.muted || this.deafened || this.testMute) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
   }
+  // teste de microfone das Configurações aberto durante a chamada: microfone e áudio da sala ficam silenciados até o teste acabar
+  // (não mexe no mutar/ensurdecer escolhido pela pessoa; ao parar o teste tudo volta como estava)
+  setTestMute(on) { if (!!this.testMute === !!on) return; this.testMute = !!on; this.afterAudioChange(); }
   holdMic(on) { this.micHold = Math.max(0, (this.micHold || 0) + (on ? 1 : -1)); this.applyMute(); }
   setPtt(down) { if (this.ptt === down) return; this.ptt = down; this.applyMute(); this.onUpdate(true); }
   // mutado/ensurdecido pela moderação (estado de voz mod_mute/mod_deaf): o servidor já não repassa; aqui o microfone também fecha
@@ -1252,7 +1258,7 @@ export class Voice {
     if (!!s.voiceOff === off) return; s.voiceOff = off;
     for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened, deaf: this.deafened, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)
