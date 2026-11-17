@@ -1049,9 +1049,6 @@ label.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color
 .tile.utile .tmore:hover { background: rgba(0,0,0,.85); }
 #stage.sidle .tile.utile:not(:has(:focus-visible)) .tmore { opacity: 0; }
 @media (hover: none) { .tile.utile .tmore { opacity: .85; } }
-/* seta das opções da chamada: botão estreito logo depois do de transmitir, apontando para cima (o menu abre acima) */
-#stage .bar .roundbtn.optbtn { width: 36px; margin-left: -6px; border-radius: 18px; }
-#stage .bar .roundbtn.optbtn svg { transform: rotate(180deg); }
 /* menu aberto pela barra: ela não some ao tirar o mouse da sala (senão o menu fica "solto" no ar) */
 body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none; pointer-events: auto; }
 

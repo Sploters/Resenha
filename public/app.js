@@ -24,7 +24,7 @@ import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
 import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover } from './soundboard.js';
-import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl, applyOutput } from './quick.js';
+import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
@@ -79,7 +79,6 @@ import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
-import { openVoiceHelp } from './voicehelp.js';
 import { initPwa } from './pwa.js';
 import { e2eeLoad, onE2eeKey, decryptDeep, convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify, callKey, protectFiles, encryptFile, openFile, openedFileUrl } from './e2ee.js';
 import { rumReady } from './rum.js';
@@ -3552,8 +3551,6 @@ function renderVoiceUI(speakOnly) {
     btn(voice.deafened ? 'headoff' : 'headset', 'Ensurdecer', voice.deafened, () => voiceToggle('deaf'), '.solo-narrow'),
     ctxOpts(btn('video', 'Câmera (clique direito: escolher a câmera)', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'), async () => camOptItems(await mediaDevs())),
     ctxOpts(btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio) · clique direito: opções rápidas' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''), async () => [...screenOptItems(), ...(watchOptItems().length ? ['-', ...watchOptItems()] : [])]),
-    // seta das opções avançadas: câmera, qualidade/janela da transmissão, microfone e saída, parar de assistir
-    h('button.roundbtn.optbtn', { title: 'Opções da chamada: câmera, transmissão, voz e áudio', 'aria-label': 'Opções da chamada', 'aria-haspopup': 'menu', onclick: callOptionsMenu }, icon('chevdown', 22)),
     fxButton(24, true, '.solo-narrow'),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
@@ -3806,16 +3803,6 @@ function screenOptItems() {
     '-', { label: 'Parar transmissão', icon: 'screenoff', danger: true, fn: stopSharing },
   ];
 }
-function audioOptItems(ds) {
-  const cur = S.prefs.noiseMode || 'standard';
-  return [
-    { label: 'Dispositivo de entrada', icon: 'mic', sub: devRadios(ds, 'audioinput', 'inputId', () => voice.active && voice.rebuildMic()) },
-    { label: 'Dispositivo de saída', icon: 'headset', sub: devRadios(ds, 'audiooutput', 'outputId', () => applyOutput(voice)) },
-    { label: 'Redução de ruído', icon: 'waves', sub: NOISE_OPTS().map(([k, l]) => ({ label: l, radio: cur === k, fn: async () => { if (cur === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })) },
-    '-', { label: 'Verificar problemas de voz', icon: 'info', hint: 'Confere mute, permissões, aparelhos, sinal do microfone e conexão', fn: () => openVoiceHelp(voice, { nameOf, openVoiceSettings: () => openSettings('voice', ctxSettings()) }) },
-    '-', { label: 'Configurações de voz', icon: 'sliders', hint: 'Fechar as configurações volta direto para a chamada', fn: () => openSettings('voice', ctxSettings()) },
-  ];
-}
 // transmissões abertas agora (as que estou assistindo) nesta sala
 function watchedStreams() {
   return [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.screen && v.user_id !== S.me.id && !voice.closedStreams.has(v.user_id));
@@ -3838,15 +3825,6 @@ function menuAbove(btn, items) {
   const m = [...document.querySelectorAll('.menu[data-depth="0"]:not(.leaving)')].pop();
   m?.classList.add('callopts'); // a barra da chamada fica à vista enquanto o menu está aberto (ux.css)
   if (m) m.style.top = Math.max(8, r.top - m.getBoundingClientRect().height - 8) + 'px';
-}
-async function callOptionsMenu(e) {
-  const btn = e.currentTarget, ds = await mediaDevs();
-  menuAbove(btn, [
-    { label: 'Câmera', icon: 'video', sub: camOptItems(ds) },
-    { label: 'Transmissão', icon: 'screen', sub: screenOptItems() },
-    { label: 'Voz e áudio', icon: 'mic', sub: audioOptItems(ds) },
-    ...watchOptItems(),
-  ]);
 }
 // ---------- "Você está ao vivo" ----------
 // Relato do 1º teste: o "Parar transmissão" era difícil de achar (vermelho igual ao "Sair da chamada", ao lado dele, e no
