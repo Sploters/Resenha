@@ -14,22 +14,24 @@ export const clipSecs = () => (clipLengths.includes(S.prefs.clipSecs) ? S.prefs.
 const keepMs = () => Math.max(60, clipSecs()) * 1000 + 5000;
 export const maxClipSecs = () => Math.max(60, clipSecs());
 // onde o clipe vai: 'local' (padrão, só neste aparelho) ou 'post' (sobe e posta no chat da sala, como antes)
+// FPS do clipe: 30, 60 (padrão) ou 0 = o da transmissão (até 120)
+export const clipFps = () => ([30, 60, 0].includes(S.prefs.clipFps) ? S.prefs.clipFps : 60);
 export const clipDest = () => (S.prefs.clipDest === 'post' ? 'post' : 'local');
 export const clipKeys = () => [...bufs.keys()];
 // diagnóstico (relatório de problema / testes): quantas fontes de áudio entram no clipe de cada transmissão
-export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0) }; };
+export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0), fps: b.fps, maxFps: b.maxFps, limiter: b.how, bps: b.bps, mime: b.mimeType }; };
 
 // audio: fontes de áudio do clipe — o áudio da transmissão e o MICROFONE de quem transmite (só no clipe: na transmissão ao
 // vivo a voz continua indo separada, como voz da call). ctx: AudioContext para misturar (sem ele, usa só a primeira fonte).
 const vsig = (stream) => stream.getVideoTracks().map(t => t.id).join(',');
 export function startBuffer(key, stream, audio = [], ctx = null) {
   const sources = (Array.isArray(audio) ? audio : [audio]).filter(Boolean), cur = bufs.get(key);
-  if (cur && cur.stream === stream && cur.vsig === vsig(stream) && cur.keep === keepMs() && cur.hw === (S.prefs.clipHw !== false)) { cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
+  if (cur && cur.stream === stream && cur.vsig === vsig(stream) && cur.keep === keepMs() && cur.hw === (S.prefs.clipHw !== false) && cur.maxFps === clipFps()) { cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
   if (cur) stopBuffer(key);
   const mixer = ctx ? createMixer(ctx) : null;
   mixer?.set(sources);
   const hw = S.prefs.clipHw !== false;
-  const b = createBuffer(new MediaStream(stream.getVideoTracks()), mixer ? mixer.stream : sources.find(s => s.getAudioTracks().length), { keep: keepMs(), hw }); if (!b) { mixer?.stop(); return; }
+  const b = createBuffer(new MediaStream(stream.getVideoTracks()), mixer ? mixer.stream : sources.find(s => s.getAudioTracks().length), { keep: keepMs(), hw, maxFps: clipFps() }); if (!b) { mixer?.stop(); return; }
   Object.assign(b, { stream, vsig: vsig(stream), mixer, hw });
   if (mixer) Object.defineProperty(b, 'hasAudio', { get: () => mixer.had });
   b.onEnd = () => { if (bufs.get(key) === b) { bufs.delete(key); mixer?.stop(); } };

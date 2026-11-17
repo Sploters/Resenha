@@ -29,26 +29,55 @@ export function createMixer(ctx) {
   };
 }
 
+// Limita a taxa de quadros de uma trilha de vídeo para o clipe. Captura local (a sua transmissão pelo Chromium, a prévia
+// do programa nativo) aceita applyConstraints e o próprio Chromium descarta os quadros. A trilha que chega por WebRTC (a
+// transmissão de outra pessoa) recusa (OverconstrainedError): aí os quadros passam por um worker que repassa no máximo
+// `fps` por segundo (fpsdrop-worker.js). Devolve { track, stop } ou null quando não dá para limitar (grava a taxa cheia).
+export async function limitFps(track, fps) {
+  const c = track.clone();
+  try { await c.applyConstraints({ frameRate: { ideal: fps, max: fps } }); return { track: c, how: 'constraints', stop: () => c.stop() }; } catch { /* trilha remota */ }
+  if (!window.MediaStreamTrackProcessor || !window.MediaStreamTrackGenerator || !window.Worker) { c.stop(); return null; }
+  try {
+    const proc = new MediaStreamTrackProcessor({ track: c }), gen = new MediaStreamTrackGenerator({ kind: 'video' });
+    const w = new Worker(new URL('./fpsdrop-worker.js', import.meta.url));
+    w.postMessage({ readable: proc.readable, writable: gen.writable, fps }, [proc.readable, gen.writable]);
+    return { track: gen, how: 'worker', stop: () => { c.stop(); gen.stop(); w.terminate(); } };
+  } catch { c.stop(); return null; }
+}
+// teto do bitrate pelo FPS do clipe e por quanto tempo fica guardado (memória: 60 s a 15 Mb/s ≈ 110 MB; 2 min a 11 Mb/s ≈ 165 MB)
+export const bpsCap = (fps, keep) => (keep > 70000 ? (fps > 60 ? 11_000_000 : fps > 30 ? 9_000_000 : 6_000_000) : (fps > 60 ? 15_000_000 : fps > 30 ? 12_000_000 : 8_000_000));
+
+// opts.maxFps: 30, 60 ou 120 (padrão 60); 0 = sem limite (a taxa da transmissão)
 export function createBuffer(stream, audio, opts = {}) {
   if (!stream || !window.MediaRecorder) return null;
   const tracks = liveTracks(stream, audio);
   if (!tracks.some(t => t.kind === 'video')) return null;
   const hasAudio = tracks.some(t => t.kind === 'audio');
-  // o clipe grava a 30 fps mesmo que a transmissão seja de 120: codificar todos os quadros custava metade da CPU
-  const vt0 = tracks.find(t => t.kind === 'video'), vt = opts.fullRate ? vt0 : vt0.clone();
-  if (vt !== vt0) vt.applyConstraints({ frameRate: { ideal: 30, max: 30 } }).catch(() => { });
-  const rtracks = tracks.map(t => (t === vt0 ? vt : t));
+  const vt0 = tracks.find(t => t.kind === 'video'), st = vt0.getSettings?.() || {};
+  const maxFps = opts.maxFps ?? 60;
+  // o FPS que o clipe deve ter: o limite escolhido, ou o da transmissão. Só a captura local informa a taxa de verdade
+  // (getCapabilities().frameRate); a trilha remota (WebRTC) informa uma estimativa que começa em ~20–30 mesmo chegando a
+  // 120, e o bitrate saía baixo: nela vale o limite pedido (ou 120, igual à transmissão)
+  const known = !!vt0.getCapabilities?.()?.frameRate && st.frameRate > 0;
+  const fps = Math.max(1, maxFps ? Math.min(maxFps, known ? st.frameRate : maxFps) : (known ? st.frameRate : 120));
   // H.264 primeiro = o codificador da placa de vídeo quando o Chromium tem um (opts.hw === false: só VP9/VP8, pela CPU)
   const codecs = opts.hw === false ? ['vp9', 'vp8'] : ['h264', 'vp9', 'vp8'];
   const mimeType = (opts.mimes || codecs.map(c => `video/webm;codecs=${c}${hasAudio ? ',opus' : ''}`)).concat('video/webm').find(m => MediaRecorder.isTypeSupported(m));
   const keep = opts.keep || KEEP;
-  // qualidade: bitrate proporcional à resolução da transmissão (teto 8 Mb/s: 60s ficam em ~60 MB na memória; guardando 2 min o teto
-  // cai para 6 Mb/s, ~95 MB)
-  const st = tracks.find(t => t.kind === 'video').getSettings?.() || {};
-  const bps = opts.bps || Math.round(Math.min(keep > 70000 ? 6_000_000 : 8_000_000, Math.max(3_000_000, (st.width || 1920) * (st.height || 1080) * Math.min(30, st.frameRate || 30) * 0.15)));
-  let rec;
-  try { rec = new MediaRecorder(new MediaStream(rtracks), { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: 160_000, videoKeyFrameIntervalDuration: 1000 }); } catch { if (vt !== vt0) vt.stop(); return null; }
-  const buf = { keep, mimeType, hasAudio, stream, sig: trackSig(stream, audio), rec, header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), q: Promise.resolve(), onEnd: null };
+  // qualidade: bitrate proporcional à resolução e ao FPS do clipe (a 120 fps, com o teto de 30, cada quadro ficava com 1/4
+  // dos bits e o movimento borrava), com teto por FPS e por duração guardada (bpsCap)
+  // a trilha remota também começa informando a resolução baixa (o WebRTC sobe a qualidade aos poucos): nela supõe 1080p
+  // (é só o alvo do codificador; o teto por FPS continua valendo)
+  const px = known && st.width ? st.width * st.height : 1920 * 1080;
+  const bps = opts.bps || Math.round(Math.min(bpsCap(fps, keep), Math.max(3_000_000, px * fps * 0.15)));
+  const buf = { keep, mimeType, bps, fps, maxFps, hasAudio, stream, sig: trackSig(stream, audio), rec: null, header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), q: Promise.resolve(), onEnd: null, limiter: null, how: 'cheio' };
+  // começa já com a trilha original e troca pela limitada assim que ela fica pronta (alguns ms): trocar a trilha de um
+  // MediaRecorder não dá, então o limitador é decidido antes de gravar — a espera é só a do applyConstraints
+  buf.ready = (maxFps ? limitFps(vt0, maxFps) : Promise.resolve(null)).then((lim) => {
+    if (buf.stopped) { lim?.stop(); return; }
+    buf.limiter = lim; buf.how = lim ? lim.how : 'cheio';
+    start(tracks.map(t => (t === vt0 && lim ? lim.track : t)));
+  });
   const ingest = async (blob, t) => {
     const bytes = new Uint8Array(await blob.arrayBuffer()), start = buf.size;
     const joined = new Uint8Array(buf.tail.length + bytes.length); joined.set(buf.tail); joined.set(bytes, buf.tail.length);
@@ -62,13 +91,18 @@ export function createBuffer(stream, audio, opts = {}) {
     const first = buf.chunks[0].start;
     while (buf.clusters.length && buf.clusters[0].off < first) buf.clusters.shift();
   };
-  rec.ondataavailable = (e) => { if (e.data?.size) { const t = Date.now(); buf.q = buf.q.then(() => ingest(e.data, t)).catch(() => { }); } };
-  rec.onerror = rec.onstop = () => buf.onEnd?.();
-  rec.start(1000);
+  const start = (rtracks) => {
+    let rec;
+    try { rec = new MediaRecorder(new MediaStream(rtracks), { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: 160_000, videoKeyFrameIntervalDuration: 1000 }); } catch { buf.limiter?.stop(); buf.onEnd?.(); return; }
+    buf.rec = rec;
+    rec.ondataavailable = (e) => { if (e.data?.size) { const t = Date.now(); buf.q = buf.q.then(() => ingest(e.data, t)).catch(() => { }); } };
+    rec.onerror = rec.onstop = () => buf.onEnd?.();
+    rec.start(1000);
+  };
 
   // devolve um Blob WebM com os últimos `secs` segundos (começa no quadro-chave mais próximo, até ~1s antes), ou null
   buf.cut = async (secs) => {
-    await buf.q;
+    await buf.ready; await buf.q;
     if (!buf.header || !buf.clusters.length) return null;
     const cl = buf.clusters, base = cl[0].off;
     const slice = (a, z) => { // bytes absolutos [a, z) dos pedaços guardados
@@ -88,6 +122,6 @@ export function createBuffer(stream, audio, opts = {}) {
     const out = buildClip(buf.header, list.slice(pick), endTs);
     return out && new Blob([out], { type: 'video/webm' });
   };
-  buf.stop = () => { try { if (rec.state !== 'inactive') rec.stop(); } catch { /* já parado */ } if (vt !== vt0) vt.stop(); buf.chunks = []; buf.clusters = []; buf.header = null; };
+  buf.stop = () => { buf.stopped = true; buf.onEnd = null; try { if (buf.rec && buf.rec.state !== 'inactive') buf.rec.stop(); } catch { /* já parado */ } buf.limiter?.stop(); buf.chunks = []; buf.clusters = []; buf.header = null; };
   return buf;
 }

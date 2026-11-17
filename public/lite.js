@@ -226,7 +226,7 @@ function usagePanel(ctx) {
     const v = ctx?.voice, P = S.prefs, out = [];
     if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', `Processa sua voz o tempo todo (${P.noiseMode === 'gtcrn' ? 'a Máxima, ~10%' : 'a Forte, ~4%'} de um núcleo num PC comum). A "Leve" do navegador quase não pesa.`]);
     if (S.watching?.size) out.push([`Assistindo ${S.watching.size} transmiss${S.watching.size === 1 ? 'ão' : 'ões'}`, 'Cada vídeo decodificado pesa na placa de vídeo. Feche as que não está vendo.']);
-    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos segundos (até 2 min) de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p) e ocupa até ~50 MB de memória cada.']);
+    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos segundos (até 2 min) de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p a 30 FPS; o dobro a 60 FPS) e ocupa de ~60 a ~110 MB de memória cada. Em Configurações → Clipes, 30 FPS é o mais leve.']);
     if (v?.screen) out.push(['Você está transmitindo', 'Capturar e comprimir a tela pesa. 720p • 30 fps alivia bastante.']);
     if (v?.cam) out.push(['Câmera ligada', 'Comprimir a câmera usa CPU.']);
     if (P.animations !== false) out.push(['Animações da interface', 'Pouco, mas somam com o jogo.']);

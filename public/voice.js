@@ -1473,11 +1473,12 @@ export class Voice {
     return !!c.ok;
   }
   // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
-  // esta trilha): aí fica em 30 fps até 1080p, para o clipe não sair pior do que pelo caminho do Chromium
+  // esta trilha): aí segue o FPS do clipe (Configurações → Clipes: 30, 60 ou o da transmissão) sem passar do da
+  // transmissão, até 1080p — antes ficava sempre em 30 e o clipe de quem transmite a 120 saía a 30
   previewSpec() {
     if (this.prefs?.clipsOn !== true) return { fps: 10, h: 360 };
-    const o = this.screenOpts || {};
-    return { fps: 30, h: Math.min(o.res === 'source' ? 1080 : +o.res || 1080, 1080) };
+    const o = this.screenOpts || {}, want = [30, 60, 0].includes(this.prefs?.clipFps) ? this.prefs.clipFps : 60, src = +o.fps || 60;
+    return { fps: want ? Math.min(want, src) : src, h: Math.min(o.res === 'source' ? 1080 : +o.res || 1080, 1080) };
   }
   previewOnly(vt, on) {
     if (!vt) return;

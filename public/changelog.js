@@ -9,6 +9,7 @@ export const NEWS = [
     id: '2026-11-17-1', title: 'Clipes ficam no seu aparelho',
     items: [
       { i: 'clip', t: 'Você escolhe o que compartilhar', d: 'Apertar o atalho do clipe (F8) agora guarda o clipe só neste aparelho, com um som de confirmação. Para mandar num canal ou DM: + do campo de mensagem → Compartilhar um clipe. Lá dá para editar o trecho e o título antes. Prefere o jeito antigo? Configurações → Clipes → Postar no chat da sala.', try: 'clipsettings' },
+      { i: 'screen', t: 'Clipes em 60 e 120 FPS', d: 'Clipes agora saem em 60 FPS por padrão, inclusive o da sua própria transmissão (antes ficava em 30). Em Configurações → Clipes dá para escolher 30, 60 ou igual à transmissão (até 120), com mais qualidade por quadro.', try: 'clipsettings' },
       { i: 'clock', t: 'Clipes de até 2 minutos', d: 'Em Configurações → Clipes: 15 s, 30 s, 1 min ou 2 min, além do atalho, da codificação pela placa de vídeo e de quanto espaço os clipes ocupam.', try: 'clipsettings' },
     ],
   },
