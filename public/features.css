@@ -1956,3 +1956,70 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .myclips .mc-empty { margin: 30px auto; max-width: 420px; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .myclips .mc-empty b { color: var(--header); font-size: 16px; }
 @media (max-width: 640px) { .myclips .mc-grid { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- "A fim de jogar" (public/intents.js): topo do Ativo agora, janela e avisos ---------- */
+#active-now .an-intents { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+#active-now .an-intents:empty { display: none; }
+#active-now .an-intents .an-cap { margin-top: 0; }
+.in-cta { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--green) 55%, transparent); border-radius: 8px;
+  background: color-mix(in srgb, var(--green) 10%, var(--bg-sec)); color: var(--text-normal); cursor: pointer; text-align: left; font: inherit; }
+.in-cta:hover { background: color-mix(in srgb, var(--green) 18%, var(--bg-sec)); }
+.in-cta .in-ctaic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--green); color: #fff; flex: none; }
+.in-cta .in-ctatx { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.in-cta .in-ctatx b { color: var(--header); font-size: 14px; } .in-cta .in-ctatx small { color: var(--text-muted); font-size: 12px; }
+.in-card { position: relative; background: var(--bg-sec); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-left: 3px solid var(--brand, #5865f2); }
+.in-card.mine { border-left-color: var(--green); }
+.in-card.formed { border-left-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--bg-sec)); }
+.in-card.done { opacity: .85; border-left-color: var(--text-muted); }
+.in-card.joined { border-left-color: var(--green); }
+.in-card .gbanner { margin: -10px -12px 0; height: 54px; overflow: hidden; }
+.in-card .gbanner img { width: 100%; height: 100%; object-fit: cover; opacity: .75; }
+.in-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.in-head .an-who b { white-space: normal !important; line-height: 1.25; font-size: 14px; color: var(--header); }
+.in-head .an-who small { white-space: normal !important; }
+.in-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--green); color: #fff; flex: none; }
+.in-why { font-size: 12px; color: var(--green); display: flex; gap: 4px; align-items: center; }
+.in-note { font-size: 13px; color: var(--text-normal); font-style: italic; }
+.in-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.in-faces { display: flex; align-items: center; } .in-faces > * + * { margin-left: -6px; } .in-faces small { margin-left: 4px; color: var(--text-muted); font-size: 12px; }
+.in-wait { color: var(--text-muted); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.in-row .in-toggle { margin-left: auto; padding: 0; }
+.in-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.in-btns .in-dots { margin-left: auto; }
+.in-members { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--bg-ter, rgba(0,0,0,.15)); border-radius: 6px; }
+.in-members.hidden { display: none; }
+.in-mem { display: flex; align-items: center; gap: 6px; font-size: 13px; } .in-mem > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.in-st { display: inline-flex; gap: 3px; align-items: center; color: var(--text-muted); font-size: 12px; } .in-st.joined { color: var(--green); } .in-st.declined, .in-st.left { color: var(--red); }
+.in-more { display: flex; flex-direction: column; gap: 2px; background: var(--bg-float); border-radius: 6px; padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+.in-more button { display: flex; gap: 8px; align-items: center; background: none; border: 0; color: var(--text-normal); padding: 6px 8px; border-radius: 4px; cursor: pointer; text-align: left; font: inherit; font-size: 13px; }
+.in-more button:hover { background: var(--bg-mod-hover); }
+/* janela */
+.inform .in-games .lchip { gap: 6px; } .inform .in-games .lchip .in-src { font-size: 10px; opacity: .75; text-transform: uppercase; letter-spacing: .02em; }
+.in-who { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.in-who .lfglab small { font-weight: 500; color: var(--text-muted); text-transform: none; }
+.in-cands { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; border-radius: 8px; background: var(--bg-sec); padding: 4px; }
+.in-cand { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.in-cand:hover { background: var(--bg-mod-hover); }
+.in-cand input { accent-color: var(--green); width: 16px; height: 16px; flex: none; }
+.in-cand .an-who { display: flex; flex-direction: column; flex: 1; min-width: 0; } .in-cand .an-who b { color: var(--header); font-size: 14px; } .in-cand .an-who small { color: var(--green); font-size: 12px; }
+.in-dl { color: var(--text-muted); display: grid; place-items: center; } .in-dl.quiet { opacity: .6; }
+.in-dup { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--yellow, #f0b232) 14%, var(--bg-sec)); font-size: 13px; }
+.in-dup > svg { color: var(--yellow, #f0b232); }
+.in-none { padding: 12px; border-radius: 8px; background: var(--bg-sec); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; } .in-none p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.in-err { color: var(--red); display: flex; gap: 6px; align-items: center; }
+.in-muted { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.in-mutedrow { display: flex; align-items: center; gap: 10px; } .in-mutedrow span { flex: 1; color: var(--header); } .in-mutedrow small { color: var(--text-muted); }
+/* avisos */
+.inbanner .in-bigic { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--green); color: #fff; flex: none; }
+.inbanner.formed { border: 1px solid var(--green); }
+.in-lfgbtn { background: color-mix(in srgb, var(--green) 18%, var(--bg-mod, #4e5058)); }
+/* aviso do "A fim de jogar": o mesmo do convite para a chamada; com os dois na tela, este desce */
+#intent-banner { position: fixed; top: 16px; right: 16px; z-index: 250; width: 440px; max-width: 94vw; background: var(--bg-float); border: 1px solid var(--divider); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); animation: pop .25s; }
+#intent-banner .cbsub { font-size: 13px; line-height: 1.35; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #intent-banner .cbwhere { color: var(--green); font-weight: 500; }
+#intent-banner .btn { min-height: 34px; padding: 2px 12px; flex: none; }
+#intent-banner.formed { border-color: var(--green); }
+body:has(#call-banner) #intent-banner { top: 112px; }
+#intent-banner { flex-wrap: wrap; width: 400px; }
+#intent-banner > div:not(.ib-btns) b { display: block; line-height: 1.3; color: var(--header); }
+#intent-banner .ib-btns { width: 100%; display: flex; justify-content: flex-end; gap: 8px; }
+#intent-banner .ib-btns .btn { display: inline-flex; align-items: center; gap: 6px; }

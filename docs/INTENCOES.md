@@ -57,12 +57,14 @@ escolha/criação de sala, limites de aviso por pessoa e métricas sociais.
 - Problema encontrado: "VALORANT" (Jogando…/digitado) e "Valorant" (catálogo) viravam chaves diferentes e a deduplicação falhava. Corrigido: nome ou appid do catálogo do LFG vira o jogo do catálogo.
 
 ### Etapa 3: Interface
-- [ ] seção "A fim de jogar" no topo do Ativo agora (minha intenção + convites para mim)
-- [ ] janela "A fim de jogar" com prévia de quem será chamado e por quê
-- [ ] aviso de convite (Topo / Agora não / silenciar o jogo hoje) e "Grupo formado → Entrar na sala"
-- [ ] atalho no LFG ("Chamar quem tem o jogo") e plano B no fim da intenção
-- [ ] Configurações → Notificações: preferências de convites para jogar
+- [x] seção "A fim de jogar" no topo do Ativo agora (minha intenção + convites para mim)
+- [x] janela "A fim de jogar" com prévia de quem será chamado e por quê
+- [x] aviso de convite (Topo / Agora não / silenciar o jogo hoje) e "Grupo formado → Entrar na sala"
+- [x] atalho no LFG ("Chamar quem tem o jogo") e plano B no fim da intenção
+- [x] Configurações → Notificações: preferências de convites para jogar
 - **Pronto quando:** fluxo completo em 3 navegadores com capturas, sem erro de página.
+- ✅ `scripts/intents-ui-test.mjs` 37/37 (inclui erro 500 na prévia e queda de rede ao topar)
+- Problemas encontrados: o aviso flutuante herdava o estilo por id do `#call-banner` e ficava sem posição (CSS próprio, desce quando os dois aparecem); título do aviso quebrava em 3 linhas (botões numa linha própria); seletor de preferência quebrava (rótulos mais curtos).
 
 ### Etapa 4: Métricas
 - [x] sessões com 2+ pessoas, retornos por convite/atividade, interações, intenções → grupos, convites aceitos/ignorados/recusados

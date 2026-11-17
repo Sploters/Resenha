@@ -9,6 +9,7 @@ import { S, api, tryApi, toast, confirmBox, guild, channelById, modal, savePrefs
 import { openClip } from './clipsgallery.js';
 import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
+import { intentSection } from './intents.js';
 import { toggle, row, section, seg, factChips } from './ui.js';
 
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
@@ -454,7 +455,8 @@ export function activityPanel(box) {
     const hist = !feed ? [skeleton('rows', 4)]
       : hl.length ? groups.map(g => hlDay(g.k, g.items, draw))
         : [h('div.an-empty.small', h('p', 'Nada marcante ainda esta semana. Partidas longas, jogos novos, sequências e clipes dos seus amigos aparecem aqui.'))];
-    body.replaceChildren(forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), h('section.an-hist', h('div.an-cap', 'Destaques da semana'), ...hist));
+    // "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho, no topo
+    body.replaceChildren(intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), h('section.an-hist', h('div.an-cap', 'Destaques da semana'), ...hist));
   };
   S.redrawFeed = draw; draw();
   stagger(body.querySelector('.an-now')); // cartões entram em cascata ao montar o painel (não nos redesenhos)

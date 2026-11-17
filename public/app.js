@@ -39,7 +39,8 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
-import { initLfg, renderLfg, onLfgEvent, onLfgActivity, setLfgGuild } from './lfg.js';
+import { initLfg, renderLfg, onLfgEvent, onLfgActivity, setLfgGuild, openLfgCreate } from './lfg.js';
+import { initIntents, loadIntents, onIntentEvent, openIntentModal } from './intents.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
 import { reportVideoCaps } from './codecs.js';
@@ -302,6 +303,7 @@ function onEvent(t, d) {
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
+      loadIntents(); // "A fim de jogar": minha intenção e os convites que chegaram enquanto estava fora (public/intents.js)
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
       if (!S.synced) Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()]).then(([r]) => { // sincroniza preferências entre dispositivos
         resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
@@ -434,6 +436,7 @@ function onEvent(t, d) {
     case 'STREAM_VIEWERS': if (d.viewers.length) S.viewers.set(d.streamer_id, d.viewers); else S.viewers.delete(d.streamer_id); renderVoiceUI(); break;
     case 'SOUNDBOARD': sbIncoming(d, voice); break;
     case 'CALL_INVITE': onCallInvite(d); break;
+    case 'INTENT_INVITE': case 'INTENT_UPDATE': case 'INTENT_RESPONSE': case 'INTENT_FORMED': case 'INTENT_EXPIRED': onIntentEvent(t, d); break;
     case 'ADMIN_DIGEST': { // resumo da semana (só o administrador recebe, server/ux.js)
       toast('📊 Resumo da semana: ' + d.titulo + ' Veja em Configurações → Estatísticas de uso.');
       notify('Resenha: resumo da semana', d.titulo, () => openSettings('uxstats', { voice, logout, go, gid: S.view.gid })); break;
@@ -4281,7 +4284,10 @@ initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voi
 initKinds({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), mdCtx: (gid) => ctxFor(gid), chName, attachEl: (f) => attachEl(f), jumpTo: (mid) => jumpTo(mid),
   react: (m, e, add) => react(m, e, add), reactionFace: (e) => reactionFace(e), galleryChat: (cid, on) => setGalleryChat(cid, on) });
 initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p), favPostChanged: (id, t) => favPostChanged(id, t), renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
-initLfg({ go, settings: (k) => openSettings(k, ctxSettings()), profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
+// "A fim de jogar": o painel Ativo agora redesenha; o plano B abre o formulário do LFG já preenchido
+initIntents({ go, joinVoice, channelById, redraw: () => refreshFeedView(), openLfg: (pre) => { go('@me', 'lfg'); setTimeout(() => openLfgCreate(pre), 50); },
+  showPanel: () => { if (S.view.kind !== 'home') go('@me'); setTimeout(() => document.getElementById('home')?.classList.add('an-open'), 50); } });
+initLfg({ intent: (pre) => openIntentModal(pre), go, settings: (k) => openSettings(k, ctxSettings()), profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)

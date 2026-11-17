@@ -85,6 +85,8 @@ function draw() {
     h('div#topbar', ...gamesTabs('lfg'),
       h('div.spacer'),
       h('button.btn.grey.sm', { onclick: () => profileModal() }, icon('edit', 16), 'Meu perfil de jogador'),
+      // LFG invertido: em vez de esperar quem vê o mural, chama quem tem o jogo (public/intents.js)
+      h('button.btn.sm.in-lfgbtn', { title: 'O Resenha chama só quem tem ou joga e forma o grupo sozinho', onclick: () => ctx.intent?.({ game: st.game && st.game !== 'other' ? { lfg: st.game, name: G(st.game)?.name } : null }) }, icon('gamepad', 16), 'A fim de jogar'),
       h('button.btn.green.sm', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio')),
     h('div.lfgbody',
       chips,
@@ -148,10 +150,12 @@ function upsert(p) { const i = st.posts.findIndex(x => x.id === p.id); if (i >= 
 const put = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(k => k || k === 0));
 
 // ---------- criar anúncio ----------
-async function createModal() {
+// pre: plano B do "A fim de jogar" (ninguém topou a tempo): o anúncio já vem com o jogo, as vagas e o recado
+export const openLfgCreate = (pre) => createModal(pre);
+async function createModal(pre = null) {
   flow('lfg_post', 'start');
   const games = await meta();
-  const f = { platform: 'pc', join_mode: 'ask', game: st.game || 'valorant', game_name: '', mode: '', slots: 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: '', channel_id: ctx.voiceChannel?.() || '' };
+  const f = { platform: 'pc', join_mode: 'ask', game: pre?.game || st.game || 'valorant', game_name: pre?.game_name && pre.game === 'other' ? pre.game_name : '', mode: pre?.mode || '', slots: pre?.slots || 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: pre?.note || '', channel_id: ctx.voiceChannel?.() || '' };
   const box = h('div.lfgform');
   const voiceRooms = [...S.guilds.values()].flatMap(gg => gg.channels.filter(c => c.type === 2).map(c => ({ id: c.id, label: `${c.name} · ${gg.name}` })));
   const sel = (opts, val, on, cls = '') => h('select' + cls, { onchange: (e) => on(e.target.value) }, opts.map(([v, l]) => h('option', { value: v, selected: String(v) === String(val) }, l)));
