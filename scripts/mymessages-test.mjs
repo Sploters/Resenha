@@ -117,7 +117,9 @@ try {
   klipyDown = false;
   await A.keyboard.press('Escape'); await A.evaluate(() => document.querySelectorAll('.backdrop').forEach(b => b.remove()));
   await A.evaluate((gid, cid) => window.__lc.go(gid, cid), g1.id, ch1.id); await sleep(500);
-  await A.click('#composer .extras-btn'); await A.click('.cx-pop .cx-opt[title="GIF"]'); await A.waitForSelector('.gifpicker .gcard img', { timeout: 8000 });
+  await A.click('#composer .extras-btn'); await A.click('.cx-pop .cx-opt[title="GIF"]');
+  await A.waitForFunction(() => { const t = document.querySelector('.gifpicker .gtile[title="GIFs em alta"]'); t?.click(); return !!t; }, { timeout: 8000 }); // abre na tela inicial (categorias), que se redesenha quando as capas chegam: clica de dentro da página
+  await A.waitForSelector('.gifpicker .gcard img', { timeout: 8000 });
   const src1 = await A.evaluate(() => ({ btns: [...document.querySelectorAll('.gifpicker .gsrc button')].map(b => b.textContent + (b.classList.contains('on') ? '*' : '')), title: document.querySelector('.gifpicker .gcard')?.title }));
   ok(src1.btns.join() === 'KLIPY*,GIPHY' && /klipy/.test(src1.title), 'seletor mostra a troca de fonte', src1);
   await A.evaluate(() => [...document.querySelectorAll('.gifpicker .gsrc button')].find(b => b.textContent === 'GIPHY').click()); await sleep(800);

@@ -97,12 +97,13 @@ try {
   ok(cfg.fps === 120 && cfg.height === 720 && cfg.key?.length === 40 && cfg.serverKey?.length === 40 && cfg.host === 'localhost' && cfg.port >= 41011, 'o programa recebeu fps, altura, chaves SRTP e o endereço do servidor', { fps: cfg.fps, height: cfg.height, port: cfg.port, host: cfg.host, kbps: cfg.kbps });
   const prev = await A.evaluate(() => window.__lc.voice.screen.getVideoTracks()[0].getConstraints());
   ok(prev.frameRate?.ideal === 10 && prev.frameRate?.max === 13, 'captura do Chromium fica só como prévia leve (10 fps)', prev.frameRate);
-  // clipes da própria transmissão ligados: a prévia também é a fonte do clipe, então sobe para 30 fps (até 1080p); desligados, volta
+  // clipes da própria transmissão ligados: a prévia também é a fonte do clipe, então sobe para o FPS do clipe (até 1080p); desligados, volta
   const pv = await A.evaluate(async () => { const v = window.__lc.voice, t = () => v.screen.getVideoTracks()[0].getConstraints(), S = window.__lc.S;
     S.prefs.clipsOn = true; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on = t();
+    S.prefs.clipFps = 30; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on30 = t(); delete S.prefs.clipFps;
     S.prefs.clipsOn = false; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const off = t();
-    return { on: [on.frameRate?.ideal, on.height?.max], off: [off.frameRate?.ideal, off.height?.max] }; });
-  ok(pv.on[0] === 30 && pv.on[1] === 720 && pv.off[0] === 10 && pv.off[1] === 360, 'com clipes próprios ligados a prévia vai a 30 fps na resolução escolhida', pv);
+    return { on: [on.frameRate?.ideal, on.height?.max], on30: [on30.frameRate?.ideal, on30.height?.max], off: [off.frameRate?.ideal, off.height?.max] }; });
+  ok(pv.on[0] === 60 && pv.on[1] === 720 && pv.on30[0] === 30 && pv.off[0] === 10 && pv.off[1] === 360, 'com clipes próprios ligados a prévia vai ao FPS do clipe (60 padrão, 30 se escolhido) na resolução escolhida', pv);
   // espectador: palco normal
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`) || !!document.querySelector(`.tile.screen[data-sid="${uid}"]`), { timeout: 15000 }, a.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);

@@ -142,12 +142,12 @@ try {
   await A.screenshot({ path: '.testshots/gameshare-flash.png' });
   ok(!(await B.evaluate(() => !!document.querySelector('.clipflash'))), 'a outra pessoa não vê o aviso');
   await sleep(4000);
-  const clips = await call(a.tok, 'GET', `/guilds/${g.id}/clips`);
-  const list = clips.clips || clips;
-  ok(Array.isArray(list) && list.length >= 1, 'clipe salvo na galeria', list?.length);
+  // o F8 guarda o clipe só neste aparelho (IndexedDB); compartilhar é outro passo (scripts/clips-test.mjs)
+  let loc = []; for (let i = 0; i < 30 && !loc.length; i++) { loc = await A.evaluate(async () => (await import('/cliplocal.js')).listLocalClips().then(l => l.map(c => ({ size: c.size, secs: c.secs })))); if (!loc.length) await sleep(300); }
+  ok(loc.length >= 1 && loc[0].size > 1000, 'clipe salvo no aparelho', loc[0]);
   // o clipe tem som (decodifica o áudio do arquivo)
-  if (list?.[0]?.url) {
-    const aud = await A.evaluate(async (url) => { const buf = await (await fetch(url)).arrayBuffer(); try { const ab = await new AudioContext().decodeAudioData(buf); let pk = 0; const d = ab.getChannelData(0); for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i])); return { secs: +ab.duration.toFixed(1), peak: +pk.toFixed(2) }; } catch (e) { return { error: e.message }; } }, list[0].url);
+  if (loc.length) {
+    const aud = await A.evaluate(async () => { const m = await import('/cliplocal.js'), c = (await m.listLocalClips())[0], buf = await c.blob.arrayBuffer(); try { const ab = await new AudioContext().decodeAudioData(buf); let pk = 0; const d = ab.getChannelData(0); for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i])); return { secs: +ab.duration.toFixed(1), peak: +pk.toFixed(2) }; } catch (e) { return { error: e.message }; } });
     ok(aud.peak > 0.1, 'o clipe tem áudio', aud);
   }
   // app em segundo plano (jogando): o aviso vai para o app desktop, por cima do jogo

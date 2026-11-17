@@ -218,7 +218,7 @@ try {
   await C.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => /Transmitir/.test(x.textContent)).click());
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`), { timeout: 15000 }, c.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`).click(), c.id); await sleep(800);
-  await B.evaluate((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(), c.id); await sleep(400); // destaca a transmissão da carol (os botões valem para a destacada)
+  await B.evaluate((uid) => { if (window.__lc.S.focus !== 's:' + uid) document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(); }, c.id); await sleep(400); // destaca a transmissão da carol (os botões valem para a destacada); o clique alterna, então só se ainda não estiver
   await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle/.test(x.textContent))?.click());
   ok(await toastOf(B, 'carol não pode ser controlad'), 'navegador comum: pedido recusado automaticamente com explicação');
   ok(!(await C.evaluate(() => !!document.querySelector('.modal .rmask'))), 'carol (sem o app) nem vê diálogo de consentimento');
