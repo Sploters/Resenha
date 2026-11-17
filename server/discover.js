@@ -244,6 +244,8 @@ export function mountDiscover(app, { auth, dataDir }) {
       const a = it.assets || {}, img = (f) => (f && a.asset_url_format ? (conf().steamAssets || ASSETS) + a.asset_url_format.replace('${FILENAME}', f) : '');
       const bp = it.best_purchase_option, rv = it.reviews?.summary_filtered;
       out[id] = { appid: id, title: it.name, url: `https://store.steampowered.com/app/${id}/`, image: img(a.header), thumb: img(a.small_capsule) || img(a.header), cover: img(a.library_capsule_2x || a.library_capsule),
+        // ícone do jogo (o da biblioteca da Steam, 32 px): o que aparece ao lado do nome, no lugar do ícone do executável
+        icon: /^[a-f0-9]{40}$/.test(a.community_icon || '') ? `https://shared.fastly.steamstatic.com/community_assets/images/apps/${id}/${a.community_icon}.jpg` : '',
         free: !!it.is_free, price: it.is_free ? 'Gratuito' : bp?.formatted_final_price || '', old: bp?.discount_pct ? bp.formatted_original_price || '' : '', discount: bp?.discount_pct || 0,
         ends: bp?.discount_pct ? (Math.max(0, ...(bp.active_discounts || []).map(d => +d.discount_end_date || 0)) * 1000 || null) : null,
         reviews: rv?.review_count ? { pct: rv.percent_positive, label: rv.review_score_label, count: rv.review_count } : null,
@@ -309,7 +311,7 @@ export function mountDiscover(app, { auth, dataDir }) {
     try {
       const it = await storeItems(ids.map(Number));
       res.set('Cache-Control', 'private, max-age=3600');
-      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, cover: x.cover, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
+      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, cover: x.cover, icon: x.icon, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
     } catch { res.json({}); }
   });
   // jogo aberto no PC sem o número da Steam (EA app, Battle.net, Epic, Xbox…): procura pelo nome na loja da Steam

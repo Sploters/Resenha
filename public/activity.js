@@ -65,14 +65,15 @@ function steamArt(id) { // Promise<{ image, thumb } | null>, em lote (vários ca
 // quadradinho do jogo (lista de membros, cartão, painel): ícone do programa; sem ele, o recorte da arte da Steam; senão o controle
 export function gameIcon(a, size = 20) {
   const box = h('span.gicon', { style: { width: size + 'px', height: size + 'px' } });
-  const set = (src, cover) => { const img = h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => box.replaceChildren(icon('gamepad', Math.round(size * .8))) }); if (cover) img.classList.add('cover'); box.replaceChildren(img); };
-  // ordem: ícone do catálogo (Valorant, LoL…) > capa oficial da Steam > ícone do programa > controle. O ícone do programa
-  // perde para a Steam porque pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo
+  const set = (src, cover, alt) => { const img = h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => (alt ? set(alt) : box.replaceChildren(icon('gamepad', Math.round(size * .8)))) }); if (cover) img.classList.add('cover'); box.replaceChildren(img); };
+  // ordem: ícone do catálogo (Valorant, LoL…) > ícone oficial do jogo na Steam > ícone do programa > controle. O do
+  // programa fica por último porque pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo
   const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, exe = iconUrl(a);
   if (kg?.icon) set(kg.icon, !/\.svg(\?|$)/.test(kg.icon));
+  else if (!sid) { if (exe) set(exe); else box.append(icon('gamepad', Math.round(size * .8))); }
   else {
-    if (exe) set(exe); else box.append(icon('gamepad', Math.round(size * .8)));
-    if (sid) steamArt(sid).then(x => { const src = x?.cover || x?.thumb; if (src && box.isConnected !== false) set(src, true); });
+    box.append(icon('gamepad', Math.round(size * .8))); // enquanto a Steam responde (o pedido é em lote e guardado)
+    steamArt(sid).then(x => { if (x?.icon) set(x.icon, true, exe); else if (exe) set(exe); });
   }
   return box;
 }
@@ -129,7 +130,7 @@ export function gameModal(a) {
   hero.append(h('button.inv-x.gm-x', { title: 'Fechar', onclick: m.close }, icon('x', 20)));
   if (sid) steamArt(sid).then(x => {
     if (!x) return;
-    if (!kg?.icon && (x.cover || x.thumb)) swapIcon(x.cover || x.thumb);
+    if (!kg?.icon && x.icon) swapIcon(x.icon);
     if (x.image && !kg?.banner) { hero.prepend(h('img.gm-art', { src: x.image, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); hero.classList.add('has-art'); }
     const rv = x.reviews; meta.replaceChildren(...[rv && h('span.gm-rev', icon('star', 14), `${rv.label} · ${rv.pct}%`), (x.free || x.price) && h('span', x.free ? 'Gratuito' : x.price)].filter(Boolean));
     tags.replaceChildren(...(x.tags || []).map(t => h('span.gm-tag', t)));
