@@ -228,6 +228,11 @@ impl Dxgi {
         let l = (w.left - ox).max(0); let t = (w.top - oy).max(0);
         let r = (w.right - ox).min(self.mw as i32); let b = (w.bottom - oy).min(self.mh as i32);
         if r - l < 16 || b - t < 16 { return None; }
+        // janela que cobre quase o monitor inteiro (jogo em tela cheia/sem bordas com alguns pixels de borda, visto
+        // 1914x1080 num monitor de 1920): pega o monitor inteiro. Senão a imagem era redimensionada (1914 -> 1900) e
+        // ficava borrada; assim sai 1:1. No máximo 32 px de cada lado entram de fora da janela.
+        let (mw, mh) = (self.mw as i32, self.mh as i32);
+        if l <= 32 && t <= 32 && mw - r <= 32 && mh - b <= 32 { return Some(RECT { left: 0, top: 0, right: mw & !1, bottom: mh & !1 }); }
         Some(RECT { left: l & !1, top: t & !1, right: r & !1, bottom: b & !1 })
     }
     /// perdeu o acesso: tenta de novo com espera crescente; desiste depois de DXGI_LOST_GIVEUP s

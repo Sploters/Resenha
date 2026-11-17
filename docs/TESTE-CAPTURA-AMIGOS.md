@@ -113,3 +113,7 @@ Mudanças: bitrate automático +50% para jogo a 60 FPS (1080p60: 7,2 -> 10,8 Mbp
 duas camadas dividem o codificador); quadro que chega com o codificador ocupado espera a próxima vaga em vez de ser
 descartado; prioridade ALTA de GPU para o processo (como o OBS) e a maior prioridade de thread de GPU aceita. Painel:
 `encoderBusy`, `nativeKbps`, `nativePrio`. **Falta medir de novo** (precisa do app novo).
+**2º teste (só o servidor novo; o app ainda era o anterior, sem os campos novos de prioridade):** 54 capturados / 54
+enviados (antes 46/40), codificador ocupado 3 vezes em 328 s (antes descartava ~1.500), codificação 6,5 ms (antes 12,4),
+12,5 Mbps somando as duas camadas. Visto também: janela de 1914x1080 saindo em 1900x1080 (redimensionada, borra). Corrigido
+no lc-stream: janela que cobre quase o monitor inteiro (até 32 px de folga) é capturada como o monitor, 1:1.
