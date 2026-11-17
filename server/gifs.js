@@ -8,6 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+// categorias da tela inicial do seletor (como no Discord): cada uma é uma busca pronta, com um GIF de capa
+export const GIF_CATS = ['feliz', 'triste', 'rindo', 'uau', 'amor', 'abraço', 'obrigado', 'parabéns', 'aplausos', 'dançando', 'oi', 'tchau',
+  'sim', 'não', 'bravo', 'chorando', 'confuso', 'assustado', 'cansado', 'facepalm'];
 const IMG = /^https?:\/\/[^\s"'<>]+\.(gif|webp)(\?[^\s"'<>]*)?$/i;
 const PER = 24;
 
@@ -89,6 +92,27 @@ export function mountGifs(app, d) {
     if (kind === 'search' && !q.trim()) return res.json({ gifs: [], more: false, page });
     fetchList(kind, q.trim(), page, req.uid, String(req.query.src || '')).then(x => res.json(x), e => bad(res, 'Não consegui buscar GIFs: ' + e.message, 502));
   };
+
+  // capas da tela inicial: o 1º GIF de "em alta" e de cada categoria. Uma consulta por fonte a cada 6 h para todo o
+  // servidor (não por pessoa), então abrir o seletor não gasta a cota do serviço
+  const covers = new Map(); // fonte -> { data, t, p (consulta em andamento), fail (quando a última falhou) }
+  async function buildCovers(want) {
+    const first = (d) => { const g = d?.gifs?.[0]; return g ? { preview: g.preview, w: g.w, h: g.h } : null; };
+    const [tr, ...cs] = await Promise.allSettled([fetchList('trending', '', 1, 'capas', want), ...GIF_CATS.map(q => fetchList('search', q, 1, 'capas', want))]);
+    const ok = (r) => r.status === 'fulfilled' ? r.value : null;
+    if (!ok(tr) && !cs.some(ok)) throw tr.reason;
+    return { trending: first(ok(tr)), cats: GIF_CATS.map((q, i) => ({ q, ...(first(ok(cs[i])) || {}) })) };
+  }
+  app.get('/api/gifs/categories', auth, async (req, res) => {
+    if (!prov) return res.json({ trending: null, cats: [] });
+    const want = provs.some(p => p.name === req.query.src) ? String(req.query.src) : prov.name;
+    const e = covers.get(want) || covers.set(want, {}).get(want);
+    if ((!e.data || Date.now() - e.t > 6 * 3600000) && !(Date.now() - (e.fail || 0) < 2 * 60000)) {
+      e.p ||= buildCovers(want).then(d => { e.data = d; e.t = Date.now(); }, err => { e.fail = Date.now(); throw err; }).finally(() => { e.p = null; });
+      try { await e.p; } catch (err) { if (!e.data) return res.json({ trending: null, cats: GIF_CATS.map(q => ({ q })), error: err.message }); }
+    }
+    res.json(e.data || { trending: null, cats: GIF_CATS.map(q => ({ q })) });
+  });
 
   app.get('/api/gifs/meta', auth, (req, res) => res.json({ provider: prov?.name || null, label: prov?.label || null, providers: provs.map(p => ({ name: p.name, label: p.label })) }));
   app.get('/api/gifs/trending', auth, listRoute('trending'));

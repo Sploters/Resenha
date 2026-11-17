@@ -1049,6 +1049,23 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .gstar.on { color: #f0b232; opacity: 1; }
 .gcard:hover .gstar, .gifmsg:hover .gstar { opacity: 1; }
 .gifpicker .gfoot { padding: 6px 12px 8px; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--divider); }
+/* seletor de GIF: tela inicial com blocos (Favoritos, Em alta, Do grupo e categorias), cabeçalho com voltar */
+.gifpicker [hidden] { display: none !important; }
+.gifpicker .gtabs { align-items: center; }
+.gifpicker .gback { display: inline-flex; align-items: center; justify-content: center; padding: 4px !important; background: none !important; color: var(--text-muted) !important; }
+.gifpicker .gback:hover { color: var(--text) !important; background: var(--bg-tert) !important; }
+.gifpicker .gtitle2 { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gifpicker .ghome { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+.gifpicker .gtiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.gifpicker .gtile { position: relative; height: 96px; border: 0; padding: 0; border-radius: 6px; overflow: hidden; cursor: pointer; background: var(--bg-tert); color: #fff; font: inherit; }
+.gifpicker .gtile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.gifpicker .gtile::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.45); transition: background .12s; }
+.gifpicker .gtile:hover::after, .gifpicker .gtile:focus-visible::after { background: rgba(0,0,0,.25); }
+.gifpicker .gtile:hover, .gifpicker .gtile:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.gifpicker .gtile span { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 100%; padding: 0 8px; font-weight: 700; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.gifpicker .gtile .icon { fill: currentColor; flex: none; }
+/* toque (sem mouse em cima): a estrela de favoritar fica sempre à vista */
+@media (hover: none) { .gstar { opacity: .85; } }
 .gifmsg { position: relative; display: inline-block; max-width: min(360px, 100%); }
 .gifmsg img { max-width: 100%; max-height: 300px; border-radius: 6px; display: block; cursor: pointer; margin: 0 !important; }
 .gifmsg .gtag { position: absolute; left: 6px; bottom: 6px; font-size: 10px; font-weight: 800; color: #fff; background: rgba(0,0,0,.6); border-radius: 4px; padding: 1px 5px; opacity: 0; }
