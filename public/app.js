@@ -38,7 +38,7 @@ import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWa
 import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
 import { pollModal, pollCard } from './polls.js';
-import { initLfg, renderLfg, onLfgEvent } from './lfg.js';
+import { initLfg, renderLfg, onLfgEvent, onLfgActivity } from './lfg.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
 import { reportVideoCaps } from './codecs.js';
@@ -359,7 +359,7 @@ function onEvent(t, d) {
       if (S.view.cid === d.id || channelById(S.view.cid) == null && S.view.gid === d.guild_id) go(d.guild_id); else renderSide();
       break;
     }
-    case 'ACTIVITY_UPDATE': onActivityUpdate(d); break;
+    case 'ACTIVITY_UPDATE': onActivityUpdate(d); onLfgActivity(d.user_id); break;
     case 'INTEGRATION_UPDATE': onIntegrationUpdate(d); break;
     case 'GAMES_UPDATE': onGamesUpdate(d); break;
     case 'GAME_DEAL': onGameDeal(d); break;
@@ -434,7 +434,7 @@ function onEvent(t, d) {
       notify('Resenha: resumo da semana', d.titulo, () => openSettings('uxstats', { voice, logout, go, gid: S.view.gid })); break;
     }
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
-    case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': onLfgEvent(t, d); break;
+    case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': case 'LFG_MESSAGE': case 'LFG_JOINED': case 'LFG_LEFT': onLfgEvent(t, d); break;
     case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
@@ -4269,7 +4269,7 @@ initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voi
 initKinds({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), mdCtx: (gid) => ctxFor(gid), chName, attachEl: (f) => attachEl(f), jumpTo: (mid) => jumpTo(mid),
   react: (m, e, add) => react(m, e, add), reactionFace: (e) => reactionFace(e), galleryChat: (cid, on) => setGalleryChat(cid, on) });
 initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p), favPostChanged: (id, t) => favPostChanged(id, t), renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });
-initLfg({ go, profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
+initLfg({ go, settings: (k) => openSettings(k, ctxSettings()), profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)

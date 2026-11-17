@@ -26,6 +26,10 @@ export const GAMES = [
   { id: 'other', name: 'Outro jogo', color: '#5865f2', modes: R('Casual', 'Ranqueada'), ranks: [], roles: [], links: [] },
 ];
 const G = new Map(GAMES.map(g => [g.id, g]));
+// onde o grupo joga: entrar de outra plataforma não funciona (o FAQ do Discord avisa o mesmo), então o anúncio diz qual é
+export const PLATFORMS = [['pc', 'PC'], ['playstation', 'PlayStation'], ['xbox', 'Xbox'], ['switch', 'Switch'], ['mobile', 'Celular'], ['cross', 'Crossplay']];
+const PLAT = new Set(PLATFORMS.map(p => p[0]));
+const MSG_MAX = 500, MSG_PAGE = 100;
 const NOW_TTL = 2 * 3600e3;          // anúncio "agora" fica 2 h
 const AFTER_START = 2 * 3600e3;      // agendado: some 2 h depois do horário
 const MAX_OPEN = 3;                  // anúncios abertos por pessoa
@@ -39,7 +43,8 @@ export function mountLfg(app, d) {
     const reqs = all('SELECT user_id, state, created_at FROM lfg_requests WHERE post_id=? ORDER BY created_at', p.id);
     const ch = p.channel_id && get('SELECT id, name, guild_id FROM channels WHERE id=?', p.channel_id);
     return { id: p.id, game: p.game, game_name: p.game_name, mode: p.mode, slots: p.slots, rank_min: p.rank_min, rank_max: p.rank_max, roles: JSON.parse(p.roles || '[]'), mic: !!p.mic,
-      when_at: p.when_at, note: p.note, created_at: p.created_at, expires_at: p.expires_at, closed: !open(p), closed_reason: p.closed_at ? (p.slots <= 0 ? 'full' : 'closed') : (p.slots <= 0 ? 'full' : p.expires_at <= now() ? 'expired' : null),
+      when_at: p.when_at, note: p.note, platform: p.platform || 'pc', join_mode: p.join_mode === 'open' ? 'open' : 'ask',
+      msg_count: get('SELECT COUNT(*) n FROM lfg_messages WHERE post_id=?', p.id).n, created_at: p.created_at, expires_at: p.expires_at, closed: !open(p), closed_reason: p.closed_at ? (p.slots <= 0 ? 'full' : 'closed') : (p.slots <= 0 ? 'full' : p.expires_at <= now() ? 'expired' : null),
       author: userPub(p.author_id), author_profile: profileOf(p.author_id, p.game),
       channel: ch ? { id: ch.id, name: ch.name, guild_id: ch.guild_id, in_call: voiceCount(ch.id) } : null,
       // o autor vê todos os pedidos; os outros só o próprio
@@ -48,7 +53,7 @@ export function mountLfg(app, d) {
   };
   const broadcast = (p, type = 'LFG_POST') => { for (const u of audienceOf(p.author_id)) dispatch([u], type, postObj(p, u)); };
 
-  app.get('/api/lfg/meta', auth, (req, res) => res.json({ games: GAMES }));
+  app.get('/api/lfg/meta', auth, (req, res) => res.json({ games: GAMES, platforms: PLATFORMS }));
 
   // mural: anúncios abertos que eu posso ver (+ os meus encerrados nas últimas 12 h, para ver o resultado)
   app.get('/api/lfg/posts', auth, wrap((req, res) => {
@@ -72,18 +77,30 @@ export function mountLfg(app, d) {
     const roles = [...new Set((Array.isArray(b.roles) ? b.roles : []).map(String))].filter(r => g.roles.includes(r));
     const whenAt = b.when_at ? Math.round(+b.when_at) : null;
     if (whenAt && (whenAt < now() - 60e3 || whenAt > now() + 7 * 86400e3)) return bad(res, 'Horário inválido (até 7 dias)');
+    const platform = PLAT.has(String(b.platform)) ? String(b.platform) : 'pc';
+    const joinMode = b.join_mode === 'open' ? 'open' : 'ask';
     let channel = null;
     if (b.channel_id) { channel = get('SELECT * FROM channels WHERE id=?', String(b.channel_id)); if (!channel || channel.type !== 2 || !canSeeChannel(req.uid, channel)) return bad(res, 'Sala de voz inválida'); }
     if (get('SELECT COUNT(*) n FROM lfg_posts WHERE author_id=? AND closed_at IS NULL AND expires_at > ? AND slots > 0', req.uid, now()).n >= MAX_OPEN) return bad(res, `No máximo ${MAX_OPEN} anúncios abertos por vez`);
     const id = newId(), t = now();
-    run('INSERT INTO lfg_posts(id,author_id,game,game_name,mode,slots,rank_min,rank_max,roles,mic,when_at,note,channel_id,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      id, req.uid, g.id, gameName, mode, slots, rmin, rmax, JSON.stringify(roles), b.mic ? 1 : 0, whenAt, clean(b.note, 200), channel?.id || null, t, (whenAt || t) + (whenAt ? AFTER_START : NOW_TTL));
+    run('INSERT INTO lfg_posts(id,author_id,game,game_name,mode,slots,rank_min,rank_max,roles,mic,when_at,note,channel_id,created_at,expires_at,platform,join_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, req.uid, g.id, gameName, mode, slots, rmin, rmax, JSON.stringify(roles), b.mic ? 1 : 0, whenAt, clean(b.note, 200), channel?.id || null, t, (whenAt || t) + (whenAt ? AFTER_START : NOW_TTL), platform, joinMode);
     const p = get('SELECT * FROM lfg_posts WHERE id=?', id);
     broadcast(p);
     res.json(postObj(p, req.uid));
   }));
 
   const postFor = (req, res) => { const p = get('SELECT * FROM lfg_posts WHERE id=?', req.params.id); if (!p || !(p.author_id === req.uid || audienceOf(p.author_id).includes(req.uid))) { bad(res, 'Anúncio não encontrado', 404); return null; } return p; };
+
+  // ocupa uma vaga e chama a pessoa: convite para a chamada se o autor está numa sala de voz, senão uma mensagem direta
+  const admit = (p, uid) => {
+    run('UPDATE lfg_requests SET state=? WHERE post_id=? AND user_id=?', 'accepted', p.id, uid);
+    run('UPDATE lfg_posts SET slots=slots-1 WHERE id=?', p.id);
+    let invited = false;
+    if (voiceChannelOf(p.author_id)) invited = !callInvite(p.author_id, uid).error;
+    if (!invited) postDm(p.author_id, uid, `🎮 Topei você no meu grupo de ${p.game_name} (${p.mode})! Bora jogar.`);
+    return invited;
+  };
 
   // encerrar (só o autor)
   app.post('/api/lfg/posts/:id/close', auth, wrap((req, res) => {
@@ -97,11 +114,25 @@ export function mountLfg(app, d) {
   app.post('/api/lfg/posts/:id/request', auth, wrap((req, res) => {
     const p = postFor(req, res); if (!p) return;
     if (p.author_id === req.uid) return bad(res, 'O anúncio é seu');
-    if (!open(p)) return bad(res, 'Este anúncio já fechou', 409);
+    const cur0 = get('SELECT state FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, req.uid);
+    if (!open(p) && !(req.body?.cancel && cur0?.state === 'accepted' && !p.closed_at)) return bad(res, 'Este anúncio já fechou', 409);
     const cur = get('SELECT * FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, req.uid);
-    if (req.body?.cancel) { if (cur?.state === 'pending') run('DELETE FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, req.uid); }
+    if (req.body?.cancel) {
+      if (cur?.state === 'pending') run('DELETE FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, req.uid);
+      else if (cur?.state === 'accepted') { // saiu do grupo: a vaga volta e o autor fica sabendo
+        run('DELETE FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, req.uid); run('UPDATE lfg_posts SET slots=slots+1 WHERE id=?', p.id);
+        dispatch([p.author_id], 'LFG_LEFT', { post_id: p.id, game_name: p.game_name, user: userPub(req.uid) });
+        const n = get('SELECT * FROM lfg_posts WHERE id=?', p.id); broadcast(n); return res.json(postObj(n, req.uid));
+      }
+    }
     else if (!cur) {
       run('INSERT INTO lfg_requests(post_id,user_id,state,created_at) VALUES(?,?,?,?)', p.id, req.uid, 'pending', now());
+      if (p.join_mode === 'open') { // entrada direta: sem esperar o autor (como "Join" numa sessão aberta a todos)
+        const invited = admit(p, req.uid);
+        dispatch([p.author_id], 'LFG_JOINED', { post_id: p.id, game_name: p.game_name, mode: p.mode, user: userPub(req.uid), invited });
+        const n = get('SELECT * FROM lfg_posts WHERE id=?', p.id);
+        broadcast(n); return res.json({ ...postObj(n, req.uid), joined: { invited } });
+      }
       dispatch([p.author_id], 'LFG_REQUEST', { post_id: p.id, game_name: p.game_name, mode: p.mode, user: userPub(req.uid), profile: profileOf(req.uid, p.game) });
     }
     broadcast(p); res.json(postObj(p, req.uid));
@@ -115,17 +146,32 @@ export function mountLfg(app, d) {
     const r = get('SELECT * FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, uid);
     if (!r || r.state !== 'pending') return bad(res, 'Pedido não encontrado');
     if (accept && !open(p)) return bad(res, 'O anúncio já está completo ou fechado', 409);
-    run('UPDATE lfg_requests SET state=? WHERE post_id=? AND user_id=?', accept ? 'accepted' : 'declined', p.id, uid);
     let invited = false;
-    if (accept) {
-      run('UPDATE lfg_posts SET slots=slots-1 WHERE id=?', p.id);
-      // estou numa sala de voz de servidor: convite para a chamada (aceitar já coloca no servidor e na sala)
-      if (voiceChannelOf(req.uid)) invited = !callInvite(req.uid, uid).error;
-      if (!invited) postDm(req.uid, uid, `🎮 Topei você no meu grupo de ${p.game_name} (${p.mode})! Bora jogar.`);
-    }
+    if (accept) invited = admit(p, uid); // estou numa sala de voz: convite para a chamada (aceitar já coloca no servidor e na sala)
+    else run('UPDATE lfg_requests SET state=? WHERE post_id=? AND user_id=?', 'declined', p.id, uid);
     const n = get('SELECT * FROM lfg_posts WHERE id=?', p.id);
     dispatch([uid], 'LFG_ANSWER', { post_id: p.id, accept, invited, game_name: p.game_name, mode: p.mode, author: userPub(p.author_id) });
     broadcast(n); res.json(postObj(n, req.uid));
+  }));
+
+  // conversa do anúncio: quem pode ver o anúncio lê e escreve (combinar estilo de jogo, microfone, horário) antes de pedir
+  // para entrar. Fica aberta até 12 h depois de o anúncio fechar, para o grupo acertar os detalhes.
+  const msgObj = (m) => ({ id: m.id, post_id: m.post_id, author: userPub(m.author_id), content: m.content, created_at: m.created_at });
+  app.get('/api/lfg/posts/:id/messages', auth, wrap((req, res) => {
+    const p = postFor(req, res); if (!p) return;
+    res.json(all('SELECT * FROM (SELECT * FROM lfg_messages WHERE post_id=? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at', p.id, MSG_PAGE).map(msgObj));
+  }));
+  app.post('/api/lfg/posts/:id/messages', auth, wrap((req, res) => {
+    const p = postFor(req, res); if (!p) return;
+    const ended = p.closed_at || (p.slots <= 0 ? p.expires_at : null) || (p.expires_at <= now() ? p.expires_at : null);
+    if (ended && now() - Math.min(ended, now()) > 12 * 3600e3) return bad(res, 'A conversa deste anúncio já foi encerrada', 409);
+    const content = clean(req.body?.content, MSG_MAX); if (!content) return bad(res, 'Escreva uma mensagem');
+    const last = get('SELECT created_at FROM lfg_messages WHERE author_id=? ORDER BY created_at DESC LIMIT 1', req.uid);
+    if (last && now() - last.created_at < 800) return bad(res, 'Calma, uma mensagem por vez', 429);
+    const id = newId(); run('INSERT INTO lfg_messages(id,post_id,author_id,content,created_at) VALUES(?,?,?,?,?)', id, p.id, req.uid, content, now());
+    const m = msgObj(get('SELECT * FROM lfg_messages WHERE id=?', id)), count = get('SELECT COUNT(*) n FROM lfg_messages WHERE post_id=?', p.id).n;
+    dispatch(audienceOf(p.author_id), 'LFG_MESSAGE', { ...m, count, game_name: p.game_name, post_author: p.author_id });
+    res.json(m);
   }));
 
   // perfil de jogador (por jogo): nick/Riot ID, elo e funções que costuma jogar

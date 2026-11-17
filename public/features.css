@@ -889,6 +889,25 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .lfgform .lfgroles.pick { margin-bottom: 4px; } .lfgform .lfgroles.pick button { padding: 5px 11px; font-size: 13px; }
 .lfgform .lfgset { margin-top: 16px; }
 #side-list .lfgrow-side svg { color: var(--interactive); }
+/* LFG: sessão ao vivo, plataforma, entrada direta e conversa do anúncio */
+.lfglive { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--green, #23a55a) 14%, var(--bg-tert, #1e1f22)); font-size: 13px; color: var(--text-normal, var(--header)); }
+.lfglive b { color: var(--green, #23a55a); } .lfglive small { margin-left: auto; color: var(--header); font-weight: 700; }
+.lfgdot { width: 8px; height: 8px; border-radius: 50%; background: var(--green, #23a55a); box-shadow: 0 0 0 0 color-mix(in srgb, var(--green, #23a55a) 60%, transparent); animation: lfgpulse 1.8s infinite; }
+@keyframes lfgpulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .lfgdot { animation: none; } }
+.lfgplat, .lfgopen { padding: 2px 8px; border-radius: 999px; background: var(--bg-tert, #1e1f22); color: var(--interactive); font-size: 12px; font-weight: 700; }
+.lfgopen { background: color-mix(in srgb, var(--brand, #5865f2) 24%, transparent); color: var(--header); }
+.lfgtip { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: var(--bg-tert, #1e1f22); color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+.lfgtip .icon { flex: none; margin-top: 1px; } .lfgtip.ok { color: var(--text-normal, var(--header)); background: color-mix(in srgb, var(--green, #23a55a) 14%, var(--bg-tert, #1e1f22)); } .lfgtip.ok .icon { color: var(--green, #23a55a); }
+.lfgtip a { color: var(--link, #00a8fc); }
+.lfgchat { display: flex; flex-direction: column; gap: 10px; }
+.lfgmsgs { display: flex; flex-direction: column; gap: 10px; height: min(52vh, 420px); overflow-y: auto; padding: 4px 2px; }
+.lfgmsgs > .lfghint { margin: auto; text-align: center; max-width: 320px; }
+.lfgmsg { display: flex; gap: 10px; } .lfgav { flex: none; cursor: pointer; }
+.lfgmh { display: flex; align-items: baseline; gap: 6px; } .lfgmh b { color: var(--header); font-size: 14px; } .lfgmh small { color: var(--text-muted); font-size: 11px; }
+.lfgtag { padding: 0 5px; border-radius: 4px; background: var(--brand, #5865f2); color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.lfgmt { color: var(--text-normal, var(--header)); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lfgsend { display: flex; gap: 8px; } .lfgsend input { flex: 1; min-width: 0; }
 
 /* ---------- chat: "digitando…" com espaço próprio (antes ficava por baixo do campo de mensagem) ---------- */
 #msgs { padding-bottom: 4px; }

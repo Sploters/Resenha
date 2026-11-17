@@ -1,5 +1,6 @@
 // Procurar jogadores: regras (quem vê, validação, pedidos, vagas, perfil) e o fluxo em 3 navegadores
-// (perfil, criar anúncio, avisos, "Quero entrar" → aceitar → convite para a chamada, copiar, encerrar).
+// (perfil, criar anúncio, avisos, "Pedir para entrar" → aceitar → convite para a chamada, copiar, encerrar) e o que veio do
+// canal LFG do Discord: plataforma, entrada direta, sair do grupo, conversa do anúncio e "Jogando agora" ao vivo.
 // Uso: node scripts/lfg-test.mjs   (SHOTS=1 salva capturas em .testshots/lfg)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -93,7 +94,7 @@ try {
   await A.evaluate(() => [...document.querySelectorAll('#stage .btn')].find(x => /Entrar/.test(x.textContent))?.click());
   await A.waitForFunction(() => window.__lc.voice?.channelId, { timeout: 15000 });
   await A.evaluate(() => window.__lc.go('@me', 'lfg')); await sleep(800);
-  await B.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Quero entrar').click(), p1.id);
+  await B.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Pedir para entrar').click(), p1.id);
   ok(await toastHas(A, 'bruno quer entrar no seu grupo de Valorant'), 'alice é avisada do pedido');
   ok(await A.waitForFunction((id) => !!document.querySelector(`.lfgcard[data-id="${id}"] .lfgreq`), { timeout: 4000 }, p1.id).then(() => true, () => false), 'pedido aparece no cartão da alice com Aceitar/Recusar');
   ok(await B.evaluate((id) => /Pedido enviado/.test(document.querySelector(`.lfgcard[data-id="${id}"]`).textContent), p1.id), 'bruno vê "Pedido enviado"');
@@ -108,7 +109,7 @@ try {
   const txt = await C.evaluate(() => window.__copied.at(-1) || '');
   ok(/^🎮 LFG — Valorant · Competitivo/.test(txt) && /Precisa de 1 · Ouro – Platina/.test(txt) && /Funções: Controlador · 🎙️ Com microfone/.test(txt) && /Riot ID: Alice#BR1 \(Platina\)/.test(txt), 'texto do anúncio pronto para colar', txt);
   // carla pede, alice aceita a última vaga → completo, sai do mural dos outros
-  await C.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Quero entrar').click(), p1.id); await sleep(500);
+  await C.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Pedir para entrar').click(), p1.id); await sleep(500);
   await call(a.tok, 'POST', `/lfg/posts/${p1.id}/answer`, { user_id: c.id, accept: true });
   ok(await B.waitForFunction((id) => !document.querySelector(`#lfgview .lfgcard[data-id="${id}"]`), { timeout: 4000 }, p1.id).then(() => true, () => false), 'grupo completo: anúncio sai do mural');
   ok(await A.waitForFunction((id) => /Completo/.test(document.querySelector(`.lfgcard[data-id="${id}"]`)?.textContent || ''), { timeout: 4000 }, p1.id).then(() => true, () => false), 'autor vê o anúncio como "Completo" em encerrados');
@@ -124,6 +125,45 @@ try {
   const pb = (await call(a.tok, 'GET', `/lfg/profile/${b.id}`)).find(x => x.game === 'lol');
   ok((await call(c.tok, 'GET', `/lfg/profile/${b.id}`)).status === 404, 'carla (sem relação com o bruno) não vê o perfil dele');
   ok(pb?.ign === 'Bruno#BR1' && pb.rank === 'Esmeralda' && pb.roles.join() === 'Selva', 'perfil de LoL salvo pelo formulário', pb);
+
+  // ---------- plataforma, entrada direta, sair do grupo ----------
+  ok((await call(b.tok, 'POST', '/lfg/posts', { game: 'repo', mode: 'Casual', slots: 1, platform: 'nintendo64' })).platform === 'pc', 'plataforma desconhecida vira PC');
+  await call(b.tok, 'GET', '/lfg/posts').then(r => Promise.all(r.filter(x => x.author.id === b.id).map(x => call(b.tok, 'POST', `/lfg/posts/${x.id}/close`))));
+  const p3 = await call(b.tok, 'POST', '/lfg/posts', { game: 'valorant', mode: 'Sem ranque', slots: 2, platform: 'cross', join_mode: 'open' });
+  ok(p3.platform === 'cross' && p3.join_mode === 'open' && p3.msg_count === 0, 'anúncio com crossplay e entrada direta', { platform: p3.platform, join_mode: p3.join_mode });
+  ok(await A.waitForFunction((id) => !!document.querySelector(`.lfgcard[data-id="${id}"]`), { timeout: 4000 }, p3.id).then(() => true, () => false), 'anúncio do bruno aparece para a alice');
+  const c3 = await A.evaluate((id) => document.querySelector(`.lfgcard[data-id="${id}"]`).textContent, p3.id);
+  ok(/Crossplay/.test(c3) && /Entrada direta/.test(c3) && /Entrar/.test(c3), 'cartão mostra plataforma e "Entrada direta"', c3.slice(0, 120));
+  await A.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Entrar').click(), p3.id);
+  ok(await toastHas(A, 'Você entrou no grupo de bruno'), 'alice entra direto, sem esperar aprovação');
+  ok(await toastHas(B, 'alice entrou no seu grupo de Valorant'), 'bruno é avisado de quem entrou');
+  ok((await call(b.tok, 'GET', '/lfg/posts')).find(x => x.id === p3.id)?.slots === 1, 'a vaga foi ocupada');
+  await A.waitForFunction((id) => [...(document.querySelector(`.lfgcard[data-id="${id}"]`)?.querySelectorAll('.btn') || [])].some(x => x.textContent === 'Sair'), { timeout: 4000 }, p3.id).catch(() => { });
+  await A.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => x.textContent === 'Sair').click(), p3.id);
+  ok(await toastHas(B, 'alice saiu do seu grupo de Valorant'), 'sair do grupo avisa o autor');
+  ok((await call(b.tok, 'GET', '/lfg/posts')).find(x => x.id === p3.id)?.slots === 2, 'a vaga volta para o anúncio');
+  // ---------- conversa do anúncio ----------
+  ok((await call(d.tok, 'GET', `/lfg/posts/${p3.id}/messages`)).status === 404 && (await call(d.tok, 'POST', `/lfg/posts/${p3.id}/messages`, { content: 'oi' })).status === 404, 'desconhecido não lê nem escreve na conversa');
+  ok((await call(a.tok, 'POST', `/lfg/posts/${p3.id}/messages`, { content: '   ' })).status === 400, 'mensagem vazia é recusada');
+  await A.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => /^Conversa/.test(x.textContent)).click(), p3.id);
+  await A.waitForSelector('.lfgchat input'); await A.type('.lfgchat input', 'tenho mic, jogo de sentinela'); await A.keyboard.press('Enter');
+  ok(await A.waitForFunction(() => /tenho mic, jogo de sentinela/.test(document.querySelector('.lfgmsgs')?.textContent || ''), { timeout: 4000 }).then(() => true, () => false), 'mensagem aparece na conversa da alice');
+  ok(await toastHas(B, 'alice escreveu no seu anúncio de Valorant'), 'autor é avisado da mensagem na conversa');
+  ok(await B.waitForFunction((id) => /Conversa \(1\)/.test(document.querySelector(`.lfgcard[data-id="${id}"]`)?.textContent || ''), { timeout: 4000 }, p3.id).then(() => true, () => false), 'contador da conversa atualiza no cartão');
+  await B.evaluate((id) => [...document.querySelector(`.lfgcard[data-id="${id}"]`).querySelectorAll('.btn')].find(x => /^Conversa/.test(x.textContent)).click(), p3.id);
+  await B.waitForFunction(() => /tenho mic/.test(document.querySelector('.lfgmsgs')?.textContent || ''), { timeout: 4000 }).catch(() => { });
+  await B.type('.lfgchat input', 'fechou, cola'); await B.keyboard.press('Enter');
+  ok(await A.waitForFunction(() => /fechou, cola/.test(document.querySelector('.lfgmsgs')?.textContent || '') && /autor/.test(document.querySelector('.lfgmsgs')?.textContent || ''), { timeout: 4000 }).then(() => true, () => false), 'resposta do autor chega ao vivo, com a marca "autor"');
+  if (process.env.SHOTS) { await sleep(300); await A.screenshot({ path: `${OUT}/05-conversa.png` }); }
+  for (const X of [A, B]) await X.keyboard.press('Escape').then(() => X.evaluate(() => document.querySelectorAll('.backdrop').forEach(x => x.remove())));
+  // ---------- "Jogando agora" ao vivo (pode abrir o jogo depois de publicar) ----------
+  ok(!(await A.evaluate((id) => !!document.querySelector(`.lfgcard[data-id="${id}"] .lfglive`), p3.id)), 'sem jogo aberto: sem "Jogando agora"');
+  await B.evaluate(() => window.__lc.voice.send('ACTIVITY_LOCAL', { game: { id: 'valorant', title: 'VALORANT' } }));
+  ok(await A.waitForFunction((id) => /Jogando agora.*VALORANT.*2 vagas abertas/.test(document.querySelector(`.lfgcard[data-id="${id}"] .lfglive`)?.textContent || ''), { timeout: 5000 }, p3.id).then(() => true, () => false), 'bruno abriu o jogo depois de publicar: cartão mostra "Jogando agora" e as vagas');
+  if (process.env.SHOTS) { await sleep(300); await (await A.$(`.lfgcard[data-id="${p3.id}"]`)).screenshot({ path: `${OUT}/06-ao-vivo.png` }); }
+  await sleep(3200); // o servidor aceita uma atualização de jogo a cada 3 s por conexão
+  await B.evaluate(() => window.__lc.voice.send('ACTIVITY_LOCAL', { game: { id: 'lol', title: 'League of Legends' } }));
+  ok(await A.waitForFunction((id) => !document.querySelector(`.lfgcard[data-id="${id}"] .lfglive`), { timeout: 5000 }, p3.id).then(() => true, () => false), 'trocou de jogo: "Jogando agora" some (é outro jogo)');
 } catch (err) { console.log('  ERRO', err); fails++; }
 await browser.close(); srv.kill();
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');

@@ -165,6 +165,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS lfg_posts(
 CREATE INDEX IF NOT EXISTS idx_lfg_open ON lfg_posts(expires_at);
 CREATE TABLE IF NOT EXISTS lfg_requests(post_id TEXT NOT NULL REFERENCES lfg_posts(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, state TEXT NOT NULL, created_at INTEGER, PRIMARY KEY(post_id, user_id));
 CREATE TABLE IF NOT EXISTS lfg_profiles(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, game TEXT NOT NULL, ign TEXT DEFAULT '', rank TEXT, roles TEXT DEFAULT '[]', updated_at INTEGER, PRIMARY KEY(user_id, game));`);
+// conversa de cada anúncio (como o tópico do post no canal LFG do Discord): combinar antes de entrar
+db.exec(`CREATE TABLE IF NOT EXISTS lfg_messages(id TEXT PRIMARY KEY, post_id TEXT NOT NULL REFERENCES lfg_posts(id) ON DELETE CASCADE, author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, content TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_lfg_msgs ON lfg_messages(post_id, created_at);`);
+addCol('lfg_posts', 'platform', "TEXT DEFAULT 'pc'"); // pc | playstation | xbox | switch | mobile | cross (crossplay)
+addCol('lfg_posts', 'join_mode', "TEXT DEFAULT 'ask'"); // ask = o autor aceita cada pedido | open = quem clica já entra
 // GIFs favoritos (por pessoa)
 // ícones de jogos detectados no PC (app desktop), guardados pelo hash do conteúdo: cada atividade aponta para a imagem que o
 // próprio PC da pessoa mandou (ninguém troca o ícone do jogo dos outros); os que ninguém usa há 90 dias são apagados

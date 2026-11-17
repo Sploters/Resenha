@@ -6,12 +6,26 @@ import { toggle } from './ui.js';
 import { gamesTabs } from './gamestabs.js';
 import { flow } from './ux.js';
 import { playSound } from './sounds.js';
+import { activityOf, gameIcon } from './activity.js';
 
-let ctx = {}; // injetado por app.js: go, profile(anchor, uid)
+let ctx = {}; // injetado por app.js: go, profile(anchor, uid), inVoice, voiceChannel, settings(page)
 export const initLfg = (c) => { ctx = c; };
-const st = { games: null, posts: [], game: null, root: null, mine: [] };
+const st = { games: null, platforms: [], posts: [], game: null, root: null, mine: [], chat: null };
 const G = (id) => st.games?.find(g => g.id === id);
-const meta = async () => (st.games ||= (await tryApi('GET', '/lfg/meta'))?.games || []);
+const meta = async () => { if (!st.games) { const r = await tryApi('GET', '/lfg/meta'); st.games = r?.games || []; st.platforms = r?.platforms || []; } return st.games; };
+const platName = (id) => st.platforms.find(p => p[0] === id)?.[1] || 'PC';
+
+// ---------- sessão ao vivo ----------
+// O cartão mostra "Jogando agora" quando o autor está com o jogo do anúncio aberto (app desktop ou conta vinculada), com a
+// mesma privacidade da atividade. Diferente do Discord, não precisa abrir o jogo ANTES de publicar: aparece e some sozinho.
+const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+const ALIASES = { cs2: ['counterstrike2', 'cs2', 'counterstrikeglobaloffensive'], lol: ['leagueoflegends', 'lol'], repo: ['repo'], valorant: ['valorant'] };
+export function liveOf(p, uid = p.author.id) {
+  const a = activityOf(uid); if (!a?.game?.title) return null;
+  const t = norm(a.game.title), names = [...(ALIASES[p.game] || []), norm(p.game_name)].filter(Boolean);
+  return names.some(n => t === n || (n.length >= 4 && (t.includes(n) || n.includes(t) && t.length >= 4))) ? a : null;
+}
+const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / 60e3)); return m < 1 ? 'agora mesmo' : m < 60 ? `há ${m} min` : `há ${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}`; };
 
 // ---------- textos ----------
 const whenText = (p) => {
@@ -79,18 +93,23 @@ function card(p) {
   const when = whenText(p), ch = p.channel, gch = ch && guild(ch.guild_id);
   const btns = [];
   if (!me && !p.closed) {
-    if (!myReq) btns.push(h('button.btn.green', { onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, {}).then(r => r && (upsert(r), toast(`Pedido enviado para ${p.author.display_name}`))) }, 'Quero entrar'));
+    if (!myReq) btns.push(h('button.btn.green', { title: p.join_mode === 'open' ? 'Entra direto no grupo, sem esperar aprovação' : `${p.author.display_name} aceita ou recusa o pedido`, onclick: () => join(p) }, p.join_mode === 'open' ? 'Entrar' : 'Pedir para entrar'));
     else if (myReq.state === 'pending') btns.push(h('button.btn.grey', { title: 'Cancelar o pedido', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && upsert(r)) }, 'Pedido enviado', icon('check', 14)));
   }
-  if (myReq?.state === 'accepted') btns.push(h('span.lfgok', icon('check', 14), 'Você está no grupo'));
+  if (myReq?.state === 'accepted') btns.push(h('span.lfgok', icon('check', 14), 'Você está no grupo'), !p.closed_reason || p.closed_reason === 'full' ? h('button.btn.link', { title: 'Libera a sua vaga', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && (upsert(r), toast('Você saiu do grupo'))) }, 'Sair') : null);
+  btns.push(h('button.btn.grey', { title: 'Converse antes de entrar: estilo de jogo, microfone, horário', onclick: () => chatModal(p) }, icon('forum', 16), p.msg_count ? `Conversa (${p.msg_count})` : 'Conversa'));
   if (myReq?.state === 'declined') btns.push(h('span.lfgno', 'Pedido recusado'));
   btns.push(h('button.btn.grey', { title: 'Copia o anúncio em texto para colar em grupos de LFG', onclick: () => { navigator.clipboard?.writeText(adText(p)); toast('Anúncio copiado'); } }, icon('copy', 16), 'Copiar anúncio'));
   if (me && !p.closed) btns.push(h('button.btn.link', { onclick: () => tryApi('POST', `/lfg/posts/${p.id}/close`).then(r => r && upsert(r)) }, 'Encerrar'));
   const pend = me ? p.requests.filter(r => r.state === 'pending') : [];
+  const live = !p.closed && liveOf(p);
   return h('div.lfgcard' + (p.closed ? '.closed' : '') + (me ? '.mine' : ''), { 'data-id': p.id, style: { '--gc': g.color } },
     h('div.lfgtop', h('span.lfggame', p.game_name), h('span.lfgmode', p.mode), h('span.lfgwhen' + (when === 'Agora' ? '.now' : ''), when),
       p.closed && h('span.lfgstate', p.closed_reason === 'full' ? 'Completo' : p.closed_reason === 'expired' ? 'Expirado' : 'Encerrado')),
-    h('div.lfgneed', h('b', p.closed && p.closed_reason === 'full' ? 'Grupo fechado' : `Precisa de ${p.slots}`), h('span', rankText(p)), p.mic && h('span.lfgmic', { title: 'Microfone obrigatório' }, icon('mic', 14), 'mic')),
+    live && h('div.lfglive', { title: `${p.author.display_name} está com ${live.game.title} aberto` }, h('span.lfgdot'), gameIcon(live, 18), h('b', 'Jogando agora'), h('span', `${live.game.title} · ${ago(live.since)}`),
+      h('small', p.slots === 1 ? '1 vaga aberta' : `${p.slots} vagas abertas`)),
+    h('div.lfgneed', h('b', p.closed && p.closed_reason === 'full' ? 'Grupo fechado' : `Precisa de ${p.slots}`), h('span', rankText(p)), h('span.lfgplat', { title: 'Entrar de outra plataforma não funciona, a não ser em crossplay' }, platName(p.platform)),
+      p.mic && h('span.lfgmic', { title: 'Microfone obrigatório' }, icon('mic', 14), 'mic'), p.join_mode === 'open' && h('span.lfgopen', { title: 'Quem clicar em Entrar já está no grupo' }, 'Entrada direta')),
     p.roles.length > 0 && h('div.lfgroles', p.roles.map(r => h('span', r))),
     p.note && h('div.lfgnote', p.note),
     h('div.lfgwho', { onclick: (e) => ctx.profile?.(e.currentTarget, p.author.id) }, avatar(S.users.get(p.author.id) || p.author, 32, { status: false }),
@@ -103,6 +122,12 @@ function card(p) {
       h('div.lfgwinfo', h('b', r.user.display_name), h('small', r.profile?.ign ? `${r.profile.ign}${r.profile.rank ? ' · ' + r.profile.rank : ''}` : 'sem perfil de jogador'), statLinks(p.game, r.profile?.ign).map(l => h('a.lfgstat', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.name, icon('external', 11)))),
       h('button.btn.green.sm', { onclick: () => answer(p, r.user.id, true) }, 'Aceitar'), h('button.btn.grey.sm', { onclick: () => answer(p, r.user.id, false) }, 'Recusar')))),
     h('div.lfgbtns', btns));
+}
+async function join(p) {
+  const r = await tryApi('POST', `/lfg/posts/${p.id}/request`, {}); if (!r) return;
+  upsert(r);
+  if (r.joined) { toast(r.joined.invited ? `Você entrou no grupo de ${p.author.display_name}! Veja o convite para a chamada.` : `Você entrou no grupo de ${p.author.display_name}! Mandamos uma mensagem para combinar.`); }
+  else toast(`Pedido enviado para ${p.author.display_name}`);
 }
 async function answer(p, uid, accept) {
   const r = await tryApi('POST', `/lfg/posts/${p.id}/answer`, { user_id: uid, accept }); if (!r) return;
@@ -118,7 +143,7 @@ const put = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(k 
 async function createModal() {
   flow('lfg_post', 'start');
   const games = await meta();
-  const f = { game: st.game || 'valorant', game_name: '', mode: '', slots: 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: '', channel_id: ctx.voiceChannel?.() || '' };
+  const f = { platform: 'pc', join_mode: 'ask', game: st.game || 'valorant', game_name: '', mode: '', slots: 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: '', channel_id: ctx.voiceChannel?.() || '' };
   const box = h('div.lfgform');
   const voiceRooms = [...S.guilds.values()].flatMap(gg => gg.channels.filter(c => c.type === 2).map(c => ({ id: c.id, label: `${c.name} · ${gg.name}` })));
   const sel = (opts, val, on, cls = '') => h('select' + cls, { onchange: (e) => on(e.target.value) }, opts.map(([v, l]) => h('option', { value: v, selected: String(v) === String(val) }, l)));
@@ -139,6 +164,10 @@ async function createModal() {
       h('div.lfgrow',
         h('label.f', 'Quando', sel([['now', 'Agora'], ['later', 'Mais tarde…']], f.when, (v) => { f.when = v; draw2(); })),
         f.when === 'later' ? h('label.f', 'Dia e hora', h('input', { type: 'datetime-local', value: f.at, oninput: (e) => { f.at = e.target.value; } })) : h('div')),
+      h('div.lfgrow',
+        h('label.f', 'Plataforma', sel(st.platforms.map(([v, l]) => [v, l]), f.platform, (v) => { f.platform = v; })),
+        h('label.f', 'Quem entra', sel([['ask', 'Eu aceito cada pedido'], ['open', 'Entrada direta (sem aprovação)']], f.join_mode, (v) => { f.join_mode = v; }))),
+      liveHint(f),
       h('label.f', 'Sala de voz (opcional)', sel([['', 'Nenhuma'], ...voiceRooms.map(v => [v.id, v.label])], f.channel_id, (v) => { f.channel_id = v; })),
       h('div.lfgset', h('div', h('b', 'Microfone obrigatório')), toggle(f.mic, (v) => { f.mic = v; })),
       h('label.f', 'Recado (opcional)', h('input', { maxLength: 200, value: f.note, placeholder: 'Ex.: sem rage, call tranquila', oninput: (e) => { f.note = e.target.value; } })));
@@ -147,10 +176,45 @@ async function createModal() {
   modal('Criar anúncio', 'Quem divide servidor com você ou é seu amigo vê o anúncio e pode pedir para entrar.', box, [{ label: 'Cancelar', cls: 'link' }, { label: 'Publicar', cls: 'green', fn: async () => {
     const when_at = f.when === 'later' ? (f.at ? new Date(f.at).getTime() : NaN) : null;
     if (f.when === 'later' && !(when_at > Date.now())) { toast('Escolha um dia e hora no futuro', true); return false; }
-    const r = await tryApi('POST', '/lfg/posts', { game: f.game, game_name: f.game_name, mode: f.mode, slots: f.slots, rank_min: f.rank_min || null, rank_max: f.rank_max || null, roles: [...f.roles], mic: f.mic, when_at, note: f.note, channel_id: f.channel_id || null });
+    const r = await tryApi('POST', '/lfg/posts', { game: f.game, game_name: f.game_name, mode: f.mode, slots: f.slots, rank_min: f.rank_min || null, rank_max: f.rank_max || null, roles: [...f.roles], mic: f.mic, when_at, note: f.note, channel_id: f.channel_id || null, platform: f.platform, join_mode: f.join_mode });
     if (!r) return false;
     upsert(r); flow('lfg_post', 'done'); toast('Anúncio publicado');
   } }], { width: '560px' });
+}
+
+// "Jogando agora" no anúncio: diz se já está funcionando ou o que falta (o FAQ do Discord lista as mesmas condições:
+// jogo aberto + compartilhar atividade), sem obrigar nada: o anúncio funciona igual sem isso
+function liveHint(f) {
+  const g = G(f.game), name = f.game === 'other' ? f.game_name : g?.name;
+  const live = name && liveOf({ game: f.game, game_name: name, author: S.me }, S.me.id);
+  if (live) return h('div.lfgtip.ok', icon('check', 16), h('span', h('b', `${live.game.title} aberto: `), 'o anúncio vai mostrar "Jogando agora" e as vagas abertas.'));
+  const off = S.pcActivity === 'off';
+  return h('div.lfgtip', icon('gamepad', 16), h('span', off
+    ? ['Seu jogo do PC está escondido para todos, então o anúncio não mostra "Jogando agora". ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); ctx.settings?.('connections'); } }, 'Mudar em Contas vinculadas')]
+    : 'Opcional: com o jogo aberto (app do Resenha no PC ou Steam vinculada), o anúncio mostra "Jogando agora". Pode abrir depois de publicar, ele aparece sozinho.'));
+}
+
+// ---------- conversa do anúncio ----------
+async function chatModal(p) {
+  const list = h('div.lfgmsgs', h('div.lfghint', 'Carregando…'));
+  const input = h('input', { maxLength: 500, placeholder: `Conversar sobre o grupo de ${p.game_name}…`, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } } });
+  const row = (m) => h('div.lfgmsg', h('span.lfgav', { onclick: (e) => ctx.profile?.(e.currentTarget, m.author.id) }, avatar(S.users.get(m.author.id) || m.author, 28, { status: false })),
+    h('div', h('div.lfgmh', h('b', m.author.display_name), m.author.id === p.author.id && h('span.lfgtag', 'autor'), h('small', new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))), h('div.lfgmt', m.content)));
+  const msgs = [];
+  const paint = () => { put(list, msgs.length ? msgs.map(row) : h('div.lfghint', 'Ninguém escreveu ainda. Combine estilo de jogo, microfone e horário antes de entrar.')); list.scrollTop = list.scrollHeight; };
+  const send = async () => {
+    const content = input.value.trim(); if (!content) return;
+    input.value = ''; const m = await tryApi('POST', `/lfg/posts/${p.id}/messages`, { content });
+    if (!m) { input.value = content; return; }
+    if (!msgs.some(x => x.id === m.id)) { msgs.push(m); paint(); }
+  };
+  st.chat = { id: p.id, add: (m) => { if (!msgs.some(x => x.id === m.id)) { msgs.push(m); paint(); } } };
+  const box = h('div.lfgchat', list, h('div.lfgsend', input, h('button.btn.green', { onclick: send }, 'Enviar')));
+  modal(`Conversa · ${p.game_name} (${p.mode})`, `Anúncio de ${p.author.display_name}. Quem vê o anúncio vê a conversa.`, box, [{ label: 'Fechar', cls: 'grey' }], { width: '520px' });
+  setTimeout(() => input.focus(), 50);
+  const r = await tryApi('GET', `/lfg/posts/${p.id}/messages`);
+  if (r) { for (const m of r) if (!msgs.some(x => x.id === m.id)) msgs.push(m); msgs.sort((a, b) => a.created_at - b.created_at); }
+  paint();
 }
 
 // ---------- perfil de jogador ----------
@@ -180,6 +244,8 @@ async function profileModal() {
 }
 
 // ---------- eventos em tempo real ----------
+// alguém abriu/fechou um jogo: redesenha o mural (o "Jogando agora" dos cartões)
+export function onLfgActivity(uid) { if (st.root && document.body.contains(st.root) && st.posts.some(p => p.author.id === uid)) draw(); }
 export function onLfgEvent(t, d) {
   if (t === 'LFG_POST') {
     const isNew = !st.posts.some(p => p.id === d.id);
@@ -193,6 +259,16 @@ export function onLfgEvent(t, d) {
     if (alertAllowed('dm')) playSound('mention'); toast(`${d.user.display_name} quer entrar no seu grupo de ${d.game_name}`);
     notify(`${d.user.display_name} quer entrar no seu grupo`, `${d.game_name} · ${d.mode}`, () => ctx.go('@me', 'lfg'));
   }
+  if (t === 'LFG_MESSAGE') {
+    const i = st.posts.findIndex(x => x.id === d.post_id); if (i >= 0) { st.posts[i] = { ...st.posts[i], msg_count: d.count }; if (st.root && document.body.contains(st.root)) draw(); }
+    if (st.chat?.id === d.post_id && document.querySelector('.lfgchat')) st.chat.add(d);
+    else if (d.post_author === S.me.id && d.author.id !== S.me.id) { toast(`${d.author.display_name} escreveu no seu anúncio de ${d.game_name}`); notify(`Conversa do anúncio: ${d.game_name}`, `${d.author.display_name}: ${d.content}`, () => ctx.go('@me', 'lfg')); }
+  }
+  if (t === 'LFG_JOINED') {
+    if (alertAllowed('dm')) playSound('mention'); toast(`${d.user.display_name} entrou no seu grupo de ${d.game_name}${d.invited ? ' (convite para a chamada enviado)' : ''}`);
+    notify(`${d.user.display_name} entrou no seu grupo`, `${d.game_name} · ${d.mode}`, () => ctx.go('@me', 'lfg'));
+  }
+  if (t === 'LFG_LEFT') toast(`${d.user.display_name} saiu do seu grupo de ${d.game_name}. A vaga voltou para o anúncio.`);
   if (t === 'LFG_ANSWER') {
     if (d.accept) { if (alertAllowed('dm')) playSound('mention'); toast(d.invited ? `${d.author.display_name} aceitou! Veja o convite para a chamada.` : `${d.author.display_name} aceitou você no grupo de ${d.game_name}!`); }
     else toast(`${d.author.display_name} recusou o pedido para ${d.game_name}`, true);

@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-2', title: 'Procurar jogadores: conversa, entrada direta e "Jogando agora"',
+    items: [
+      { i: 'forum', t: 'Conversa em cada anúncio', d: 'Cada anúncio tem a própria conversa: combine estilo de jogo, microfone e horário antes de entrar. Quem criou o anúncio é avisado quando alguém escreve.', try: 'lfg' },
+      { i: 'gamepad', t: '"Jogando agora" ao vivo', d: 'Com o jogo aberto (app do Resenha no PC ou Steam vinculada), o anúncio mostra que você está jogando e quantas vagas faltam. Pode abrir o jogo depois de publicar: aparece e some sozinho.' },
+      { i: 'users', t: 'Entrada direta e sair do grupo', d: 'Ao criar o anúncio, escolha "Entrada direta": quem clicar em Entrar já está no grupo, sem esperar você aceitar. Quem entrou pode sair e a vaga volta para o anúncio.' },
+      { i: 'layout', t: 'Plataforma do grupo', d: 'O anúncio diz onde o grupo joga (PC, PlayStation, Xbox, Switch, celular ou crossplay), para ninguém tentar entrar pela plataforma errada.' },
+    ],
+  },
+  {
     id: '2026-11-17-1', title: 'Clipes ficam no seu aparelho',
     items: [
       { i: 'clip', t: 'Você escolhe o que compartilhar', d: 'Apertar o atalho do clipe (F8) agora guarda o clipe só neste aparelho, com um som de confirmação. Para mandar num canal ou DM: + do campo de mensagem → Compartilhar um clipe. Lá dá para editar o trecho e o título antes. Prefere o jeito antigo? Configurações → Clipes → Postar no chat da sala.', try: 'clipsettings' },
