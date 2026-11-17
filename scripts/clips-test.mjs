@@ -141,7 +141,7 @@ try {
   // chat da sala: a mensagem do clipe com o vídeo
   await A.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id); await sleep(1000);
   ok(await A.evaluate(() => document.querySelectorAll('#msgs .clipmsg, #chat .clipmsg').length) >= 2, 'clipes continuam no chat da sala (cartão leve)');
-  // de ponta a ponta: alice transmite, bruno assiste e salva os últimos 5 s pelo menu de clipes
+  // de ponta a ponta: alice transmite, bruno assiste e salva os últimos 15 s pelo menu de clipes
   for (const P of [A, B]) {
     await P.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id); await sleep(300);
     await P.evaluate(() => [...document.querySelectorAll('#stage .btn')].find(x => /Entrar/.test(x.textContent))?.click());
@@ -153,19 +153,51 @@ try {
   await B.evaluate((u) => document.querySelector(`.tile.cstream[data-key="s:${u}"] .btn`).click(), a.id);
   await B.waitForFunction((u) => document.querySelector(`.tile.screen[data-sid="${u}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id);
   await sleep(7000); // o buffer de clipes junta alguns segundos
+  await B.evaluate(() => { window.__lc.S.prefs.clipDest = 'post'; }); // jeito antigo: posta direto no chat da sala (o padrão agora guarda no aparelho)
   const before = (await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total;
   await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /^(Ativar )?[Cc]lipes/.test(x.textContent))?.click()); await sleep(300); // "⋯" do quadro → Clipes
-  await B.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /últimos 5s/.test(x.textContent))?.click());
+  await B.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /últimos 15s/.test(x.textContent))?.click());
   let real = null; for (let i = 0; i < 40 && !real; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before) real = l.clips[0]; }
-  ok(real && real.streamer?.id === a.id && real.author.id === b.id && real.secs === 5 && /^alice — \d\d\/\d\d \d\d:\d\d$/.test(real.title), 'botão de clipe da transmissão salva na galeria com nome distinto', real && { t: real.title, secs: real.secs });
+  ok(real && real.streamer?.id === a.id && real.author.id === b.id && real.secs === 15 && /^alice — \d\d\/\d\d \d\d:\d\d$/.test(real.title), 'botão de clipe da transmissão salva na galeria com nome distinto', real && { t: real.title, secs: real.secs });
   ok(real && (await fetch(BASE + real.url)).headers.get('content-length') > 10000, 'vídeo do clipe real foi enviado', real && (await fetch(BASE + real.url)).headers.get('content-length'));
   // botão de clipe à vista no quadro: um clique salva os últimos 30s (padrão), sem passar por "Mais opções"
   const clipBtn = await B.evaluate(() => { const b = document.querySelector('.sctl .sc-clip'); return b && { title: b.title, off: b.classList.contains('off') }; });
-  ok(clipBtn && !clipBtn.off && /Clipar os últimos 30s \(F8\)/.test(clipBtn.title), 'botão de clipe direto no quadro da transmissão', clipBtn);
+  ok(clipBtn && !clipBtn.off && /Salvar clipe dos últimos 30s \(F8\)/.test(clipBtn.title), 'botão de clipe direto no quadro da transmissão', clipBtn);
   const before2 = (await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total;
   await B.evaluate(() => document.querySelector('.sctl .sc-clip').click());
   let one = null; for (let i = 0; i < 40 && !one; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before2) one = l.clips[0]; }
   ok(one && one.author.id === b.id && one.streamer?.id === a.id, 'um clique no botão de clipe salva na galeria', one && { secs: one.secs });
+  // como no Discord (padrão): o clipe fica só no aparelho; nada sobe até "Compartilhar um clipe" no + do campo de mensagem
+  await B.evaluate(() => { delete window.__lc.S.prefs.clipDest; indexedDB.deleteDatabase('resenha-clips'); }); await sleep(300);
+  const before3 = (await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total;
+  await B.evaluate(() => document.querySelector('.sctl .sc-clip').click());
+  const localList = () => B.evaluate(async () => (await import('/cliplocal.js')).listLocalClips().then(l => l.map(c => ({ id: c.id, title: c.title, secs: c.secs, size: c.size, who: c.who, thumb: !!c.thumb }))));
+  let loc = []; for (let i = 0; i < 30 && !loc.length; i++) { await sleep(300); loc = await localList(); }
+  ok(loc.length === 1 && loc[0].size > 10000 && loc[0].who === 'alice', 'padrão: clipe guardado só neste aparelho (IndexedDB)', loc[0]);
+  await sleep(1500);
+  ok((await call(a.tok, 'GET', `/guilds/${g.id}/clips`)).total === before3, 'clipe local não sobe para o servidor nem para a galeria');
+  ok((await localList())[0]?.thumb, 'clipe local ganha miniatura');
+  // + do campo de mensagem → Compartilhar um clipe → Compartilhar
+  await B.evaluate(() => document.querySelector('#composer > button.ibtn')?.click()); await sleep(300);
+  const hasItem = await B.evaluate(() => !![...document.querySelectorAll('.menu .it')].find(x => /Compartilhar um clipe/.test(x.textContent)));
+  ok(hasItem, '+ do campo de mensagem tem "Compartilhar um clipe"');
+  if (hasItem) await B.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /Compartilhar um clipe/.test(x.textContent)).click());
+  else await B.evaluate(async () => (await import('/myclips.js')).openShareClip(window.__lc.S.view.cid));
+  await B.waitForSelector('.myclips .mc-card', { timeout: 5000 }).catch(() => { });
+  const pick = await B.evaluate(() => ({ cards: document.querySelectorAll('.myclips .mc-card').length, group: document.querySelector('.myclips .mc-group h4')?.textContent }));
+  ok(pick.cards === 1 && /alice/.test(pick.group || ''), 'janela "Compartilhar um clipe" lista o clipe agrupado', pick);
+  if (process.env.SHOTS) { await B.hover('.myclips .mc-card'); await sleep(200); await B.screenshot({ path: `${OUT}/05-compartilhar.png` }); }
+  await B.evaluate(() => [...document.querySelectorAll('.myclips .mc-card .btn')].find(b => /Compartilhar/.test(b.textContent)).click());
+  let shared = null; for (let i = 0; i < 40 && !shared; i++) { await sleep(500); const l = await call(a.tok, 'GET', `/guilds/${g.id}/clips`); if (l.total > before3) shared = l.clips[0]; }
+  ok(shared && shared.title === loc[0].title && shared.author.id === b.id, 'compartilhar sobe o clipe e posta no chat/galeria', shared && { t: shared.title });
+  ok(!(await B.evaluate(() => !!document.querySelector('.myclips'))), 'janela fecha depois de compartilhar');
+  // Configurações → Clipes
+  await B.evaluate(() => window.__lc.openSettings('clips'));
+  await sleep(800);
+  const sp = await B.evaluate(() => document.querySelector('#settings .pane')?.textContent || '');
+  ok(/Clipes/.test(sp) && /Duração do clipe/.test(sp) && /1 clipe/.test(sp), 'Configurações → Clipes com duração e uso do armazenamento', sp.slice(0, 120));
+  if (process.env.SHOTS) await B.screenshot({ path: `${OUT}/06-config.png` });
+  await B.keyboard.press('Escape'); await sleep(300);
   // controles e nome/resolução: só com o mouse em cima; fora do quadro somem
   const vis = () => B.evaluate(() => { const t = document.querySelector('.tile.screen'); return { ctl: getComputedStyle(t.querySelector('.sctl')).opacity, label: getComputedStyle(t.querySelector(':scope > .label')).opacity }; });
   const tb = await B.evaluate(() => { const r = document.querySelector('.tile.screen').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });

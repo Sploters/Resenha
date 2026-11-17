@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-1', title: 'Clipes ficam no seu aparelho',
+    items: [
+      { i: 'clip', t: 'Você escolhe o que compartilhar', d: 'Apertar o atalho do clipe (F8) agora guarda o clipe só neste aparelho, com um som de confirmação. Para mandar num canal ou DM: + do campo de mensagem → Compartilhar um clipe. Lá dá para editar o trecho e o título antes. Prefere o jeito antigo? Configurações → Clipes → Postar no chat da sala.', try: 'clipsettings' },
+      { i: 'clock', t: 'Clipes de até 2 minutos', d: 'Em Configurações → Clipes: 15 s, 30 s, 1 min ou 2 min, além do atalho, da codificação pela placa de vídeo e de quanto espaço os clipes ocupam.', try: 'clipsettings' },
+    ],
+  },
+  {
     id: '2026-11-15-2', title: 'Galeria, documento, mídia favorita e importar do Discord',
     items: [
       { i: 'image', t: 'Novos tipos de canal', d: 'Ao criar um canal: Anúncios (só a moderação escreve), Galeria (fotos e vídeos em grade, com comentários) e Documento (uma página para regras e listas de tarefas com caixinhas).' },

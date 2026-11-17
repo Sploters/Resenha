@@ -95,20 +95,29 @@ export function openTrimmer(src, opts = {}) {
   addEventListener('keydown', keys);
   const cleanup = () => { removeEventListener('keydown', keys); video.pause(); video.removeAttribute('src'); video.load(); if (local) URL.revokeObjectURL(url); };
   const body = h('div.trimmer', video, track, lab, h('div.trrow', play, h('small.mut', 'Espaço: assistir · I / O: marcar início / fim no ponto atual')), note, h('label.f', 'Título', title));
-  const m = modal('Cortar clipe', 'Arraste as alças para escolher o trecho.', body, [
-    { label: 'Cancelar', cls: 'link', fn: () => cleanup() },
-    { label: opts.action || 'Postar clipe', cls: 'green', fn: async () => {
-      if (!local) { // o servidor corta o arquivo que já tem: sem download e sem upload
-        const ok = await src.save({ startMs: a, endMs: b, title: title.value.trim() });
-        if (ok === false) return false;
-        cleanup(); return;
-      }
-      const r = trimWebm(bytes, a, b);
-      if (!r) { toast('Não consegui cortar este vídeo', true); return false; }
-      const ok = await opts.onSave?.({ blob: new Blob([r.bytes], { type: 'video/webm' }), secs: Math.max(1, Math.round((r.endMs - r.startMs) / 1000)), title: title.value.trim(), startMs: r.startMs, endMs: r.endMs });
+  // corta (sem recomprimir) e entrega o resultado; o trecho inteiro não é recortado de novo (mantém o arquivo como está)
+  const result = () => {
+    if (a <= 0 && b >= dur) return { blob: new Blob([bytes], { type: 'video/webm' }), secs: Math.max(1, Math.round(dur / 1000)), title: title.value.trim(), startMs: 0, endMs: dur, whole: true };
+    const r = trimWebm(bytes, a, b);
+    return r && { blob: new Blob([r.bytes], { type: 'video/webm' }), secs: Math.max(1, Math.round((r.endMs - r.startMs) / 1000)), title: title.value.trim(), startMs: r.startMs, endMs: r.endMs };
+  };
+  const run = (cb) => async () => {
+    if (!local) { // o servidor corta o arquivo que já tem: sem download e sem upload
+      const ok = await src.save({ startMs: a, endMs: b, title: title.value.trim() });
       if (ok === false) return false;
-      cleanup();
-    } }], { width: '760px', sticky: true });
+      cleanup(); return;
+    }
+    const r = result();
+    if (!r) { toast('Não consegui cortar este vídeo', true); return false; }
+    const ok = await cb?.(r);
+    if (ok === false) return false;
+    cleanup();
+  };
+  // opts.secondary: { label, fn(resultado) } — segundo botão (ex.: "Salvar" no aparelho ao lado de "Compartilhar")
+  const m = modal(opts.heading || 'Cortar clipe', 'Arraste as alças para escolher o trecho.', body, [
+    { label: 'Cancelar', cls: 'link', fn: () => cleanup() },
+    local && opts.secondary && { label: opts.secondary.label, cls: 'grey', fn: run(opts.secondary.fn) },
+    { label: opts.action || 'Postar clipe', cls: 'green', fn: run(opts.onSave) }].filter(Boolean), { width: '760px', sticky: true });
   setTimeout(() => { if (document.activeElement === title) title.blur(); }, 0); // o modal foca o título; os atalhos (espaço, I, O) valem fora dele
   return m;
 }

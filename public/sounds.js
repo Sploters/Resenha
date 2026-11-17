@@ -18,6 +18,8 @@ const SYN = {
   streamStop: [N(784, 0, .12, { type: 'triangle' }), N(587, .1, .12, { type: 'triangle' }), N(392, .2, .22, { type: 'triangle' })],
   selfStreamStart: [N(440, 0, .26, { to: 880, type: 'triangle' }), N(880, .24, .16, { type: 'triangle' })],
   selfStreamStop: [N(880, 0, .26, { to: 440, type: 'triangle' })],
+  // clipe salvo: "clique" curto e agudo, como o obturador de uma câmera (dá para saber sem olhar que o atalho pegou)
+  clip: [N(1568, 0, .05, { type: 'square', gain: .35 }), N(2093, .06, .12, { type: 'triangle', gain: .8 })],
   ring: [N(740, 0, .14), N(988, .17, .14), N(740, .6, .14), N(988, .77, .14)],
   message: [N(880, 0, .09, { gain: .6 })],
   mention: [N(988, 0, .1), N(1319, .1, .2)],
@@ -36,6 +38,7 @@ export const SOUND_DEFS = {
   camOn: ['Câmera ligada (qualquer pessoa)', 'voz'], camOff: ['Câmera desligada (qualquer pessoa)', 'voz'],
   streamStart: ['Alguém começou a transmitir', 'transmissão'], streamStop: ['Alguém parou de transmitir', 'transmissão'],
   selfStreamStart: ['Você começou a transmitir', 'transmissão'], selfStreamStop: ['Você parou de transmitir', 'transmissão'],
+  clip: ['Clipe salvo', 'transmissão'],
   ring: ['Chamada recebida (toque)', 'chat'], mention: ['Menção ou mensagem direta', 'chat'], message: ['Mensagem em outro canal', 'chat'],
   friend: ['Pedido de amizade', 'chat'], error: ['Erro', 'chat'],
   event: ['Evento começa em 30 min', 'chat'], eventStart: ['Evento começou / cancelado', 'chat'],

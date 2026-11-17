@@ -1891,3 +1891,29 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .bcompact .bsize:hover { background: rgba(255,255,255,.1); } .bcompact .bsize.on { background: rgba(255,255,255,.14); } .bcompact .bsize.on i { opacity: 1; }
 .bcompact .bdone { display: inline-flex; align-items: center; gap: 5px; height: 32px; margin-left: 4px; padding: 0 12px; border: 0; border-radius: 8px; background: #23a55a; color: #fff; font: 600 13px/1 var(--font, inherit); cursor: pointer; white-space: nowrap; }
 .bcompact .bdone:hover { background: #1a8a4a; }
+
+/* "Compartilhar um clipe" / "Meus clipes" (public/myclips.js): clipes guardados só neste aparelho, agrupados pelo jogo */
+.myclips { display: flex; flex-direction: column; gap: 14px; max-height: min(64vh, 640px); overflow-y: auto; padding-right: 4px; }
+.myclips .mc-q { height: 34px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--bg-tert, #1e1f22); color: var(--header); flex: none; }
+.myclips .mc-group h4 { margin: 0 0 8px; color: var(--header); font-size: 13px; text-transform: uppercase; letter-spacing: .02em; }
+.myclips .mc-group h4 small { color: var(--text-muted); font-weight: 500; }
+.myclips .mc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.mc-card { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; background: var(--bg-sec, #2b2d31); border: 1px solid var(--divider, #3f4147); }
+.mc-card:hover, .mc-card:focus-within { border-color: color-mix(in srgb, var(--brand, #5865f2) 45%, var(--divider, #3f4147)); }
+.mc-thumb { position: relative; aspect-ratio: 16 / 9; background: #000; display: flex; align-items: center; justify-content: center; color: var(--interactive); }
+.mc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mc-thumb .mc-dur, .mc-thumb .mc-mute { position: absolute; bottom: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.72); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; }
+.mc-thumb .mc-dur { right: 6px; } .mc-thumb .mc-mute { left: 6px; color: #f23f43; }
+/* Compartilhar / Editar aparecem com o mouse em cima (ou com foco pelo teclado); no toque ficam sempre à vista */
+.mc-hover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .12s; }
+.mc-card:hover .mc-hover, .mc-card:focus-within .mc-hover { opacity: 1; }
+@media (hover: none) { .mc-hover { opacity: 1; background: linear-gradient(transparent 45%, rgba(0,0,0,.6)); align-items: flex-end; padding-bottom: 28px; } }
+.mc-hover .btn { display: flex; align-items: center; gap: 4px; }
+.mc-info { position: relative; padding: 8px 36px 10px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mc-info b { color: var(--header); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-info small { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-info .mc-more { position: absolute; right: 4px; top: 8px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--interactive); }
+.mc-info .mc-more:hover { background: var(--bg-mod-hover, #35373c); color: var(--header); }
+.myclips .mc-empty { margin: 30px auto; max-width: 420px; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.myclips .mc-empty b { color: var(--header); font-size: 16px; }
+@media (max-width: 640px) { .myclips .mc-grid { grid-template-columns: 1fr 1fr; } }

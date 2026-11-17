@@ -13,7 +13,7 @@ const ITEMS = [
   { key: 'animations', lite: (v) => (v !== false ? false : undefined), title: 'Animações da interface', desc: 'Sem transições ao trocar de canal, abrir janelas e receber mensagens.' },
   { key: 'animMode', lite: (v) => ((v || 'always') !== 'never' ? 'never' : undefined), title: 'Avatares e banners animados', desc: 'GIFs ficam parados (decodificar animações gasta CPU o tempo todo).' },
   { key: 'noiseMode', lite: (v) => (HEAVY_NOISE.includes(v) ? 'standard' : undefined), title: 'Redução de ruído leve', desc: 'Troca a redução por IA (RNNoise/GTCRN) pela do navegador, bem mais leve. Cancelamento de eco e ganho automático continuam: custam quase nada e evitam eco na chamada.' },
-  { key: 'clipsOn', lite: (v) => (v !== false ? false : undefined), title: 'Gravação de clipes em segundo plano', desc: 'Para de gravar os últimos 60 s das transmissões que você assiste.' },
+  { key: 'clipsOn', lite: (v) => (v !== false ? false : undefined), title: 'Gravação de clipes em segundo plano', desc: 'Para de gravar os últimos segundos das transmissões que você assiste.' },
   { key: 'screen', lite: (v) => { const o = { res: 1080, fps: 30, ...v }; return o.res === 'source' || o.res > 720 || o.fps > 30 ? { ...scr(), res: 720, fps: 30 } : undefined; }, title: 'Transmissão em 720p • 30 fps', desc: 'Valor inicial ao transmitir a tela (dá para mudar na hora). Codificar menos pixels deixa mais folga para o jogo.' },
 ];
 if (desktop) ITEMS.push({ key: null, title: 'Economia em segundo plano', desc: 'Com o app minimizado, na bandeja ou atrás de um jogo em tela cheia, o Windows pode desacelerar a Resenha — também em chamada (menos quando você está transmitindo).' });
@@ -226,7 +226,7 @@ function usagePanel(ctx) {
     const v = ctx?.voice, P = S.prefs, out = [];
     if (v?.active && HEAVY_NOISE.includes(P.noiseMode)) out.push(['Redução de ruído por IA', `Processa sua voz o tempo todo (${P.noiseMode === 'gtcrn' ? 'a Máxima, ~10%' : 'a Forte, ~4%'} de um núcleo num PC comum). A "Leve" do navegador quase não pesa.`]);
     if (S.watching?.size) out.push([`Assistindo ${S.watching.size} transmiss${S.watching.size === 1 ? 'ão' : 'ões'}`, 'Cada vídeo decodificado pesa na placa de vídeo. Feche as que não está vendo.']);
-    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos 60 s de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p) e ocupa até ~50 MB de memória cada.']);
+    if (S.watching?.size && P.clipsOn !== false) out.push(['Clipes em segundo plano', 'Guarda os últimos segundos (até 2 min) de cada transmissão assistida para o atalho de clipe: recomprime o vídeo o tempo todo (sem o codificador da placa de vídeo, ~18% de um núcleo por transmissão em 1080p) e ocupa até ~50 MB de memória cada.']);
     if (v?.screen) out.push(['Você está transmitindo', 'Capturar e comprimir a tela pesa. 720p • 30 fps alivia bastante.']);
     if (v?.cam) out.push(['Câmera ligada', 'Comprimir a câmera usa CPU.']);
     if (P.animations !== false) out.push(['Animações da interface', 'Pouco, mas somam com o jogo.']);

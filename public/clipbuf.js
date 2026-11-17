@@ -1,7 +1,7 @@
 // Buffer circular de uma transmissão: MediaRecorder em WebM, ~65s, e corte dos últimos N segundos. Sem imports de UI (testável).
 import { findClusters, parseCluster, buildClip, videoTrack } from './webm.js';
 
-const KEEP = 65000;
+const KEEP = 65000; // padrão: 60 s de clipe + folga (opts.keep muda: clipes de 2 min guardam ~125 s)
 
 // faixas que entram no clipe (vídeo da transmissão + áudio da transmissão, que chega num stream separado)
 const liveTracks = (stream, audio) => [...stream.getVideoTracks(), ...(audio?.getAudioTracks() || []), ...stream.getAudioTracks()].filter(t => t.readyState === 'live');
@@ -38,13 +38,17 @@ export function createBuffer(stream, audio, opts = {}) {
   const vt0 = tracks.find(t => t.kind === 'video'), vt = opts.fullRate ? vt0 : vt0.clone();
   if (vt !== vt0) vt.applyConstraints({ frameRate: { ideal: 30, max: 30 } }).catch(() => { });
   const rtracks = tracks.map(t => (t === vt0 ? vt : t));
-  const mimeType = (opts.mimes || (hasAudio ? ['video/webm;codecs=h264,opus', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus'] : ['video/webm;codecs=h264', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8']).concat('video/webm')).find(m => MediaRecorder.isTypeSupported(m));
-  // qualidade: VP9 com bitrate proporcional à resolução da transmissão (teto 8 Mb/s: 60s ficam em ~60 MB, abaixo do limite de upload de 100 MB)
+  // H.264 primeiro = o codificador da placa de vídeo quando o Chromium tem um (opts.hw === false: só VP9/VP8, pela CPU)
+  const codecs = opts.hw === false ? ['vp9', 'vp8'] : ['h264', 'vp9', 'vp8'];
+  const mimeType = (opts.mimes || codecs.map(c => `video/webm;codecs=${c}${hasAudio ? ',opus' : ''}`)).concat('video/webm').find(m => MediaRecorder.isTypeSupported(m));
+  const keep = opts.keep || KEEP;
+  // qualidade: bitrate proporcional à resolução da transmissão (teto 8 Mb/s: 60s ficam em ~60 MB na memória; guardando 2 min o teto
+  // cai para 6 Mb/s, ~95 MB)
   const st = tracks.find(t => t.kind === 'video').getSettings?.() || {};
-  const bps = opts.bps || Math.round(Math.min(8_000_000, Math.max(3_000_000, (st.width || 1920) * (st.height || 1080) * Math.min(30, st.frameRate || 30) * 0.15)));
+  const bps = opts.bps || Math.round(Math.min(keep > 70000 ? 6_000_000 : 8_000_000, Math.max(3_000_000, (st.width || 1920) * (st.height || 1080) * Math.min(30, st.frameRate || 30) * 0.15)));
   let rec;
   try { rec = new MediaRecorder(new MediaStream(rtracks), { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: 160_000, videoKeyFrameIntervalDuration: 1000 }); } catch { if (vt !== vt0) vt.stop(); return null; }
-  const buf = { hasAudio, stream, sig: trackSig(stream, audio), rec, header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), q: Promise.resolve(), onEnd: null };
+  const buf = { keep, mimeType, hasAudio, stream, sig: trackSig(stream, audio), rec, header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), q: Promise.resolve(), onEnd: null };
   const ingest = async (blob, t) => {
     const bytes = new Uint8Array(await blob.arrayBuffer()), start = buf.size;
     const joined = new Uint8Array(buf.tail.length + bytes.length); joined.set(buf.tail); joined.set(bytes, buf.tail.length);
@@ -54,7 +58,7 @@ export function createBuffer(stream, audio, opts = {}) {
     }
     buf.tail = bytes.slice(-3); buf.size += bytes.length;
     buf.chunks.push({ start, size: bytes.length, t, blob });
-    while (buf.chunks.length > 1 && buf.chunks[0].t < t - KEEP) buf.chunks.shift();
+    while (buf.chunks.length > 1 && buf.chunks[0].t < t - buf.keep) buf.chunks.shift();
     const first = buf.chunks[0].start;
     while (buf.clusters.length && buf.clusters[0].off < first) buf.clusters.shift();
   };

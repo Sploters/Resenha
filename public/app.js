@@ -32,7 +32,8 @@ import { zoomControls, pruneZoom } from './zoom.js';
 import { refreshFreeze } from './freeze.js';
 import { initBoard, boardState, onDraw, boardCanvas, boardTools, annotTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { initCode, codeSet, codeReset, codeTile, keepEditorFocus } from './code.js';
-import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys } from './clips.js';
+import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys, clipSecs, lenLabel, clipDest } from './clips.js';
+import { openShareClip } from './myclips.js';
 import { syncThrottle, gameChanged, liteAutoOn, startUsageWatch, startPressureWatch } from './lite.js';
 import { setupPtt, syncGlobalPtt } from './ptt.js';
 import { initRemote, onRemoteEvent, controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
@@ -1472,6 +1473,7 @@ const newsActions = {
   gifs: () => { const b = $('#composer .gifbtn'); if (b) b.click(); else toast('Abra um chat e clique em GIF, ao lado do emoji.'); },
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },
   lfg: () => go('@me', 'lfg'),
+  clipsettings: () => openSettings('clips', ctxSettings()),
   messages: () => openMessages(),
   notifications: () => openSettings('notifications', ctxSettings()),
   accessibility: () => openSettings('accessibility', ctxSettings()),
@@ -2345,8 +2347,9 @@ function shareThemePicker(ch) {
 function plusMenu(e, ch, fileIn) {
   const r = e.currentTarget.getBoundingClientRect();
   const imp = !ch.guild_id || can(ch.guild_id, PERM.MANAGE_CHANNELS);
-  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - (imp ? 190 : 157) }, [
+  menu({ preventDefault() { }, clientX: r.left, clientY: r.top - (imp ? 223 : 190) }, [
     { label: 'Enviar arquivo', fn: () => fileIn.click() },
+    { label: 'Compartilhar um clipe', fn: () => openShareClip(ch) },
     { label: 'Criar enquete', fn: () => pollModal(ch) },
     ch.guild_id && { label: 'Marcar evento', fn: () => eventModal(ch.guild_id) },
     { label: 'Inserir horário', fn: () => { const ta = $('#composer textarea'); if (ta) timestampModal(ta); } },
@@ -2893,7 +2896,7 @@ function composer(ch, label) {
   extrasBtn.addEventListener('mouseleave', () => { if (cxOpen()) cxLater(); });
   extrasBtn.onclick = () => (!cxOpen() ? cxShow() : Date.now() - cxAt > 700 && cxHide()); // clique logo depois de abrir pelo mouse (ou toque) mantém aberto
   const wrap = h('div#composer-wrap', h('div#softmute-bar.hidden', { role: 'status' }), h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
-    h('div#composer', h('button.ibtn', { title: 'Enviar arquivo ou compartilhar tema', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
+    h('div#composer', h('button.ibtn', { title: 'Enviar arquivo, compartilhar um clipe e mais', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
       extrasBtn));
   // ir para a primeira mensagem: canto de baixo, logo acima do campo; só aparece depois de rolar para cima
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
@@ -3446,6 +3449,8 @@ function voiceUpdate(speakOnly) {
 // aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
 let speakStale = false;
 document.addEventListener('visibilitychange', () => { if (!document.hidden && speakStale && voice) { speakStale = false; renderVoiceUI(true); } });
+// Configurações → Clipes mudou algo que exige recomeçar a gravação (duração, placa de vídeo, ligar/desligar)
+document.addEventListener('voice-rerender', () => { if (voice?.active) renderVoiceUI(); });
 function renderVoiceUI(speakOnly) {
   if (!voice?.active || voice.screen) hideGameOffer();
   if (speakOnly) {
@@ -3573,10 +3578,16 @@ function clipHotkey() {
     clipFlash(false, 'Clipe não salvo');
     return toast(why, true);
   }
-  const uid = key.slice(2), ch = channelById(voice.channelId), secs = S.prefs.clipSecs || 30, who = ch?.type === 1 ? user(uid).display_name : nameOf(uid, ch?.guild_id);
-  saveClip(key, secs, { channelId: voice.channelId, who,
-    onCaptured: (ok, why) => (ok ? clipFlash(true, 'Clipe salvo', `${secs}s`) : clipFlash(false, 'Clipe não salvo')) });
+  const secs = clipSecs();
+  saveClip(key, secs, { ...clipCtx(key), onCaptured: clipCaptured(secs) });
 }
+// quem transmite, o jogo (para agrupar em "Meus clipes", como no Discord) e onde a sala fica
+function clipCtx(key, who) {
+  const uid = key.slice(2), ch = channelById(voice.channelId);
+  return { channelId: voice.channelId, guildId: ch?.guild_id || null, who: who || (ch?.type === 1 ? user(uid).display_name : nameOf(uid, ch?.guild_id)), game: activityOf(uid)?.game?.title || '' };
+}
+// clipe capturado: aviso (por cima do jogo, no app desktop) e o som de confirmação
+const clipCaptured = (secs) => (ok) => { if (ok) { playSound('clip'); clipFlash(true, clipDest() === 'local' ? 'Clipe salvo' : 'Clipe postado', lenLabel(secs)); } else clipFlash(false, 'Clipe não salvo'); };
 // aviso de clipe capturado, só para quem apertou: com o app em segundo plano (jogando), o app desktop mostra por cima do
 // jogo (fora da captura, não aparece na transmissão); com o app à vista, a animação é dentro da própria página
 function clipFlash(ok, title, sub, kind) { // kind 'share': ícone de tela (atalho da transmissão)
@@ -3589,9 +3600,12 @@ function clipFlash(ok, title, sub, kind) { // kind 'share': ícone de tela (atal
 // clipes: ligados por padrão para as transmissões dos outros; na sua própria só se você ativar (codificar o próprio jogo duas vezes pesa)
 const clipsAuto = (mine) => (mine ? S.prefs.clipsOn === true : S.prefs.clipsOn !== false);
 function clipMenu(e, key, who) {
-  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', icon: 'clipsparkle', hint: 'Grava os últimos 60s das transmissões em segundo plano', fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
-  menu(e, [...clipLengths.map(n => ({ label: `Salvar os últimos ${n}s`, icon: 'clip', hint: 'Posta no chat da sala', fn: () => saveClip(key, n, { channelId: voice.channelId, who }) })),
-    { label: 'Salvar e cortar…', icon: 'cliptrim', hint: 'Escolhe o trecho dos últimos 60s antes de postar', fn: () => saveClipTrim(key, { channelId: voice.channelId, who }) }, '-',
+  if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', icon: 'clipsparkle', hint: `Grava os últimos ${lenLabel(Math.max(60, clipSecs()))} das transmissões em segundo plano`, fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
+  const where = clipDest() === 'local' ? 'Guarda neste aparelho' : 'Posta no chat da sala', max = Math.max(60, clipSecs());
+  menu(e, [...clipLengths.filter(n => n <= max).map(n => ({ label: `Salvar os últimos ${lenLabel(n)}`, icon: 'clip', hint: where, fn: () => saveClip(key, n, { ...clipCtx(key, who), onCaptured: clipCaptured(n) }) })),
+    { label: 'Salvar e cortar…', icon: 'cliptrim', hint: `Escolhe o trecho dos últimos ${lenLabel(max)}`, fn: () => saveClipTrim(key, clipCtx(key, who)) },
+    { label: 'Meus clipes…', icon: 'clip', hint: 'Os clipes guardados neste aparelho', fn: () => openShareClip(null) }, '-',
+    { label: 'Configurações dos clipes', icon: 'gear', fn: () => openSettings('clips', ctxSettings()) },
     { label: 'Desativar clipes', icon: 'x', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
 }
 const ctxSettings = () => ({ voice, logout, go });
@@ -3964,14 +3978,14 @@ addEventListener('mousemove', (e) => {
 // (como o F8); clique direito abre o menu (duração, cortar, desativar). Clipes desligados: o clique liga.
 const clipKeyLabel = () => (hotkey('keyClip') ? comboLabel(hotkey('keyClip')) : '');
 function clipButton(key, who, cls) {
-  const secs = S.prefs.clipSecs || 30, on = clipping(key);
+  const secs = clipSecs(), on = clipping(key);
   return h('button.' + cls.split(' ').join('.') + (on ? '' : '.off'), {
-    title: on ? `Clipar os últimos ${secs}s${clipKeyLabel() ? ` (${clipKeyLabel()})` : ''} · clique direito: mais opções` : 'Ativar clipes (grava os últimos 60s em segundo plano)',
-    'aria-label': on ? `Clipar os últimos ${secs} segundos` : 'Ativar clipes',
+    title: on ? `Salvar clipe dos últimos ${lenLabel(secs)}${clipKeyLabel() ? ` (${clipKeyLabel()})` : ''} · clique direito: mais opções` : 'Ativar clipes (grava os últimos segundos em segundo plano)',
+    'aria-label': on ? `Salvar clipe dos últimos ${lenLabel(secs)}` : 'Ativar clipes',
     onclick: (e) => {
       e.stopPropagation();
       if (!clipping(key)) { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); return toast('Clipes ativados: em alguns segundos já dá para clipar'); }
-      saveClip(key, secs, { channelId: voice.channelId, who, onCaptured: (ok) => (ok ? clipFlash(true, 'Clipe salvo', `${secs}s`) : clipFlash(false, 'Clipe não salvo')) });
+      saveClip(key, secs, { ...clipCtx(key, who), onCaptured: clipCaptured(secs) });
     },
     oncontextmenu: (e) => { e.preventDefault(); e.stopPropagation(); clipMenu(e, key, who); },
   }, icon('clip', 16));

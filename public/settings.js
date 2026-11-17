@@ -23,6 +23,9 @@ import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
+import { localClipsUsage, clearLocalClips, onLocalClips } from './cliplocal.js';
+import { openMyClips, mb } from './myclips.js';
+import { stopAllBuffers, lenLabel } from './clips.js';
 import { openMyMessages } from './mymessages.js';
 import { track, clearUx, uxOn, settingsPage } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
@@ -107,11 +110,11 @@ function compactHints(pane) {
 const USER_GROUPS = [
   ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
   ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
-  ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade codec codecs h264 hevc av1 vp9 placa de vídeo'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
+  ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade codec codecs h264 hevc av1 vp9 placa de vídeo'], ['clips', 'Clipes', 'clipe gravar atalho duração 2 minutos codificação placa armazenamento aparelho local compartilhar'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
-const NAV_ICONS = { uxstats: 'sliders', health: 'bolt', storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
+const NAV_ICONS = { uxstats: 'sliders', health: 'bolt', storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', clips: 'clip', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
   overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', reputation: 'shield', audit: 'clock', invites: 'invite' };
 const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
 
@@ -127,7 +130,7 @@ export function openSettings(kind, ctx) {
   const isServer = kind === 'server', gid = ctx?.gid;
   const R = {
     account: () => accountPage(close), profile: () => profilePage(), privacy: (r) => privacyPage(r), connections: (r) => connectionsPage(r), appearance: () => appearancePage(), accessibility: () => accessibilityPage(),
-    voice: (r) => voicePage(ctx, r), stream: () => streamPage(), sounds: () => soundsPage(), soundboard: () => soundboardPage(), notifications: () => notificationsPage(), keys: () => keysPage(), extras: () => extrasPage(ctx), advanced: () => advancedPage(ctx), storage: () => (isServer ? serverStoragePage(gid) : storagePage()), news: () => newsPage(), report: () => reportPage(), app: () => appPage(), lite: () => litePage(ctx),
+    voice: (r) => voicePage(ctx, r), stream: () => streamPage(), clips: (r) => clipsPage(r), sounds: () => soundsPage(), soundboard: () => soundboardPage(), notifications: () => notificationsPage(), keys: () => keysPage(), extras: () => extrasPage(ctx), advanced: () => advancedPage(ctx), storage: () => (isServer ? serverStoragePage(gid) : storagePage()), news: () => newsPage(), report: () => reportPage(), app: () => appPage(), lite: () => litePage(ctx),
     // painel de estatísticas de uso: só o administrador da instalação vê (carregado sob demanda)
     health: () => { const box = h('div', h('h2', 'Saúde do servidor'), h('p.ux-empty', 'Carregando…')); import('./health.js').then(m => box.replaceWith(m.healthPage())); return box; },
     uxstats: () => { const box = h('div', h('h2', 'Estatísticas de uso'), h('p.ux-empty', 'Carregando…')); import('./uxstats.js').then(m => box.replaceWith(m.uxStatsPage())); return box; },
@@ -163,7 +166,7 @@ export function openSettings(kind, ctx) {
   };
   root.append(nav, content, h('button.close', { onclick: close, title: 'Fechar (Esc)' }, icon('x', 20), h('small', 'ESC')));
   document.getElementById('layer').append(root); document.addEventListener('keydown', esc);
-  const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats', 'health'].includes(kind) ? kind : 'account');
+  const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'clips', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats', 'health'].includes(kind) ? kind : 'account');
   current = first; drawNav(); show(first, true);
   root._close = close;
   const unBack = backCloses(() => close('back')); whenGone(root, () => unBack()); // voltar do navegador/celular fecha as configurações
@@ -781,6 +784,46 @@ function notificationsPage() {
   return root;
 }
 
+// ============================ Clipes ============================
+// como na aba Clipes do Discord: ligar, atalho, duração, codificação pela placa e onde ficam. Os clipes ficam só neste
+// aparelho (IndexedDB) até a pessoa compartilhar; quem preferir o jeito antigo posta direto no chat da sala.
+function clipsPage(reg) {
+  const root = h('div');
+  const mode = S.prefs.clipsOn === true ? 'all' : S.prefs.clipsOn === false ? 'off' : 'others';
+  const restart = () => { stopAllBuffers(); document.dispatchEvent(new Event('voice-rerender')); }; // a gravação recomeça com o ajuste novo
+  const keyBtn = () => {
+    const btn = captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), hotkey('keyClip'), (c) => { S.prefs.keyClip = c; save(); if (desktop) desktop.setSettings(desktopHotkeys()); draw(); }, { combo: true, empty: 'Nenhum atalho' });
+    return h('div.keyctl', btn, hotkey('keyClip') !== KEY_DEFAULTS.keyClip && h('button.ibtn.key-def', { type: 'button', title: `Voltar ao padrão (${comboLabel(KEY_DEFAULTS.keyClip)})`, onclick: () => { S.prefs.keyClip = KEY_DEFAULTS.keyClip; save(); if (desktop) desktop.setSettings(desktopHotkeys()); draw(); } }, icon('refresh', 16)));
+  };
+  const usage = h('span.mut', 'Calculando…');
+  const refreshUsage = () => localClipsUsage().then(u => { usage.textContent = u.count ? `${u.count} ${u.count === 1 ? 'clipe' : 'clipes'} · ${mb(u.bytes)} neste aparelho` : 'Nenhum clipe guardado neste aparelho'; });
+  reg?.(onLocalClips(refreshUsage));
+  const draw = () => {
+    const secs = [15, 30, 60, 120].includes(S.prefs.clipSecs) ? S.prefs.clipSecs : 30;
+    root.replaceChildren(h('h2', 'Clipes'),
+      hint('Durante uma transmissão na sala de voz, a Resenha guarda os últimos segundos em segundo plano. Apertou o atalho logo depois do lance, ele vira um clipe. Como no Discord, o clipe fica só neste aparelho: você escolhe qual compartilhar pelo + do campo de mensagem → Compartilhar um clipe.'),
+      card(
+        row('Gravar clipes', 'Gravar a sua própria transmissão codifica o jogo duas vezes: em PCs mais fracos pode custar FPS. Se o jogo pesar, deixe só nas dos outros ou ligue o Modo leve.',
+          seg({ off: 'Desligado', others: 'Transmissões dos outros', all: 'Todas, inclusive a minha' }, mode, (v) => { S.prefs.clipsOn = v === 'all' ? true : v === 'off' ? false : undefined; if (v === 'others') delete S.prefs.clipsOn; save(); restart(); draw(); })),
+        row('Atalho do clipe', desktop ? 'Funciona com o jogo em foco (com "Atalhos globais" ligado no app desktop). Mostra um aviso no canto da tela, fora da transmissão, e toca um som.' : 'Com a aba em foco. No app desktop funciona também com o jogo em foco.', keyBtn()),
+        row('Duração do clipe', 'Quanto do que acabou de acontecer entra no clipe. Com 2 min, cada transmissão ocupa até ~95 MB de memória enquanto grava.',
+          seg({ 15: '15s', 30: '30s', 60: '1 min', 120: '2 min' }, secs, (v) => { const was = Math.max(60, secs); S.prefs.clipSecs = +v; save(); if (Math.max(60, +v) !== was) restart(); draw(); })),
+        row('Ao salvar um clipe', 'Neste aparelho: ninguém vê até você compartilhar (editar, cortar e escolher o título antes). No chat da sala: sobe na hora para o chat e a galeria do servidor, como antes.',
+          seg({ local: 'Guardar neste aparelho', post: 'Postar no chat da sala' }, S.prefs.clipDest === 'post' ? 'post' : 'local', (v) => { S.prefs.clipDest = v; save(); draw(); })),
+        row('Codificação pela placa de vídeo', 'Grava o clipe em H.264 com o codificador da placa (quando o aparelho tem), aliviando a CPU. Desligado, usa VP9 pela CPU: arquivo um pouco menor, mais peso no processador.',
+          toggle(S.prefs.clipHw !== false, (v) => { S.prefs.clipHw = v; save(); restart(); }))),
+      section('Armazenamento'),
+      card(row('Clipes guardados', 'Ficam nos dados do app (ou do navegador) neste aparelho e não vão para outros aparelhos. Baixar um clipe salva o arquivo .webm onde você quiser.', usage),
+        h('div.btns.keybtns', h('button.btn', { onclick: () => openMyClips() }, icon('clip', 16), 'Ver meus clipes'),
+          h('button.btn.red', { onclick: async () => { const u = await localClipsUsage(); if (!u.count) return toast('Nenhum clipe para apagar'); if (await confirmBox('Apagar todos os clipes', `${u.count} ${u.count === 1 ? 'clipe' : 'clipes'} (${mb(u.bytes)}) serão apagados deste aparelho. Clipes já compartilhados continuam no chat. Não dá para desfazer.`, 'Apagar todos')) { await clearLocalClips(); toast('Clipes apagados deste aparelho'); } } }, 'Apagar todos'))),
+      section('Requisitos'),
+      card(note('Funciona no app desktop e no navegador (Chrome, Edge). O clipe leva o vídeo e o áudio da transmissão, a voz da sala, o soundboard e o bot de música. Gravar as transmissões que você assiste é leve; gravar a sua própria pesa mais no jogo, por isso fica opcional.')));
+    refreshUsage();
+  };
+  draw();
+  return root;
+}
+
 // ============================ Atalhos ============================
 // cada atalho: trocar (clicar e apertar as teclas), remover (×: fica sem tecla) e, no fim, voltar todos ao padrão ou remover todos
 const KEY_ROWS = ['keyMute', 'keyDeafen', 'keyClip', 'keyShare', 'keyFx', 'pttKey'];
@@ -802,11 +845,10 @@ function keysPage() {
     root.replaceChildren(h('h2', 'Atalhos'),
       card(row('Silenciar / ativar microfone', desktop ? 'Funciona também com o app em segundo plano.' : 'Com a aba em foco.', ctl('keyMute')),
         row('Ensurdecer / ativar áudio', null, ctl('keyDeafen')),
-        row('Salvar clipe da transmissão', 'Salva os últimos segundos da transmissão em destaque no chat da sala (clipes ficam ligados por padrão nas transmissões dos outros).', ctl('keyClip')),
+        row('Salvar clipe da transmissão', 'Salva os últimos segundos da transmissão em destaque. Duração, onde guardar e o resto ficam em Clipes.', ctl('keyClip')),
         row('Iniciar / encerrar transmissão', desktop ? 'Funciona com o jogo aberto. Começa na hora, sem escolher nada: transmite a janela em primeiro plano (jogo em janela ou em tela cheia) com a qualidade e o áudio da última vez.' : 'Transmite com a qualidade e o áudio da última vez; o navegador ainda pede para escolher a tela (no app desktop começa direto na janela da frente).', ctl('keyShare')),
         row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
         row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', ctl('keyFx')),
-        row('Duração do clipe do atalho', null, seg({ 15: '15s', 30: '30s', 60: '60s' }, S.prefs.clipSecs || 30, (v) => { S.prefs.clipSecs = +v; save(); })),
         row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo). Aceita tecla ou botão do meio/lateral do mouse. ' + pttHint(), ctl('pttKey', { combo: false, mouse: true }))),
       card(h('div.btns.keybtns',
         h('button.btn.grey', { disabled: !changed, onclick: async () => {
