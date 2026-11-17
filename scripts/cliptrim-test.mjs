@@ -1,5 +1,5 @@
-// Cortar clipe: corte do WebM sem recomprimir (início no quadro-chave, fim exato, duração, toca até o fim, corta de novo)
-// e o editor na galeria (arrastar a alça, salvar cópia). Uso: node scripts/cliptrim-test.mjs  (SHOTS=1: .testshots/clips)
+// Cortar clipe: corte do WebM sem recomprimir (início no quadro-chave, fim exato, duração, toca até o fim, corta de novo),
+// corte exato recodificado (cliprecode.js) e o editor na galeria (arrastar a alça, salvar cópia no ponto exato). Uso: node scripts/cliptrim-test.mjs  (SHOTS=1: .testshots/clips)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -60,6 +60,11 @@ try {
   const t2 = await P.evaluate(async () => { const { trimWebm } = await window.__lc.import('webm.js'); const r = trimWebm(window.__t1, 1500, 3500); window.__t2 = r.bytes; return { s: r.startMs, e: r.endMs }; });
   const p2 = await probe('window.__t2');
   ok(p2.ended && Math.abs(p2.dur - (t2.e - t2.s) / 1000) < 0.4, 'cortar de novo um clipe já cortado (arquivo da galeria) funciona', { ...t2, ...p2 });
+  // corte exato: começa no ponto pedido (não no quadro-chave anterior), fim exato, toca e pode ser cortado de novo
+  const ex = await P.evaluate(async () => { const { exactTrim } = await window.__lc.import('cliprecode.js'); const { keyframeTimes } = await window.__lc.import('webm.js'); const r = await exactTrim(window.__orig, 4200, 9000); window.__ex = r.bytes; return { s: r.startMs, e: r.endMs, keys: keyframeTimes(r.bytes).length }; });
+  const pex = await probe('window.__ex');
+  ok(ex.s === 4200 && ex.e === 9000 && Math.abs(pex.dur - 4.8) < 0.25 && pex.ended && pex.seek, 'corte exato 4,2–9 s: começa em 4,2 s, dura 4,8 s e toca até o fim', { ...ex, ...pex });
+  ok(ex.keys >= 4 && ex.keys <= 6, 'corte exato mantém um quadro-chave a cada ~1 s (dá para cortar de novo)', ex.keys);
   // ---------- galeria: Cortar (cria uma cópia; o original fica) ----------
   const up = await P.evaluate(async (cid) => {
     const tk = localStorage.lc_token, blob = new Blob([window.__orig], { type: 'video/webm' });
@@ -93,15 +98,15 @@ try {
   ok(durShown > 3 && durShown < 6, 'arrastando as alças: trecho de ~4–5 s', lab);
   if (process.env.SHOTS) await P.screenshot({ path: `${OUT}/05-cortar.png` });
   const fullGets = await P.evaluate((u) => performance.getEntriesByType('resource').filter(e => e.name.includes(u.split('/')[2]) && e.initiatorType === 'fetch').length, up.clip.url);
-  ok(fullGets === 0, 'o editor não baixa o arquivo inteiro (o servidor corta)', fullGets);
+  ok(fullGets === 0, 'o editor não baixa o arquivo antes de salvar (toca do servidor)', fullGets);
   const ts = Date.now();
   await P.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => /Salvar cópia cortada/.test(x.textContent)).click());
   let list; for (let i = 0; i < 30; i++) { await sleep(300); list = await call(tok, 'GET', `/guilds/${g.id}/clips`); if (list.clips?.length === 2) break; }
   const copy = list.clips?.find(c => c.id !== up.clip?.id);
-  ok(Date.now() - ts < 3000, 'salvar a cópia cortada é rápido (sem download nem upload)', Date.now() - ts);
+  ok(Date.now() - ts < 15000, 'salvar a cópia cortada no ponto exato leva poucos segundos', Date.now() - ts);
   ok(copy && copy.title === 'Jogada da noite (cortado)' && copy.secs >= 3 && copy.secs <= 6, 'cópia cortada vira um clipe novo; o original continua', copy && { title: copy.title, secs: copy.secs });
   const p3 = copy && await P.evaluate(async (u) => { const b = new Uint8Array(await (await fetch(u)).arrayBuffer()); window.__t3 = b; return b.length; }, copy.url);
   const pr3 = await probe('window.__t3');
-  ok(p3 && pr3.ended && Math.abs(pr3.dur - copy.secs) < 1.2, 'o arquivo salvo toca até o fim com a duração do trecho', pr3);
+  ok(p3 && pr3.ended && Math.abs(pr3.dur - durShown) < 0.25, 'o arquivo salvo tem exatamente a duração escolhida no editor (não começa antes)', { ...pr3, escolhido: durShown });
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); srv.kill(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

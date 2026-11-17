@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-6', title: 'Clipes: corte exato e enviar ao servidor; transmissões corrigidas',
+    items: [
+      { i: 'upload', t: 'Enviar clipe ao servidor', d: 'Em Meus clipes, "Enviar ao servidor" escolhe o canal (a sala onde o clipe foi gravado aparece primeiro): o clipe vai para o chat do canal e para a galeria de clipes do servidor.' },
+      { i: 'edit', t: 'Corte no ponto certo', d: 'O clipe cortado começa e termina exatamente onde você marcou. A prévia pausa e continua de onde parou, para no fim do trecho e tem controle de volume (M silencia).' },
+      { i: 'screen', t: 'Assistir fecha as outras', d: '"Assistir" fica só com a transmissão escolhida; para ver várias ao mesmo tempo, use o botão do olho.' },
+      { i: 'screen', t: 'Jogo minimizado não transmite minúsculo', d: 'Começar a transmitir um jogo que estava minimizado (Alt+Tab) deixava a imagem em 146x28 pixels. Agora a transmissão usa o tamanho do jogo e se ajusta quando a janela cresce.' },
+    ],
+  },
+  {
     id: '2026-11-17-5', title: 'Anúncios levam direto para a sala, Esc fecha popups e jogos com nome certo',
     items: [
       { i: 'voice', t: 'Aceito? Já está na sala', d: 'Quando o anúncio tem sala de voz, quem é aceito (ou entra direto) já entra no servidor dela e recebe o convite para a chamada. O botão "Ir para a sala" leva para lá na hora do jogo. A conversa do anúncio mostra o anúncio inteiro no topo.' },

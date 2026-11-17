@@ -10,7 +10,7 @@ export function findClusters(bytes, base = 0) {
 }
 
 // vint de tamanho: { len, value, unknown }
-function readSize(b, p) {
+export function readSize(b, p) {
   const first = b[p]; if (!first) return null;
   let len = 1, mask = 0x80; while (len <= 8 && !(first & mask)) { len++; mask >>= 1; }
   if (len > 8) return null;
@@ -18,7 +18,7 @@ function readSize(b, p) {
   for (let i = 1; i < len; i++) { v = v * 256 + b[p + i]; if (b[p + i] !== 0xff) all = false; }
   return { len, value: v, unknown: all };
 }
-function readId(b, p) { const first = b[p]; let len = 1, mask = 0x80; while (len <= 4 && !(first & mask)) { len++; mask >>= 1; } if (len > 4) return null; let id = 0; for (let i = 0; i < len; i++) id = id * 256 + b[p + i]; return { len, id }; }
+export function readId(b, p) { const first = b[p]; let len = 1, mask = 0x80; while (len <= 4 && !(first & mask)) { len++; mask >>= 1; } if (len > 4) return null; let id = 0; for (let i = 0; i < len; i++) id = id * 256 + b[p + i]; return { len, id }; }
 const uint = (b, p, n) => { let v = 0; for (let i = 0; i < n; i++) v = v * 256 + b[p + i]; return v; };
 const size8 = (v) => { const o = new Uint8Array(8); o[0] = 0x01; for (let i = 7; i >= 1; i--) { o[i] = v % 256; v = Math.floor(v / 256); } return o; };
 const u64 = (v) => { const o = new Uint8Array(8); for (let i = 7; i >= 0; i--) { o[i] = v % 256; v = Math.floor(v / 256); } return o; };

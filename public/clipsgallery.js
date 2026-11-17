@@ -3,6 +3,7 @@
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
 import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
 import { openTrimmer } from './cliptrim.js';
+import { postClip } from './clips.js';
 import { stagger, pulse } from './motion.js';
 import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
 
@@ -83,8 +84,9 @@ function moreMenu(e, c) {
     canEdit(c) && { label: 'Apagar clipe', icon: 'cliptrash', danger: true, fn: () => remove(c) },
   ]);
 }
-// corta um clipe da galeria: o original fica; a cópia cortada vira um clipe novo no mesmo canal.
-// Nada é baixado nem enviado: o editor toca o vídeo do servidor e o servidor corta o arquivo que já tem.
+// corta um clipe da galeria: o original fica; a cópia cortada vira um clipe novo no mesmo canal. O editor abre na hora,
+// tocando do servidor. Ao salvar: início num quadro-chave = o servidor recorta (nada é baixado nem enviado); senão o vídeo
+// é baixado e cortado aqui no ponto exato (o servidor só recorta no quadro-chave, até ~1 s antes) e a cópia sobe.
 function trimCopy(c) {
   const f = /^\/files\/([a-f0-9]{24}\.webm)\//.exec(c.url)?.[1];
   try {
@@ -92,13 +94,19 @@ function trimCopy(c) {
       url: c.url,
       keys: () => tryApi('GET', `/clips/${c.id}/keyframes`).then(r => r?.keys || []),
       strip: () => `/thumbs/${f}/strip`,
-      save: async ({ startMs, endMs, title }) => {
+      download: async () => { const r = await fetch(c.url); if (!r.ok) throw new Error('não consegui baixar o clipe (HTTP ' + r.status + ')'); return new Uint8Array(await r.arrayBuffer()); },
+      serverCut: async ({ startMs, endMs, title }) => {
         toast('Cortando…');
         const r = await tryApi('POST', `/clips/${c.id}/trim`, { start_ms: startMs, end_ms: endMs, title });
         if (!r) return false;
         toast('Cópia cortada salva na galeria e postada no chat da sala'); return true;
       },
-    }, { title: (c.title + ' (cortado)').slice(0, 100), action: 'Salvar cópia cortada' });
+    }, { title: (c.title + ' (cortado)').slice(0, 100), action: 'Salvar cópia cortada',
+      onSave: async ({ blob, secs, title }) => {
+        const ok = await postClip(blob, { channelId: c.channel_id, secs, streamerId: c.streamer?.id || null, hasAudio: !!c.has_audio, title: title || c.title, quiet: true });
+        if (ok) toast('Cópia cortada salva na galeria e postada no chat da sala');
+        return ok;
+      } });
   } catch (e) { toast('Não consegui abrir o editor: ' + e.message, true); }
 }
 async function rename(c) {

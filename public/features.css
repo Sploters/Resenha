@@ -1062,6 +1062,7 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .trimmer .trhandle::after { content: ''; position: absolute; left: 5px; top: 18px; bottom: 18px; width: 4px; border-left: 1px solid rgba(0,0,0,.5); border-right: 1px solid rgba(0,0,0,.5); }
 .trimmer .trlab { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; color: var(--text-muted); margin: 6px 8px; } .trimmer .trlab b { color: var(--header); font-variant-numeric: tabular-nums; }
 .trimmer .trrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; } .trimmer .trplay { display: flex; align-items: center; gap: 6px; }
+.trimmer .trvolbox { display: flex; align-items: center; gap: 4px; } .trimmer .trvol { width: 96px; accent-color: var(--brand, #5865f2); cursor: pointer; }
 .trimmer .trhandle.s { transform: none; border-radius: 4px 0 0 4px; } .trimmer .trhandle.e { transform: translateX(-100%); border-radius: 0 4px 4px 0; }
 
 /* ---------- GIFs ---------- */
