@@ -351,6 +351,7 @@ html:not(.anim) .clipflash { animation: cfFade 2s step-end forwards; }
 .gm-hero.has-art + .gm-main { padding-top: 38px; }
 .gm-head { display: flex; align-items: center; gap: 12px; } .gm-head h2 { margin: 0; flex: 1; min-width: 0; font-size: 20px; color: var(--header); }
 .gm-steam { display: inline-flex; align-items: center; gap: 6px; flex: none; text-decoration: none; } .gm-steam .icon { fill: currentColor; }
+.gm-links { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; } .gm-head { flex-wrap: wrap; }
 .gm-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-muted); } .gm-meta:empty { display: none; }
 .gm-rev { display: inline-flex; align-items: center; gap: 4px; } .gm-rev .icon { fill: #f0b232; }
 .gm-tags { display: flex; flex-wrap: wrap; gap: 6px; } .gm-tags:empty { display: none; }

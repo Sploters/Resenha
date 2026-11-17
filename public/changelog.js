@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-5', title: 'Anúncios levam direto para a sala, Esc fecha popups e jogos com nome certo',
+    items: [
+      { i: 'voice', t: 'Aceito? Já está na sala', d: 'Quando o anúncio tem sala de voz, quem é aceito (ou entra direto) já entra no servidor dela e recebe o convite para a chamada. O botão "Ir para a sala" leva para lá na hora do jogo. A conversa do anúncio mostra o anúncio inteiro no topo.' },
+      { i: 'x', t: 'Esc fecha', d: 'Clipes, o popup do jogo e as outras janelas fecham com a tecla Esc.' },
+      { i: 'gamepad', t: 'Jogos com nome e imagem certos', d: 'Jogos com anticheat (Helldivers 2) e o Minecraft não mostram mais o ícone do anticheat ou do Java, e o nome vem da loja em vez da janela. Valorant, LoL, Minecraft e Grand Line Adventures ganharam ícone, banner e links oficiais.' },
+    ],
+  },
+  {
     id: '2026-11-17-4', title: 'Visual novo: Jogos, Eventos e Contas vinculadas',
     items: [
       { i: 'gamepad', t: 'Jogos com menu ao lado', d: 'Procurar jogadores, Início, Notícias e Torneios agora ficam na lista ao lado, cada um com o que tem dentro, e com atalhos para Criar anúncio, A fim de jogar e Meu perfil de jogador.', try: 'lfg' },

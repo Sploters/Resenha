@@ -60,7 +60,7 @@ try {
   const mem = await B.evaluate(() => [...document.querySelectorAll('#members .cs.playing')].map(e => e.textContent));
   ok(mem.includes('Jogando VALORANT'), 'lista de membros mostra "Jogando VALORANT"', mem);
   const memImg = await B.evaluate(() => { const i = document.querySelector('#members .cs.playing .gicon img'); return i && { src: i.getAttribute('src'), ok: i.complete && i.naturalWidth > 0 }; });
-  ok(/^\/game-icons\/[a-f0-9]{64}\.png$/.test(memImg?.src || '') && memImg.ok, 'lista de membros: ícone do jogo ao lado', memImg);
+  ok((/^\/game-icons\/[a-f0-9]{64}\.png$/.test(memImg?.src || '') || /^https:\/\/cmsassets\.rgpub\.io\//.test(memImg?.src || '')) && memImg.ok, 'lista de membros: ícone do jogo ao lado (Valorant: o ícone oficial do catálogo)', memImg);
   await B.evaluate((uid) => [...document.querySelectorAll('#members .mem')].find(m => m.textContent.includes('alice'))?.click(), alice.id); await sleep(500);
   const card = await B.evaluate(() => document.querySelector('.pcard .pplay')?.innerText);
   ok(/VALORANT/.test(card || '') && /No PC/.test(card || ''), 'cartão de perfil mostra o jogo', card);

@@ -4288,7 +4288,7 @@ initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p)
 // "A fim de jogar": o painel Ativo agora redesenha; o plano B abre o formulário do LFG já preenchido
 initIntents({ go, joinVoice, channelById, redraw: () => refreshFeedView(), openLfg: (pre) => { go('@me', 'lfg'); setTimeout(() => openLfgCreate(pre), 50); },
   showPanel: () => { if (S.view.kind !== 'home') go('@me'); setTimeout(() => document.getElementById('home')?.classList.add('an-open'), 50); } });
-initLfg({ intent: (pre) => openIntentModal(pre), go, settings: (k) => openSettings(k, ctxSettings()), profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
+initLfg({ intent: (pre) => openIntentModal(pre), go, joinVoice, channelById, settings: (k) => openSettings(k, ctxSettings()), profile: (a, uid) => profile(a, uid), inVoice: () => !!voice?.channelId, voiceChannel: () => (voice?.channelId && channelById(voice.channelId)?.type === 2 ? voice.channelId : '') });
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)

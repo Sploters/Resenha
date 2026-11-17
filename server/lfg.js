@@ -36,7 +36,7 @@ const AFTER_START = 2 * 3600e3;      // agendado: some 2 h depois do horário
 const MAX_OPEN = 3;                  // anúncios abertos por pessoa
 
 export function mountLfg(app, d) {
-  const { auth, wrap, bad, get, all, run, newId, dispatch, userPub, clean, audienceOf, canSeeChannel, voiceCount, voiceChannelOf, callInvite, postDm } = d;
+  const { auth, wrap, bad, get, all, run, newId, dispatch, userPub, clean, audienceOf, canSeeChannel, voiceCount, voiceChannelOf, callInvite, postDm, isMember = () => true, isBanned = () => false, joinGuild = () => { } } = d;
   const now = () => Date.now();
   const open = (p) => !p.closed_at && p.expires_at > now() && p.slots > 0;
   const profileOf = (uid, game) => { const r = get('SELECT * FROM lfg_profiles WHERE user_id=? AND game=?', uid, game); return r ? { game, ign: r.ign, rank: r.rank, roles: JSON.parse(r.roles || '[]') } : null; };
@@ -95,14 +95,26 @@ export function mountLfg(app, d) {
 
   const postFor = (req, res) => { const p = get('SELECT * FROM lfg_posts WHERE id=?', req.params.id); if (!p || !(p.author_id === req.uid || audienceOf(p.author_id).includes(req.uid))) { bad(res, 'Anúncio não encontrado', 404); return null; } return p; };
 
-  // ocupa uma vaga e chama a pessoa: convite para a chamada se o autor está numa sala de voz, senão uma mensagem direta
-  const admit = (p, uid) => {
+  // a sala combinada no anúncio: a pessoa aceita entra no servidor dela (se ainda não é membro) para não precisar
+  // procurar onde o grupo vai jogar. null se o anúncio não tem sala, a sala sumiu ou a pessoa foi banida de lá.
+  const roomFor = (p, uid) => {
+    const ch = p.channel_id && get('SELECT * FROM channels WHERE id=?', p.channel_id);
+    if (!ch || ch.type !== 2 || !ch.guild_id || isBanned(ch.guild_id, uid)) return null;
+    if (!isMember(ch.guild_id, uid)) joinGuild(ch.guild_id, uid);
+    return canSeeChannel(uid, ch) ? { guild_id: ch.guild_id, channel_id: ch.id, name: ch.name } : null;
+  };
+  // ocupa uma vaga e chama a pessoa para a sala combinada no anúncio (ou a sala onde o autor está): já entra no
+  // servidor e recebe o convite para a chamada; sem sala, uma mensagem direta
+  // direct: a própria pessoa clicou em "Entrar" (entrada direta) e a página já a leva para a sala: sem convite tocando
+  const admit = (p, uid, direct = false) => {
     run('UPDATE lfg_requests SET state=? WHERE post_id=? AND user_id=?', 'accepted', p.id, uid);
     run('UPDATE lfg_posts SET slots=slots-1 WHERE id=?', p.id);
+    const room = roomFor(p, uid), cid = room?.channel_id || voiceChannelOf(p.author_id);
     let invited = false;
-    if (voiceChannelOf(p.author_id)) invited = !callInvite(p.author_id, uid).error;
-    if (!invited) postDm(p.author_id, uid, `🎮 Topei você no meu grupo de ${p.game_name} (${p.mode})! Bora jogar.`);
-    return invited;
+    if (direct && room) return { invited: false, room };
+    if (cid) invited = !callInvite(p.author_id, uid, { channelId: cid, source: 'lfg', trusted: true }).error;
+    if (!invited) postDm(p.author_id, uid, room ? `🎮 Topei você no meu grupo de ${p.game_name} (${p.mode})! A gente joga na sala 🔊 ${room.name} — você já está no servidor.` : `🎮 Topei você no meu grupo de ${p.game_name} (${p.mode})! Bora jogar.`);
+    return { invited, room };
   };
 
   // encerrar (só o autor)
@@ -131,10 +143,10 @@ export function mountLfg(app, d) {
     else if (!cur) {
       run('INSERT INTO lfg_requests(post_id,user_id,state,created_at) VALUES(?,?,?,?)', p.id, req.uid, 'pending', now());
       if (p.join_mode === 'open') { // entrada direta: sem esperar o autor (como "Join" numa sessão aberta a todos)
-        const invited = admit(p, req.uid);
+        const { invited, room } = admit(p, req.uid, true);
         dispatch([p.author_id], 'LFG_JOINED', { post_id: p.id, game_name: p.game_name, mode: p.mode, user: userPub(req.uid), invited });
         const n = get('SELECT * FROM lfg_posts WHERE id=?', p.id);
-        broadcast(n); return res.json({ ...postObj(n, req.uid), joined: { invited } });
+        broadcast(n); return res.json({ ...postObj(n, req.uid), joined: { invited, room } });
       }
       dispatch([p.author_id], 'LFG_REQUEST', { post_id: p.id, game_name: p.game_name, mode: p.mode, user: userPub(req.uid), profile: profileOf(req.uid, p.game) });
     }
@@ -149,12 +161,23 @@ export function mountLfg(app, d) {
     const r = get('SELECT * FROM lfg_requests WHERE post_id=? AND user_id=?', p.id, uid);
     if (!r || r.state !== 'pending') return bad(res, 'Pedido não encontrado');
     if (accept && !open(p)) return bad(res, 'O anúncio já está completo ou fechado', 409);
-    let invited = false;
-    if (accept) invited = admit(p, uid); // estou numa sala de voz: convite para a chamada (aceitar já coloca no servidor e na sala)
+    let invited = false, room = null;
+    if (accept) ({ invited, room } = admit(p, uid)); // já entra no servidor da sala combinada e recebe o convite para a chamada
     else run('UPDATE lfg_requests SET state=? WHERE post_id=? AND user_id=?', 'declined', p.id, uid);
     const n = get('SELECT * FROM lfg_posts WHERE id=?', p.id);
-    dispatch([uid], 'LFG_ANSWER', { post_id: p.id, accept, invited, game_name: p.game_name, mode: p.mode, author: userPub(p.author_id) });
+    dispatch([uid], 'LFG_ANSWER', { post_id: p.id, accept, invited, room, game_name: p.game_name, mode: p.mode, author: userPub(p.author_id) });
     broadcast(n); res.json(postObj(n, req.uid));
+  }));
+
+  // "Ir para a sala": quem está no grupo (ou o autor) vai direto para a sala combinada, mesmo depois que o convite
+  // para a chamada expirou (anúncio agendado para mais tarde); entra no servidor se ainda não é membro
+  app.post('/api/lfg/posts/:id/go', auth, wrap((req, res) => {
+    const p = postFor(req, res); if (!p) return;
+    const inGroup = p.author_id === req.uid || get('SELECT 1 x FROM lfg_requests WHERE post_id=? AND user_id=? AND state=?', p.id, req.uid, 'accepted');
+    if (!inGroup) return bad(res, 'Só quem está no grupo entra na sala do anúncio', 403);
+    if (!p.channel_id) return bad(res, 'Este anúncio não tem sala de voz');
+    const room = roomFor(p, req.uid); if (!room) return bad(res, 'A sala do anúncio não está disponível', 410);
+    res.json(room);
   }));
 
   // conversa do anúncio: quem pode ver o anúncio lê e escreve (combinar estilo de jogo, microfone, horário) antes de pedir

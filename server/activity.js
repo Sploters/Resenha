@@ -209,10 +209,10 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     reportLocal(uid, game) {
       const k = uid + ':pc', prev = current.get(k);
       if (!game || isLauncher(game) || pcVis(uid) === 'off' || hiddenGame(uid, 'pc', game.id)) return clear(uid, 'pc'); // launcher (Riot Client, Steam…) não é jogo
-      game = { id: game.id, title: game.title, ...(game.icon ? { icon: game.icon } : {}), ...(game.steam ? { steam: game.steam } : {}) };
+      game = { id: game.id, title: game.title, ...(game.icon ? { icon: game.icon } : {}), ...(game.steam ? { steam: game.steam } : {}), ...(game.known ? { known: game.known } : {}) };
       if (prev && prev.game.id === game.id) {
         prev.at = now();
-        if ((game.icon && prev.game.icon !== game.icon) || (game.steam && prev.game.steam !== game.steam)) { prev.game = { ...prev.game, ...game }; publish(uid, 'pc', prev); } // a imagem chegou depois
+        if ((game.icon && prev.game.icon !== game.icon) || (game.steam && prev.game.steam !== game.steam) || prev.game.title !== game.title) { prev.game = { ...prev.game, ...game }; publish(uid, 'pc', prev); } // a imagem (ou o nome certo) chegou depois
         return;
       }
       if (prev) clear(uid, 'pc');

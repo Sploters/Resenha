@@ -41,6 +41,7 @@ import { mountIntents } from './intents.js';
 import { createSocial, mountSocial } from './social.js';
 import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from './accounts.js';
 import { mountDiscover } from './discover.js';
+import { knownGame, WRAPPER_EXE } from '../public/gamecatalog.js';
 import { mountGames } from './games.js';
 import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
@@ -1283,7 +1284,10 @@ mountLfg(app, {
   auth, wrap, bad, get, all, run, newId, dispatch, userPub, clean,
   audienceOf: lfgAudience, canSeeChannel: canAccessChannel,
   voiceCount: (cid) => voice.get(cid)?.size || 0, voiceChannelOf: (uid) => currentVoice(uid),
-  callInvite: (from, to) => callInv.create(from, to), postDm: (a, b, c) => postDm(a, b, c),
+  callInvite: (from, to, opts) => callInv.create(from, to, opts), postDm: (a, b, c) => postDm(a, b, c),
+  isMember: (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid),
+  isBanned: (gid, uid) => !!get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', gid, uid),
+  joinGuild: (gid, uid) => joinGuild(gid, uid),
 });
 const discover = mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
 // ---------- Enquetes ----------
@@ -1916,6 +1920,7 @@ app.put('/api/activity/games/:platform/:gameId', auth, wrap((req, res) => { // e
 }));
 app.get('/api/activity/hidden', auth, wrap((req, res) => res.json(all('SELECT gp.platform, gp.game_id, (SELECT a.title FROM activities a WHERE a.user_id=gp.user_id AND a.platform=gp.platform AND a.game_id=gp.game_id ORDER BY a.created_at DESC LIMIT 1) title FROM game_prefs gp WHERE gp.user_id=? AND gp.hidden=1', req.uid))));
 // ícone do jogo (PNG pequeno mandado pelo app desktop): confere que é PNG de verdade, até 32 KB e 128x128; devolve o hash
+const steamNames = new Map(); // appid -> nome na loja da Steam (corrige o nome do jogo detectado no PC)
 function saveGameIcon(b64) {
   if (typeof b64 !== 'string' || b64.length > 44000) return null;
   const buf = Buffer.from(b64, 'base64');
@@ -2311,11 +2316,23 @@ wss.on('connection', (ws) => {
           const gid = String(d.game?.id || '').toLowerCase().replace(/[^a-z0-9._ -]/g, '').trim().slice(0, 60), title = clean(d.game?.title, 80);
           if (!gid || !title) { ws.localGame = null; ws.localIcon = null; activity.reportLocal(uid, null); break; }
           // o ícone vem só na primeira vez (por conexão e jogo); depois vale o que já foi mandado
-          const icon = d.game.icon ? saveGameIcon(d.game.icon) : (ws.localGame === gid ? ws.localIcon : null);
           const steam = /^\d{1,10}$/.test(String(d.game.steam || '')) ? String(d.game.steam) : null;
+          // anticheat (Easy Anti-Cheat, BattlEye) ou Java abrindo o jogo: o ícone do executável é o deles, não o do jogo
+          const wrapper = WRAPPER_EXE.test(gid), known = knownGame({ id: gid, title, steam });
+          let icon = d.game.icon ? saveGameIcon(d.game.icon) : (ws.localGame === gid ? ws.localIcon : null);
+          if (wrapper) icon = null;
           ws.localGame = gid; ws.localIcon = icon;
           if (icon) run('UPDATE game_icons SET used_at=? WHERE hash=?', Date.now(), icon);
-          activity.reportLocal(uid, { id: gid, title, icon, steam });
+          // o nome certo: catálogo (Valorant, LoL, Minecraft…) ou o nome da loja da Steam; o título da janela pode ser
+          // um aviso ("GPU drivers are out of date") ou o nome interno do motor ("Pagoda")
+          const id = wrapper ? (known?.key || (steam ? 'steam-' + steam : gid)) : gid;
+          const report = (t) => activity.reportLocal(uid, { id, title: t, icon, steam, ...(known ? { known: known.key } : {}) });
+          if (known) { report(known.title); break; }
+          if (!steam) { report(title); break; }
+          const cachedName = steamNames.get(steam);
+          if (cachedName) { report(cachedName); break; }
+          Promise.race([discover.storeItems([steam], 7 * 864e5), new Promise(r => setTimeout(r, 4000, null))])
+            .then(it => { const n = String(it?.[steam]?.title || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); if (n) steamNames.set(steam, n); report(n || title); }, () => report(title));
           break;
         }
         case 'VOICE_LEAVE': { const c = currentVoice(uid); if (c) leaveVoice(uid, c); break; }

@@ -112,6 +112,7 @@ function card(p) {
     if (!myReq) btns.push(h('button.btn.green', { title: p.join_mode === 'open' ? 'Entra direto no grupo, sem esperar aprovação' : `${p.author.display_name} aceita ou recusa o pedido`, onclick: () => join(p) }, p.join_mode === 'open' ? 'Entrar' : 'Pedir para entrar'));
     else if (myReq.state === 'pending') btns.push(h('button.btn.grey', { title: 'Cancelar o pedido', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && upsert(r)) }, 'Pedido enviado', icon('check', 14)));
   }
+  if (ch && !['expired', 'closed'].includes(p.closed_reason) && (me || myReq?.state === 'accepted')) btns.push(h('button.btn.green', { title: `Vai para ${ch.name}${gch ? ' · ' + gch.name : ''}, a sala combinada no anúncio`, onclick: () => goRoom(p) }, icon('voice', 16), 'Ir para a sala'));
   if (myReq?.state === 'accepted') btns.push(h('span.lfgok', icon('check', 14), 'Você está no grupo'), !p.closed_reason || p.closed_reason === 'full' ? h('button.btn.link', { title: 'Libera a sua vaga', onclick: () => tryApi('POST', `/lfg/posts/${p.id}/request`, { cancel: true }).then(r => r && (upsert(r), toast('Você saiu do grupo'))) }, 'Sair') : null);
   btns.push(h('button.btn.grey', { title: 'Converse antes de entrar: estilo de jogo, microfone, horário', onclick: () => chatModal(p) }, icon('forum', 16), 'Conversa', p.msg_count ? h('span.lfg-n', String(p.msg_count)) : null));
   if (myReq?.state === 'declined') btns.push(h('span.lfgno', 'Pedido recusado'));
@@ -142,6 +143,12 @@ function card(p) {
 async function join(p) {
   const r = await tryApi('POST', `/lfg/posts/${p.id}/request`, {}); if (!r) return;
   upsert(r);
+  if (r.joined?.room) { // entrada direta com sala combinada: já está no servidor; "agora" entra na chamada, agendado só mostra a sala
+    const now = whenText(p) === 'Agora';
+    toast(now ? `Você entrou no grupo de ${p.author.display_name}! Entrando em ${r.joined.room.name}…` : `Você entrou no grupo de ${p.author.display_name}! A sala é ${r.joined.room.name}: use "Ir para a sala" na hora do jogo.`);
+    if (now) enterRoom(r.joined.room);
+    return;
+  }
   if (r.joined) { toast(r.joined.invited ? `Você entrou no grupo de ${p.author.display_name}! Veja o convite para a chamada.` : `Você entrou no grupo de ${p.author.display_name}! Mandamos uma mensagem para combinar.`); }
   else toast(`Pedido enviado para ${p.author.display_name}`);
 }
@@ -149,6 +156,18 @@ async function answer(p, uid, accept) {
   const r = await tryApi('POST', `/lfg/posts/${p.id}/answer`, { user_id: uid, accept }); if (!r) return;
   upsert(r);
   if (accept) toast(ctx.inVoice?.() ? 'Aceito! A pessoa recebeu o convite para a sua chamada.' : 'Aceito! Mandamos uma mensagem para a pessoa. Entre numa sala de voz para chamá-la direto.');
+}
+// vai para a sala combinada no anúncio (o servidor coloca a pessoa no servidor se ainda não for membro)
+async function goRoom(p) {
+  const room = await tryApi('POST', `/lfg/posts/${p.id}/go`); if (!room) return;
+  enterRoom(room);
+}
+async function enterRoom(room) {
+  // acabou de virar membro: o servidor chega pelo GUILD_CREATE; espera um pouco para o canal existir na página
+  for (let i = 0; i < 30 && !ctx.channelById?.(room.channel_id); i++) await new Promise(res => setTimeout(res, 100));
+  document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.querySelector('.lfgad') && b.remove());
+  ctx.go(room.guild_id, room.channel_id);
+  if (ctx.voiceChannel?.() !== room.channel_id) ctx.joinVoice?.(room.channel_id);
 }
 function upsert(p) { const i = st.posts.findIndex(x => x.id === p.id); if (i >= 0) st.posts[i] = p; else st.posts.push(p); draw(); }
 
@@ -213,6 +232,27 @@ function liveHint(f) {
 }
 
 // ---------- conversa do anúncio ----------
+// resumo do anúncio no topo do popup: jogo, quando, vagas, elo, plataforma, sala combinada e o que fazer agora
+function adInfo(p) {
+  const g = G(p.game) || { color: '#5865f2' }, ch = p.channel, gch = ch && guild(ch.guild_id), me = p.author.id === S.me.id;
+  const myReq = p.requests.find(r => r.user.id === S.me.id), inGroup = me || myReq?.state === 'accepted', prof = p.author_profile;
+  const when = whenText(p);
+  const act = [];
+  if (ch && inGroup && !['expired', 'closed'].includes(p.closed_reason)) act.push(h('button.btn.green.sm', { onclick: () => goRoom(p) }, icon('voice', 14), 'Ir para a sala'));
+  else if (!me && !p.closed && !myReq) act.push(h('button.btn.green.sm', { onclick: async () => { await join(p); const n = st.posts.find(x => x.id === p.id); const el = document.querySelector('.lfgad'); if (n && el) el.replaceWith(adInfo(n)); } }, p.join_mode === 'open' ? 'Entrar' : 'Pedir para entrar'));
+  else if (myReq?.state === 'pending') act.push(h('span.lfgad-st', 'Pedido enviado, aguardando resposta'));
+  return h('div.lfgad', { style: { '--gc': g.color } },
+    h('div.lfgad-top', h('span.lfggame', p.game_name), h('span.lfgmode', p.mode), h('span.lfgwhen' + (when === 'Agora' ? '.now' : ''), when === 'Agora' && h('span.lfgdot'), when)),
+    h('div.lfgneed', h('b', p.closed && p.closed_reason === 'full' ? 'Grupo fechado' : `Precisa de ${p.slots}`), h('span', rankText(p)), h('span.lfgplat', platName(p.platform)),
+      p.mic && h('span.lfgmic', icon('mic', 14), 'mic'), p.join_mode === 'open' && h('span.lfgopen', 'Entrada direta')),
+    p.roles.length > 0 && h('div.lfgroles', p.roles.map(r => h('span', r))),
+    p.note && h('div.lfgnote', p.note),
+    h('div.lfgad-row', avatar(S.users.get(p.author.id) || p.author, 24, { status: false }), h('span', h('b', p.author.display_name), prof?.ign ? ` · ${prof.ign}${prof.rank ? ' · ' + prof.rank : ''}` : '')),
+    h('div.lfgch', icon('voice', 16), ch ? h('span', `${ch.name}${gch ? ' · ' + gch.name : ''}`) : h('span', 'Sem sala de voz combinada'), ch && h('small', ch.in_call ? `${ch.in_call} na chamada` : 'sala vazia')),
+    ch && !inGroup && !p.closed && h('small.lfgad-hint', p.join_mode === 'open' ? 'Ao entrar, você já vai para esta sala (e para o servidor dela).' : 'Se o pedido for aceito, você recebe o convite para esta sala e já entra no servidor.'),
+    act.length > 0 && h('div.lfgad-act', act));
+}
+
 async function chatModal(p) {
   const list = h('div.lfgmsgs', h('div.lfghint', 'Carregando…'));
   const input = h('input', { maxLength: 500, placeholder: `Conversar sobre o grupo de ${p.game_name}…`, onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } } });
@@ -227,7 +267,7 @@ async function chatModal(p) {
     if (!msgs.some(x => x.id === m.id)) { msgs.push(m); paint(); }
   };
   st.chat = { id: p.id, add: (m) => { if (!msgs.some(x => x.id === m.id)) { msgs.push(m); paint(); } } };
-  const box = h('div.lfgchat', list, h('div.lfgsend', input, h('button.btn.green', { onclick: send }, 'Enviar')));
+  const box = h('div.lfgchat', adInfo(p), list, h('div.lfgsend', input, h('button.btn.green', { onclick: send }, 'Enviar')));
   modal(`Conversa · ${p.game_name} (${p.mode})`, `Anúncio de ${p.author.display_name}. Quem vê o anúncio vê a conversa.`, box, [{ label: 'Fechar', cls: 'grey' }], { width: '520px' });
   setTimeout(() => input.focus(), 50);
   const r = await tryApi('GET', `/lfg/posts/${p.id}/messages`);
@@ -289,7 +329,7 @@ export function onLfgEvent(t, d) {
   }
   if (t === 'LFG_LEFT') toast(`${d.user.display_name} saiu do seu grupo de ${d.game_name}. A vaga voltou para o anúncio.`);
   if (t === 'LFG_ANSWER') {
-    if (d.accept) { if (alertAllowed('dm')) playSound('mention'); toast(d.invited ? `${d.author.display_name} aceitou! Veja o convite para a chamada.` : `${d.author.display_name} aceitou você no grupo de ${d.game_name}!`); }
+    if (d.accept) { if (alertAllowed('dm')) playSound('mention'); toast(d.invited ? `${d.author.display_name} aceitou! Veja o convite para a chamada${d.room ? ' em ' + d.room.name : ''}.` : d.room ? `${d.author.display_name} aceitou! A sala é ${d.room.name}: use "Ir para a sala" no anúncio.` : `${d.author.display_name} aceitou você no grupo de ${d.game_name}!`); }
     else toast(`${d.author.display_name} recusou o pedido para ${d.game_name}`, true);
   }
 }

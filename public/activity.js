@@ -3,6 +3,7 @@
 // A decisão de QUEM pode ver cada atividade é do servidor; aqui só se exibe o que ele enviou.
 import { canCallInvite, sendCallInvite, pendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { h, icon, avatar, clock, skeleton } from './util.js';
+import { knownGame } from './gamecatalog.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
 import { S, api, tryApi, toast, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
@@ -65,13 +66,15 @@ function steamArt(id) { // Promise<{ image, thumb } | null>, em lote (vários ca
 export function gameIcon(a, size = 20) {
   const box = h('span.gicon', { style: { width: size + 'px', height: size + 'px' } });
   const set = (src, cover) => { const img = h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => box.replaceChildren(icon('gamepad', Math.round(size * .8))) }); if (cover) img.classList.add('cover'); box.replaceChildren(img); };
-  const ic = iconUrl(a), sid = steamIdOf(a);
-  if (ic) set(ic); else { box.append(icon('gamepad', Math.round(size * .8))); if (sid) steamArt(sid).then(x => { if (x?.thumb) set(x.thumb, true); }); }
+  const kg = knownGame(a.game), ic = kg?.icon || iconUrl(a), sid = steamIdOf(a) || kg?.steam;
+  if (ic) set(ic, !!kg?.icon && !/\.svg(\?|$)/.test(kg.icon)); else { box.append(icon('gamepad', Math.round(size * .8))); if (sid) steamArt(sid).then(x => { if (x?.thumb) set(x.thumb, true); }); }
   return box;
 }
 // faixa com a arte da Steam (cartões maiores); some quando não há arte
 export function gameBanner(a) {
-  const sid = steamIdOf(a); if (!sid) return null;
+  const kg = knownGame(a.game);
+  if (kg?.banner) { const el = h('div.gbanner', h('img', { src: kg.banner, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => el.remove() })); return el; }
+  const sid = steamIdOf(a) || kg?.steam; if (!sid) return null;
   const el = h('div.gbanner.hidden');
   steamArt(sid).then(x => { if (!x?.image) return; el.replaceChildren(h('img', { src: x.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => el.remove() })); el.classList.remove('hidden'); });
   return el;
@@ -95,13 +98,15 @@ function gamePeople(a) {
   });
 }
 export function gameModal(a) {
-  const sid = steamIdOf(a), ic = iconUrl(a);
-  const hero = h('div.gm-hero', ic ? h('img.gm-icon', { src: ic, alt: '' }) : h('span.gm-icon.gm-ph', icon('gamepad', 44)));
+  const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, ic = kg?.icon || iconUrl(a);
+  const hero = h('div.gm-hero', ic ? h('img.gm-icon', { src: ic, alt: '', referrerPolicy: 'no-referrer' }) : h('span.gm-icon.gm-ph', icon('gamepad', 44)));
+  if (kg?.banner) { hero.prepend(h('img.gm-art', { src: kg.banner, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => { e.target.remove(); hero.classList.remove('has-art'); } })); hero.classList.add('has-art'); }
   const meta = h('div.gm-meta'), tags = h('div.gm-tags');
-  const store = sid && h('a.btn.gm-steam', { href: `https://store.steampowered.com/app/${sid}/`, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 16), 'Ver na Steam');
+  const ext = (name, url) => h('a.btn.gm-steam', { href: url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 16), name);
+  const store = [...(kg?.links || []).map(l => ext(l.name, l.url)), sid && ext('Ver na Steam', `https://store.steampowered.com/app/${sid}/`)].filter(Boolean);
   const people = gamePeople(a);
   const body = h('div.gm', hero, h('div.gm-main',
-    h('div.gm-head', h('h2', a.game.title), store),
+    h('div.gm-head', h('h2', kg?.title || a.game.title), store.length > 0 && h('div.gm-links', store)),
     meta, tags,
     people.length ? [h('div.gm-cap', 'Amigos que jogaram'), h('div.gm-people', people)] : h('p.gm-none', 'Nenhum amigo jogou isto esta semana.')));
   const m = modal('', null, body, [], { width: 'min(560px, 94vw)' });
@@ -109,7 +114,7 @@ export function gameModal(a) {
   hero.append(h('button.inv-x.gm-x', { title: 'Fechar', onclick: m.close }, icon('x', 20)));
   if (sid) steamArt(sid).then(x => {
     if (!x) return;
-    if (x.image) { hero.prepend(h('img.gm-art', { src: x.image, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); hero.classList.add('has-art'); }
+    if (x.image && !kg?.banner) { hero.prepend(h('img.gm-art', { src: x.image, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })); hero.classList.add('has-art'); }
     const rv = x.reviews; meta.replaceChildren(...[rv && h('span.gm-rev', icon('star', 14), `${rv.label} · ${rv.pct}%`), (x.free || x.price) && h('span', x.free ? 'Gratuito' : x.price)].filter(Boolean));
     tags.replaceChildren(...(x.tags || []).map(t => h('span.gm-tag', t)));
   });

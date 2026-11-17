@@ -140,7 +140,7 @@ function gameIcon(exe) {
 }
 // jogo instalado pela Steam: o número dele na loja (para a arte oficial). Lê os appmanifest_*.acf da biblioteca:
 // ...\steamapps\common\<pasta>\...exe  ->  ...\steamapps\appmanifest_<appid>.acf com "installdir" "<pasta>"
-const appIds = new Map();
+const appIds = new Map(), steamNames = new Map(); // appid -> nome no appmanifest ("HELLDIVERS 2")
 function steamAppId(exe) {
   const m = /^(.*\\steamapps)\\common\\([^\\]+)\\/i.exec(String(exe || '')); if (!m) return null;
   const key = (m[1] + '|' + m[2]).toLowerCase();
@@ -151,12 +151,37 @@ function steamAppId(exe) {
         if (!/^appmanifest_\d+\.acf$/i.test(f)) continue;
         const t = fs.readFileSync(path.join(m[1], f), 'utf8');
         const dir = /"installdir"\s+"([^"]*)"/i.exec(t)?.[1];
-        if (dir && dir.toLowerCase() === m[2].toLowerCase()) { id = /"appid"\s+"(\d+)"/i.exec(t)?.[1] || null; break; }
+        if (dir && dir.toLowerCase() === m[2].toLowerCase()) { id = /"appid"\s+"(\d+)"/i.exec(t)?.[1] || null; const nm = /"name"\s+"([^"]*)"/i.exec(t)?.[1]; if (id && nm) steamNames.set(id, nm.replace(/[™®]/g, '').trim()); break; }
       }
     } catch { /* biblioteca sem permissão de leitura */ }
     appIds.set(key, id);
   }
   return appIds.get(key);
+}
+const WRAPPER = /^(start_protected_game|easyanticheat(_eos)?(_setup)?|eac_?launcher|battleye(launcher)?|beservice(_x64)?|.+_be|.+_eac|javaw?)$/i;
+// nome da pasta do jogo dentro da biblioteca da loja ("...\steamapps\common\Dead as Disco\Pagoda.exe" -> "Dead as Disco"):
+// melhor que o título da janela, que às vezes é o nome interno do motor ou um aviso
+function folderName(exe) {
+  const m = /\\(?:steamapps\\common|epic games|gog galaxy\\games|gog games|xboxgames|ea games|ubisoft game launcher\\games)\\([^\\]+)\\/i.exec(String(exe || ''));
+  const n = m?.[1]?.replace(/[_]+/g, ' ').trim();
+  return n && n.length >= 2 && !/^(content|game|games|bin|binaries)$/i.test(n) ? n : null;
+}
+// jogos da Epic: o launcher guarda um manifesto por jogo com a pasta e o nome de exibição
+let epicCache = null, epicAt = 0;
+function epicName(exe) {
+  if (!/\\epic games\\/i.test(String(exe || '')) && !epicCache?.length) return null;
+  if (!epicCache || Date.now() - epicAt > 10 * 60e3) {
+    epicAt = Date.now(); epicCache = [];
+    try {
+      const dir = path.join(process.env.ProgramData || 'C:\\ProgramData', 'Epic', 'EpicGamesLauncher', 'Data', 'Manifests');
+      for (const f of fs.readdirSync(dir)) {
+        if (!/\.item$/i.test(f)) continue;
+        try { const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (j.InstallLocation && j.DisplayName) epicCache.push([String(j.InstallLocation).toLowerCase().replace(/[\\/]+$/, '') + '\\', j.DisplayName]); } catch { }
+      }
+    } catch { /* sem a Epic instalada */ }
+  }
+  const e = String(exe || '').toLowerCase();
+  return epicCache.find(([loc]) => e.startsWith(loc))?.[1] || null;
 }
 async function detectGame(o = { cached: true }) {
   const list = (await listWindows(o)).filter(w => w.game);
@@ -165,7 +190,11 @@ async function detectGame(o = { cached: true }) {
   const w = list.sort((a, b) => score(b) - score(a))[0];
   const base = path.win32.basename(w.exe).replace(/\.exe$/i, '').toLowerCase();
   if (base === 'javaw' && !/minecraft/i.test(w.title)) return null; // Java qualquer não é jogo
-  return { id: base, title: FRIENDLY[base] || cleanTitle(w.title) || base, icon: await gameIcon(w.exe), steam: steamAppId(w.exe) };
+  // anticheat abrindo o jogo (Easy Anti-Cheat, BattlEye) e o Java: o ícone é o deles e a janela pode ser um aviso
+  // ("GPU drivers are out of date"); o nome vem da loja/pasta e o servidor procura a arte certa
+  const wrapper = WRAPPER.test(base), steam = steamAppId(w.exe);
+  const title = FRIENDLY[base] || (steam && steamNames.get(steam)) || epicName(w.exe) || (base === 'javaw' ? 'Minecraft' : null) || folderName(w.exe) || cleanTitle(w.title) || base;
+  return { id: wrapper && base !== 'javaw' ? (steam ? 'steam-' + steam : base) : base, title, icon: wrapper ? null : await gameIcon(w.exe), steam };
 }
 
 // ---------- captura ----------

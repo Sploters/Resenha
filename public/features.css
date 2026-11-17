@@ -904,6 +904,13 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .lfgtip .icon { flex: none; margin-top: 1px; } .lfgtip.ok { color: var(--text-normal, var(--header)); background: color-mix(in srgb, var(--green, #23a55a) 14%, var(--bg-tert, #1e1f22)); } .lfgtip.ok .icon { color: var(--green, #23a55a); }
 .lfgtip a { color: var(--link, #00a8fc); }
 .lfgchat { display: flex; flex-direction: column; gap: 10px; }
+.lfgad { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px; background: var(--bg-sec, #2b2d31); border: 1px solid var(--divider, #3f4147); border-top: 3px solid var(--gc); }
+.lfgad-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lfgad .lfgneed b { font-size: 15px; }
+.lfgad-row { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; } .lfgad-row b { color: var(--header); }
+.lfgad-hint { color: var(--text-muted); font-size: 12px; }
+.lfgad-act { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .lfgad-act .btn { display: inline-flex; align-items: center; gap: 6px; } .lfgad-st { color: var(--text-muted); font-size: 13px; }
+.lfgchat .lfgmsgs { height: clamp(120px, calc(100vh - 600px), 340px); }
 .lfgmsgs { display: flex; flex-direction: column; gap: 10px; height: min(52vh, 420px); overflow-y: auto; padding: 4px 2px; }
 .lfgmsgs > .lfghint { margin: auto; text-align: center; max-width: 320px; }
 .lfgmsg { display: flex; gap: 10px; } .lfgav { flex: none; cursor: pointer; }

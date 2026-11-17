@@ -362,7 +362,15 @@ export function modal(title, sub, body, buttons = [], opts = {}) {
       h('div.mb', body),
       h('div.mf', buttons.map(b => h('button.btn' + (b.cls ? '.' + b.cls : ''), { onclick: async () => { if (b.fn) { const r = await b.fn(); if (r === false) return; } if (!b.keep) close(); } }, b.label)))));
   layer().append(bd); bd.querySelector('input,textarea')?.focus();
-  const unBack = backCloses(() => close('back')); whenGone(bd, () => unBack()); // tirada da tela por outro caminho: sai do histórico também
+  // Esc fecha a janela de cima (clipe, jogo, anúncio…), a não ser que o Esc tenha fechado um menu/emoji dentro dela,
+  // que um campo já o tenha usado (renomear o clipe) ou que a janela peça confirmação (sticky)
+  const onEsc = (e) => {
+    if (e.key !== 'Escape' || opts.sticky || escFloat || e.defaultPrevented || document.getElementById('lightbox')) return;
+    const top = [...(layer()?.querySelectorAll('.backdrop:not(.leaving)') || [])].pop(); if (top !== bd) return;
+    e.preventDefault(); e.stopImmediatePropagation(); close();
+  };
+  document.addEventListener('keydown', onEsc);
+  const unBack = backCloses(() => close('back')); whenGone(bd, () => { unBack(); document.removeEventListener('keydown', onEsc); }); // tirada da tela por outro caminho: sai do histórico também
   return { close: () => close(), el: bd };
 }
 export function confirmBox(title, text, label = 'Confirmar') {
@@ -376,6 +384,9 @@ export function promptBox(title, label, value = '', okLabel = 'Salvar') {
     inp.select();
   });
 }
+// havia menu/emoji aberto quando o Esc foi apertado? (lido antes de closeFloating fechar; aí o Esc é só do menu)
+let escFloat = false;
+addEventListener('keydown', (e) => { if (e.key === 'Escape') escFloat = !!layer()?.querySelector('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)'); }, true);
 export function closeFloating() { layer().querySelectorAll('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)').forEach(e => leave(e, e.classList.contains('menu') ? 120 : 160)); } // voltam para onde foram abertos
 document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static),.emoji-picker,[data-keepfloat]')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos; [data-keepfloat]: botão que abre o próprio painel ao passar o mouse (o clique nele decide)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFloating(); }); // o visualizador de imagens trata o próprio Esc

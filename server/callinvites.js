@@ -32,8 +32,9 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     if (!to || to === from || !get('SELECT 1 x FROM users WHERE id=?', to)) return { error: 'Usuário inválido', status: 400 };
     if (isBlocked(from, to)) return { error: 'Não foi possível convidar esta pessoa', status: 403 };
     // só amigos ou quem já está no servidor (evita convite de desconhecidos)
-    if (!isFriend(from, to) && !isMember(ch.guild_id, to)) return { error: 'Só dá para convidar amigos ou membros deste servidor', status: 403 };
-    if (!canCall(from, to)) return { error: 'Essa pessoa não está aceitando chamadas', status: 403, code: 'calls_off' };
+    // opts.trusted: a própria pessoa pediu para entrar (anúncio do "Procurar jogadores" com a sala combinada)
+    if (!opts.trusted && !isFriend(from, to) && !isMember(ch.guild_id, to)) return { error: 'Só dá para convidar amigos ou membros deste servidor', status: 403 };
+    if (!opts.trusted && !canCall(from, to)) return { error: 'Essa pessoa não está aceitando chamadas', status: 403, code: 'calls_off' };
     if (isBanned(ch.guild_id, to)) return { error: 'Esta pessoa foi banida deste servidor', status: 403 };
     if (voiceChannelOf(to) === cid) return { error: 'Essa pessoa já está na chamada', status: 400 };
     // idempotente: mesmo par e mesma sala com convite pendente recente -> devolve o mesmo
