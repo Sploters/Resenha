@@ -1308,7 +1308,8 @@ export class Voice {
   // Windows 10, jogo pela captura nativa: o Chromium (prévia e reserva) captura a TELA, não a janela. A captura de janela do
   // Chromium no Windows 10 é a WGC, que some com o cursor do jogo para quem joga enquanto está aberta (confirmado: com a
   // tela inteira o cursor aparece e volta ao parar). O nativo recebe a janela pelo id (recorte da janela no DXGI).
-  // Só com um monitor (com vários, não dá para saber daqui em qual o jogo está). Devolve o id da janela ou null.
+  // Com vários monitores, a tela do jogo vem do app (screenId, pelo monitor da janela); app antigo: só com um monitor.
+  // Devolve o id da janela ou null.
   async gameWindowViaScreen(o) {
     const si = o.srcInfo, d = window.lcDesktop;
     // por que trocou ou não (vai no relatório da captura e na mensagem de erro: sem isso não dá para saber o que houve no PC)
@@ -1325,8 +1326,10 @@ export class Voice {
       if (+c.os >= 22000) return why('Windows 11');
       if (!(await this.wantNative(o))) return why('não vai pelo nativo: ' + (this._natWhy || '?'));
       const screens = (await d.getSources()).filter(x => x.type === 'screen');
-      if (screens.length !== 1) return why(screens.length + ' monitores');
-      if (!(await d.selectSource(screens[0].id, screens[0].name))) return why('selectSource falhou');
+      // a tela do monitor do jogo: o app diz qual é (desde a versão que manda screenId); com um monitor só, é ela
+      const scr = screens.find(x => si.screenId && x.id === si.screenId) || (screens.length === 1 ? screens[0] : null);
+      if (!scr) return why(screens.length + ' monitores e o app não diz em qual está o jogo (atualize o app)');
+      if (!(await d.selectSource(scr.id, scr.name))) return why('selectSource falhou');
       this._swapWhy = 'ok: Chromium na tela, nativo na janela';
       return si.id;
     } catch (e) { return why('erro: ' + (e.message || e)); }

@@ -211,7 +211,12 @@ try {
   await A.evaluate(() => { window.__sel.length = 0; window.__twoScreens = true; });
   await share(A, '', 'auto', { fps: 60, srcInfo: valo });
   sel = await A.evaluate(() => [...window.__sel]);
-  ok(!sel.length && !helpers[0]?.srcId, 'dois monitores: sem trocar a fonte (não dá para saber o monitor do jogo)', { sel, srcId: helpers[0]?.srcId });
+  ok(!sel.length && !helpers[0]?.srcId, 'dois monitores e app antigo (sem screenId): sem trocar a fonte', { sel, srcId: helpers[0]?.srcId });
+  await unshare(A);
+  await A.evaluate(() => { window.__sel.length = 0; });
+  await share(A, '', 'auto', { fps: 60, srcInfo: { ...valo, screenId: 'screen:1:0' } });
+  sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
+  ok(s.native && sel.at(-1) === 'screen:1:0' && helpers[0]?.srcId === 'window:4242:0', 'dois monitores com o app novo: o Chromium captura a tela do monitor do jogo', { sel, srcId: helpers[0]?.srcId });
   await unshare(A);
   await A.evaluate(() => { window.__sel.length = 0; window.__twoScreens = false; });
   await share(A, 'wgc=fail@1,dxgi=nostart', 'auto', { fps: 60, srcInfo: valo });

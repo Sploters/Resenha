@@ -329,11 +329,24 @@ function setupSession() {
 // ---------- IPC ----------
 // janelas já vistas ficam na lista por alguns minutos: jogo em tela cheia some do Windows ao dar alt+tab (minimiza)
 const seenWindows = new Map();
+// tela (fonte "screen:N:0") do monitor de uma janela: o programa nativo dá o retângulo do monitor (mon, pixels físicos;
+// de janela minimizada, o de onde ela estava). A página usa no Windows 10 para o Chromium capturar a TELA do jogo em vez
+// da janela (a captura de janela do Chromium lá some com o cursor do jogo) com mais de um monitor.
+function screenOfMon(mon, screens) {
+  if (!Array.isArray(mon) || mon.length !== 4) return null;
+  const cx = (mon[0] + mon[2]) / 2, cy = (mon[1] + mon[3]) / 2;
+  for (const d of screen.getAllDisplays()) {
+    const b = process.platform === 'win32' ? screen.dipToScreenRect(null, d.bounds) : d.bounds;
+    if (cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height) return screens.find(x => String(x.display_id) === String(d.id))?.id || null;
+  }
+  return null;
+}
 ipcMain.handle('get-sources', async () => {
   // janelas pelo programa nativo (em paralelo): inclui as MINIMIZADAS, com o processo (para o áudio só do jogo) e se é jogo
   const [list, wins] = await Promise.all([desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true }), appAudio.listWindows().catch(() => [])]);
   const byHwnd = new Map(wins.map(w => [String(w.hwnd), w]));
-  const extra = (w) => (w ? { pid: w.pid, exe: w.exe, game: !!w.game, minimized: !!w.minimized, fullscreen: !!w.fullscreen } : {});
+  const screens = list.filter(x => x.id.startsWith('screen:'));
+  const extra = (w) => (w ? { pid: w.pid, exe: w.exe, game: !!w.game, minimized: !!w.minimized, fullscreen: !!w.fullscreen, screenId: screenOfMon(w.mon, screens) } : {});
   const now = Date.now(), out = [];
   for (const s of list) {
     if (s.name === 'Resenha' || /NVIDIA GeForce Overlay/i.test(s.name)) continue; // o overlay da NVIDIA só aparece preto
@@ -364,7 +377,8 @@ ipcMain.handle('foreground-source', async () => {
   const wins = await appAudio.listWindows().catch(() => []);
   const w = wins.find(x => !x.minimized && !NOT_FRONT.test(String(x.title || '').trim()));
   if (w && !/^Program Manager$/i.test(w.title)) { // "Program Manager" = a área de trabalho na frente: vai a tela
-    return { id: `window:${w.hwnd}:0`, name: w.game ? appAudio.cleanTitle(w.title) : w.title, type: 'window', pid: w.pid, exe: w.exe, game: !!w.game, fullscreen: !!w.fullscreen };
+    const screens = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
+    return { id: `window:${w.hwnd}:0`, name: w.game ? appAudio.cleanTitle(w.title) : w.title, type: 'window', pid: w.pid, exe: w.exe, game: !!w.game, fullscreen: !!w.fullscreen, screenId: screenOfMon(w.mon, screens) };
   }
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const ss = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
