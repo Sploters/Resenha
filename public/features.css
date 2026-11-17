@@ -914,8 +914,10 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .fsvid { position: relative; display: inline-block; max-width: 100%; line-height: 0; border-radius: 8px; overflow: hidden; background: #000; outline: none; user-select: none; }
 .fsvid:focus-visible { box-shadow: 0 0 0 2px var(--brand, #5865f2); }
 .fsvid video { display: block; max-width: 100%; cursor: pointer; }
-.attach .fsvid video { margin-top: 0; border-radius: 0; max-width: min(400px, 100%); }
-.attach .fsvid { margin-top: 6px; }
+/* O limite de 400px fica na caixa: um max-width com % no <video> é ignorado no cálculo da largura da caixa
+   (inline-block), que ficava mais larga que o vídeo e mostrava uma faixa preta à direita. */
+.attach .fsvid video { margin-top: 0; border-radius: 0; max-width: 100%; }
+.attach .fsvid { margin-top: 6px; max-width: min(400px, 100%); }
 .clipplayer .fsvid { display: block; width: 100%; border-radius: 0; }
 .fsvid:not(.awake).playing, .fsvid:not(.awake).playing video { cursor: none; }
 /* barra flutuante: gradiente embaixo, some sozinha enquanto toca */
