@@ -622,6 +622,38 @@ function voicePage(ctx, reg) {
   showVad();
   const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); showVad(); restartTest(); }));
   drawNoise(); setTimeout(placeMark, 0);
+  // "qual filtro usar?": mede o ruído de fundo do microfone cru (sem nenhum filtro) com a pessoa calada e recomenda.
+  // Ambiente silencioso + microfone bom: a IA não tem o que tirar e pode deixar a voz levemente metálica -> Leve.
+  const envOut = h('div'); let envBusy = false;
+  const envBtn = h('button.btn.grey', { onclick: async () => {
+    if (envBusy) return; envBusy = true; envBtn.disabled = true; envOut.replaceChildren();
+    let st, ctx;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Acesse via HTTPS ou use o app desktop para usar o microfone.');
+      st = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: S.prefs.inputId ? { ideal: S.prefs.inputId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+      ctx = newAudioContext(); await ctx.resume();
+      const an = ctx.createAnalyser(); an.fftSize = 2048; ctx.createMediaStreamSource(st).connect(an);
+      const buf = new Float32Array(an.fftSize), rms = [];
+      for (let left = 4; left > 0; left--) {
+        envBtn.textContent = `Fique em silêncio… ${left}`;
+        for (let i = 0; i < 25; i++) { await new Promise(r => setTimeout(r, 40)); /* janela de ~43 ms a cada 40 ms: cobre o tempo todo */ an.getFloatTimeDomainData(buf); let e = 0; for (const v of buf) e += v * v; rms.push(Math.sqrt(e / buf.length)); }
+      }
+      rms.sort((a, b) => a - b);
+      const floor = 20 * Math.log10(Math.max(rms[Math.floor(rms.length / 2)], 1e-6)), peaks = 20 * Math.log10(Math.max(rms[Math.floor(rms.length * .9)], 1e-6));
+      // ruído que vem e vai (latido, porta, teclado) aparece como picos bem acima do fundo
+      const bursty = peaks - floor > 12, pick = floor < -62 && !bursty ? 'standard' : floor < -45 ? 'rnnoise' : 'gtcrn';
+      const silent = rms[rms.length - 1] < 1e-5; // nem um pico: nada chegando (zero absoluto)
+      const why = silent ? 'Nenhum som chegou do microfone: confira o dispositivo de entrada acima.'
+        : pick === 'standard' ? 'Ambiente silencioso. Com pouco ruído, a IA não tem o que tirar e pode até deixar a voz um pouco metálica: o filtro Leve basta.'
+        : pick === 'rnnoise' ? (bursty ? 'Apareceram barulhos que vêm e vão (teclado, porta, cachorro…). A IA Forte tira isso sem cortar sua voz.' : 'Há um ruído de fundo constante (ventilador, ar-condicionado, PC). A IA Forte resolve com pouca CPU.')
+        : 'Ambiente bem barulhento. A Máxima tira mais ruído, mas usa ~2,5x a CPU da Forte; se o PC pesar, volte para a Forte.';
+      const cur = S.prefs.noiseMode || 'standard';
+      envOut.replaceChildren(note([h('span.hint-ic', icon('waves', 16)), h('span', h('b', `Ruído de fundo: ${Math.round(floor)} dB. `), why,
+        !silent && (cur === pick ? h('b', ' Você já está usando o recomendado.') : h('button.btn.sm', { style: { marginLeft: '8px' }, onclick: (e) => { S.prefs.noiseMode = pick; save(); drawNoise(); showVad(); restartTest(); e.currentTarget.replaceWith(h('b', ' Aplicado.')); } }, 'Usar ' + NOISE_INFO[pick][0])))]));
+    } catch (e) { toast(e.message || 'Falha ao acessar o microfone', true); }
+    finally { st?.getTracks().forEach(t => t.stop()); ctx?.close(); envBusy = false; envBtn.disabled = false; envBtn.textContent = 'Analisar meu ambiente'; }
+  } }, 'Analisar meu ambiente');
+  reg(() => { envBusy = false; });
   const gateLbl = h('span', S.prefs.gateDb + ' dB');
   const gateBox = h('label.f', { style: { marginTop: '4px' } }, 'Limite da porta: ', h('span', S.prefs.gateDb + ' dB')); gateBox.style.display = S.prefs.gate ? '' : 'none';
   const gate = h('input', { type: 'range', min: -70, max: -10, value: S.prefs.gateDb, oninput: () => { S.prefs.gateDb = +gate.value; gateLbl.textContent = gate.value + ' dB'; gateBox.firstElementChild.textContent = gate.value + ' dB'; placeMark(); }, onchange: () => { save(); restartTest(); } });
@@ -636,7 +668,8 @@ function voicePage(ctx, reg) {
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
       !navigator.mediaDevices?.enumerateDevices ? null : h('button.btn.grey', { onclick: dev('mic') }, 'Pedir permissão do microfone')),
-    section('Supressão de ruído'), card(noiseCards, vadBox,
+    section('Supressão de ruído'), card(hint('A redução por IA (Forte e Máxima) tira sons que não são voz humana, como cachorro latindo, aspirador, teclado e porta batendo, sem cortar sua fala. Ela roda 100% no seu aparelho: nenhum áudio sai do seu computador para ser filtrado. Filtra só o SEU microfone (o ruído dos outros depende do filtro deles) e vale para todas as salas, chamadas de vídeo e transmissões até você trocar. Em ambiente silencioso com um microfone bom, prefira Leve ou Sem filtro: a IA pode piorar um pouco a voz.'),
+      noiseCards, h('div.btns', { style: { marginTop: '10px' } }, envBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Mede o ruído do seu ambiente e sugere o filtro')), envOut, vadBox,
       toggleCards([
         { on: S.prefs.gate, label: 'Porta de ruído', desc: 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', prev: h('span.vp-gate', h('i.g1'), h('i.g2'), h('i.g3'), h('i.g4'), h('i.g5'), h('b.vp-line')), fn: v => { S.prefs.gate = v; save(); gateBox.style.display = v ? '' : 'none'; restartTest(); } },
         { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },

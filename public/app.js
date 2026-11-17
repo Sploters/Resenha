@@ -62,7 +62,7 @@ import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFi
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
-import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys } from './ui.js';
+import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys, NOISE_INFO } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
 const lazySettings = () => import('./settings.js');
 const openSettings = (...a) => { lazySettings().then(m => m.openSettings(...a)); };
@@ -1497,7 +1497,7 @@ const newsActions = {
 const openVoiceFx = (anchor) => openFxPicker(anchor, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
 function voiceBtn() {
   const f = fxInfo(voice?.fx);
-  return h('button.ibtn.vp-voice' + (f ? '.fxon' : ''), { title: f ? `Sua voz — efeito: ${f.label}` : 'Sua voz: microfone, ruído, eco e efeitos', 'aria-label': 'Sua voz',
+  return h('button.ibtn.vp-voice' + (f ? '.fxon' : ''), { title: (f ? `Sua voz — efeito: ${f.label}` : 'Sua voz: microfone, ruído, eco e efeitos') + ` · Redução de ruído: ${NOISE_INFO[S.prefs.noiseMode || 'standard']?.[0] || ''}`, 'aria-label': 'Sua voz',
     onclick: (e) => { const a = e.currentTarget; openMicPanel(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()), fx: { info: fxInfo(voice?.fx), icon: (id, n) => fxIcon(id, n), open: () => openVoiceFx(a) } }); } },
     f ? fxIcon(f.id, 20) : icon('waves', 20));
 }
@@ -3609,9 +3609,11 @@ function clipMenu(e, key, who) {
     { label: 'Desativar clipes', icon: 'x', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
 }
 const ctxSettings = () => ({ voice, logout, go });
+// mesmos nomes dos cartões de Configurações (Sem filtro / Leve / Forte / Máxima)
+const NOISE_OPTS = () => Object.entries(NOISE_INFO).map(([k, [n, d]]) => [k, `${n} — ${d}`]);
 function noiseMenu(e) {
   const cur = S.prefs.noiseMode;
-  menu(e, [['off', 'Nenhuma'], ['standard', 'Padrão (navegador)'], ['rnnoise', 'Alta — RNNoise (IA)'], ['gtcrn', 'Máxima — GTCRN (IA)']].map(([k, l]) => ({ label: 'Ruído: ' + l, radio: cur === k, fn: async () => { if ((cur || 'standard') === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })));
+  menu(e, NOISE_OPTS().map(([k, l]) => ({ label: 'Ruído: ' + l, radio: cur === k, fn: async () => { if ((cur || 'standard') === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })));
 }
 // método de captura (Beta): rótulos curtos no seletor; o nome completo fica na dica
 const CAP_SHORT = { auto: 'Auto', wgc: 'WGC', dxgi: 'DXGI', chromium: 'Chromium', classic: 'Clássico' };
@@ -3794,7 +3796,7 @@ function audioOptItems(ds) {
   return [
     { label: 'Dispositivo de entrada', icon: 'mic', sub: devRadios(ds, 'audioinput', 'inputId', () => voice.active && voice.rebuildMic()) },
     { label: 'Dispositivo de saída', icon: 'headset', sub: devRadios(ds, 'audiooutput', 'outputId', () => applyOutput(voice)) },
-    { label: 'Redução de ruído', icon: 'waves', sub: [['off', 'Nenhuma'], ['standard', 'Padrão (navegador)'], ['rnnoise', 'Alta — RNNoise (IA)'], ['gtcrn', 'Máxima — GTCRN (IA)']].map(([k, l]) => ({ label: l, radio: cur === k, fn: async () => { if (cur === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })) },
+    { label: 'Redução de ruído', icon: 'waves', sub: NOISE_OPTS().map(([k, l]) => ({ label: l, radio: cur === k, fn: async () => { if (cur === k) return; S.prefs.noiseMode = k; savePrefs(); await voice.rebuildMic(); toast('Redução de ruído: ' + l); } })) },
     '-', { label: 'Configurações de voz', icon: 'sliders', hint: 'Fechar as configurações volta direto para a chamada', fn: () => openSettings('voice', ctxSettings()) },
   ];
 }
