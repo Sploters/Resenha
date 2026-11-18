@@ -72,6 +72,7 @@ try {
   const ptime = async (P) => (await W(P)).playerTime;
   const voiceOk = (P) => P.evaluate(() => !!window.__lc.voice.active && window.__lc.voice.channelId != null);
 
+  await A.evaluate(() => document.querySelector('.vchead button[title="Fechar chat"]')?.click()); await sleep(500); // Ana: palco largo (Beto fica com o chat aberto: layout estreito)
   // ---------- iniciar pelo lançador de atividades ----------
   console.log('— iniciar');
   for (let i = 0; i < 4 && !(await A.$('.actpop .act-card')); i++) { await A.click('.roundbtn.actbtn'); await A.waitForSelector('.actpop .act-card', { timeout: 2000 }).catch(() => { }); }
@@ -95,7 +96,9 @@ try {
   // ---------- buscar e adicionar pela interface ----------
   console.log('— fila e busca');
   await A.click('.wt-tab:nth-child(2)'); // Adicionar
-  await A.type('.wt-search', 'gatos'); await A.keyboard.press('Enter');
+  await A.type('.wt-search', 'gatos', { delay: 60 });
+  ok(await A.$eval('.wt-search', i => i.value === 'gatos' && document.activeElement === i), 'digitar na busca não perde o foco quando a lateral é redesenhada');
+  await A.keyboard.press('Enter');
   await A.waitForSelector('.wt-res .wt-add', { timeout: 8000 }).catch(async (e) => { await shot(A, 'falha-busca'); throw e; });
   ok(await A.$$eval('.wt-res', r => r.length) === 3, 'busca mostra os resultados (YouTube Data API)');
   await shot(A, '04-busca');
@@ -180,9 +183,9 @@ try {
   console.log('— erros');
   await cmd(A, 'add', { url: `https://youtu.be/${IDS.rt}`, next: true });
   await cmd(A, 'skip', { item_id: (await W(A)).sess.current.id });
-  ok(await until(async () => (await W(A)).error === 'embed_blocked', 6000), 'player relata incorporação bloqueada');
+  ok(await until(async () => (await W(A)).error === 'yt_refused', 6000), 'player recusa (erro 150) um vídeo que o YouTube disse ser incorporável: mostra a causa certa');
   await A.waitForSelector('.wt-err'); await shot(A, '08-erro-incorporacao');
-  ok(await A.$eval('.wt-err', e => /fora do YouTube/.test(e.textContent) && /Abrir no YouTube/.test(e.textContent)), 'tela de erro explica e oferece ação');
+  ok(await A.$eval('.wt-err', e => /recusou tocar/.test(e.textContent) && /Abrir no YouTube/.test(e.textContent)), 'tela de erro explica e oferece ação');
   ok(await until(async () => (await W(A)).sess.current?.ref !== IDS.rt, 8000), 'todos com erro fatal: pula sozinho para o próximo');
 
   // ---------- minimizar sem sair da chamada ----------
@@ -200,9 +203,13 @@ try {
   await A.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, txt); await sleep(800);
   ok(await A.$eval('#wt', e => !e.classList.contains('hidden') && e.classList.contains('mini')) && await voiceOk(A), 'em outro canal: mini player e voz continuam');
   await shot(A, '10-mini-outro-canal');
-  await A.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vc); await sleep(500);
-  await A.click('.tile.wttile button'); await sleep(500);
-  ok(await A.$eval('#wt', e => !e.classList.contains('mini')), 'abrir de novo pelo quadro');
+  // arrastar o mini player pelo cabeçalho
+  const r0 = await A.$eval('#wt', e => e.getBoundingClientRect().toJSON());
+  await A.mouse.move(r0.x + 60, r0.y + 15); await A.mouse.down(); await A.mouse.move(r0.x - 300, r0.y - 200, { steps: 8 }); await A.mouse.up();
+  const r1 = await A.$eval('#wt', e => e.getBoundingClientRect().toJSON());
+  ok(Math.abs(r1.x - (r0.x - 360)) < 4 && Math.abs(r1.y - (r0.y - 215)) < 4, 'mini player arrastável pelo cabeçalho', { de: [r0.x, r0.y], para: [r1.x, r1.y] });
+  await A.click('#wt .wt-expbtn'); await sleep(800); // expandir pelo próprio mini player: volta para a tela da chamada
+  ok(await A.$eval('#wt', e => !e.classList.contains('mini')) && await A.evaluate((cid) => window.__lc.S.view.cid === cid, vc), 'expandir pelo mini player volta para a chamada com o Watch Together aberto');
 
   // ---------- reconexão: Beto recarrega a página ----------
   console.log('— reconexão');
@@ -250,6 +257,16 @@ try {
   await B.waitForSelector('.wt-ext .wt-count', { timeout: 3000 });
   await shot(B, '15-netflix-contagem');
   ok(await until(async () => B.$eval('.wt-ext', e => /Dê play agora/.test(e.textContent)), 6000), 'contagem 3-2-1 e "dê play agora" para todos');
+
+  // ---------- link de vídeo (player HTML5) ----------
+  console.log('— link de vídeo');
+  ok(!(await cmd(HP, 'add', { url: MB + '/v/' + IDS.two + '.webm', service: 'file', next: true })).error, 'adiciona um link direto .webm');
+  await cmd(HP, 'skip', { item_id: (await W(HP)).sess.current.id });
+  ok(await until(async () => (await W(B)).sess.current?.service === 'file' && (await W(B)).playerState === 'playing' && (await W(C)).playerState === 'playing', 10000), 'link de vídeo toca integrado para todos');
+  await sleep(2500);
+  const fsp = Math.abs((await ptime(B)) - (await ptime(C)));
+  ok(fsp < 0.8, 'link de vídeo sincronizado', +fsp.toFixed(2));
+  await shot(B, '16-link-de-video');
 
   // ---------- voz intacta ----------
   ok(await voiceOk(B) && await voiceOk(C) && await voiceOk(D), 'todos continuam na chamada de voz o tempo todo');

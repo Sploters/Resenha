@@ -117,12 +117,14 @@ export function effectiveLevel(service, env = {}) {
 // erros que o player relata → texto e ações para a interface (nada de tela preta sem explicação)
 export const ERRORS = {
   embed_blocked: { title: 'Este vídeo não pode tocar fora do YouTube', text: 'O dono do vídeo desativou a reprodução em outros sites.', fatal: true, actions: ['open', 'skip'] },
+  yt_refused: { title: 'O YouTube recusou tocar este vídeo aqui', text: 'O vídeo permite ser incorporado, mas o YouTube não liberou a reprodução nesta rede ou aparelho (bloqueio de rede, VPN ou verificação anti-robô).', fatal: true, actions: ['open', 'retry', 'skip'] },
   not_found: { title: 'Vídeo indisponível', text: 'O vídeo foi removido, é privado ou o link está errado.', fatal: true, actions: ['skip'] },
   region: { title: 'Indisponível na sua região', text: 'Este conteúdo não está liberado no seu país.', fatal: false, actions: ['open', 'skip'] },
   age: { title: 'Precisa entrar na conta', text: 'O vídeo tem restrição de idade e só toca no site, com login.', fatal: false, actions: ['open', 'skip'] },
   html5: { title: 'O player não conseguiu tocar', text: 'Formato não suportado ou falha ao carregar o vídeo.', fatal: false, actions: ['retry', 'skip'] },
   network: { title: 'Falha de conexão', text: 'Não foi possível carregar o vídeo. Verifique sua internet.', fatal: false, actions: ['retry'] },
   api_blocked: { title: 'O player do YouTube não carregou', text: 'Algo (firewall, bloqueador ou rede) impediu o player oficial do YouTube.', fatal: false, actions: ['retry', 'open'] },
+  stuck: { title: 'O vídeo não começou a tocar', text: 'O player carregou, mas o site não liberou a reprodução (pode ser bloqueio de rede, de região ou do próprio site).', fatal: false, actions: ['retry', 'open', 'skip'] },
   autoplay: { title: 'Clique para entrar no vídeo', text: 'O navegador bloqueou a reprodução automática com som.', fatal: false, actions: ['resume'] },
   drm: { title: 'Proteção de conteúdo (DRM) indisponível aqui', text: 'Este serviço exige o módulo Widevine, que este app não tem. Assista na sua conta pelo navegador: o Resenha continua sincronizando a contagem e a posição.', fatal: false, actions: ['open'] },
   login: { title: 'Entre na sua conta', text: 'O serviço pediu login. Cada participante assiste com a própria conta.', fatal: false, actions: ['login', 'open'] },

@@ -36,7 +36,7 @@
 .wt-catch.off { display: none; }
 .wt-ov { position: absolute; inset: 0; z-index: 2; pointer-events: none; display: flex; align-items: safe center; justify-content: center; overflow-y: auto; padding: 12px 0; }
 .wt-ov > * { pointer-events: auto; }
-.wt-stagebox.ext .wt-player { display: none; }
+.wt-stagebox.ext .wt-player, .wt-stagebox.err .wt-player { visibility: hidden; }
 
 .wt-empty { text-align: center; max-width: 560px; padding: 24px; animation: wt-fade .3s ease; }
 .wt-empty-ic { width: 76px; height: 76px; margin: 0 auto 14px; border-radius: 22px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--wt-acc), var(--wt-acc2)); box-shadow: 0 10px 30px rgba(255,77,109,.3); }
@@ -112,7 +112,7 @@
 .wt-seek:disabled { cursor: not-allowed; opacity: .7; }
 .wt-seek::-webkit-slider-thumb, .wt-vol::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(255,77,109,.35); transition: transform .1s; }
 .wt-seek:hover::-webkit-slider-thumb { transform: scale(1.2); }
-.wt-vol { width: 84px; background: rgba(255,255,255,.18); }
+.wt-vol { width: 84px; --p: 80%; background: linear-gradient(90deg, #fff var(--p), rgba(255,255,255,.18) var(--p)); }
 .wt-sync { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 9px; border-radius: 999px; background: rgba(255,255,255,.05); color: #c8cbd0; white-space: nowrap; }
 .wt-sync i { width: 8px; height: 8px; border-radius: 50%; background: #949ba4; }
 .wt-sync.ok i { background: #3ad37a; box-shadow: 0 0 8px #3ad37a; } .wt-sync.ok { color: #9ee6b8; }
@@ -209,7 +209,8 @@
 #wt.mini .wt-empty h2, #wt.mini .wt-ext h2 { font-size: 15px; }
 #wt.mini .wt-empty-ic { width: 40px; height: 40px; border-radius: 12px; }
 #wt.mini .wt-ext { padding: 10px; } #wt.mini .wt-vclock { font-size: 26px; } #wt.mini .wt-vbox { margin: 6px auto; } #wt.mini .wt-vbox > span { display: none; }
-#wt.mini .wt-head .wt-hbtn[aria-label="Minimizar"] .icon { transform: rotate(180deg); }
+#wt .wt-expbtn, #wt.mini .wt-minbtn { display: none; } #wt.mini .wt-expbtn { display: flex; }
+#wt.mini .wt-head { cursor: grab; touch-action: none; } #wt.mini.dragging { transition: none; user-select: none; } #wt.mini.dragging .wt-head { cursor: grabbing; }
 
 /* quadro no palco da chamada */
 .tile.wttile { background: #0f1013; cursor: default; overflow: hidden; display: flex; align-items: center; justify-content: center; }

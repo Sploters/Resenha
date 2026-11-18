@@ -123,12 +123,12 @@ function loadCurrent() {
   const pos = expectedPos(pb, now, dur), play = pb.status === 'playing' && !waitingStart(pb, now);
   const sameKind = W.player && W.player.item?.service === it.service && it.service === 'youtube';
   if (!sameKind) destroyPlayer();
-  W.itemId = it.id; W.error = it.error || null; W.ready = false; W.autoplayBlocked = false; W.strikes = 0; W.lastFix = 0; W.ready_ext = false; W.myPos = null;
+  W.itemId = it.id; W.error = it.error || null; W.ready = false; W.stuckSince = 0; W.mutedTry = false; W.autoplayBlocked = false; W.strikes = 0; W.lastFix = 0; W.ready_ext = false; W.myPos = null;
   if (!W.player) {
     W.player = makePlayer(it, host, {
       onReady: () => { W.ready = true; applyNow(); paint(); },
       onState: () => { if (W.player?.state() === 'playing' && W.autoplayBlocked) { W.autoplayBlocked = false; paintOverlay(); } report(); paintControls(); },
-      onError: (code) => { if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
+      onError: (code) => { if (code === 'embed_blocked' && W.sess?.current?.embed_ok) code = 'yt_refused'; if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
       onEnded: () => { const c = W.sess?.current; if (c) fire('ended', { item_id: c.id }); },
       onDuration: (s) => { const c = W.sess?.current; if (c && !(c.duration > 0) && s > 0) { c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
     }, W.env);
@@ -151,6 +151,14 @@ function tick(force) {
       paintOverlay(); return;
     }
     if ((st === 'paused' || st === 'idle' || (st === 'ended' && exp < dur - 1)) && !W.autoplayBlocked) p.play();
+    // player travado em "não iniciado" com a sala tocando (som automático bloqueado sem aviso, ou o site recusou):
+    // 1º tenta sem som (o navegador sempre deixa) e avisa; se continuar parado, explica em vez de ficar preto
+    if (st === 'loading') {
+      W.stuckSince = W.stuckSince || performance.now();
+      const stuck = performance.now() - W.stuckSince;
+      if (stuck > 5000 && !W.mutedTry) { W.mutedTry = true; W.autoplayBlocked = true; p.setMuted(true); p.play(); paintOverlay(); }
+      else if (stuck > 15000 && !W.error) { W.error = 'stuck'; report(true); paintOverlay(); return; }
+    } else W.stuckSince = 0;
   } else if (st === 'playing' || (st === 'buffering' && pb.status !== 'playing')) p.pause();
   if (pb.status === 'idle' || pb.status === 'ended') return;
   if (external(s.current) && !p.controllable) { // assistido: o relógio virtual segue a sala exatamente
@@ -259,6 +267,15 @@ function build() {
   const main = h('div.wt-main', stagebox, controls);
   const root = h('div#wt.wt.hidden', { tabindex: '-1', role: 'region', 'aria-label': 'Watch Together', onkeydown: keys }, head, h('div.wt-body', main, side));
   document.body.append(root);
+  // mini player arrastável pelo cabeçalho (não cobre o que você quer ver); a posição fica guardada neste aparelho
+  head.addEventListener('pointerdown', (e) => {
+    if (!root.classList.contains('mini') || e.target.closest('button')) return;
+    const r = root.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    head.setPointerCapture(e.pointerId); root.classList.add('dragging');
+    const move = (ev) => { const x = Math.max(4, Math.min(innerWidth - r.width - 4, ev.clientX - dx)), y = Math.max(4, Math.min(innerHeight - r.height - 4, ev.clientY - dy)); W.miniPos = { right: innerWidth - x - r.width, bottom: innerHeight - y - r.height }; applyMiniPos(); };
+    const up = () => { head.removeEventListener('pointermove', move); root.classList.remove('dragging'); store.set('miniPos', W.miniPos); };
+    head.addEventListener('pointermove', move); head.addEventListener('pointerup', up, { once: true });
+  });
   ui = { root, head, playerHost, catcher, overlay, stagebox, controls, side, people, search, main };
   return ui;
 }
@@ -283,7 +300,8 @@ function place() {
   const mini = W.mini || !onCall;
   ui.root.classList.remove('hidden'); ui.root.classList.toggle('mini', mini);
   stage?.classList.toggle('wt-cover', !mini && !!onCall);
-  if (mini) { if (lastRect !== 'mini') { lastRect = 'mini'; Object.assign(ui.root.style, { left: '', top: '', width: '', height: '' }); } return; }
+  if (mini) { if (lastRect !== 'mini') { lastRect = 'mini'; Object.assign(ui.root.style, { left: '', top: '', width: '', height: '' }); applyMiniPos(); } return; }
+  ui.root.style.right = ui.root.style.bottom = '';
   const r = stage.getBoundingClientRect(), bar = stage.querySelector(':scope > .bar'), b = bar?.getBoundingClientRect();
   const hgt = Math.max(240, (b && b.height ? b.top : r.bottom) - r.top - 4);
   const key = [r.left, r.top, r.width, hgt].map(Math.round).join(',');
@@ -291,6 +309,7 @@ function place() {
   Object.assign(ui.root.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: hgt + 'px' });
   ui.root.classList.toggle('narrow', r.width < 1000); ui.root.classList.toggle('stack', r.width < 760); // layout pela largura real (o chat da sala pode estar aberto ao lado)
 }
+function applyMiniPos() { const p = W.miniPos || store.get('miniPos', null); if (!p || !ui) return; W.miniPos = p; ui.root.style.right = Math.max(4, Math.min(innerWidth - 120, p.right)) + 'px'; ui.root.style.bottom = Math.max(4, Math.min(innerHeight - 80, p.bottom)) + 'px'; }
 export const placeWatch = () => { if (W.open) place(); };
 
 function paint() { if (!W.joined) return place(); build(); paintHead(); paintControls(); paintSide(); paintOverlay(); place(); }
@@ -310,7 +329,8 @@ function paintHead() {
     modeBtn,
     h('div.wt-hsp'),
     h('button.wt-hbtn', { title: 'Convidar amigos para assistir', onclick: (e) => invitePicker(e.currentTarget) }, icon('invite', 18), h('span.wt-hl', 'Convidar')),
-    h('button.wt-hbtn', { title: 'Minimizar (Esc) — continua tocando e você continua na chamada', 'aria-label': 'Minimizar', onclick: minimizeWatch }, icon('shrink', 18)),
+    h('button.wt-hbtn.wt-minbtn', { title: 'Minimizar (Esc) — continua tocando e você continua na chamada', 'aria-label': 'Minimizar', onclick: minimizeWatch }, icon('shrink', 18)),
+    h('button.wt-hbtn.wt-expbtn', { title: 'Abrir o Watch Together (volta para a chamada)', 'aria-label': 'Expandir', onclick: () => { const v = ctx.voice(), ch = ctx.channelById(W.cid); if (ch && v?.channelId === W.cid && !document.getElementById('stage')) ctx.goCall?.(ch); openWatch(); } }, icon('expand', 18)),
     h('button.wt-hbtn.wt-leave', { title: 'Sair do Watch Together', 'aria-label': 'Sair do Watch Together', onclick: (e) => isHost() ? menu(e, [{ label: 'Sair (outra pessoa vira anfitrião)', icon: 'logout', fn: leaveWatch }, { label: 'Encerrar para todos', icon: 'x', danger: true, fn: () => act('end') }]) : leaveWatch() }, icon('x', 18)));
 }
 let bar = null;
@@ -321,7 +341,8 @@ function paintControls() {
   const title = ctl ? '' : ` — modo Hosting: só ${nm(s.host)} controla`;
   bar = h('input.wt-seek', { type: 'range', min: 0, max: 1000, step: 1, value: 0, disabled: dis || external(it) && !W.player?.controllable && !(it?.duration > 0) && false, 'aria-label': 'Posição do vídeo',
     oninput: () => { bar.dragging = true; paintTime(); }, onchange: () => { bar.dragging = false; const d = it?.duration || W.player?.duration() || 0; if (d) seekTo(+bar.value / 1000 * d); } });
-  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', title: 'Volume só para você', oninput: (e) => setVol(+e.target.value, +e.target.value === 0) });
+  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', title: 'Volume só para você', oninput: (e) => { e.target.style.setProperty('--p', e.target.value + '%'); setVol(+e.target.value, +e.target.value === 0); } });
+  vol.style.setProperty('--p', (W.muted ? 0 : W.vol) + '%');
   const prevBtn = h('button.wt-cb.wt-prev', { title: 'Anterior' + title, 'aria-label': 'Anterior', disabled: dis, onclick: () => act('prev') }, icon('skip', 18));
   ui.controls.replaceChildren(
     h('div.wt-seekrow', h('span.wt-time', '0:00'), bar, h('span.wt-dur', it?.duration ? fmtTime(it.duration) : '--:--')),
@@ -368,6 +389,7 @@ function paintOverlay() {
   const s = W.sess, it = s.current, ov = ui.overlay, now = W.clock.now();
   const items = [];
   ui.stagebox.classList.toggle('ext', external(it) && !W.player?.controllable);
+  ui.stagebox.classList.toggle('err', !!(it && W.error));
   ui.catcher.classList.toggle('off', !it || (external(it) && !W.player?.controllable));
   if (!it) {
     items.push(h('div.wt-empty',
@@ -430,10 +452,11 @@ function externalPanel(it) {
 function paintSide() {
   if (!ui || !W.sess) return;
   const s = W.sess, nq = s.queue.length + (s.current ? 1 : 0), online = s.members.filter(m => m.online).length;
+  // redesenhar não pode tirar o foco de quem está digitando na busca (alguém entra, a fila muda…): guardar ANTES de
+  // montar o painel, que já move o campo de lugar
+  const focused = document.activeElement === ui.search, a = ui.search.selectionStart, b = ui.search.selectionEnd, scroll = ui.side.querySelector('.wt-pane')?.scrollTop || 0;
   const tab = (id, label, n) => h('button.wt-tab' + (W.tab === id ? '.on' : ''), { role: 'tab', 'aria-selected': W.tab === id ? 'true' : 'false', onclick: () => { W.tab = id; paintSide(); if (id === 'search') { ui.search.focus(); if (!W.results && !W.suggest) loadSuggest(); } } }, label, n ? h('span.wt-n', n) : null);
   const body = W.tab === 'search' ? searchPane() : W.tab === 'people' ? (paintPeople(), ui.people) : queuePane();
-  // redesenhar não pode tirar o foco de quem está digitando na busca (alguém entra, a fila muda…)
-  const focused = document.activeElement === ui.search, a = ui.search.selectionStart, b = ui.search.selectionEnd, scroll = ui.side.querySelector('.wt-pane')?.scrollTop || 0;
   ui.side.replaceChildren(h('div.wt-tabs', { role: 'tablist' }, tab('queue', 'Fila', nq), tab('search', 'Adicionar'), tab('people', 'Pessoas', online)), h('div.wt-pane', body));
   ui.side.querySelector('.wt-pane').scrollTop = scroll;
   if (focused && ui.search.isConnected) { ui.search.focus({ preventScroll: true }); try { ui.search.setSelectionRange(a, b); } catch { } }

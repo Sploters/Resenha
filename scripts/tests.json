@@ -5,7 +5,8 @@
     "desktop-test",
     "desktop-share-test",
     "appaudio-watch-test",
-    "update-security-test"
+    "update-security-test",
+    "watch-desktop-test"
   ],
   "prepare": {
     "big-data-test": {
@@ -166,6 +167,9 @@
     "voice-network-test": 100,
     "voicefx-test": 10,
     "native-clip-test": 40,
-    "clip-tap-test": 25
+    "clip-tap-test": 25,
+    "watch-desktop-test": 25,
+    "watch-test": 65,
+    "watch-unit-test": 8
   }
 }

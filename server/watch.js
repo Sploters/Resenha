@@ -31,7 +31,7 @@ export function createWatch({
   const fail = (msg, code) => { const e = new Error(msg); if (code) e.code = code; throw e; };
 
   // ---------- estado público ----------
-  const pubItem = (it) => it && ({ id: it.id, service: it.service, ref: it.ref, url: it.url, title: it.title, channel: it.channel, thumb: it.thumb, duration: it.duration, by: it.by, at: it.at, start: it.start || 0, error: it.error || null, episode: !!it.episode });
+  const pubItem = (it) => it && ({ id: it.id, service: it.service, ref: it.ref, url: it.url, title: it.title, channel: it.channel, thumb: it.thumb, duration: it.duration, by: it.by, at: it.at, start: it.start || 0, error: it.error || null, episode: !!it.episode, embed_ok: !!it.embedOk });
   const pub = (s, extra = {}) => ({
     cid: s.cid, id: s.id, host: s.host, mode: s.mode, controllers: [...s.controllers], service: s.service, started_by: s.startedBy, created_at: s.created,
     members: [...s.members].map(([id, m]) => ({ id, online: m.online, joined_at: m.joinedAt })),
@@ -160,6 +160,7 @@ export function createWatch({
       const m = await meta(it).catch(() => ({}));
       if (m.embeddable === false) fail(ERRORS.embed_blocked.title + ': ' + ERRORS.embed_blocked.text, 'embed_blocked');
       if (m.notFound) fail(ERRORS.not_found.title + '. ' + ERRORS.not_found.text, 'not_found');
+      if (m.title) it.embedOk = true; // o oEmbed respondeu: a incorporação está liberada pelo dono
       it.title = it.title || m.title || ''; it.channel = it.channel || m.channel || ''; it.thumb = it.thumb || m.thumb; it.duration = it.duration || m.duration || 0;
     }
     if (sessions.get(s.cid) !== s) fail('A sessão terminou');

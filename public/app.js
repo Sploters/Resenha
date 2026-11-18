@@ -4402,7 +4402,7 @@ initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModa
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
 // Watch Together (public/watch.js): convidar = convite para a chamada com a atividade 'watch'
-initWatch({ send: gwSend, voice: () => voice, channelById, rerender: () => { if (voice?.active) renderVoiceUI(); },
+initWatch({ send: gwSend, voice: () => voice, channelById, goCall: (ch) => go(ch.guild_id || '@me', ch.id), rerender: () => { if (voice?.active) renderVoiceUI(); },
   inviteCandidates: () => { const ch = voice?.channelId && channelById(voice.channelId); if (!ch?.guild_id) return [];
     const ids = new Set([...[...S.rels.values()].filter(r => r.type === 1).map(r => r.user?.id || r.id), ...(guild(ch.guild_id)?.members?.keys() || [])]);
     const on = (u) => (S.users.get(u)?.status && S.users.get(u).status !== 'offline' ? 0 : 1);
