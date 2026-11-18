@@ -78,7 +78,7 @@ import { profileCard, STATUS_TXT } from './card.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
-import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
+import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
@@ -1143,7 +1143,7 @@ function renderSide() {
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
         chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
-        vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
+        vs.length > 0 && vusersBlock(g, vs));
     };
     const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { title: c.topic || null, onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
       h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
@@ -1257,12 +1257,30 @@ function watchFromList(v) {
   if (v.user_id !== S.me.id) watchOnly(v.user_id);
   renderVoiceUI();
 }
+// quem está na sala de voz. Com "Separar por jogos" (clique direito na sala), em grupos: cada jogo com quem está jogando
+// (o mais jogado primeiro), depois quem só está conversando e, no fim, quem está "Em espera" (pausa na chamada)
+function vusersBlock(g, vs) {
+  if (!S.prefs.voiceByGame || vs.length < 2) return h('div.vusers', vs.map(v => vuserRow(g, v)));
+  const games = [], talk = [], hold = [];
+  for (const v of vs) {
+    if (v.hold) { hold.push(v); continue; }
+    const a = !v.bot && activityOf(v.user_id);
+    if (!a) { talk.push(v); continue; }
+    const grp = games.find(x => sameGameAs(x.a, a)); if (grp) grp.vs.push(v); else games.push({ a, vs: [v] });
+  }
+  games.sort((x, y) => y.vs.length - x.vs.length || x.a.game.title.localeCompare(y.a.game.title));
+  const head = (ic, label, n, cls = '') => h('div.vgroup' + cls, ic, h('span.vg-name', label), h('span.vg-n', String(n)));
+  return h('div.vusers.bygame',
+    ...games.flatMap(x => [head(gameIcon(x.a, 14), x.a.game.title, x.vs.length), ...x.vs.map(v => vuserRow(g, v))]),
+    ...(talk.length && (games.length || hold.length) ? [head(icon('voice', 14), 'Conversando', talk.length), ...talk.map(v => vuserRow(g, v))] : talk.map(v => vuserRow(g, v))),
+    ...(hold.length ? [head(icon('pause', 14), 'Em espera', hold.length, '.hold'), ...hold.map(v => vuserRow(g, v))] : []));
+}
 function vuserRow(g, v) {
   if (v.bot) return botRow(v);
   const u = user(v.user_id);
-  const row = h('div.vuser', { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
+  const row = h('div.vuser' + (v.hold ? '.hold' : ''), { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
-    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', 'Ao vivo'),
+    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', 'Ao vivo'), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
     h('span.ico', v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.mod_deaf ? h('span.mico.lmute', { title: 'Ensurdecido pela moderação' }, icon('headoff', 14)) : v.deaf && icon('headoff', 14)));
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;
@@ -1358,7 +1376,7 @@ function favSide() {
       ondragend: () => { dragId = null; el.classList.remove('dragging'); } },
       h('span.fav-g', g.icon ? h('img', { src: imgUrl(g.icon, 32), alt: '' }) : initialsOf(g.name)), chIcon(c),
       h('span.name', h('span.fn', chName(c)), h('small', g.name)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]));
-    return h('div', drop(el, f.g || '', c.id), vs.length > 0 && h('div.vusers', vs.map(v => vuserRow(g, v))));
+    return h('div', drop(el, f.g || '', c.id), vs.length > 0 && vusersBlock(g, vs));
   };
   const fl = favList(), loose = fl.filter(f => !f.g);
   const list = h('div#side-list.favlist',
@@ -1369,6 +1387,7 @@ function favSide() {
 function channelMenu(e, g, c) {
   menu(e, [
     c.type === 2 && { label: 'Entrar no canal de voz', fn: () => { go(g.id, c.id); joinVoice(c.id); } },
+    c.type === 2 && { label: 'Separar por jogos', checked: !!S.prefs.voiceByGame, fn: () => { S.prefs.voiceByGame = !S.prefs.voiceByGame; savePrefs(); renderSide(); } },
     c.type !== 4 && { label: isFav(c.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos', fn: () => toggleFav(c) },
     c.type !== 4 && isFav(c.id) && favGroupMenuItem(c.id),
     S.unread[c.id] && { label: 'Marcar como lido', fn: () => ack(c.id) },
@@ -1457,8 +1476,9 @@ function voicePanel() {
   if (!voice?.active) return h('div.hidden');
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   return h('div#voice-panel',
-    h('div.t' + (voice.recovering ? '.recovering' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : [pingEl(), 'Voz conectada']),
+    h('div.t' + (voice.recovering ? '.recovering' : voice.hold ? '.onhold' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : voice.hold ? [icon('pause', 14), 'Em espera'] : [pingEl(), 'Voz conectada']),
       h('span.vp-btns', voiceBtn(),
+        h('button.ibtn.vp-hold' + (voice.hold ? '.on' : ''), { title: voice.hold ? 'Voltar da espera (microfone e áudio voltam como estavam)' : 'Ficar em espera: desliga microfone e áudio sem sair da sala; os outros veem "Em espera"', 'aria-pressed': String(!!voice.hold), onclick: () => voice.setHold(!voice.hold) }, icon(voice.hold ? 'play' : 'pause', 20)),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     voice.screen && liveStrip(),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
@@ -1801,6 +1821,7 @@ function callUserMenu(e, uid, gid) {
       '-',
       { label: 'Mute', checked: voice.muted, fn: () => voiceToggle('mute') },
       { label: 'Deafen', checked: voice.deafened, fn: () => voiceToggle('deaf') },
+      { label: 'Em espera', checked: !!voice.hold, fn: () => voice.setHold(!voice.hold) },
       g && { label: 'Editar perfil do servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
       others.length > 0 && '-',
       others.length > 0 && { label: 'Mover para', sub: others.map(c => ({ label: chName(c), fn: () => joinVoice(c.id) })) },
@@ -3583,9 +3604,9 @@ function renderVoiceUI(speakOnly) {
     }
     const ckey = 'c:' + uid;
     if (cam && v.video) live.add(ckey);
-    const t = h('div.tile.utile' + (cam && v.video ? '.hasvid' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
+    const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
       cam && v.video ? videoFor(ckey, cam) : avatar(user(uid), 96, { status: false }),
-      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v)),
+      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v), v.hold && h('span.vu-hold', 'Em espera')),
       // opções do participante à vista (antes só no clique direito): volume, silenciar, desativar vídeo, parar de assistir
       inRoom && h('button.tmore', { title: 'Opções de ' + nm(uid), 'aria-label': 'Opções de ' + nm(uid), onclick: (e) => { e.stopPropagation(); userMenu(e, uid, gid); } }, icon('more', 16)));
     tiles.push(paintTile(t, user(uid)));

@@ -2031,3 +2031,16 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 #intent-banner > div:not(.ib-btns) b { display: block; line-height: 1.3; color: var(--header); }
 #intent-banner .ib-btns { width: 100%; display: flex; justify-content: flex-end; gap: 8px; }
 #intent-banner .ib-btns .btn { display: inline-flex; align-items: center; gap: 6px; }
+/* sala de voz: "Em espera" e "Separar por jogos" */
+.vuser.hold { opacity: .6; }
+.vu-hold { flex: none; font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 3px; text-transform: uppercase; background: var(--bg-mod-strong, rgba(128,128,128,.3)); color: var(--text-normal); }
+.vusers.bygame { margin-left: 20px; }
+.vgroup { display: flex; align-items: center; gap: 6px; padding: 4px 8px 2px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); }
+.vgroup .vg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vgroup .vg-n { font-weight: 600; }
+.vgroup .gicon { flex: none; border-radius: 3px; overflow: hidden; }
+.vusers.bygame .vuser { margin-left: 8px; }
+.tile.utile.onhold > .avatar, .tile.utile.onhold > video { opacity: .45; }
+.tile .label .vu-hold { margin-left: 4px; }
+#voice-panel .t.onhold { color: var(--yellow, #f0b232); }
+#voice-panel .vp-hold.on { color: var(--yellow, #f0b232); }

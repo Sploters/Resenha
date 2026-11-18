@@ -230,8 +230,8 @@ export class Voice {
   // depois de a conexão com o servidor cair: volta para a mesma sala, em silêncio e mantendo mudo/ensurdecido
   rejoin() {
     const cid = this.channelId; if (!cid) return;
-    const { muted, deafened } = this;
-    this.leave({ silent: true }); this.muted = muted; this.deafened = deafened;
+    const { muted, deafened, hold, _preHold } = this;
+    this.leave({ silent: true }); this.muted = muted; this.deafened = deafened; this.hold = hold; this._preHold = _preHold;
     return this.join(cid, { silent: true });
   }
   // Cliques seguidos em salas diferentes (ou sair enquanto entra): só a ÚLTIMA entrada vale. Antes as entradas corriam
@@ -297,6 +297,7 @@ export class Voice {
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
     this.send('VOICE_LEAVE', {});
+    if (this.hold) { const p = this._preHold || {}; this.hold = false; this._preHold = null; this.muted = !!p.muted; this.deafened = !!p.deafened; } // a espera é só desta chamada
     this.stopRecovery();
     this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
@@ -1257,8 +1258,17 @@ export class Voice {
   setPtt(down) { if (this.ptt === down) return; this.ptt = down; this.applyMute(); this.onUpdate(true); }
   // mutado/ensurdecido pela moderação (estado de voz mod_mute/mod_deaf): o servidor já não repassa; aqui o microfone também fecha
   setModeration(mute, deaf) { if (!!this.modMute === !!mute && !!this.modDeaf === !!deaf) return; this.modMute = !!mute; this.modDeaf = !!deaf; this.afterAudioChange(); }
-  toggleMute() { const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
-  toggleDeaf() { this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
+  // "Em espera": saiu um pouco sem sair da sala (atender a porta, pausa no jogo). Microfone e áudio desligam e os outros veem
+  // "Em espera" ao lado do nome; voltar devolve o mutar/ensurdecer de antes. Mexer no microfone ou no áudio também tira da espera.
+  setHold(on) {
+    on = !!on; if (on === !!this.hold || !this.channelId) return;
+    if (on) { this._preHold = { muted: this.muted, deafened: this.deafened }; this.hold = true; this.muted = this.deafened = true; playSound('deafen'); }
+    else { const p = this._preHold || {}; this.hold = false; this._preHold = null; this.muted = !!p.muted; this.deafened = !!p.deafened; playSound('undeafen'); }
+    this.afterAudioChange();
+  }
+  leaveHold() { if (this.hold) { this.hold = false; this._preHold = null; } }
+  toggleMute() { this.leaveHold(); const wasDeaf = this.deafened; this.muted = !this.muted; if (!this.muted && this.deafened) this.deafened = false; playSound(wasDeaf && !this.deafened ? 'undeafen' : this.muted ? 'mute' : 'unmute'); this.afterAudioChange(); }
+  toggleDeaf() { this.leaveHold(); this.deafened = !this.deafened; this.muted = this.deafened; playSound(this.deafened ? 'deafen' : 'undeafen'); this.afterAudioChange(); }
   afterAudioChange() { this.applyMute(); for (const uid of this.peers.keys()) this.applyVolume(uid); this.sendState(); this.onUpdate(); }
   // várias mudanças na mesma rodada (mutar + câmera, atalho repetido) viram UMA mensagem ao servidor, com o estado final
   sendState() { if (!this.channelId || this._stQ) return; this._stQ = true; queueMicrotask(() => { this._stQ = false; this.sendStateNow(); }); }
@@ -1279,7 +1289,7 @@ export class Voice {
     if (!!s.voiceOff === off) return; s.voiceOff = off;
     for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null }); }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null, hold: !!this.hold }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)

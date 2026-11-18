@@ -99,6 +99,8 @@ export function gameBanner(a) {
 // capa (arte da Steam, ou o ícone do programa), tags e avaliação da Steam, quais amigos jogaram e "Ver na Steam"
 const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const sameGame = (x, a) => !!x && (x.id === a.game.id || norm(x.title) === norm(a.game.title) || (!!steamIdOf({ platform: x.platform || 'pc', game: x }) && steamIdOf({ platform: x.platform || 'pc', game: x }) === steamIdOf(a)));
+// mesmo jogo em duas atividades (por id, nome ou appid da Steam): agrupa a sala de voz por jogo
+export const sameGameAs = (a, b) => sameGame({ ...a.game, platform: a.platform }, b);
 function gamePeople(a) {
   const by = new Map(), get = (uid) => { if (!by.has(uid)) by.set(uid, { uid, now: null, secs: 0, days: 0, fresh: false }); return by.get(uid); };
   for (const x of S.activities.values()) if (sameGame({ ...x.game, platform: x.platform }, a)) get(x.user_id).now = x;
