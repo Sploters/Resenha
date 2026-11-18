@@ -224,7 +224,11 @@ try {
   ok(!(await C.evaluate(() => !!document.querySelector('.modal .rmask'))), 'carol (sem o app) nem vê diálogo de consentimento');
 
   // alice para de transmitir durante uma sessão
-  await B.evaluate((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(), a.id); await sleep(400); await clickCtl(B);
+  // "Assistir" a da carol fechou a da alice (uma por vez): volta a assistir a da alice e destaca
+  await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`) || !!document.querySelector(`.tile.screen[data-sid="${uid}"]`), { timeout: 15000 }, a.id);
+  await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);
+  await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id);
+  await B.evaluate((uid) => { if (window.__lc.S.focus !== 's:' + uid) document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(); }, a.id); await sleep(400); await clickCtl(B);
   await A.waitForFunction(() => /quer controlar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
   await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Permitir').click()); await toastOf(B, 'liberou');
   await A.evaluate(() => document.querySelector('button.stopshare')?.click()); // botão vermelho de parar (o título já mudou de texto) await sleep(500);

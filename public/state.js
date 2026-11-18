@@ -83,7 +83,11 @@ export function mergeRemote(remote) {
 const pushPrefs = () => {
   const d = prefsDiff();
   if (d && !Object.keys(d.patch).length && !d.removed.length) { try { localStorage.removeItem(DIRTY); } catch { } return Promise.resolve(); }
-  return api('PUT', '/me/settings', d || syncBody()).then((r) => { if (r?.settings && mergeRemote(r.settings)) S.onPrefsMerged?.(); const left = prefsDiff(); if (!left || (!Object.keys(left.patch).length && !left.removed.length)) try { localStorage.removeItem(DIRTY); } catch { } }).catch(() => { });
+  // sem base (primeiro envio deste aparelho): vão as preferências inteiras e a resposta é exatamente o que foi enviado.
+  // Esse envio passa a ser a base; senão o que mudou aqui enquanto ele ia (ex.: migração do ganho automático) parecia
+  // "mudança da conta" e era desfeito pela resposta (scripts/noise-env-test.mjs)
+  const body = d || syncBody();
+  return api('PUT', '/me/settings', body).then((r) => { if (!d && r?.settings) setPrefsBase(body.settings); if (r?.settings && mergeRemote(r.settings)) S.onPrefsMerged?.(); const left = prefsDiff(); if (!left || (!Object.keys(left.patch).length && !left.removed.length)) try { localStorage.removeItem(DIRTY); } catch { } }).catch(() => { });
 };
 export const pushPrefsNow = () => { clearTimeout(syncTimer); syncTimer = null; return pushPrefs(); };
 // fechando (atualização, reinício, F5) com envio pendente: manda já, num pedido que sobrevive ao fechamento da página

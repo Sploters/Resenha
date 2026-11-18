@@ -309,9 +309,10 @@ function onEvent(t, d) {
         resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
         S.friendPolicy = r.friend_policy; S.privacy = r.privacy || {};
         // mudança feita aqui que não chegou à conta (o app fechou/atualizou antes de enviar): vale a daqui, e vai para a conta agora
+        // migrações (migrateClipKey) antes do envio: senão sai o valor antigo, as outras abas o adotam e ele volta para esta
         // com a versão da conta que este aparelho conhecia (base): junta as duas (o que mudou lá entra, o pendente daqui fica)
-        if (prefsBase() && Object.keys(r.settings || {}).length) { mergeRemote(r.settings); S.synced = true; if (prefsDirty()) pushPrefsNow(); applyTheme(); migrateClipKey(); maybeShowNews(); renderSide(); return; }
-        if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; pushPrefsNow(); applyTheme(); migrateClipKey(); maybeShowNews(); renderSide(); return; }
+        if (prefsBase() && Object.keys(r.settings || {}).length) { mergeRemote(r.settings); S.synced = true; migrateClipKey(); if (prefsDirty()) pushPrefsNow(); applyTheme(); maybeShowNews(); renderSide(); return; }
+        if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; migrateClipKey(); pushPrefsNow(); applyTheme(); maybeShowNews(); renderSide(); return; }
         setPrefsBase(r.settings || {});
         const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
         const local = { ...S.prefs }; Object.assign(S.prefs, r.settings || {}, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k]; relite(r.settings || {}, local); S.synced = true;
