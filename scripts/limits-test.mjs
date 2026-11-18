@@ -1,9 +1,12 @@
 // Limites de conta e de servidor (server/limits.js), com números pequenos para chegar neles rápido: servidores por conta
 // (criar, link de convite, anúncio do LFG com sala), cargos, canais, categorias, canais por categoria (criar e mover),
 // convites (e o "Convidar pessoas" que reaproveita o último), amigos, pedidos sem resposta e bloqueados.
-// O convite para a chamada e a sala do "A fim de jogar" usam a mesma checagem (guildFull) e têm teste de unidade abaixo.
+// Convite para a chamada e LFG também de ponta a ponta (servidor de verdade, quem convida entra na sala pelo WebSocket):
+// convidar, aceitar, "Ir para a sala", aceitar pedido e entrada direta, no limite e abaixo dele.
+// A sala do "A fim de jogar" usa a mesma checagem (guildFull); o convite para a chamada tem também teste de unidade abaixo.
 // Uso: node scripts/limits-test.mjs
 import { ownServer } from './test-server.mjs';
+import WebSocket from 'ws';
 import { createCallInvites } from '../server/callinvites.js';
 import { DatabaseSync } from 'node:sqlite';
 const BASE = await ownServer('limits', 3396, 41520, {
@@ -15,6 +18,14 @@ let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ')
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json()) }));
 const reg = async (u) => (await call('', 'POST', '/register', { username: u, password: 'Teste.senha-123' })).token;
 const refused = (r) => r.status === 409 && !!r.error;
+const invitesOf = async (tok) => Object.values(await call(tok, 'GET', '/call-invites')).filter(x => x && typeof x === 'object'); // call() espalha a lista num objeto
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const waitFor = async (fn, ms = 4000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(60); } return false; };
+const sockets = [];
+const gateway = (tok) => new Promise((res, rej) => {
+  const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + tok); sockets.push(ws);
+  ws.on('message', (raw) => { if (JSON.parse(raw).t === 'READY') res(ws); }); ws.on('error', rej);
+});
 try {
   const [A, B, C, D, E] = await Promise.all(['ana', 'beto', 'caio', 'duda', 'enzo'].map(reg));
   const id = (u) => db.prepare('SELECT id FROM users WHERE username=?').get(u).id;
@@ -80,7 +91,55 @@ try {
     await call(A, 'POST', `/lfg/posts/${p.id}/close`);
   }
   ok(db.prepare('SELECT COUNT(*) n FROM members WHERE user_id=?').get(id('beto')).n === 2, 'beto continua em 2 servidores');
+
+  // ---- convite para a chamada, de ponta a ponta: ana na sala de "dois" (WebSocket); beto, amigo dela, no limite (b1 + um) ----
+  const inGuild = (gid, u) => !!db.prepare('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?').get(gid, id(u));
+  const guildsOf = (u) => db.prepare('SELECT COUNT(*) n FROM members WHERE user_id=?').get(id(u)).n;
+  await call(A, 'POST', '/relationships', { username: 'beto' }); await call(B, 'PUT', '/relationships/' + id('ana'), {});
+  const wsA = await gateway(A); wsA.send(JSON.stringify({ t: 'VOICE_JOIN', d: { channel_id: vc } }));
+  ok(await waitFor(async () => (await call(A, 'POST', '/call-invites', { user_id: id('caio') })).status !== 400), 'ana entra na sala de voz de "dois"');
+  const ci1 = await call(A, 'POST', '/call-invites', { user_id: id('beto') });
+  ok(refused(ci1) && ci1.error.includes('Essa pessoa'), 'convite para a chamada: convidar quem está no limite é recusado (com a mensagem para quem convida)', ci1.error);
+  ok(!(await invitesOf(B)).length, 'convite para a chamada: recusado, beto não recebe nada');
+  await call(B, 'DELETE', `/guilds/${g1.id}/members/me`); // sai de "um": cabe mais um
+  const ci2 = await call(A, 'POST', '/call-invites', { user_id: id('beto') });
+  ok(ci2.invite?.state === 'pending', 'convite para a chamada: abaixo do limite, convida');
+  const gb3 = await call(B, 'POST', '/guilds', { name: 'b3' }); // enquanto o convite toca, beto chega no limite de novo
+  const acc1 = await call(B, 'POST', `/call-invites/${ci2.invite.id}/accept`);
+  ok(refused(acc1) && acc1.error.includes('Você'), 'convite para a chamada: aceitar estando no limite é recusado', acc1.error);
+  ok(!inGuild(g2.id, 'beto') && guildsOf('beto') === 2, 'convite para a chamada: recusado, beto não entra no servidor');
+  await call(B, 'DELETE', `/guilds/${gb3.id}`);
+  const acc2 = await call(B, 'POST', `/call-invites/${ci2.invite.id}/accept`);
+  ok(acc2.channel_id === vc && inGuild(g2.id, 'beto'), 'convite para a chamada: saindo de um servidor, o mesmo convite aceita e entra', acc2.error);
+
+  // ---- LFG de ponta a ponta: sala em "um" (beto saiu de lá); beto agora em b1 + dois = no limite ----
+  const vc1 = db.prepare('SELECT id FROM channels WHERE guild_id=? AND type=2').get(g1.id).id;
+  const post = (join_mode) => call(A, 'POST', '/lfg/posts', { game: game.id, game_name: 'x', mode: game.modes[0], slots: 3, rank_min: '', rank_max: '', channel_id: vc1, join_mode });
+  const p1 = await post('ask');
+  db.prepare("INSERT INTO lfg_requests(post_id,user_id,state,created_at) VALUES(?,?,'accepted',?)").run(p1.id, id('beto'), Date.now()); // aceito antes de chegar no limite
+  const go1 = await call(B, 'POST', `/lfg/posts/${p1.id}/go`);
+  ok(refused(go1) && !inGuild(g1.id, 'beto'), 'LFG "Ir para a sala": no limite é recusado e não entra no servidor', go1.error);
+  await call(B, 'DELETE', `/guilds/${g2.id}/members/me`);
+  const go2 = await call(B, 'POST', `/lfg/posts/${p1.id}/go`);
+  ok(go2.channel_id === vc1 && inGuild(g1.id, 'beto'), 'LFG "Ir para a sala": abaixo do limite, entra no servidor da sala', go2.error);
+  await call(A, 'POST', `/lfg/posts/${p1.id}/close`); await call(B, 'DELETE', `/guilds/${g1.id}/members/me`);
+
+  const p2 = await post('ask'); // pedir para entrar abaixo do limite: o autor aceita, beto entra no servidor e recebe o convite para a chamada
+  ok(!(await call(B, 'POST', `/lfg/posts/${p2.id}/request`, {})).error, 'LFG (pedir para entrar): abaixo do limite, o pedido é aceito pelo servidor');
+  const an = await call(A, 'POST', `/lfg/posts/${p2.id}/answer`, { user_id: id('beto'), accept: true });
+  ok(!an.error && inGuild(g1.id, 'beto'), 'LFG: o autor aceita e beto entra no servidor da sala', an.error);
+  const pend = await invitesOf(B);
+  ok(pend.some(i => i.channel.id === vc1 && i.from.id === id('ana')), 'LFG: aceito, beto recebe o convite para a chamada da sala combinada');
+  ok(!!(await call(B, 'POST', `/call-invites/${pend.find(i => i.channel.id === vc1).id}/accept`)).channel_id, 'LFG: o convite para a chamada aceita (já é membro)');
+  await call(A, 'POST', `/lfg/posts/${p2.id}/close`); await call(B, 'DELETE', `/guilds/${g1.id}/members/me`);
+
+  const p3 = await post('open'); // entrada direta abaixo do limite
+  const j3 = await call(B, 'POST', `/lfg/posts/${p3.id}/request`, {});
+  ok(j3.joined?.room?.channel_id === vc1 && inGuild(g1.id, 'beto'), 'LFG (entrada direta): abaixo do limite, entra no servidor e vai para a sala', j3.error);
+  await call(A, 'POST', `/lfg/posts/${p3.id}/close`);
+  ok(refused(await call(B, 'POST', '/guilds', { name: 'b4' })) && guildsOf('beto') === 2, 'beto (b1 + um) segue no limite: criar outro é recusado');
 } finally {
+  for (const ws of sockets) try { ws.close(); } catch { }
   // convite para a chamada: unidade (sem precisar de gente na sala por WebSocket)
   let full = false; const joined = [];
   const get = (sql, id) => sql.includes('FROM channels') ? { id, guild_id: 'g1', type: 2, name: 'sala' } : sql.includes('FROM users') ? { id } : sql.includes('FROM guilds') ? { id: 'g1', name: 'G' } : null;
