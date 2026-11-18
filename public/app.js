@@ -57,6 +57,7 @@ const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobri
 // guardados, e o palco de chamada antigo pelo ResizeObserver (observedStage, que segurava junto o chat e o compositor).
 function releaseOldScreens() {
   if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
+  if (memVirt && !memVirt.list.isConnected) memVirt = null; // lista virtual: guarda a .mem-list e os itens (cada um com o redesenho em que nasceu)
   discoverMod?.release(); releaseClips(); releaseFiles();
   if (S.redrawHome && !document.getElementById('home')) S.redrawHome = null;
   if (!document.getElementById('actfeed')) { S.redrawFeed = null; clearInterval(S.feedClock); S.feedClock = null; } // o relógio de 30 s do "Ativo agora" segurava o painel até o próximo tique
