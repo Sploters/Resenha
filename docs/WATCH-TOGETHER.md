@@ -48,6 +48,11 @@ desktop/watchbridge.js preload dessa janela: encontra o <video> da página, rela
 - Começo de vídeo: o servidor marca `at` 1,5 s no futuro (todos carregam e começam juntos).
 
 ### Permissões
+Na interface: Hosting = "Só eu" e Sharing = "Todos" (seletor "Quem controla" no topo, só o anfitrião muda). Em Pessoas,
+o anfitrião tem uma chave por pessoa (`grant`). Quem não controla tem "Pedir controle" (`ask`: o servidor manda
+`WATCH_ASK` só para o anfitrião, no máximo 1 pedido a cada 20 s por pessoa), e o pedido aparece numa faixa no topo com
+Liberar / Agora não / Liberar para todos.
+
 | Ação | Hosting | Sharing |
 |---|---|---|
 | Adicionar à fila | todos | todos |
@@ -168,3 +173,12 @@ Passaram: activity-ui, appaudio-watch, desktop, features, frontwatch, gamenight,
 music, reconnect-storm, rejoin, voice-mod, voice-perms, voice-recovery, watch-desktop, watch, watch-unit.
 `callinvite-test` (página não abre no teste) e `ui-test` ("modo de voz: SFU") falham **igualmente no commit anterior
 ao Watch Together** (046fd81) neste ambiente: não são regressão desta funcionalidade.
+
+## Piscadas no app desktop e fila vazia (2026-11-18)
+- O YouTube toca num iframe, então as três correções das transmissões e dos clipes (docs/DESKTOP-VISUAL.md) não valiam
+  para ele. Agora: o iframe recebe `filter: opacity(.999)` no app (`html.lc-desk`); o player avisa o ponto anti-VRR de
+  `public/vrrfix.js` (`vrrSource`) enquanto toca; nada por cima do vídeo usa `backdrop-filter` ou animação contínua; e
+  o relógio da barra só escreve no DOM quando o texto muda.
+- Sem item atual (fila acabou ou o atual foi removido), o player é destruído. Antes ele só pausava e continuava visível
+  (e clicável) atrás de "A fila acabou".
+

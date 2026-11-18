@@ -262,6 +262,11 @@ export function createWatch({
         if (d.on) s.controllers.add(to); else s.controllers.delete(to);
         broadcast(s); return {};
       }
+      case 'ask': { // "Pedir para controlar" (modo Hosting): o anfitrião recebe o pedido com os botões para liberar
+        if (canControl(s, uid)) return { already: true };
+        const t = now(); if (t - (me.askedAt || 0) < 20_000) fail('Você já pediu: espere o anfitrião responder', 'rate');
+        me.askedAt = t; sendTo(s.host, 'WATCH_ASK', { cid: s.cid, id: s.id, uid }); return {};
+      }
       case 'service': if (SERVICES[d.id]) { s.service = d.id; broadcast(s); } return {};
       case 'report': { // estado do player desta pessoa (nunca vira comando)
         const r = { state: ['playing', 'paused', 'ended', 'idle', 'loading'].includes(d.state) ? d.state : 'unknown', pos: Math.max(0, +d.pos || 0), at: now(),

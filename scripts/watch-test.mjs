@@ -128,7 +128,20 @@ try {
   await B.click('.wt-pp'); await sleep(600);
   ok((await W(A)).lastSeq === seqB && (await W(A)).sess.pb.status === 'playing', 'Hosting: o play/pause do Beto não muda nada para a sala');
   ok((await cmd(B, 'pause')).code === 'forbidden', 'Hosting: servidor recusa o pause do Beto');
-  ok(await B.$('.wt-locked') !== null, 'cadeado aparece para quem não controla');
+  ok(await B.$('.wt-askbtn') !== null, '"Pedir controle" aparece para quem não controla');
+  // pedir controle: a anfitriã recebe o pedido no topo e libera com um clique
+  const betoId = await B.evaluate(() => window.__lc.S.me.id);
+  await B.click('.wt-askbtn');
+  ok(await until(() => A.$('.wt-askbar .wt-ask'), 4000), 'pedido de controle do Beto aparece para a anfitriã');
+  await shot(A, '06b-pedido-controle');
+  await A.evaluate(() => document.querySelector('.wt-askbar .wt-ask .btn').click());
+  ok(await until(async () => (await W(B)).sess.controllers.includes(betoId) && !(await B.$('.wt-askbtn')), 4000) && !(await A.$('.wt-askbar .wt-ask')), '"Liberar": Beto passa a controlar e o pedido some');
+  await A.click('.wt-tab:nth-child(3)'); await sleep(400);
+  ok(await A.$('.wt-sw.on') !== null, 'em Pessoas, a chave "pode controlar" do Beto aparece ligada');
+  await shot(A, '06c-pessoas-anfitria');
+  await A.click('.wt-sw.on');
+  ok(await until(async () => !(await W(B)).sess.controllers.includes(betoId), 4000), 'desligar a chave tira o controle do Beto');
+  await A.click('.wt-tab:nth-child(1)'); await sleep(200);
   const caioItem = (await W(A)).sess.queue.find(q => q.ref === IDS.four);
   ok((await cmd(B, 'remove', { id: caioItem.id })).code === 'forbidden', 'Hosting: Beto não remove o item do Caio');
   await A.click('.wt-pp'); // Ana pausa pela interface
@@ -143,7 +156,7 @@ try {
   await cmd(A, 'play'); await sleep(2500);
   sp = await spread(); ok(sp < 0.8, 'play: voltam a tocar juntos', +sp.toFixed(2));
   // Sharing
-  await A.click('.wt-mode'); await until(async () => (await W(B)).sess.mode === 'sharing', 4000);
+  await A.evaluate(() => [...document.querySelectorAll('.wt-ctlsw button')].find(b => b.textContent === 'Todos').click()); await until(async () => (await W(B)).sess.mode === 'sharing', 4000);
   ok((await W(B)).sess.mode === 'sharing', 'anfitriã liga o Sharing pelo botão');
   await B.click('.wt-pp');
   ok(await until(async () => (await W(A)).sess.pb.status === 'paused' && (await W(A)).sess.pb.by === (await B.evaluate(() => window.__lc.S.me.id)), 5000), 'Sharing: Beto pausa para todos');
@@ -191,7 +204,7 @@ try {
   // ---------- minimizar sem sair da chamada ----------
   console.log('— minimizar');
   await cmd(A, 'add', { url: `https://youtu.be/${IDS.long}` });
-  await A.click('.wt-hbtn[aria-label="Minimizar"]'); await sleep(500);
+  await A.evaluate(() => document.querySelector('.wt-hbtn[aria-label="Minimizar"]').click()); await sleep(500);
   ok(await A.$eval('#wt', e => e.classList.contains('mini')) && await voiceOk(A), 'minimizado: mini player e continua na chamada');
   ok(await A.$('.tile.wttile') !== null, 'palco volta a mostrar a chamada com o quadro "Abrir"');
   await shot(A, '09-minimizado');
@@ -267,6 +280,14 @@ try {
   const fsp = Math.abs((await ptime(B)) - (await ptime(C)));
   ok(fsp < 0.8, 'link de vídeo sincronizado', +fsp.toFixed(2));
   await shot(B, '16-link-de-video');
+
+  // ---------- remover o vídeo atual com a fila vazia: o player sai da tela ----------
+  console.log('— fila acabou');
+  for (const q of (await W(HP)).sess.queue) await cmd(HP, 'remove', { id: q.id });
+  await cmd(HP, 'remove', { id: (await W(HP)).sess.current.id });
+  ok(await until(async () => !(await W(B)).sess.current && await B.$('.wt-empty') !== null, 5000), 'removeu o atual com a fila vazia: "A fila acabou"');
+  ok(await B.evaluate(() => !document.querySelector('#wt .wt-player').children.length && !document.querySelector('#wt video, #wt iframe')), 'nenhum vídeo continua por trás da tela "A fila acabou"');
+  await shot(B, '17-fila-acabou');
 
   // ---------- voz intacta ----------
   ok(await voiceOk(B) && await voiceOk(C) && await voiceOk(D), 'todos continuam na chamada de voz o tempo todo');

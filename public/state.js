@@ -35,7 +35,7 @@ export const S = {
     JSON.parse(localStorage.getItem('lc_prefs') || '{}')),
   replyTo: null, editing: null, pending: [], membersOpen: true, viewers: new Map(), watching: new Set(),
 };
-const DEVICE_KEYS = ['inputId', 'outputId', 'videoId', 'inputLabel', 'outputLabel', 'videoLabel', 'clipsOn', 'lightMode', 'lightPrev', 'liteAuto', 'liteAutoGame']; // específicos de cada máquina: não sincronizam
+const DEVICE_KEYS = ['inputId', 'outputId', 'videoId', 'inputLabel', 'outputLabel', 'videoLabel', 'clipsOn', 'lightMode', 'lightPrev', 'liteAuto', 'liteAutoGame', 'camMirror']; // específicos de cada máquina: não sincronizam
 export const DEVICE_PREF_KEYS = DEVICE_KEYS;
 // armazenamento do navegador começou vazio (app reinstalado, pasta de dados nova, outro endereço do servidor):
 // o app desktop guarda uma cópia dos ajustes desta máquina e devolve (ver restoreDevicePrefs)

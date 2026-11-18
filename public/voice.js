@@ -1289,7 +1289,7 @@ export class Voice {
     if (!!s.voiceOff === off) return; s.voiceOff = off;
     for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null, hold: !!this.hold }); }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)

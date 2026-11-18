@@ -10,9 +10,13 @@ import { S, toast, user, nameOf, menu, confirmBox, closeFloating } from './state
 import { SERVICES, SERVICE_IDS, LEVELS, ERRORS, effectiveLevel, parseLink } from './watchsvc.js';
 import { expectedPos, createClock, decide, syncState, fmtTime, waitingStart, parseTime } from './watchsync.js';
 import { makePlayer } from './watchplayers.js';
+import { vrrSource, vrrPoke } from './vrrfix.js';
 
 let ctx = { send: () => { }, voice: () => null, channelById: () => null, inviteCandidates: () => [], invite: async () => false };
 export const initWatch = (c) => { ctx = { ...ctx, ...c }; };
+// app desktop: o YouTube toca num iframe (não é um <video> desta página), então avisa o anti-piscada (public/vrrfix.js)
+// que tem vídeo tocando — sem isso, com G-Sync/FreeSync em janela, o monitor ficava trocando de frequência e piscando
+vrrSource(() => !!W.joined && !!W.player && W.player.state() === 'playing' && !ui?.root.classList.contains('hidden'));
 
 const store = { get: (k, d) => { try { const v = localStorage.getItem('wt.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('wt.' + k, JSON.stringify(v)); } catch { } } };
 const W = {
@@ -92,6 +96,7 @@ export function onWatchEvent(t, d) {
     W.sess.pb = d.pb; W.lastSeq = d.pb.seq; W.strikes = 0;
     applyNow(); paint(); return;
   }
+  if (t === 'WATCH_ASK') { if (W.sess && d.id === W.sess.id && isHost() && W.sess.mode === 'hosting' && !W.sess.controllers.includes(d.uid)) { W.asks = [...(W.asks || []).filter(u => u !== d.uid), d.uid]; paintAsk(); if (W.mini || !W.open) toast(`${nm(d.uid)} pediu para controlar o vídeo`); } return; }
   if (t === 'WATCH_MEMBERS') { if (W.sess && d.id === W.sess.id) { W.reports = d.reports; paintPeople(); paintSyncBadge(); } }
 }
 function onState(d) {
@@ -109,6 +114,7 @@ function onState(d) {
   if (!W.joined && W.pendingJoin === d.cid) { W.pendingJoin = null; act('join'); }
   if (d.notice) toast(d.notice);
   if (d.host_changed?.to === me() && prevHost && prevHost !== me()) toast('Você agora é o anfitrião do Watch Together');
+  if (W.asks?.length) W.asks = W.asks.filter(u => isHost() && d.mode === 'hosting' && !d.controllers.includes(u) && d.members.some(m => m.id === u && m.online));
   if (W.joined) { build(); loadCurrent(); }
   paint(); ctx.rerender?.();
 }
@@ -117,7 +123,9 @@ function onState(d) {
 function destroyPlayer() { try { W.player?.destroy(); } catch { } W.player = null; W.itemId = null; W.ready = false; W.error = null; }
 function loadCurrent() {
   const it = W.sess?.current, host = ui?.playerHost; if (!host) return;
-  if (!it) { if (W.player) { W.player.pause?.(); } W.itemId = null; W.error = null; return; }
+  // nada tocando (fila acabou ou o vídeo atual foi removido): o player sai da tela. Antes ele só pausava e continuava
+  // visível atrás do "A fila acabou", e clicar no vídeo dava play só para você
+  if (!it) { destroyPlayer(); vrrPoke(); return; }
   if (it.id === W.itemId) return;
   const now = W.clock.now(), dur = it.duration || 0, pb = W.sess.pb;
   const pos = expectedPos(pb, now, dur), play = pb.status === 'playing' && !waitingStart(pb, now);
@@ -127,7 +135,7 @@ function loadCurrent() {
   if (!W.player) {
     W.player = makePlayer(it, host, {
       onReady: () => { W.ready = true; applyNow(); paint(); },
-      onState: () => { if (W.player?.state() === 'playing' && W.autoplayBlocked) { W.autoplayBlocked = false; paintOverlay(); } report(); paintControls(); },
+      onState: () => { if (W.player?.state() === 'playing' && W.autoplayBlocked) { W.autoplayBlocked = false; paintOverlay(); } vrrPoke(); report(); paintControls(); },
       onError: (code) => { if (code === 'embed_blocked' && W.sess?.current?.embed_ok) code = 'yt_refused'; if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
       onEnded: () => { const c = W.sess?.current; if (c) fire('ended', { item_id: c.id }); },
       onDuration: (s) => { const c = W.sess?.current; if (c && !(c.duration > 0) && s > 0) { c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
@@ -223,7 +231,10 @@ function seekTo(pos) {
   const d = W.sess?.current?.duration || W.player?.duration() || 0; pos = Math.max(0, d ? Math.min(d - .5, pos) : pos);
   W.player?.seek(pos); act('seek', { pos });
 }
-const lockedHint = () => toast(`Modo Hosting: só ${nm(W.sess.host)} controla o vídeo. Peça para mudar para Sharing.`);
+const lockedHint = () => toast(`Só ${nm(W.sess.host)} controla o vídeo agora. Use "Pedir controle" para pedir a vez.`);
+async function askControl() { const r = await act('ask'); if (r && !r.already) toast(`Pedido enviado para ${nm(W.sess.host)}`); }
+const setMode = (mode) => { if (W.sess && W.sess.mode !== mode) act('mode', { mode }); };
+const grant = (uid, on) => { W.asks = (W.asks || []).filter(u => u !== uid); act('grant', { uid, on }); paintAsk(); };
 function setVol(v, muted = W.muted) { W.vol = v; W.muted = muted; store.set('vol', v); store.set('muted', muted); W.player?.setVolume(v); W.player?.setMuted(muted); paintControls(); }
 function resync() { W.lastFix = 0; W.strikes = 1; syncClock(3).then(() => tick(true)); if (W.error && !ERRORS[W.error]?.fatal) { const it = W.sess?.current; W.error = null; W.itemId = null; destroyPlayer(); if (it) loadCurrent(); } toast('Ressincronizando com a sala'); }
 async function addLink(raw, extra = {}) {
@@ -265,7 +276,8 @@ function build() {
   const head = h('div.wt-head'), controls = h('div.wt-ctl'), side = h('aside.wt-side'), people = h('div.wt-people');
   const search = h('input.wt-search', { type: 'search', maxLength: 500, autocomplete: 'off', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(search.value); } } });
   const main = h('div.wt-main', stagebox, controls);
-  const root = h('div#wt.wt.hidden', { tabindex: '-1', role: 'region', 'aria-label': 'Watch Together', onkeydown: keys }, head, h('div.wt-body', main, side));
+  const askbar = h('div.wt-askbar');
+  const root = h('div#wt.wt.hidden', { tabindex: '-1', role: 'region', 'aria-label': 'Watch Together', onkeydown: keys }, head, askbar, h('div.wt-body', main, side));
   document.body.append(root);
   // mini player arrastável pelo cabeçalho (não cobre o que você quer ver); a posição fica guardada neste aparelho
   head.addEventListener('pointerdown', (e) => {
@@ -276,7 +288,7 @@ function build() {
     const up = () => { head.removeEventListener('pointermove', move); root.classList.remove('dragging'); store.set('miniPos', W.miniPos); };
     head.addEventListener('pointermove', move); head.addEventListener('pointerup', up, { once: true });
   });
-  ui = { root, head, playerHost, catcher, overlay, stagebox, controls, side, people, search, main };
+  ui = { root, head, askbar, playerHost, catcher, overlay, stagebox, controls, side, people, search, main };
   return ui;
 }
 function keys(e) {
@@ -312,49 +324,72 @@ function place() {
 function applyMiniPos() { const p = W.miniPos || store.get('miniPos', null); if (!p || !ui) return; W.miniPos = p; ui.root.style.right = Math.max(4, Math.min(innerWidth - 120, p.right)) + 'px'; ui.root.style.bottom = Math.max(4, Math.min(innerHeight - 80, p.bottom)) + 'px'; }
 export const placeWatch = () => { if (W.open) place(); };
 
-function paint() { if (!W.joined) return place(); build(); paintHead(); paintControls(); paintSide(); paintOverlay(); place(); }
+function paint() { if (!W.joined) return place(); build(); paintHead(); paintAsk(); paintControls(); paintSide(); paintOverlay(); place(); }
 
 const svcDot = (id) => h('span.wt-svc', { style: { '--svc': SERVICES[id]?.color || '#888' } }, SERVICES[id]?.name || id);
 const thumbOf = (it, cls = '.wt-th') => it.thumb ? h('img' + cls, { src: it.thumb, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer' }) : h('div' + cls + '.ph', { style: { '--svc': SERVICES[it.service]?.color } }, h('b', (SERVICES[it.service]?.name || '?')[0]));
 
+// quem controla: o anfitrião escolhe ali mesmo no topo ("Só eu" / "Todos"); os outros veem quem controla
+function ctlSwitch() {
+  const s = W.sess, sharing = s.mode === 'sharing';
+  if (isHost()) {
+    const opt = (mode, label, tip) => h('button' + (s.mode === mode ? '.on' : ''), { role: 'radio', 'aria-checked': s.mode === mode ? 'true' : 'false', title: tip, onclick: () => setMode(mode) }, label);
+    return h('div.wt-ctlsw', { role: 'radiogroup', 'aria-label': 'Quem controla o vídeo' },
+      h('span.wt-ctlsw-l', 'Quem controla'),
+      opt('hosting', 'Só eu', 'Só você (e quem você liberar em Pessoas) dá play, pausa, muda a posição e organiza a fila'),
+      opt('sharing', 'Todos', 'Todo mundo que está assistindo controla o vídeo e a fila'));
+  }
+  const mine = canCtl();
+  return h('div.wt-ctlinfo', { title: sharing ? 'Todo mundo que está assistindo controla o vídeo e a fila' : mine ? `${nm(s.host)} liberou o controle para você` : `Só ${nm(s.host)} controla o vídeo` },
+    icon(sharing || mine ? 'users' : 'lock', 14), h('span', sharing ? 'Todos controlam' : mine ? 'Você pode controlar' : `${nm(s.host)} controla`));
+}
 function paintHead() {
   const s = W.sess, host = s.host;
-  const modeBtn = h('button.wt-mode' + (s.mode === 'sharing' ? '.sharing' : ''), {
-    title: isHost() ? (s.mode === 'sharing' ? 'Sharing: todos controlam. Clique para voltar ao Hosting' : 'Hosting: só você controla. Clique para liberar para todos (Sharing)') : s.mode === 'sharing' ? 'Sharing: todos controlam o vídeo e a fila' : `Hosting: ${nm(host)} controla o vídeo`,
-    'aria-label': 'Modo de controle', onclick: () => { if (isHost()) act('mode', { mode: s.mode === 'sharing' ? 'hosting' : 'sharing' }); else toast(s.mode === 'sharing' ? 'Modo Sharing: todos controlam' : `Só ${nm(host)} (anfitrião) muda o modo`); },
-  }, icon(s.mode === 'sharing' ? 'users' : 'lock', 14), h('span', s.mode === 'sharing' ? 'Sharing' : 'Hosting'));
   ui.head.replaceChildren(
     h('div.wt-brand', h('span.wt-logo', icon('tv', 18)), h('div', h('b', 'Watch Together'), h('small', s.current ? s.current.title : 'Nada tocando'))),
-    h('div.wt-hostchip', { title: 'Anfitrião' }, avatar(user(host), 20, { status: false }), icon('crown', 12), h('span', nm(host))),
-    modeBtn,
     h('div.wt-hsp'),
+    h('div.wt-hostchip', { title: `${nm(host)} é o anfitrião` }, avatar(user(host), 20, { status: false }), h('span', nm(host)), icon('crown', 12)),
+    ctlSwitch(),
+    h('span.wt-hsep'),
     h('button.wt-hbtn', { title: 'Convidar amigos para assistir', onclick: (e) => invitePicker(e.currentTarget) }, icon('invite', 18), h('span.wt-hl', 'Convidar')),
-    h('button.wt-hbtn.wt-minbtn', { title: 'Minimizar (Esc) — continua tocando e você continua na chamada', 'aria-label': 'Minimizar', onclick: minimizeWatch }, icon('shrink', 18)),
+    h('button.wt-hbtn.wt-minbtn', { title: 'Minimizar (Esc): continua tocando e você continua na chamada', 'aria-label': 'Minimizar', onclick: minimizeWatch }, icon('shrink', 18)),
     h('button.wt-hbtn.wt-expbtn', { title: 'Abrir o Watch Together (volta para a chamada)', 'aria-label': 'Expandir', onclick: () => { const v = ctx.voice(), ch = ctx.channelById(W.cid); if (ch && v?.channelId === W.cid && !document.getElementById('stage')) ctx.goCall?.(ch); openWatch(); } }, icon('expand', 18)),
     h('button.wt-hbtn.wt-leave', { title: 'Sair do Watch Together', 'aria-label': 'Sair do Watch Together', onclick: (e) => isHost() ? menu(e, [{ label: 'Sair (outra pessoa vira anfitrião)', icon: 'logout', fn: leaveWatch }, { label: 'Encerrar para todos', icon: 'x', danger: true, fn: () => act('end') }]) : leaveWatch() }, icon('x', 18)));
+}
+// pedidos de controle (só o anfitrião vê): uma faixa discreta embaixo do topo, com Liberar / Agora não
+function paintAsk() {
+  if (!ui) return;
+  const list = isHost() && W.sess?.mode === 'hosting' ? (W.asks || []) : [];
+  ui.askbar.replaceChildren(...list.slice(0, 3).map(uid => h('div.wt-ask', avatar(user(uid), 20, { status: false }), h('span', h('b', nm(uid)), ' pediu para controlar o vídeo'),
+    h('button.btn.sm', { onclick: () => grant(uid, true) }, 'Liberar'),
+    h('button.btn.sm.grey', { onclick: () => { W.asks = W.asks.filter(u => u !== uid); paintAsk(); } }, 'Agora não'),
+    list.length === 1 && h('button.wt-asklink', { onclick: () => setMode('sharing') }, 'Liberar para todos'))));
 }
 let bar = null;
 function paintControls() {
   if (!ui || !W.sess) return;
   const s = W.sess, it = s.current, ctl = canCtl(), playing = s.pb.status === 'playing';
   const dis = !it || !ctl;
-  const title = ctl ? '' : ` — modo Hosting: só ${nm(s.host)} controla`;
-  bar = h('input.wt-seek', { type: 'range', min: 0, max: 1000, step: 1, value: 0, disabled: dis || external(it) && !W.player?.controllable && !(it?.duration > 0) && false, 'aria-label': 'Posição do vídeo',
+  const title = ctl ? '' : ` (só ${nm(s.host)} controla)`;
+  bar = h('input.wt-seek', { type: 'range', min: 0, max: 1000, step: 1, value: 0, disabled: dis, 'aria-label': 'Posição do vídeo',
     oninput: () => { bar.dragging = true; paintTime(); }, onchange: () => { bar.dragging = false; const d = it?.duration || W.player?.duration() || 0; if (d) seekTo(+bar.value / 1000 * d); } });
-  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', title: 'Volume só para você', oninput: (e) => { e.target.style.setProperty('--p', e.target.value + '%'); setVol(+e.target.value, +e.target.value === 0); } });
+  // volume: ícone do alto-falante + controle curto que abre ao passar o mouse (só para você), separado da barra do vídeo
+  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', oninput: (e) => { e.target.style.setProperty('--p', e.target.value + '%'); setVol(+e.target.value, +e.target.value === 0); } });
   vol.style.setProperty('--p', (W.muted ? 0 : W.vol) + '%');
-  const prevBtn = h('button.wt-cb.wt-prev', { title: 'Anterior' + title, 'aria-label': 'Anterior', disabled: dis, onclick: () => act('prev') }, icon('skip', 18));
+  const volIco = W.muted || !W.vol ? 'volmute' : W.vol < 50 ? 'vollow' : 'vol';
   ui.controls.replaceChildren(
-    h('div.wt-seekrow', h('span.wt-time', '0:00'), bar, h('span.wt-dur', it?.duration ? fmtTime(it.duration) : '--:--')),
+    h('div.wt-seekrow', bar),
     h('div.wt-btnrow',
-      prevBtn,
+      h('button.wt-cb.wt-prev', { title: 'Anterior' + title, 'aria-label': 'Anterior', disabled: dis, onclick: () => act('prev') }, icon('skip', 18)),
       h('button.wt-cb.wt-pp', { title: (playing ? 'Pausar (espaço)' : 'Reproduzir (espaço)') + title, 'aria-label': playing ? 'Pausar' : 'Reproduzir', disabled: !it, onclick: togglePlay }, icon(playing ? 'pause' : 'play', 22)),
       h('button.wt-cb', { title: 'Próximo' + title, 'aria-label': 'Próximo', disabled: dis, onclick: () => act('skip', { item_id: it?.id }) }, icon('skip', 18)),
-      h('button.wt-cb', { title: W.muted ? 'Ativar som (só para você)' : 'Silenciar (só para você)', 'aria-label': 'Silenciar', onclick: () => setVol(W.vol || 60, !W.muted) }, icon(W.muted || !W.vol ? 'volmute' : W.vol < 50 ? 'vollow' : 'vol', 18)),
-      vol,
+      h('div.wt-volbox', { title: 'Volume só para você' },
+        h('button.wt-cb', { title: W.muted ? 'Ativar som (m)' : 'Silenciar (m)', 'aria-label': W.muted ? 'Ativar som' : 'Silenciar', onclick: () => setVol(W.vol || 60, !W.muted) }, icon(volIco, 18)),
+        h('div.wt-volslide', vol)),
+      h('span.wt-clock', h('span.wt-time', '0:00'), h('span.wt-dur', ' / ' + (it?.duration ? fmtTime(it.duration) : '--:--'))),
       h('div.wt-sp'),
       h('span.wt-sync'),
-      !ctl && h('span.wt-locked', { title: `Modo Hosting: ${nm(s.host)} controla a reprodução` }, icon('lock', 12), h('span', 'Só ' + nm(s.host) + ' controla')),
+      it && !ctl && h('button.wt-askbtn', { title: `Só ${nm(s.host)} controla o vídeo agora. Peça para controlar também.`, onclick: askControl }, icon('lock', 14), h('span', 'Pedir controle')),
       h('button.wt-cb', { title: 'Ressincronizar com a sala', 'aria-label': 'Ressincronizar', onclick: resync }, icon('refresh', 16)),
       h('button.wt-cb', { title: 'Tela cheia (f)', 'aria-label': 'Tela cheia', onclick: fullscreen }, icon('expand', 16))));
   paintTime(); paintSyncBadge();
@@ -363,10 +398,12 @@ function paintTime() {
   if (!ui || !W.sess?.current || ui.root.classList.contains('hidden')) return;
   const it = W.sess.current, p = W.player, d = it.duration || p?.duration() || 0;
   const pos = external(it) && !p?.controllable ? expectedPos(W.sess.pb, W.clock.now(), d) : p?.time() || 0;
-  const t = ui.controls.querySelector('.wt-time'); if (t) t.textContent = fmtTime(bar?.dragging && d ? +bar.value / 1000 * d : pos);
-  if (bar && !bar.dragging && d) bar.value = Math.round(pos / d * 1000);
-  if (bar) bar.style.setProperty('--p', (bar.value / 10) + '%');
-  const du = ui.controls.querySelector('.wt-dur'); if (du && d) du.textContent = fmtTime(d);
+  // só escreve o que mudou: cada escrita repinta por cima do vídeo (no app desktop isso já causou piscadas)
+  const put = (el, txt) => { if (el && el.textContent !== txt) el.textContent = txt; };
+  put(ui.controls.querySelector('.wt-time'), fmtTime(bar?.dragging && d ? +bar.value / 1000 * d : pos));
+  if (bar && !bar.dragging && d) { const v = Math.round(pos / d * 1000); if (+bar.value !== v) bar.value = v; }
+  if (bar) { const pc = (bar.value / 10) + '%'; if (bar.style.getPropertyValue('--p') !== pc) bar.style.setProperty('--p', pc); }
+  if (d) put(ui.controls.querySelector('.wt-dur'), ' / ' + fmtTime(d));
   const cd = ui.overlay.querySelector('.wt-count b'); if (cd) { const left = Math.ceil((W.sess.pb.at - W.clock.now()) / 1000); if (left <= 0) paintOverlay(); else cd.textContent = left; }
   const vc = ui.overlay.querySelector('.wt-vclock'); if (vc) vc.textContent = fmtTime(expectedPos(W.sess.pb, W.clock.now(), d));
   if (W.bufSince && performance.now() - W.bufSince > 8000 && !ui.overlay.querySelector('.wt-slow')) paintOverlay();
@@ -392,11 +429,13 @@ function paintOverlay() {
   ui.stagebox.classList.toggle('err', !!(it && W.error));
   ui.catcher.classList.toggle('off', !it || (external(it) && !W.player?.controllable));
   if (!it) {
+    const goAdd = (id) => { if (id) W.svc = id; W.tab = 'search'; W.results = null; paintSide(); ui.search.focus(); };
     items.push(h('div.wt-empty',
-      h('div.wt-empty-ic', icon('tv', 40)),
-      h('h2', s.history.length ? 'A fila acabou' : 'Vamos assistir o quê?'),
-      h('p', 'Busque no YouTube ou cole um link. Os vídeos tocam em ordem e ficam sincronizados para todo mundo.'),
-      h('div.wt-svcrow', SERVICE_IDS.map(id => h('button.wt-svcbtn', { style: { '--svc': SERVICES[id].color }, onclick: () => { W.svc = id; W.tab = 'search'; paintSide(); ui.search.focus(); } }, h('i'), SERVICES[id].name, h('small', LEVELS[SERVICES[id].level].label))))));
+      h('div.wt-empty-ic', icon('tv', 32)),
+      h('h2', s.history.length ? 'A fila acabou' : 'O que vamos assistir?'),
+      h('p', s.history.length ? 'Adicione mais vídeos para continuar assistindo juntos.' : 'Busque no YouTube ou cole um link. Os vídeos tocam em ordem, no mesmo ponto para todo mundo.'),
+      h('div.wt-acts', h('button.btn', { onclick: () => goAdd('youtube') }, icon('search', 16), 'Buscar no YouTube'), h('button.btn.grey', { onclick: () => goAdd() }, icon('link', 16), 'Colar um link')),
+      h('div.wt-svcline', 'Também funciona com ', SERVICE_IDS.filter(id => SERVICES[id].level === 'assisted').map((id, i, a) => [h('button', { onclick: () => goAdd(id) }, SERVICES[id].name), i < a.length - 2 ? ', ' : i === a.length - 2 ? ' e ' : '']).flat())));
   } else if (W.error) {
     const e = ERRORS[W.error] || ERRORS.html5, svc = SERVICES[it.service];
     const btn = { open: () => h('button.btn', { onclick: () => window.open(svc.openUrl(it, W.player?.time?.() || 0), '_blank', 'noopener') }, icon('external', 14), 'Abrir ' + svc.on),
@@ -483,7 +522,7 @@ function queuePane() {
         mineOrCtl && h('button.wt-ib', { title: 'Remover da fila', 'aria-label': 'Remover da fila', onclick: () => act('remove', { id: it.id }) }, icon('trash', 14))));
     out.push(row);
   });
-  if (s.queue.length && !ctl) out.push(h('div.wt-note', icon('lock', 12), `Modo Hosting: você pode adicionar e remover os seus vídeos. ${nm(s.host)} organiza a fila.`));
+  if (s.queue.length && !ctl) out.push(h('div.wt-note', icon('lock', 12), `Você pode adicionar e remover os seus vídeos. ${nm(s.host)} organiza a fila.`));
   return h('div.wt-queue', out);
 }
 const byLine = (it) => h('span.wt-by', avatar(user(it.by), 14, { status: false }), 'adicionado por ' + (it.by === me() ? 'você' : nm(it.by)));
@@ -511,13 +550,22 @@ function paintPeople() {
     const rep = W.reports[m.id], st = !m.online ? 'offline' : syncState(rep && { ...rep, at: rep.at }, s.pb, now, s.current?.duration || 0);
     const label = { ok: 'Sincronizado', ahead: 'Adiantado', behind: 'Atrasado', buffering: 'Carregando', error: rep?.error ? (ERRORS[rep.error]?.title || 'Erro') : 'Erro', offline: 'Reconectando…', external: 'Assistindo fora', ready: 'Pronto', unknown: 'Entrando…' }[st] || st;
     const extra = rep?.external && rep.pos ? ' · ' + fmtTime(rep.pos) : '';
-    const hostMenu = isHost() && m.id !== me() && m.online ? (e) => menu(e, [{ label: 'Passar o anfitrião', icon: 'crown', fn: () => act('host', { uid: m.id }) }, s.mode === 'hosting' && { label: s.controllers.includes(m.id) ? 'Tirar controle do vídeo' : 'Deixar controlar o vídeo', icon: 'sliders', fn: () => act('grant', { uid: m.id, on: !s.controllers.includes(m.id) }) }]) : null;
+    const other = isHost() && m.id !== me();
+    const hostMenu = other && m.online ? (e) => menu(e, [{ label: 'Passar o anfitrião', icon: 'crown', fn: () => act('host', { uid: m.id }) }]) : null;
+    const lets = s.controllers.includes(m.id);
+    // anfitrião no "Só eu": a chave à vista em cada pessoa libera (ou tira) o controle só dela
+    const sw = other && s.mode === 'hosting' && h('button.wt-sw' + (lets ? '.on' : ''), { role: 'switch', 'aria-checked': lets ? 'true' : 'false', title: lets ? `${nm(m.id)} pode controlar o vídeo. Clique para tirar` : `Deixar ${nm(m.id)} controlar o vídeo`, 'aria-label': 'Pode controlar: ' + nm(m.id), onclick: () => grant(m.id, !lets) }, h('i'));
     return h('div.wt-person' + (voice?.speaking?.has(m.id) ? '.speaking' : '') + (m.online ? '' : '.off'), { 'data-uid': m.id, oncontextmenu: hostMenu },
       avatar(user(m.id), 32, { status: false }),
-      h('div.wt-meta', h('b', nm(m.id), m.id === s.host && h('span.wt-crown', { title: 'Anfitrião' }, icon('crown', 12)), s.controllers.includes(m.id) && h('span.wt-ctlb', { title: 'Pode controlar o vídeo' }, 'controle')), h('span.wt-st.' + st, h('i'), label + extra)),
-      hostMenu && h('button.wt-ib', { title: 'Opções', 'aria-label': 'Opções de ' + nm(m.id), onclick: hostMenu }, icon('more', 14)));
+      h('div.wt-meta', h('b', nm(m.id), m.id === s.host && h('span.wt-crown', { title: 'Anfitrião' }, icon('crown', 12))), h('span.wt-st.' + st, h('i'), (m.id === s.host ? 'Anfitrião · ' : lets ? 'Controla · ' : '') + label + extra)),
+      sw, hostMenu && h('button.wt-ib', { title: 'Opções', 'aria-label': 'Opções de ' + nm(m.id), onclick: hostMenu }, icon('more', 14)));
   });
-  ui.people.replaceChildren(...rows, h('button.btn.grey.sm.wt-invbtn', { onclick: (e) => invitePicker(e.currentTarget) }, icon('invite', 14), 'Convidar mais gente'));
+  const head = isHost()
+    ? h('div.wt-pphead', h('div', h('b', 'Quem controla o vídeo'), h('small', s.mode === 'sharing' ? 'Todos podem dar play, pausar, pular e organizar a fila.' : 'Só você e quem estiver com a chave ligada.')),
+      h('div.wt-seg', h('button' + (s.mode === 'hosting' ? '.on' : ''), { onclick: () => setMode('hosting') }, 'Só eu'), h('button' + (s.mode === 'sharing' ? '.on' : ''), { onclick: () => setMode('sharing') }, 'Todos')))
+    : h('div.wt-pphead', h('div', h('b', s.mode === 'sharing' ? 'Todos controlam o vídeo' : canCtl() ? 'Você pode controlar o vídeo' : `${nm(s.host)} controla o vídeo`), h('small', s.mode === 'sharing' || canCtl() ? 'Play, pausa, posição e fila valem para todo mundo.' : 'Você pode adicionar vídeos e remover os seus.')),
+      !canCtl() && s.current && h('button.btn.sm', { onclick: askControl }, 'Pedir controle'));
+  ui.people.replaceChildren(head, ...rows, h('button.btn.grey.sm.wt-invbtn', { onclick: (e) => invitePicker(e.currentTarget) }, icon('invite', 14), 'Convidar mais gente'));
 }
 
 // convidar: amigos e membros do servidor que não estão na chamada recebem o convite "para assistir junto"
@@ -564,8 +612,8 @@ export function activityLauncher(anchor, entries) {
 }
 export function watchLauncherEntry() {
   const s = W.sess;
-  return { icon: 'tv', title: 'Watch Together', badge: 'Novo', color: '#ff4d6d', on: !!s,
-    desc: s ? (W.joined ? 'Voltar para o Watch Together' : `Entrar: ${s.members.filter(m => m.online).length} assistindo`) : 'YouTube sincronizado, fila compartilhada; Netflix, Prime Video e Crunchyroll com sincronização assistida',
+  return { icon: 'tv', title: 'Watch Together', badge: 'Novo', color: '#e5484d', on: !!s,
+    desc: s ? (W.joined ? 'Voltar para o Watch Together' : `Entrar: ${s.members.filter(m => m.online).length} assistindo`) : 'Vídeos do YouTube no mesmo ponto para todos, com fila compartilhada',
     fn: () => (s ? openWatch() : startWatch()) };
 }
 export const watchSetEnv = (env) => { Object.assign(W.env, env); if (W.joined) paint(); };

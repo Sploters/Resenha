@@ -11,7 +11,11 @@ import { desktop } from './state.js';
 // Só no app desktop: no navegador o driver já resolve.
 let dot = null, anim = null, timer = 0, inited = false;
 
-const playing = () => [...document.querySelectorAll('video')].some(v => v.isConnected && !v.paused && !v.ended && v.readyState >= 2);
+// players que não são <video> desta página (o YouTube do Watch Together roda num iframe de outro site): avisam por aqui
+const sources = new Set();
+export function vrrSource(fn) { sources.add(fn); return () => sources.delete(fn); }
+export const vrrPoke = () => { if (inited) soon(); };
+const playing = () => [...document.querySelectorAll('video')].some(v => v.isConnected && !v.paused && !v.ended && v.readyState >= 2) || [...sources].some(f => { try { return f(); } catch { return false; } });
 // em tela cheia só o elemento em tela cheia é desenhado: o ponto vai junto, senão fica escondido e não gera quadros
 const host = () => document.fullscreenElement || document.body;
 

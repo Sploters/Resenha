@@ -228,7 +228,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -2440,7 +2440,7 @@ wss.on('connection', (ws) => {
         case 'VOICE_STATE': {
           const c = currentVoice(uid); if (!c) return;
           const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
-          for (const k of ['mute', 'deaf', 'video', 'screen', 'hold']) if (typeof d[k] === 'boolean') st[k] = d[k]; if (st.noVideo) st.video = st.screen = false;
+          for (const k of ['mute', 'deaf', 'video', 'screen', 'hold', 'mirror']) if (typeof d[k] === 'boolean') st[k] = d[k]; if (st.noVideo) st.video = st.screen = false;
           st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
           if (d.fx !== undefined && Date.now() - (st.fxAt || 0) > 500) { const fx = VOICE_FX.has(d.fx) ? d.fx : null; if (fx !== (st.fx || null)) { st.fx = fx; st.fxAt = Date.now(); } }

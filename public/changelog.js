@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-18-4', title: 'Watch Together mais caprichado e câmera espelhada',
+    items: [
+      { i: 'video', t: 'Inverter a imagem da câmera', d: 'Clique direito no botão da câmera → Inverter a imagem (ou em Configurações → Voz e vídeo). A imagem fica espelhada para todos na chamada, e a sua prévia mostra o mesmo que os outros veem.', try: 'voice' },
+      { i: 'tv', t: 'Watch Together com o visual do app', d: 'Cores e superfícies iguais às do resto do Resenha. O volume virou só o alto-falante, e o controle abre ao passar o mouse, separado da barra do vídeo.' },
+      { i: 'users', t: 'Quem controla, à vista', d: 'O anfitrião escolhe "Só eu" ou "Todos" no topo, e em Pessoas tem uma chave para liberar o controle para cada um. Quem não controla tem o botão "Pedir controle", e o pedido aparece para o anfitrião com "Liberar".' },
+      { i: 'bolt', t: 'Vídeo sem piscar no app', d: 'O vídeo do YouTube no Watch Together piscava no app para computador, como acontecia com transmissões e clipes. Agora recebe as mesmas correções.' },
+      { i: 'check', t: 'Fila vazia sem vídeo por trás', d: 'Remover o vídeo que estava tocando com a fila vazia deixava o vídeo de fundo atrás do "A fila acabou", e dava para pausar e continuar. Agora o player sai da tela.' },
+    ],
+  },
+  {
     id: '2026-11-18-3', title: 'Conquistas, jogos do servidor e sala de voz em espera',
     items: [
       { i: 'medal', t: 'Aba Conquistas', d: 'Em Jogos → Conquistas: seus jogos 100% da Steam, as conquistas mais raras e as recentes, e o progresso de cada jogo. PlayStation, Xbox e Epic não deixam outros apps lerem os troféus, então dá para registrar suas platinas de lá (aparecem como "informado"). Suas conquistas também ficam numa aba do seu perfil.' },

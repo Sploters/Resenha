@@ -2127,3 +2127,5 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 .ach-plat { color: #a8c0ff !important; }
 .ach-icons { display: flex; gap: 4px; margin-top: 6px; }
 .ach-icons img { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; background: var(--bg-mod-hover); }
+/* câmera com "Inverter a imagem" (VOICE_STATE.mirror): espelhada para todos */
+.tile.utile.mirrored > video { transform: scaleX(-1) translateZ(0); }

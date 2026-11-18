@@ -460,7 +460,7 @@ function onEvent(t, d) {
     case 'ROOM_CODE': if (d.channel_id === voice?.channelId) codeSet(d); break;
     case 'MUSIC_STATE': if (d.channel_id === voice.channelId) musicOnState(d); break;
     case 'MUSIC_RES': musicOnRes(d); break;
-    case 'WATCH_STATE': case 'WATCH_SYNC': case 'WATCH_MEMBERS': case 'WATCH_END': case 'WATCH_RES': onWatchEvent(t, d); break;
+    case 'WATCH_STATE': case 'WATCH_SYNC': case 'WATCH_MEMBERS': case 'WATCH_END': case 'WATCH_RES': case 'WATCH_ASK': onWatchEvent(t, d); break;
     case 'SOUNDS_UPDATE': { const g = guild(d.guild_id); if (g) { g.sounds = d.sounds; document.dispatchEvent(new Event('sb-changed')); } break; }
     case 'EMOJIS_UPDATE': { const g = guild(d.guild_id); if (g) { g.emojis = d.emojis; renderMessages(true); } break; }
     case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
@@ -3625,7 +3625,8 @@ function renderVoiceUI(speakOnly) {
     }
     const ckey = 'c:' + uid;
     if (cam && v.video) live.add(ckey);
-    const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
+    const mirrored = cam && v.video && (mine ? !!S.prefs.camMirror : !!v.mirror); // "Inverter a imagem" de quem liga a câmera vale para todos
+    const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (mirrored ? '.mirrored' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
       cam && v.video ? videoFor(ckey, cam) : avatar(user(uid), 96, { status: false }),
       h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v), v.hold && h('span.vu-hold', 'Em espera')),
       // opções do participante à vista (antes só no clique direito): volume, silenciar, desativar vídeo, parar de assistir
@@ -3896,10 +3897,14 @@ function stopSharing() { if (voice.screen) voice.toggleScreen(); }
 async function mediaDevs() { return (await navigator.mediaDevices?.enumerateDevices?.().catch(() => null)) || []; }
 const devRadios = (ds, kind, key, after) => [{ deviceId: '', label: 'Padrão do sistema' }, ...ds.filter(d => d.kind === kind && !/^(default|communications)$/.test(d.deviceId))]
   .map((d, i) => ({ label: d.label || `Dispositivo ${i}`, radio: (S.prefs[key] || '') === d.deviceId, fn: () => { if ((S.prefs[key] || '') === d.deviceId) return; setDevice(key, d.deviceId, d.label); after?.(d); } }));
+// inverter (espelhar) a imagem da câmera: quem recebe aplica o espelho (VOICE_STATE.mirror), então vale para todos sem
+// reprocessar o vídeo; a sua prévia mostra exatamente o que os outros veem
+function setCamMirror(on) { S.prefs.camMirror = !!on; savePrefs(); voice?.sendState(); renderVoiceUI(); }
 function camOptItems(ds) {
   const cams = devRadios(ds, 'videoinput', 'videoId', () => voiceAct(async () => { await voice.switchCam(); if (voice.cam) toast('Câmera trocada'); }));
   return [
     { label: voice.cam ? 'Desligar câmera' : 'Ligar câmera', icon: 'video', fn: () => voiceAct(() => voice.toggleCam()) },
+    { label: 'Inverter a imagem', hint: 'Espelhada para todos na chamada', checked: !!S.prefs.camMirror, fn: () => setCamMirror(!S.prefs.camMirror) },
     '-', ...(cams.length > 1 ? cams : [{ label: 'Nenhuma câmera encontrada', fn: () => { } }]),
     '-', { label: 'Configurações de vídeo', icon: 'sliders', fn: () => openSettings('voice', ctxSettings()) },
   ];

@@ -120,6 +120,12 @@ ok(S().pb.pos === 42 && last('caio', 'WATCH_SYNC').pb.pos === 42, 'posição pro
 tick(); await cmd('ana', 'play');
 ok(S().pb.status === 'playing' && S().pb.pos === 42, 'play continua da posição combinada');
 
+// pedir controle: o pedido chega só ao anfitrião; repetir logo em seguida é recusado
+await cmd('beto', 'ask');
+ok(last('ana', 'WATCH_ASK')?.uid === 'beto' && last('caio', 'WATCH_ASK') === undefined, 'pedir controle: só o anfitrião recebe o pedido');
+ok(await rejects(cmd('beto', 'ask'), 'rate'), 'pedir controle de novo logo em seguida é recusado');
+ok((await cmd('ana', 'ask')).already === true, 'quem já controla não precisa pedir');
+
 // autorizar um participante no Hosting
 await cmd('ana', 'grant', { uid: 'beto', on: true });
 tick(); await cmd('beto', 'pause');
