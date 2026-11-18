@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-const PORT = 3398, BASE = `http://localhost:${PORT}`, DIR = './.testdata-audit';
+const PORT = 3402, BASE = `http://localhost:${PORT}`, DIR = './.testdata-audit';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let srv = null;
