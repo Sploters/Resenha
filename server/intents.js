@@ -28,7 +28,7 @@ const RECENT_DAYS = 14, KEEP_DAYS = 30, MAX_PER_HOUR = 6, RECENT_DONE = 30 * 60e
 
 export function mountIntents(app, d) {
   const { auth, wrap, bad, db, get, all, run, newId, dispatch, userPub, clean, audienceOf, isFriend, presenceVisible, realStatus, prefsOf, activity, games,
-    lfgGames, guildsOf, isMember, joinGuild, canConnect, voiceChannelOf, roomPeople, createVoiceChannel, deleteChannel, callInvite, social, isOnline, log = console.log, now = () => Date.now() } = d;
+    lfgGames, guildsOf, isMember, joinGuild, guildFull = () => null, canConnect, voiceChannelOf, roomPeople, createVoiceChannel, deleteChannel, callInvite, social, isOnline, log = console.log, now = () => Date.now() } = d;
   db.exec(`CREATE TABLE IF NOT EXISTS play_intents(
     id TEXT PRIMARY KEY, author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     game_key TEXT NOT NULL, game_name TEXT NOT NULL, appid TEXT, lfg_game TEXT,
@@ -341,7 +341,7 @@ export function mountIntents(app, d) {
     if (it.author_id !== req.uid && m?.state !== 'joined') return bad(res, 'Topa primeiro para entrar na sala', 403);
     if (statusOf(it, now()) !== 'formed' || !it.channel_id) return res.status(409).json({ error: statusOf(it, now()) === 'open' ? 'O grupo ainda não fechou' : 'Essa sala já foi encerrada', code: 'not_formed' });
     const ch = get('SELECT * FROM channels WHERE id=?', it.channel_id); if (!ch) return res.status(410).json({ error: 'A sala não existe mais', code: 'gone' });
-    if (!isMember(ch.guild_id, req.uid)) joinGuild(ch.guild_id, req.uid); // amigo de fora do servidor (como no convite para a chamada)
+    if (!isMember(ch.guild_id, req.uid)) { const why = guildFull(req.uid); if (why) return res.status(409).json({ error: why, code: 'guild_limit' }); joinGuild(ch.guild_id, req.uid); } // amigo de fora do servidor (como no convite para a chamada)
     social.count('interaction', 'enter', 1, req.uid); social.acted(req.uid);
     res.json({ guild_id: ch.guild_id, channel_id: ch.id });
   }));

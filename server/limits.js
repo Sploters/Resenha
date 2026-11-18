@@ -28,6 +28,8 @@ export function createLimits({ get }) {
   return {
     // devolvem a mensagem de erro, ou null se cabe
     guildJoin: (uid) => guildCount(uid) >= LIMITS.guilds ? `Você já está em ${LIMITS.guilds} servidores (o máximo). Saia de algum para entrar ou criar outro.` : null,
+    // outra pessoa seria colocada no servidor (convite para a chamada, grupo do LFG aceito pelo autor)
+    guildJoinOther: (uid) => guildCount(uid) >= LIMITS.guilds ? `Essa pessoa já está em ${LIMITS.guilds} servidores (o máximo) e não pode entrar neste` : null,
     friendAdd: (uid, other) => {
       if (rel(uid, 1) >= LIMITS.friends) return `Você já tem ${LIMITS.friends} amigos (o máximo). Desfaça alguma amizade para adicionar outra.`;
       if (other && rel(other, 1) >= LIMITS.friends) return 'Essa pessoa já tem o máximo de amigos';

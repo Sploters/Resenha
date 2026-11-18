@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 export const CALL_INVITE_TTL = +process.env.CALL_INVITE_TTL_MS || 5 * 60 * 1000; // CALL_INVITE_TTL_MS: só para testes
 const RESEND_MS = 20 * 1000; // o mesmo convite pendente não é reenviado (nem toca de novo) antes disso
 
-export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, userPub, dispatch, postDm, canCall = () => true, onState = () => { }, now = () => Date.now() }) {
+export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, guildFull = () => null, userPub, dispatch, postDm, canCall = () => true, onState = () => { }, now = () => Date.now() }) {
   const invites = new Map(); // id -> { id, from, to, guild_id, channel_id, created, expires, state }
 
   const stateOf = (i) => (i.state === 'pending' && now() > i.expires ? 'expired' : i.state);
@@ -36,6 +36,8 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     if (!opts.trusted && !isFriend(from, to) && !isMember(ch.guild_id, to)) return { error: 'Só dá para convidar amigos ou membros deste servidor', status: 403 };
     if (!opts.trusted && !canCall(from, to)) return { error: 'Essa pessoa não está aceitando chamadas', status: 403, code: 'calls_off' };
     if (isBanned(ch.guild_id, to)) return { error: 'Esta pessoa foi banida deste servidor', status: 403 };
+    // aceitar põe a pessoa no servidor: quem já está no máximo de servidores não teria como entrar (server/limits.js)
+    if (!isMember(ch.guild_id, to)) { const why = guildFull(to, true); if (why) return { error: why, status: 409, code: 'guild_limit' }; }
     if (voiceChannelOf(to) === cid) return { error: 'Essa pessoa já está na chamada', status: 400 };
     // idempotente: mesmo par e mesma sala com convite pendente recente -> devolve o mesmo
     for (const i of invites.values()) {
@@ -77,7 +79,7 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     const ch = get('SELECT id,guild_id,type FROM channels WHERE id=?', i.channel_id);
     if (!ch || ch.type !== 2) { i.state = 'expired'; return { error: 'A sala de voz não existe mais', status: 410 }; }
     if (isBanned(i.guild_id, uid)) return { error: 'Você foi banido deste servidor', status: 403 };
-    if (!isMember(i.guild_id, uid)) joinGuild(i.guild_id, uid);
+    if (!isMember(i.guild_id, uid)) { const why = guildFull(uid); if (why) return { error: why, status: 409, code: 'guild_limit' }; joinGuild(i.guild_id, uid); }
     if (st === 'pending' || st === 'declined') { i.state = 'accepted'; notifyBoth(i); } // recusou e mudou de ideia: vale enquanto não expirar
     return { invite: pub(i), guild_id: i.guild_id, channel_id: i.channel_id };
   }

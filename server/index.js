@@ -971,6 +971,7 @@ const callInv = createCallInvites({
   isBanned: (gid, uid) => !!get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', gid, uid),
   isBlocked: (a, b) => !!get('SELECT 1 x FROM relationships WHERE ((user_id=? AND other_id=?) OR (user_id=? AND other_id=?)) AND type=2', a, b, b, a),
   joinGuild: (gid, uid) => joinGuild(gid, uid), userPub, dispatch, postDm: (a, b, c) => postDm(a, b, c),
+  guildFull: (uid, other) => other ? lim.guildJoinOther(uid) : lim.guildJoin(uid), // limite de servidores por conta (server/limits.js)
   canCall: (a, b) => privacy.canCall(a, b),
   onState: (i, st) => social.count('callinv', `${i.source || 'manual'}:${st}`, 1, i.to), // métricas: aceito, recusado, expirado, cancelado
 });
@@ -1298,7 +1299,7 @@ mountLfg(app, {
   callInvite: (from, to, opts) => callInv.create(from, to, opts), postDm: (a, b, c) => postDm(a, b, c),
   isMember: (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid),
   isBanned: (gid, uid) => !!get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', gid, uid),
-  joinGuild: (gid, uid) => joinGuild(gid, uid),
+  joinGuild: (gid, uid) => joinGuild(gid, uid), guildFull: (uid, other) => other ? lim.guildJoinOther(uid) : lim.guildJoin(uid),
 });
 const discover = mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
 // ---------- Enquetes ----------
@@ -1846,6 +1847,7 @@ const intents = mountIntents(app, {
   activity, games, lfgGames: LFG_GAMES, isOnline: (uid) => conns.has(uid), social,
   guildsOf: (uid) => all('SELECT g.id, g.name FROM guilds g JOIN members m ON m.guild_id=g.id WHERE m.user_id=?', uid),
   isMember: (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid), joinGuild: (gid, uid) => joinGuild(gid, uid),
+  guildFull: (uid) => lim.guildJoin(uid),
   canConnect: (ch, uid) => !timedOut(ch.guild_id, uid) && chp.chCan(ch, uid, CH.CONNECT),
   voiceChannelOf: (uid) => currentVoice(uid), roomPeople: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : [],
   // sala temporária do grupo: criada pelo Resenha (registro de auditoria em nome de quem chamou) e apagada quando esvazia
