@@ -48,6 +48,8 @@ import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
 import { createLimits, LIMITS } from './limits.js';
 import { translate, translateEnabled, engineName } from './translate.js';
+import { createWatch } from './watch.js';
+import { searchTracks as musicSearch, musicAvailable } from './music.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -991,7 +993,7 @@ const callOut = (res, r) => (r.error ? bad(res, r.error, r.status) : res.json(r)
 app.post('/api/call-invites', auth, wrap((req, res) => {
   const t = Date.now(), recent = (callInvRate.get(req.uid) || []).filter(x => t - x < 60e3);
   if (recent.length >= 10) return bad(res, 'Muitos convites em pouco tempo; espere um pouco', 429);
-  const r = callInv.create(req.uid, String(req.body.user_id || ''));
+  const r = callInv.create(req.uid, String(req.body.user_id || ''), req.body.activity === 'watch' ? { activity: 'watch', source: 'watch' } : {});
   if (r.invite && !r.repeated && !conns.has(r.invite.to)) social.pull(r.invite.to, 'call_invite');
   if (!r.error && !r.repeated) callInvRate.set(req.uid, [...recent, t]);
   callOut(res, r);
@@ -2093,6 +2095,7 @@ function leaveVoice(uid, cid, reason) {
   if (ch) dispatch(channelAudience(ch), 'VOICE_STATE', { channel_id: null, prev_channel_id: cid, user_id: uid, guild_id: ch.guild_id, ...(reason ? { reason } : {}) });
   for (const [, s] of m) send(s.ws, 'VOICE_PEER_LEFT', { channel_id: cid, user_id: uid });
   musicOnLeave(cid);
+  watch.onVoiceLeave(uid, cid, reason);
   socialVoice(cid);
 }
 // Bot de música: participante sem conexão WebSocket (ws "morto" faz send() ser ignorado)
@@ -2106,6 +2109,54 @@ async function joinBot(cid, botId, bot) {
   await sfuJoin(cid, botId, () => { });
 }
 initMusic({ db, all, get, run, newId, canManage: (gid, uid) => can(gid, uid, P.MANAGE_CHANNELS) || can(gid, uid, P.MANAGE_GUILD), voice, send, dispatch, guildMemberIds, memberObj, userPub, joinBot, leaveBot: (cid, botId) => leaveVoice(botId, cid), attachRtp: sfuAttachRtp, sfuEnabled });
+// Watch Together (server/watch.js): sessão por sala de voz; eventos só para quem está na sala
+const watchDb = () => db.exec(`CREATE TABLE IF NOT EXISTS watch_history(guild_id TEXT NOT NULL, service TEXT NOT NULL, ref TEXT NOT NULL, url TEXT, title TEXT, channel TEXT, thumb TEXT, duration INTEGER, by_id TEXT, at INTEGER, PRIMARY KEY(guild_id, service, ref));
+  CREATE INDEX IF NOT EXISTS idx_watch_hist ON watch_history(guild_id, at);`);
+watchDb();
+const YT_KEY = process.env.YOUTUBE_API_KEY || '';
+const OEMBED = process.env.WATCH_OEMBED_URL || 'https://www.youtube.com/oembed';
+const isoDur = (d) => { const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(d || ''); return m ? ((+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0)) : 0; };
+const fetchJson = async (url, ms = 8000) => { const r = await fetch(url, { signal: AbortSignal.timeout(ms), headers: { 'user-agent': 'Mozilla/5.0 Resenha' } }); return { status: r.status, json: r.ok ? await r.json().catch(() => null) : null }; };
+// título/canal/miniatura pelo oEmbed oficial do YouTube (sem chave). 401/403 = incorporação desativada; 404/400 = não existe ou privado
+async function watchMeta(it) {
+  if (process.env.WATCH_OEMBED === '0') return {};
+  const out = {};
+  if (YT_KEY) {
+    try { const r = await fetchJson(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,status&id=${it.ref}&key=${YT_KEY}`);
+      const v = r.json?.items?.[0]; if (r.status === 200 && !v) return { notFound: true };
+      if (v) return { title: v.snippet.title, channel: v.snippet.channelTitle, thumb: v.snippet.thumbnails?.high?.url, duration: isoDur(v.contentDetails.duration), embeddable: v.status.embeddable !== false };
+    } catch { }
+  }
+  try {
+    const r = await fetchJson(`${OEMBED}?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + it.ref)}`);
+    if (r.status === 401 || r.status === 403) return { embeddable: false };
+    if (r.status === 404 || r.status === 400) return { notFound: true };
+    if (r.json) Object.assign(out, { title: String(r.json.title || ''), channel: String(r.json.author_name || ''), thumb: r.json.thumbnail_url });
+  } catch { } // sem internet/oEmbed fora do ar: entra com o título provisório e o player confirma
+  return out;
+}
+// busca: YouTube Data API v3 (oficial) se houver YOUTUBE_API_KEY; senão o mesmo yt-dlp do bot de música
+async function watchSearch(q) {
+  if (YT_KEY) {
+    const r = await fetchJson(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=12&q=${encodeURIComponent(q)}&key=${YT_KEY}`);
+    if (!r.json) throw new Error('A busca do YouTube não respondeu (verifique a YOUTUBE_API_KEY)');
+    return r.json.items.map(x => ({ service: 'youtube', ref: x.id.videoId, url: 'https://www.youtube.com/watch?v=' + x.id.videoId, title: x.snippet.title, channel: x.snippet.channelTitle, thumb: x.snippet.thumbnails?.high?.url || x.snippet.thumbnails?.default?.url, duration: 0 }));
+  }
+  if (!(await musicAvailable())) throw new Error('A busca precisa do yt-dlp no servidor (ou de uma YOUTUBE_API_KEY). Cole um link do YouTube.');
+  const list = await musicSearch(q, 10);
+  return list.map(t => { const m = /[?&]v=([\w-]{11})/.exec(t.url || ''); return m && { service: 'youtube', ref: m[1], url: 'https://www.youtube.com/watch?v=' + m[1], title: t.title, channel: t.artist, thumb: t.thumb || `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`, duration: t.duration }; }).filter(Boolean);
+}
+const voiceWs = (uid) => { const c = currentVoice(uid), st = c && voice.get(c)?.get(uid); return st?.ws; };
+const watch = createWatch({
+  inRoom: (uid, cid) => !!voice.get(cid)?.get(uid) && !voice.get(cid).get(uid).bot,
+  roomMembers: (cid) => [...(voice.get(cid) || [])].filter(([, st]) => !st.bot).map(([id]) => id),
+  sendTo: (uid, t, d) => { const ws = voiceWs(uid); if (ws) send(ws, t, d); },
+  userPub, guildOf: (cid) => get('SELECT guild_id FROM channels WHERE id=?', cid)?.guild_id || null,
+  search: watchSearch, meta: watchMeta,
+  remember: (gid, it) => { if (gid) run('INSERT OR REPLACE INTO watch_history(guild_id,service,ref,url,title,channel,thumb,duration,by_id,at) VALUES(?,?,?,?,?,?,?,?,?,?)', gid, it.service, it.ref, it.url, it.title, it.channel || '', it.thumb || null, it.duration || 0, it.by, Date.now()); },
+  recent: (gid) => gid ? all('SELECT service, ref, url, title, channel, thumb, duration FROM watch_history WHERE guild_id=? ORDER BY at DESC LIMIT 30', gid) : [],
+  log: (...a) => console.log(...a),
+});
 // Controle remoto (server/remote.js). Pedido, resposta e comandos só valem da conexão que está na chamada.
 const remote = createRemote({
   newId,
@@ -2140,7 +2191,7 @@ function pushDevices(uid) {
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
   TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
-  REMOTE_REQUEST: [1, 5], PING: [5, 10],
+  REMOTE_REQUEST: [1, 5], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];
 // tipos em que só importa o último valor: passando do limite, o último pedido é guardado e aplicado depois (o estado
@@ -2252,6 +2303,7 @@ wss.on('connection', (ws) => {
           uxFirst(uid, 'voice');
           intents.onVoiceJoin(uid, ch.id); socialVoice(ch.id, uid);
           musicOnJoin(ch.id, ws);
+          watch.onVoiceJoin(uid, ch.id);
           if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));
           if (!sfuEnabled()) break;
@@ -2289,6 +2341,13 @@ wss.on('connection', (ws) => {
         case 'MUSIC': { // bot de música: tocar, pular, pausar, remover da fila, tirar da chamada
           const c = currentVoice(uid); if (!c) return;
           musicHandle(uid, c, d).then(data => send(ws, 'MUSIC_RES', { rid: d.rid, data }), e => send(ws, 'MUSIC_RES', { rid: d.rid, error: e.message }));
+          break;
+        }
+        case 'WATCH': { // Watch Together: comandos, relatórios do player e relógio comum (server/watch.js)
+          const c = currentVoice(uid);
+          if (d.op === 'clock') { send(ws, 'WATCH_RES', { rid: d.rid, data: { t: Date.now(), t0: d.t0 } }); break; }
+          if (!c || voice.get(c).get(uid).ws !== ws) { if (d.rid) send(ws, 'WATCH_RES', { rid: d.rid, error: 'Entre na chamada para usar o Watch Together', code: 'not_in_room' }); break; }
+          watch.handle(uid, c, d).then(data => { if (d.rid) send(ws, 'WATCH_RES', { rid: d.rid, data }); }, e => { if (d.rid) send(ws, 'WATCH_RES', { rid: d.rid, error: e.message, code: e.code }); });
           break;
         }
         case 'SOUNDBOARD': { // toca um som para todos na sala de voz
@@ -2474,6 +2533,7 @@ function shutdown(sig) {
   console.log(`  ${sig} recebido: encerrando`);
   setTimeout(() => process.exit(0), 3000).unref(); // não espera conexões presas
   try { musicStopAll(); } catch { }
+  try { watch.stopAll(); } catch { }
   try { activity.stop(); } catch { }
   // avisa antes de fechar: o app mostra "Servidor atualizando, volta em segundos" em vez de "Conexão perdida"
   // (código 1012 = reinício do serviço; o aviso vai junto para clientes que não leem o código)

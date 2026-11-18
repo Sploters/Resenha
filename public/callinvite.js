@@ -19,10 +19,11 @@ export function canCallInvite(uid) {
   const friend = S.rels.get(uid)?.type === 1, member = ctx.guild(ch.guild_id)?.members?.has(uid);
   return !!(friend || member);
 }
-export async function sendCallInvite(uid) {
-  const r = await tryApi('POST', '/call-invites', { user_id: uid }); if (!r) return false;
+// activity 'watch': convite para assistir junto (Watch Together); aceitar entra na sala e abre a atividade
+export async function sendCallInvite(uid, { activity } = {}) {
+  const r = await tryApi('POST', '/call-invites', { user_id: uid, ...(activity ? { activity } : {}) }); if (!r) return false;
   cache.set(r.invite.id, Promise.resolve(r.invite));
-  toast(r.repeated ? `Convite já enviado a ${user(uid).display_name}` : `Convite para a chamada enviado a ${user(uid).display_name}`);
+  toast(r.repeated ? `Convite já enviado a ${user(uid).display_name}` : activity === 'watch' ? `Convite para assistir junto enviado a ${user(uid).display_name}` : `Convite para a chamada enviado a ${user(uid).display_name}`);
   return true;
 }
 
@@ -32,6 +33,8 @@ async function accept(id) {
     document.getElementById('call-banner')?.remove(); if (pend.delete(id)) changed();
     // virou membro agora: o servidor chega pelo GUILD_CREATE; espera um pouco para o canal existir no cliente
     for (let i = 0; i < 20 && !ctx.channelById(r.channel_id); i++) await new Promise(res => setTimeout(res, 100));
+    const inv = await fetchInv(id);
+    if (r.invite?.activity === 'watch' || inv?.activity === 'watch') ctx.onWatchInvite?.(r.channel_id); // abre o Watch Together ao entrar
     ctx.go(r.guild_id, r.channel_id); ctx.joinVoice(r.channel_id);
     return true;
   } catch (e) { toast(e.message, true); return false; }
@@ -60,7 +63,9 @@ function paintCard(card, inv) {
     btns.push(h('button.btn.grey', { onclick: () => decline(inv.id) }, 'Recusar'));
   } else if (live && mine) btns.push(h('button.btn.grey', { onclick: () => tryApi('POST', `/call-invites/${encodeURIComponent(inv.id)}/cancel`) }, 'Cancelar convite'));
   card.classList.toggle('done', !live); card.dataset.state = st;
-  card.replaceChildren(h('div.cch', icon('voice', 16), h('span', 'Convite para a chamada')),
+  const watchInv = inv.activity === 'watch';
+  card.classList.toggle('watchinv', watchInv);
+  card.replaceChildren(h('div.cch', icon(watchInv ? 'tv' : 'voice', 16), h('span', watchInv ? 'Convite para assistir junto · Watch Together' : 'Convite para a chamada')),
     h('div.ccbody', h('span.ccicon', icon('voice', 22)), where, btns.length ? h('div.ccbtns', btns) : null),
     h('div.ccstate', status));
 }
@@ -97,10 +102,10 @@ export function onCallInvite(inv) {
   const u = inv.from; document.getElementById('call-banner')?.remove();
   let n = 0; const t = setInterval(() => { if (!document.getElementById('call-banner') || ++n > 5) return clearInterval(t); playSound('ring'); }, 2600);
   const el = h('div#call-banner.callinv', { 'data-id': inv.id }, avatar(S.users.get(u.id) || u, 48, { status: false }),
-    h('div', { style: { flex: 1, minWidth: 0 } }, h('b', u.display_name), h('div.cbsub', 'chamou você para a sala'), h('div.cbsub.cbwhere', `${inv.channel.name} · ${inv.guild.name}`)),
+    h('div', { style: { flex: 1, minWidth: 0 } }, h('b', u.display_name), h('div.cbsub', inv.activity === 'watch' ? 'chamou você para assistir junto (Watch Together)' : 'chamou você para a sala'), h('div.cbsub.cbwhere', `${inv.channel.name} · ${inv.guild.name}`)),
     h('button.btn.green', { onclick: () => accept(inv.id) }, 'Entrar'), h('button.btn.red', { onclick: () => decline(inv.id) }, 'Recusar'));
   document.body.append(el); playSound('ring');
-  notify(`${u.display_name} chamou você para a chamada`, `${inv.channel.name} · ${inv.guild.name}`, () => accept(inv.id));
+  notify(inv.activity === 'watch' ? `${u.display_name} chamou você para assistir junto` : `${u.display_name} chamou você para a chamada`, `${inv.channel.name} · ${inv.guild.name}`, () => accept(inv.id));
   setTimeout(() => { if (document.getElementById('call-banner') === el) el.remove(); }, Math.max(5000, Math.min(60000, inv.expires_at - Date.now())));
 }
 export function onCallInviteUpdate(inv) {
