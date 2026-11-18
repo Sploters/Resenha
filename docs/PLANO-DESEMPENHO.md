@@ -198,9 +198,11 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `scripts/native-clip-test.mjs` (H.264)). Antes o MediaRecorder recomprimia o vídeo já decodificado de cada transmissão
       assistida o tempo todo. Agora um worker encaixado no receptor do WebRTC (RTCRtpScriptTransform, o mesmo da cifra)
       copia os quadros comprimidos como chegam (VP8 ou H.264) e só o áudio é gravado; o WebM sai igual ao de antes.
-      Detalhes que custaram: o Chromium **ignora o encaixe colocado depois da negociação**, mesmo antes do 1º quadro — ele
-      entra pelo `onRtpReceiver` do `consume()` do mediasoup-client, e por isso só nas transmissões recebidas com os clipes
-      ligados (ligar depois: MediaRecorder até a próxima transmissão). O Chromium quase não manda quadro-chave sozinho:
+      Detalhes que custaram: colocado com o vídeo já chegando, ou logo depois do `consume()`, o encaixe **não recebeu nenhum
+      quadro** (curioso: a cifra das chamadas, no mesmo ponto, recebe — conferido no `e2ee-test` contando só os quadros de
+      vídeo decifrados; causa não esclarecida). Ele entra pelo `onRtpReceiver` do `consume()` do mediasoup-client, durante
+      a negociação, e por isso só nas transmissões recebidas com os clipes ligados (ligar depois: MediaRecorder até a
+      próxima transmissão). O Chromium quase não manda quadro-chave sozinho:
       passando de 5 s sem um, quem grava pede ao servidor, que limita a um por transmissão a cada 4 s (`CLIP_KEY_GAP_MS`)
       — o clipe começa até ~5 s antes do pedido (antes ~1 s). Tempo dos quadros pelo carimbo RTP ancorado na chegada mais
       rápida, mais o atraso do buffer de vídeo (para casar com o áudio, que já sai tocando).

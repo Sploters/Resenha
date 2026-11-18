@@ -9,7 +9,7 @@
 //   rápida vista (a de menos atraso de rede); salto grande no carimbo (transmissão recomeçou) recomeça o buffer.
 // - Mensagens da página: { cmd: 'clip', id, secs } -> { id, ok, codec, w, h, avcc, ats, keys, lens, data } (transferido);
 //   { cmd: 'keep', ms } (0 = só deixa passar). Para a página: { needKey: true }.
-// O Chromium ignora o encaixe colocado num receptor que já recebe vídeo: a página liga o worker quando a transmissão chega
+// Colocado num receptor que já recebe vídeo (ou logo depois do consume), o encaixe não recebe quadros: a página liga o worker quando a transmissão chega
 // (voice.js onSfuProducer) e ele fica só deixando os quadros passarem (keep 0) até um buffer de clipe pedir para guardar.
 const KEY_EVERY = 5000, MAX_BYTES = 300 << 20, WRAP = 2 ** 32;
 let st = null;

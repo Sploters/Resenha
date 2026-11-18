@@ -253,8 +253,8 @@ export function createNativeBuffer(audio, opts = {}) {
 // Só pelo servidor (SFU), em VP8 ou H.264, com RTCRtpScriptTransform e sem a cifra das chamadas protegidas (que já ocupa
 // o encaixe do receptor). Fora disso, quem chama usa o createBuffer (MediaRecorder). O vídeo sai na taxa e na qualidade
 // em que chega (a camada que o servidor manda para você), sem o limite de FPS do clipe.
-// Encaixa o worker no receptor do vídeo de uma transmissão que está chegando. Tem de ser DURANTE a negociação
-// (mediasoup-client consume({ onRtpReceiver })): depois dela o Chromium ignora o encaixe. Fica só deixando os quadros
+// Encaixa o worker no receptor do vídeo de uma transmissão que está chegando, DURANTE a negociação (mediasoup-client
+// consume({ onRtpReceiver })): colocado depois, ou com o vídeo já chegando, não recebeu quadro nenhum. Fica só deixando os quadros
 // passarem até um buffer de clipe pedir. null quando não dá.
 export function attachTap(receiver, codec) {
   if (!receiver || receiver.transform || !window.RTCRtpScriptTransform || !window.Worker || !/^video\/(vp8|h264)$/i.test(codec || '')) return null;

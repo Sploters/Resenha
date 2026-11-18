@@ -839,8 +839,9 @@ export class Voice {
     try {
       const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
       // clipes das transmissões dos outros ligados: o worker que guarda os quadros comprimidos (clipbuf.js attachTap) entra
-      // DURANTE a negociação (onRtpReceiver): depois dela o Chromium ignora o encaixe, mesmo sem quadro nenhum ainda. Até
-      // um buffer de clipe pedir, ele só deixa passar (screenTap)
+      // DURANTE a negociação (onRtpReceiver). Colocado logo depois do consume() (como a cifra, logo abaixo, que funciona
+      // assim), ele não recebeu nenhum quadro da transmissão de tela no Chromium 153 — causa não esclarecida; pelo
+      // onRtpReceiver funciona sempre (scripts/clip-tap-test.mjs). Até um buffer de clipe pedir, só deixa passar (screenTap)
       let tap = null;
       const wantTap = source === 'screen' && !this.e2ee && this.prefs?.clipsOn !== false;
       const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters, ...(wantTap ? { onRtpReceiver: (rx) => { tap = attachTap(rx, r.rtpParameters?.codecs?.[0]?.mimeType); } } : {}) });
