@@ -7,8 +7,8 @@
 //!   --probe     {"ok":bool,"build":n}  (o loopback por processo existe neste Windows?)
 //!   --fse [s]   uma linha JSON por segundo, por `s` segundos: {"t","state","code","fg":{hwnd,pid,title,exe,fullscreen}}
 //!               (SHQueryUserNotificationState e a janela da frente; kit de testes de tela cheia exclusiva)
-//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","mon":[l,t,r,b]}...] (uma linha JSON; mon = monitor da
-//!               janela em pixels reais, para o áudio "só desta tela")
+//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","mon":[l,t,r,b],"anc":[pid...]}...] (uma linha JSON;
+//!               mon = monitor da janela em pixels reais e anc = pai, avô... do processo, para o áudio "só desta tela")
 //!   --front <hwnd> [ms]  vigia a janela da frente a cada `ms` (padrão 1000): uma linha JSON quando muda,
 //!               {"covered":bool,"pid"?,"exe"?}. covered = outra janela (de outro programa) está em primeiro plano cobrindo
 //!               o monitor inteiro onde está a janela `hwnd` (jogo em tela cheia ou sem bordas por cima da Resenha).
@@ -156,7 +156,7 @@ mod sys {
         if let Some(t) = std::env::var_os("LC_WINDOWS_TEST").and_then(|p| std::fs::read_to_string(p).ok()) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) { return v; }
         }
-        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "mon": [0, 0, 1920, 1080] }])
+        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "mon": [0, 0, 1920, 1080], "anc": [] }])
     }
     pub fn dpi_aware() {}
     /// teste: o conteúdo de LC_FSE_TEST (JSON) ou "nada em tela cheia"
@@ -223,8 +223,32 @@ mod sys {
             if ok { String::from_utf16_lossy(&buf[..len as usize]) } else { String::new() }
         }
     }
+    // pai de cada processo (uma foto da lista de processos por enumeração de janelas)
+    fn parents() -> std::collections::HashMap<u32, u32> {
+        use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
+        let mut m = std::collections::HashMap::new();
+        unsafe {
+            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return m };
+            let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            if Process32FirstW(snap, &mut e).is_ok() { loop { m.insert(e.th32ProcessID, e.th32ParentProcessID); if Process32NextW(snap, &mut e).is_err() { break; } } }
+            let _ = CloseHandle(snap);
+        }
+        m
+    }
+    // ancestrais do processo (pai, avô...): o loopback "processo e filhos" de um ancestral também pega o som desta janela.
+    // O app usa isso no áudio "só desta tela" para não abrir o loopback de um programa cujo filho está no outro monitor.
+    fn ancestors(pid: u32, par: &std::collections::HashMap<u32, u32>) -> Vec<u32> {
+        let mut out = Vec::new(); let mut p = pid;
+        while let Some(&pp) = par.get(&p) {
+            if pp == 0 || pp == 4 || pp == pid || out.contains(&pp) || out.len() >= 16 { break; }
+            out.push(pp); p = pp;
+        }
+        out
+    }
+    struct Enum { out: Vec<serde_json::Value>, par: std::collections::HashMap<u32, u32> }
     unsafe extern "system" fn each(hwnd: HWND, lp: LPARAM) -> BOOL {
-        let out = &mut *(lp.0 as *mut Vec<serde_json::Value>);
+        let en = &mut *(lp.0 as *mut Enum);
+        let out = &mut en.out;
         // janelas de verdade: visíveis (minimizada continua "visível"), sem dono, sem ser ferramenta, não escondidas pelo DWM
         if !IsWindowVisible(hwnd).as_bool() { return true.into(); }
         if GetWindow(hwnd, GW_OWNER).map(|o| !o.is_invalid()).unwrap_or(false) { return true.into(); }
@@ -248,13 +272,13 @@ mod sys {
         if std::env::var_os("LC_DEBUG").is_some() { eprintln!("{title}: rect {:?} monitor {:?}", (r.left, r.top, r.right, r.bottom), (mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom)); }
         // monitor da janela (o da maior parte dela), em pixels reais: o app junta os programas de uma tela para o áudio "só desta tela"
         let m = mi.rcMonitor;
-        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen, "mon": [m.left, m.top, m.right, m.bottom] }));
+        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen, "mon": [m.left, m.top, m.right, m.bottom], "anc": ancestors(pid, &en.par) }));
         true.into()
     }
     pub fn windows() -> serde_json::Value {
-        let mut out: Vec<serde_json::Value> = Vec::new();
-        unsafe { let _ = EnumWindows(Some(each), LPARAM(&mut out as *mut _ as isize)); }
-        serde_json::Value::Array(out)
+        let mut en = Enum { out: Vec::new(), par: parents() };
+        unsafe { let _ = EnumWindows(Some(each), LPARAM(&mut en as *mut _ as isize)); }
+        serde_json::Value::Array(en.out)
     }
 
     // ---------- tela cheia exclusiva (aviso da transmissão, M12) ----------

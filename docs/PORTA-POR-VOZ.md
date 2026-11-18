@@ -94,3 +94,80 @@ voz/ruído na saída, durante a fala:
 
 Com moto alta por cima da fala, o RNNoise deixa o ruído só ~10 dB abaixo da voz: claramente audível. Esse é o caso que
 um modelo maior (DeepFilterNet3) atacaria. O GTCRN ganha ~4-7 dB sobre o RNNoise.
+
+---
+
+# Só a minha voz (trava na voz de quem está no microfone)
+
+Pedido: a partir do "Forte", tirar também latido, moto e **outras vozes ao fundo** (principalmente femininas: namorada,
+mãe) e desligar o ganho automático, que piorava tudo.
+
+## Ganho automático desligado
+`autoGainControl` do navegador aumentava o microfone nas pausas: o ruído e a voz de quem está ao fundo subiam junto, e o
+nível que a porta usa ficava mudando. Agora vem desligado (`prefs.agc === true` liga). Quem já usava foi desligado uma
+vez (`migrateAgc` em `public/app.js`, marca `agcV = 2`); depois vale a escolha da pessoa.
+
+## Como funciona (`public/vadgate-core.js`, `lock: true`)
+- **Tom da voz:** `createPitch` acha a frequência fundamental a cada 10 ms (autocorrelação normalizada, 60-450 Hz, em
+  8 kHz) e a periodicidade. Medido nas amostras: vozes masculinas ~95-120 Hz, femininas ~185-225 Hz, latido 250-400 Hz
+  com periodicidade baixa, motor sem tom de voz.
+- **Aprende quem fala:** o volume típico da fala (~percentil 75 dos quadros de voz que passaram) e um histograma do tom
+  (memória de ~6 s de vogais). Só fala contínua (≥ 200 ms) ensina o tom: latido é rajada curta.
+- **Para abrir:** voz perto do seu volume (10 dB, sensibilidade 50) e sem 2 quadros seguidos com tom de outra pessoa
+  (mais de 6,5 semitons do seu). Começo de palavra (volume ainda subindo) abre provisório por 60 ms e fecha se não chegar
+  perto do seu volume; depois de uma provisória que falhou, só tenta de novo após 150 ms de silêncio.
+- **Para manter:** até 16 dB abaixo do seu volume (fim de palavra) ou 14 dB no seu tom e limpo; outra pessoa falando
+  (tom diferente) corta o "segurando" na hora.
+- **Grito/risada:** tom mais alto, mas no seu volume e a até 13 semitons do seu: passa. Voz aguda (aprendida acima de
+  160 Hz): uma oitava acima também é você (começo de frase subindo); voz grave não, porque uma oitava acima é justamente
+  a voz feminina de fundo.
+- **Aprendeu a pessoa errada** (a voz de fundo falou antes de você): a voz mais alta falando seguido com outro tom por
+  ~250 ms faz a porta esquecer o tom e reaprender. Voz que ficou bem mais baixa de vez (trocou de microfone) desce o
+  volume aprendido aos poucos depois de 3 s.
+- Atenuação da porta fechada: -38,5 dB na sensibilidade 50 (era -35).
+- Configurações > Voz e vídeo > "Só a minha voz" (ligado por padrão; muda ao vivo). `prefs.voiceLock = false` desliga.
+
+## Medições
+Simulador em Node com o mesmo RNNoise e a mesma porta (voz real do MS-SNSD; latido e motor do ESC-50; voz de fundo com
+eco de sala), depois dos 3 primeiros segundos:
+
+| cenário | sem trava: porta aberta / fundo | com trava |
+|---|---|---|
+| voz feminina ao fundo (-40 dBFS), você homem | 98% / 0 dB | **2,5% / -15,8 dB** |
+| voz feminina no mesmo cômodo (-34 dBFS) | 99% / 0 dB | **7% / -12 dB** |
+| voz masculina ao fundo, você homem | 96% / 0 dB | 9,5% / -6 dB |
+| voz masculina ao fundo, você mulher | 97% / 0 dB | **4% / -11,5 dB** |
+| latido (-22 dBFS, mais alto que a voz), você homem | 33% / -3,5 dB | 15% / -5,8 dB |
+
+Sua fala: perda de energia 0,02-0,07 dB; começo de palavra depois de pausa longa -0,5 a -6 dB em média (sem trava -0,2
+a -2).
+
+`node scripts/noise-bench.mjs` (Chromium, cadeia do app; a voz de fundo fala ANTES de você, então o 1º trecho dela
+passa enquanto a porta aprende):
+
+| cenário | RNNoise + voz | RNNoise + trava | GTCRN + voz | GTCRN + trava |
+|---|---|---|---|---|
+| voz feminina ao fundo: ruído passa / audível | -0,3 dB / 93% | -4,4 dB / 35% | -4,1 dB / 53% | -7,7 dB / 28% |
+| voz masculina ao fundo: ruído passa / audível | -1,1 dB / 81% | -5,2 dB / 32% | -1,7 dB / 78% | -7,1 dB / 30% |
+| moto passando enquanto fala: ruído passa | -37,5 dB | **-76 dB** | -54,3 dB | **-92,7 dB** |
+| teclado + ventilador: ruído passa / audível | -12,7 dB / 21% | -14,7 dB / 6,7% | -33,9 dB | -44,6 dB* |
+| fala com pausas: início (média) | 0 dB | -6,1 dB | 0 dB | -2,7 dB |
+| voz baixa e distante: início (média) | -0,3 dB | -1,3 dB | -0,1 dB | -0,8 dB |
+
+\* rodado à parte: no fim de uma rodada longa o banco às vezes devolve silêncio no último cenário (também acontece sem a
+trava; é do banco, não do filtro).
+
+### Limites
+- Voz de fundo **no mesmo tom e quase no mesmo volume** que a sua não tem como separar sem um modelo de reconhecimento
+  de quem fala (o que existe hoje é pesado para rodar no aparelho de todo mundo).
+- Os primeiros segundos: até você falar, a porta não sabe qual é a sua voz.
+- Latido com tom perto do seu (voz feminina x cachorro de ~250 Hz) passa como antes.
+- Duas pessoas no mesmo microfone: desligar "Só a minha voz".
+
+# Transmissão de tela inteira com dois monitores (áudio "só desta tela")
+O loopback por processo do Windows é "o programa **e todos os filhos dele**": não dá para pegar uma janela só. Por isso
+vazava: o mesmo Chrome aberto nas duas telas (vídeo tocando no outro monitor), janela minimizada que estava no outro
+monitor, ou um programa desta tela que abriu algo que está no outro (launcher, terminal). Agora o `lc-audio` informa os
+ancestrais de cada processo (`anc`, por `CreateToolhelp32Snapshot`) e `desktop/appaudio.js screenPids` deixa de fora
+qualquer programa com janela fora desta tela, os pais/avós deles, os pais/avós da própria Resenha e terminais. Troca:
+um programa aberto nas duas telas fica mudo na transmissão (melhor que vazar).

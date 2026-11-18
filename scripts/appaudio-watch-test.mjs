@@ -80,4 +80,14 @@ try {
   ok(!A._state() && caps().length === n, 'parar a transmissão encerra o vigia');
   g3.kill();
 } finally { A.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+{ // áudio "só desta tela" com dois monitores: o loopback é do programa E dos filhos, então nada que toque no outro monitor entra
+  const M1 = [0, 0, 1920, 1080], M2 = [1920, 0, 3840, 1080], w = (pid, mon, o = {}) => ({ pid, mon, exe: 'C:\\x\\p' + pid + '.exe', title: 't', anc: [], ...o });
+  const list = [w(10, M1), w(20, M1), w(20, M2), w(30, M1), w(31, M2, { anc: [30] }), w(40, M1), w(40, M2, { minimized: true }), w(50, M1, { minimized: true }), w(60, M1),
+    w(70, M1, { exe: 'C:\\Windows\\explorer.exe' }), w(80, M1, { exe: 'C:\\Windows\\System32\\cmd.exe' })];
+  const one = A.screenPids(list, M1, { pid: 999, anc: [60] });
+  ok(JSON.stringify(one) === '[10]', 'tela 1: só o jogo; fora o Chrome aberto nas duas telas, o pai de um programa da tela 2, quem tem janela minimizada na tela 2, o pai da Resenha, explorer e terminal', one);
+  const two = A.screenPids(list, M2, { pid: 999, anc: [] });
+  ok(JSON.stringify(two) === '[31]', 'tela 2: só o que está nela (o Chrome da tela 1 não entra)', two);
+  ok(JSON.stringify(A.screenPids([w(10, M1), w(11, M2)], M1, { pid: 999 })) === '[10]', 'lc-audio antigo (sem "anc"): segue separando por programa');
+}
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 1700);

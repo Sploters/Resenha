@@ -6,6 +6,7 @@
 // Uso: node scripts/vadgate-chain-test.mjs   (as medições com áudio real ficam em scripts/noise-bench.mjs)
 import puppeteer from 'puppeteer-core';
 import { ownServer } from './test-server.mjs';
+import { gateParams } from '../public/vadgate-core.js';
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const BASE = await ownServer('vadgate', 3343, 41340);
@@ -47,7 +48,8 @@ try {
   ok(r.rnOn.latency === 480 && r.gtOn.latency === 0, 'atraso da porta: 10 ms no RNNoise (montar o quadro; o nó RNNoise antigo atrasava 13 ms), 0 no GTCRN', { rn: r.rnOn.latency, gt: r.gtOn.latency });
   ok(Math.abs(r.rnOn.vowel - r.rnOff.vowel) < 1.5 && Math.abs(r.gtOn.vowel - r.gtOff.vowel) < 1.5, 'som com cara de voz passa inteiro', { rn: [r.rnOff.vowel, r.rnOn.vowel], gt: [r.gtOff.vowel, r.gtOn.vowel] });
   ok(r.rnOn.hiss < r.rnOff.hiss - 15 && r.gtOn.hiss < r.gtOff.hiss - 15, 'ruído de fundo sem voz: a proteção abafa (15 dB a mais, no mínimo)', { rn: [r.rnOff.hiss, r.rnOn.hiss], gt: [r.gtOff.hiss, r.gtOn.hiss] });
-  ok(r.rnOn.hiss - r.rnOff.hiss > -37 && r.gtOn.hiss - r.gtOff.hiss > -37, 'abafa (~35 dB), não emudece', { rn: r.rnOn.hiss - r.rnOff.hiss, gt: r.gtOn.hiss - r.gtOff.hiss });
+  const fl = gateParams(50).floorDb; // atenuação da porta fechada (sensibilidade 50)
+  ok(r.rnOn.hiss - r.rnOff.hiss > fl - 2 && r.gtOn.hiss - r.gtOff.hiss > fl - 2, `abafa (~${-Math.round(fl)} dB), não emudece`, { rn: r.rnOn.hiss - r.rnOff.hiss, gt: r.gtOn.hiss - r.gtOff.hiss });
   const off = await run({ noiseMode: 'rnnoise', vadSens: 50, vadParams: undefined, vadGate: true, vadDebug: false });
   ok(!off.err, 'ajuste de sensibilidade ao vivo (setVadGate) sem erro');
 } finally { await browser.close(); }

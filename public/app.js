@@ -4240,11 +4240,18 @@ function migrateAbrAuto() {
   S.prefs.voiceBitrate = 'auto'; S.prefs.abrAutoV = 1; savePrefs(); voice?.active && voice.retuneAudio();
 }
 function migrateClipKey() {
-  migrateAbrAuto();
+  migrateAbrAuto(); migrateAgc();
   if (S.prefs.keyClipV === 2) return;
   if (!S.prefs.keyClip || S.prefs.keyClip === 'Ctrl+Alt+KeyC') S.prefs.keyClip = 'F8';
   S.prefs.keyClipV = 2; savePrefs();
   desktop?.setSettings?.({ hotkeyClip: comboToAccel(hotkey('keyClip')) });
+}
+// ganho automático do navegador: agora desligado por padrão. Ele aumentava o microfone nas pausas (o ruído e a voz de
+// quem está ao fundo subiam junto) e confundia a proteção por voz. Desliga uma vez para todos; depois vale a escolha.
+function migrateAgc() {
+  if (S.prefs.agcV === 2) return;
+  S.prefs.agc = false; S.prefs.agcV = 2; savePrefs();
+  if (voice?.active) voice.rebuildMic?.();
 }
 function setupDesktop() {
   if (setupDesktop.done) return; setupDesktop.done = true;

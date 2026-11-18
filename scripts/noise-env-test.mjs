@@ -32,7 +32,24 @@ try {
   const warn = await p.evaluate(() => [...document.querySelectorAll('.hintline.keep')].some(n => /não está detectando/.test(n.innerText) && n.offsetParent));
   ok(!warn, 'com som chegando: sem o aviso de "não está detectando nenhuma entrada"');
   await click(/^Parar teste$/);
+  // "Só a minha voz" (trava na voz) ligado por padrão, e o ganho automático desligado
+  const sw = (lbl) => p.evaluate((l) => { const b = [...document.querySelectorAll('button.tog')].find(x => x.querySelector('.ch-lbl')?.textContent.trim() === l); return b ? { on: b.getAttribute('aria-checked') === 'true', vis: !!b.offsetParent } : null; }, lbl);
+  const lock = await sw('Só a minha voz');
+  ok(lock && lock.on && lock.vis, '"Só a minha voz" aparece ligado com a redução por IA', lock);
+  await p.evaluate(() => [...document.querySelectorAll('button.tog')].find(x => x.querySelector('.ch-lbl')?.textContent.trim() === 'Só a minha voz').click());
+  ok(await p.evaluate(() => window.__lc.S.prefs.voiceLock === false), 'desligar grava voiceLock = false');
+  const agc = await sw('Ganho automático');
+  ok(agc && !agc.on && (await p.evaluate(() => window.__lc.S.prefs.agc)) === false, 'ganho automático desligado por padrão', agc);
   const menuLbl = await p.evaluate(async () => { const m = await window.__lc.import('ui.js'); return Object.values(m.NOISE_INFO).map(x => x[0]); });
   ok(menuLbl.join() === 'Sem filtro,Leve,Forte,Máxima', 'nomes únicos dos filtros (cartões e menus)', menuLbl);
+  // quem já usava o app com o ganho automático ligado: desliga uma vez (agcV = 2) e depois respeita a escolha
+  const q = await browser.newPage();
+  await q.evaluateOnNewDocument((t) => { localStorage.lc_token = t; if (!sessionStorage.once) { sessionStorage.once = 1; localStorage.lc_prefs = JSON.stringify({ agc: true }); localStorage.removeItem('lc_prefs_base'); } }, ra.token);
+  await q.goto(BASE); await q.waitForFunction(() => window.__lc?.S?.synced, { timeout: 60000 }); await sleep(500);
+  const mig = await q.evaluate(() => ({ agc: window.__lc.S.prefs.agc, v: window.__lc.S.prefs.agcV }));
+  ok(mig.agc === false && mig.v === 2, 'ganho automático ligado antes: desligado uma vez na atualização', mig);
+  await q.evaluate(() => { window.__lc.S.prefs.agc = true; window.__lc.savePrefs?.(); localStorage.lc_prefs = JSON.stringify(window.__lc.S.prefs); });
+  await q.reload(); await q.waitForFunction(() => window.__lc?.S?.synced, { timeout: 60000 }); await sleep(500);
+  ok(await q.evaluate(() => window.__lc.S.prefs.agc) === true, 'religado depois: continua ligado (a migração não repete)');
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

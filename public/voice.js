@@ -103,7 +103,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
       // a porta é um extra: se ela não carregar, segue a redução de ruído de sempre (sem a proteção)
       let smart = vadGateOn(prefs);
       if (smart) await ensureModule(ctx, 'vadgate', '/vadgate-worklet.js').catch((e) => { console.warn('vadgate', e); smart = false; });
-      const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
+      const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, lock: prefs.voiceLock !== false, params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
       if (mode === 'rnnoise') {
         // com a porta: o próprio nó dela faz o RNNoise (e reaproveita a probabilidade de voz); sem: o nó RNNoise de sempre
         if (smart) chain(vg(true, await loadWasm('rnnoise')));
@@ -137,7 +137,7 @@ export async function createMic(prefs, ctx) {
   const mode = prefs.noiseMode || 'standard';
   const want = (id) => ({ audio: { deviceId: id ? { exact: id } : undefined,
     echoCancellation: prefs.echo !== false, noiseSuppression: mode === 'standard',
-    autoGainControl: prefs.agc !== false, channelCount: 1, sampleRate: 48000 }, video: false });
+    autoGainControl: prefs.agc === true, channelCount: 1, sampleRate: 48000 }, video: false });
   let raw;
   try { raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)); } catch (e) {
     // microfone escolhido não encontrado (desconectado, id novo): usa o padrão agora, SEM apagar a escolha — volta quando ele voltar

@@ -19,7 +19,7 @@ const SENS = +(process.env.SENS ?? 50), PARAMS = process.env.PARAMS ? JSON.parse
 fs.mkdirSync(CACHE, { recursive: true });
 
 // ---------- amostras ----------
-const SPEECH = [1, 2, 3, 5, 8, 12, 20, 30, 50].map(i => [`clnsp${i}`, `https://raw.githubusercontent.com/microsoft/MS-SNSD/master/clean_test/clnsp${i}.wav`]);
+const SPEECH = [1, 2, 3, 4, 5, 7, 8, 9, 11, 12, 15, 16, 20, 21, 22, 23, 30, 50].map(i => [`clnsp${i}`, `https://raw.githubusercontent.com/microsoft/MS-SNSD/master/clean_test/clnsp${i}.wav`]);
 const ESC = 'https://raw.githubusercontent.com/karolpiczak/ESC-50/master/audio/';
 const DOG = ['1-100032-A-0', '1-110389-A-0', '1-30226-A-0', '1-30344-A-0'], ENGINE = ['1-18527-A-44', '1-18527-B-44', '1-22882-A-44', '1-50454-A-44'],
   KEYS = ['1-137-A-32', '1-53501-A-32', '1-61212-A-32', '1-62594-A-32'];
@@ -111,6 +111,25 @@ const SCEN = {
     for (let at = 0, k = 0; at < n.length; at += Math.round(4.8 * SR), k++) add(n, clip(VACUUM[k % VACUUM.length], 5, -50, 100), at);
     return { s: t.x, n, desc: 'aparelho ligado no cômodo (aspirador gravado, -50 dBFS)' };
   },
+  // voz de outra pessoa no cômodo ao lado (mãe, namorada): mais baixa, com eco de sala, nas suas pausas
+  voz_fundo_fem: () => {
+    const t = talk([1, 5, 8], [3.5, 3.5], SPEECH_DB, 3), n = new Float32Array(t.x.length);
+    const bg = [2, 7, 11, 15, 16].map(i => scaleTo(room(load(`clnsp${i}`).slice(0, Math.round(3 * SR)), 0.8, 0.5), -40));
+    add(n, bg[0], Math.round(0.2 * SR)); t.segs.slice(0, -1).forEach(([, e], i) => add(n, bg[i + 1], e + Math.round(0.3 * SR)));
+    return { s: t.x, n, desc: 'voz feminina de fundo (-40 dBFS, outro cômodo) nas pausas' };
+  },
+  voz_fundo_masc: () => { // mesma situação, voz de fundo também masculina: só o volume separa
+    const t = talk([1, 5, 8], [3.5, 3.5], SPEECH_DB, 3), n = new Float32Array(t.x.length);
+    const bg = [9, 21, 23, 4].map(i => scaleTo(room(load(`clnsp${i}`).slice(0, Math.round(3 * SR)), 0.8, 0.5), -40));
+    add(n, bg[0], Math.round(0.2 * SR)); t.segs.slice(0, -1).forEach(([, e], i) => add(n, bg[i + 1], e + Math.round(0.3 * SR)));
+    return { s: t.x, n, desc: 'voz masculina de fundo (-40 dBFS, outro cômodo) nas pausas' };
+  },
+  voz_fem_dona: () => { // quem fala no microfone é mulher e a voz de fundo, homem
+    const t = talk([3, 16, 22], [3.5, 3.5], SPEECH_DB, 3), n = new Float32Array(t.x.length);
+    const bg = [9, 21, 23, 4].map(i => scaleTo(room(load(`clnsp${i}`).slice(0, Math.round(3 * SR)), 0.8, 0.5), -38));
+    add(n, bg[0], Math.round(0.2 * SR)); t.segs.slice(0, -1).forEach(([, e], i) => add(n, bg[i + 1], e + Math.round(0.3 * SR)));
+    return { s: t.x, n, desc: 'você com voz feminina; voz masculina de fundo (-38 dBFS)' };
+  },
   teclado_ventilador: () => {
     const t = talk([30, 50], [3], SPEECH_DB), n = fan(t.x.length, -50);
     for (let at = Math.round(0.3 * SR), k = 0; at < n.length; at += Math.round(4.6 * SR), k++) add(n, clip(KEYS[k % KEYS.length], 4.5, -34, 20), at);
@@ -128,11 +147,14 @@ const scen = Object.entries(SCEN).filter(([k]) => !ONLY || ONLY.includes(k)).map
 const CHAINS = {
   'rnnoise': { noiseMode: 'rnnoise', vadGate: false },
   'rnnoise+porta': { noiseMode: 'rnnoise', vadGate: false, gate: true, gateDb: -45 },
-  'rnnoise+voz': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS },
+  'rnnoise+voz': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false },
+  'rnnoise+trava': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS },
   'gtcrn': { noiseMode: 'gtcrn', vadGate: false },
-  'gtcrn+voz': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS },
+  'gtcrn+voz': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false },
+  'gtcrn+trava': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS },
 };
-const BASEOF = { 'rnnoise': 'rnnoise', 'rnnoise+porta': 'rnnoise', 'rnnoise+voz': 'rnnoise', 'gtcrn': 'gtcrn', 'gtcrn+voz': 'gtcrn' };
+if (process.env.CHAINS) { const keep = process.env.CHAINS.split(','); for (const c of Object.keys(CHAINS)) if (!keep.includes(c) && !keep.includes(c.split('+')[0])) delete CHAINS[c]; }
+const BASEOF = Object.fromEntries(Object.keys(CHAINS).map(c => [c, c.split('+')[0]]));
 
 const BASE = await ownServer('noisebench', 3341, 41320);
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', protocolTimeout: 600000, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
@@ -215,7 +237,7 @@ for (const S of scen) {
     // só conta o que a cadeia antiga entregava audível (> -60 dBFS): perder o que o próprio filtro já apagava não é perda
     const perSeg = (ks, len) => ks.map(k0 => { let a = 0, b = 0; for (let k = k0; k < k0 + len; k++) if (db(oF[k] || 0) > -60) { a += yF[k] || 0; b += oF[k] || 0; } return b > 0 ? db(a / b) : null; });
     const onRaw = perSeg(onsets, 5), on = onRaw.filter(v => v != null), off = perSeg(offsets.map(k => k - 9), 10).filter(v => v != null);
-    if (process.env.DIAG && DBG[c] && c === "rnnoise+voz" && on.length) { // os piores inícios: probabilidade de voz e porta, quadro a quadro
+    if (process.env.DIAG && DBG[c] && c === (process.env.DIAGC || "rnnoise+trava") && on.length) { // os piores inícios: probabilidade de voz e porta, quadro a quadro
       const d0 = Math.round(START / FR);
       for (const i of onRaw.map((v, i) => [v, i]).filter(x => x[0] != null).sort((a, b) => a[0] - b[0]).slice(0, 4).map(x => x[1])) {
         const k0 = onsets[i]; DIAGLOG.push(`   ${c} início em ${(k0 / 100).toFixed(2)}s perda ${onRaw[i].toFixed(1)} dB  ruído ${DBG[c].noise[k0 + d0]?.toFixed(0)}`);
@@ -225,7 +247,7 @@ for (const S of scen) {
         DIAGLOG.push('     open ' + Array.from({ length: 16 }, (_, j) => String(DBG[c].open[k0 + d0 - 6 + j] ?? '-').padStart(4)).join(' '));
       }
     }
-    if (process.env.DIAG && DBG[c] && c === "rnnoise+voz") { // probabilidade de voz nos quadros de ruído sem fala
+    if (process.env.DIAG && DBG[c] && c === (process.env.DIAGC || "rnnoise+trava")) { // probabilidade de voz nos quadros de ruído sem fala
       const d0 = Math.round(START / FR);
       const v = sp.map((_, k) => (noiseOnly(k) ? DBG[c].vad[k + d0] : null)).filter(x => x != null), hi = (t) => (100 * v.filter(x => x >= t).length / (v.length || 1)).toFixed(1);
       const lo = sp.map((_, k) => (noiseOnly(k) ? DBG[c].low[k + d0] : null)).filter(x => x != null).sort((a, b) => a - b);
@@ -244,7 +266,7 @@ for (const S of scen) {
       ruidoPassaDb: +db(sum(yF, noiseOnly) / Math.max(1e-15, sum(mixF, noiseOnly))).toFixed(1),       // atenuação do ruído nas pausas
       ruidoNivelDb: +db(sum(yF, noiseOnly) / nNo).toFixed(1),                                           // nível que sobra (dBFS)
       ruidoAudivelPct: +(100 * sp.filter((_, k) => noiseOnly(k) && db(yF[k]) > -55).length / nNo).toFixed(1),
-      portaAbertaPct: c.includes('+voz') || c.includes('+porta') ? +(100 * sp.filter((_, k) => noiseOnly(k) && db(oF[k]) > -60 && yF[k] > oF[k] * 0.25).length / nNo).toFixed(1) : null,
+      portaAbertaPct: c.includes('+') ? +(100 * sp.filter((_, k) => noiseOnly(k) && db(oF[k]) > -60 && yF[k] > oF[k] * 0.25).length / nNo).toFixed(1) : null,
       vozDb: ratio(k => sp[k]),                                                                        // voz em relação à cadeia antiga
       vozBaixaDb: ratio(k => sp[k] && dryF[k] <= quiet),
       vozCortadaPct: +(100 * sp.filter((x, k) => x && db(oF[k]) > -70 && yF[k] < oF[k] * 0.25).length / Math.max(1, sp.filter(Boolean).length)).toFixed(2),

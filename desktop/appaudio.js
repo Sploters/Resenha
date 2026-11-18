@@ -66,6 +66,7 @@ async function iconOf(exe) {
 async function annotate(list) {
   if (!Array.isArray(list)) list = [];
   const me = process.pid;
+  const mine = list.find(w => w && w.pid === me && Array.isArray(w.anc)); if (mine) ownAnc = mine.anc;
   list = list.filter(w => w && w.hwnd && w.title && w.pid !== me).map(w => ({ ...w }));
   for (const w of list) { w.game = isGame(w); w.icon = await iconOf(w.exe); }
   return list;
@@ -279,16 +280,25 @@ function stop() { cur = null; clearInterval(watch); watch = null; kill(); stopSc
 // por programa (até 8). A página mistura as trilhas (um AudioWorklet por programa, cada um com sua fila). A cada 2 s e a
 // cada mudança de janelas a lista é refeita: abriu algo nesta tela entra; mudou de monitor, minimizou ou fechou sai.
 // Fica de fora: a própria Resenha (voz da call), o explorer (pai de quase tudo: o loopback dele pegaria o PC inteiro) e as
-// lojas/launchers (pais dos jogos: a Steam aberta aqui pegaria o jogo do outro monitor). Limite: um programa com janelas
-// nos dois monitores (o mesmo Chrome) entra inteiro.
+// lojas/launchers (pais dos jogos: a Steam aberta aqui pegaria o jogo do outro monitor).
+// O loopback do Windows é "o programa E TODOS OS FILHOS DELE": não dá para pegar só uma janela. Por isso também fica de
+// fora (não vaza, mesmo que esse programa fique mudo): um programa com janela no OUTRO monitor (o mesmo Chrome aberto nas
+// duas telas, com vídeo tocando na outra; janela minimizada que estava lá) e um programa que é pai/avô de algo do outro
+// monitor ou da própria Resenha (terminal, launcher qualquer, VS Code abrindo o jogo). O pai/avô vem do lc-audio ("anc").
 const MAX_SCREEN_PROCS = 8;
-const SKIP_PARENT = /\\(explorer|steam|steamwebhelper|epicgameslauncher|riotclientservices|riotclientux|battle\.net|battle\.net launcher|eadesktop|ubisoftconnect|upc|galaxyclient|rockstarlauncher|playnite\.\w+|heroic|xboxpcapp|applicationframehost|textinputhost|shellexperiencehost|searchhost|startmenuexperiencehost|systemsettings|lockapp)\.exe$/i;
+const SKIP_PARENT = /\\(explorer|steam|steamwebhelper|epicgameslauncher|riotclientservices|riotclientux|battle\.net|battle\.net launcher|eadesktop|ubisoftconnect|upc|galaxyclient|rockstarlauncher|playnite\.\w+|heroic|xboxpcapp|applicationframehost|textinputhost|shellexperiencehost|searchhost|startmenuexperiencehost|systemsettings|lockapp|windowsterminal|cmd|powershell|pwsh|conhost|openconsole)\.exe$/i;
 let scr = null; // { rect, onData, slots: Map(pid -> { p, slot }), timer, busy }
+let ownAnc = []; // pai, avô... da própria Resenha (as janelas dela saem da lista em annotate)
 const sameMon = (mon, rect) => { if (!Array.isArray(mon) || !rect) return false; const cx = (mon[0] + mon[2]) / 2, cy = (mon[1] + mon[3]) / 2; return cx >= rect[0] && cx < rect[2] && cy >= rect[1] && cy < rect[3]; };
-function screenPids(list, rect) {
-  const out = [];
+function screenPids(list, rect, own = { pid: process.pid, anc: ownAnc }) {
+  const out = [], banned = new Set([own.pid, ...(own.anc || [])]);
   for (const w of list) {
-    if (!w || w.minimized || !w.pid || w.pid === process.pid || !sameMon(w.mon, rect)) continue;
+    if (!w || !w.pid) continue;
+    // janela que NÃO está à vista nesta tela: no outro monitor (mesmo minimizada: um vídeo minimizado continua tocando)
+    if (!sameMon(w.mon, rect)) { banned.add(w.pid); for (const a of w.anc || []) banned.add(a); }
+  }
+  for (const w of list) {
+    if (!w || w.minimized || !w.pid || banned.has(w.pid) || !sameMon(w.mon, rect)) continue;
     if (SKIP_PARENT.test(w.exe || '') || /^(Program Manager)$/.test(w.title || '')) continue;
     if (!out.includes(w.pid)) out.push(w.pid);
   }

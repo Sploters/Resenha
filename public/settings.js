@@ -644,10 +644,15 @@ function voicePage(ctx, reg) {
   const sensTxt = (v) => (v <= 30 ? 'corta mais ruído' : v >= 70 ? 'protege mais a voz' : 'equilibrada') + ` (${v})`;
   const vadSens = h('label.f', { style: { marginTop: '4px' } }, 'Sensibilidade da proteção por voz',
     slider(0, 100, S.prefs.vadSens ?? 50, 5, (v) => { S.prefs.vadSens = v; }, sensTxt, (v) => { save(); voice.micGraph?.setVadGate?.({ sens: v }); test?.setVadGate?.({ sens: v }); }));
-  vadSens.style.display = S.prefs.vadGate !== false ? '' : 'none';
+  // trava na voz (vadgate-core.js lock): aprende o volume e o tom de quem está no microfone; muda ao vivo
+  const lockBox = h('div', toggleCards([{ on: S.prefs.voiceLock !== false, label: 'Só a minha voz', sub: 'Abafa vozes ao fundo',
+    desc: 'Aprende, nos primeiros segundos falando, o volume e o tom da SUA voz e abafa as outras: alguém conversando no cômodo ao lado (mãe, namorada, TV), além de latido e moto. Gritar ou rir alto continua passando. Se outra pessoa for falar no mesmo microfone, desligue.',
+    prev: h('span.vp-fx', icon('user', 30)), fn: (v) => { S.prefs.voiceLock = v; save(); voice.micGraph?.setVadGate?.({ lock: v }); test?.setVadGate?.({ lock: v }); } }]));
+  const vadExtra = h('div', vadSens, lockBox);
+  vadExtra.style.display = S.prefs.vadGate !== false ? '' : 'none';
   const vadBox = h('div', toggleCards([{ on: S.prefs.vadGate !== false, label: 'Proteção por voz', sub: 'Abafa o que não é fala',
     desc: 'Quando a IA não reconhece voz (latido, moto passando, teclado), o microfone é abafado aos poucos em vez de deixar o barulho passar. Não corta o começo nem o fim das palavras.',
-    prev: h('span.vp-fx', icon('waves', 30)), fn: (v) => { S.prefs.vadGate = v; save(); vadSens.style.display = v ? '' : 'none'; restartTest(); } }]), vadSens);
+    prev: h('span.vp-fx', icon('waves', 30)), fn: (v) => { S.prefs.vadGate = v; save(); vadExtra.style.display = v ? '' : 'none'; restartTest(); } }]), vadExtra);
   const showVad = () => { vadBox.style.display = aiNoise() ? '' : 'none'; };
   showVad();
   const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); showVad(); restartTest(); }));
@@ -700,12 +705,12 @@ function voicePage(ctx, reg) {
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
       h('label.f', 'Volume geral da voz', slider(0, 100, S.prefs.volume, 5, v => { S.prefs.volume = v; save(); voice.peers.forEach((_, id) => voice.applyVolume(id)); }, v => v + '%')),
       !navigator.mediaDevices?.enumerateDevices ? null : h('button.btn.grey', { onclick: dev('mic') }, 'Pedir permissão do microfone')),
-    section('Supressão de ruído'), card(hint('A redução por IA (Forte e Máxima) tira sons que não são voz humana, como cachorro latindo, aspirador, teclado e porta batendo, sem cortar sua fala. Ela roda 100% no seu aparelho: nenhum áudio sai do seu computador para ser filtrado. Filtra só o SEU microfone (o ruído dos outros depende do filtro deles) e vale para todas as salas, chamadas de vídeo e transmissões até você trocar. Em ambiente silencioso com um microfone bom, prefira Leve ou Sem filtro: a IA pode piorar um pouco a voz.'),
+    section('Supressão de ruído'), card(hint('A redução por IA (Forte e Máxima) tira sons que não são voz humana, como cachorro latindo, moto, aspirador, teclado e porta batendo, sem cortar sua fala. Com "Só a minha voz" (logo abaixo), também abafa outras pessoas falando ao fundo. Ela roda 100% no seu aparelho: nenhum áudio sai do seu computador para ser filtrado. Filtra só o SEU microfone (o ruído dos outros depende do filtro deles) e vale para todas as salas, chamadas de vídeo e transmissões até você trocar. Em ambiente silencioso com um microfone bom, prefira Leve ou Sem filtro: a IA pode piorar um pouco a voz.'),
       noiseCards, h('div.btns', { style: { marginTop: '10px' } }, envBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Mede o ruído do seu ambiente e sugere o filtro')), envOut, vadBox,
       toggleCards([
         { on: S.prefs.gate, label: 'Porta de ruído', desc: 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', prev: h('span.vp-gate', h('i.g1'), h('i.g2'), h('i.g3'), h('i.g4'), h('i.g5'), h('b.vp-line')), fn: v => { S.prefs.gate = v; save(); gateBox.style.display = v ? '' : 'none'; restartTest(); } },
         { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },
-        { on: S.prefs.agc !== false, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
+        { on: S.prefs.agc === true, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone. Desligado por padrão: ele também aumenta o ruído e as vozes ao fundo nas suas pausas.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
       gateBox),
     section('Teste de microfone'), card(hint('Está com problemas no microfone? Comece um teste e fale algo: sua voz volta pelo dispositivo de saída escolhido acima e a barra mostra o nível que chega.'),
       h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(loopback, (v) => { loopback = v; S.prefs.micTestLoop = v; save(); test?.setLoopback(v); })), meterWrap, noInput, inCallNote),

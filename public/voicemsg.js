@@ -54,7 +54,7 @@ export async function recordVoiceMessage(ch, host, { onSent } = {}) {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return toast('Este navegador não consegue gravar áudio', true);
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: S.prefs.inputId ? { exact: S.prefs.inputId } : undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: S.prefs.inputId ? { exact: S.prefs.inputId } : undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: S.prefs.agc === true } });
   } catch (e) { return toast('Sem acesso ao microfone: ' + (e.message || e.name), true); }
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t));
   const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 64000 } : undefined);

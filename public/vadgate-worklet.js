@@ -7,7 +7,7 @@
 //   a decisão chega antes do áudio correspondente: antecedência de graça, e o áudio passa sem atraso nenhum a mais.
 // O ganho anda em dB, em rampa (abre em attackMs, fecha em releaseMs); fechada a porta atenua, não emudece.
 import { Rnnoise } from './vendor/ns/vadgate/rnnoise.js';
-import { FRAME, createGate, gateParams, createBand, levelDb } from './vadgate-core.js';
+import { FRAME, createGate, gateParams, createBand, createPitch, levelDb } from './vadgate-core.js';
 
 const RING = 8192; // fila de saída do modo RNNoise (amostras)
 
@@ -16,15 +16,16 @@ class VadGateProcessor extends AudioWorkletProcessor {
     super();
     const o = opt.processorOptions || {};
     this.denoise = o.denoise !== false; this.gateOn = o.gate !== false;
-    this.gate = createGate(gateParams(o.sens ?? 50, o.params));
-    this.lowBand = createBand('low', 300, sampleRate); this.hfBand = createBand('high', 2500, sampleRate);
+    this.sens = o.sens ?? 50; this.params = o.params; this.lock = o.lock !== false;
+    this.gate = createGate(this.mkParams());
+    this.lowBand = createBand('low', 300, sampleRate); this.hfBand = createBand('high', 2500, sampleRate); this.pitch = createPitch(sampleRate);
     this.inBuf = new Float32Array(FRAME); this.inN = 0;
     this.scaled = new Float32Array(FRAME); this.clean = new Float32Array(FRAME);
     this.queue = []; this.pool = []; // modo RNNoise: quadros esperando a antecedência { y, t }
     this.ring = new Float32Array(RING); this.r = 0; this.w = 0;
     this.gDb = this.gate.p.floorDb; this.tgtDb = this.gate.p.floorDb; this.underruns = 0;
     this.latency = this.denoise ? FRAME * (1 + this.gate.p.lookahead) : 0; this.w = this.latency;
-    this.dbg = o.debug ? { vad: [], lvl: [], noise: [], low: [], hf: [], open: [], st: [] } : null;
+    this.dbg = o.debug ? { vad: [], lvl: [], noise: [], low: [], hf: [], open: [], st: [], pitch: [], harm: [], spk: [], med: [] } : null;
     this.destroyed = false;
     this.port.onmessage = (e) => {
       const d = e.data;
@@ -32,7 +33,10 @@ class VadGateProcessor extends AudioWorkletProcessor {
       else if (d === 'stats') this.port.postMessage({ stats: this.dbg, underruns: this.underruns, latency: this.latency, ready: !!this.st });
       else if (d && typeof d === 'object') { // ajuste ao vivo (sensibilidade, liga/desliga) sem refazer o microfone
         if ('gate' in d) this.gateOn = d.gate !== false;
-        if ('sens' in d || 'params' in d) this.gate.setParams(gateParams(d.sens ?? 50, { ...d.params, lookahead: this.gate.p.lookahead }));
+        if ('sens' in d) this.sens = d.sens;
+        if ('lock' in d) this.lock = d.lock !== false;
+        if ('params' in d) this.params = d.params;
+        if ('sens' in d || 'params' in d || 'lock' in d) this.gate.setParams(this.mkParams());
       }
     };
     Rnnoise.loadBinary(o.wasmBinary).then((m) => {
@@ -40,15 +44,17 @@ class VadGateProcessor extends AudioWorkletProcessor {
       this.st = m.createDenoiseState(); this.port.postMessage({ ready: true });
     }).catch((e) => { this.failed = true; this.port.postMessage({ error: String(e?.message || e) }); });
   }
+  // lock: trava na voz de quem está no microfone (vadgate-core.js); lookahead fixo depois de criado (muda a latência)
+  mkParams() { return gateParams(this.sens, { ...this.params, lock: this.lock, ...(this.gate ? { lookahead: this.gate.p.lookahead } : {}) }); }
   // analisa o quadro de inBuf: probabilidade de voz + nível; devolve o ganho alvo (e deixa o áudio limpo em this.clean)
   analyze() {
     const x = this.inBuf, s = this.scaled, y = this.clean;
     for (let i = 0; i < FRAME; i++) s[i] = x[i] * 32767;
     const vad = this.st.processFrame(s); // limpa "s" no lugar e devolve a probabilidade de voz
     for (let i = 0; i < FRAME; i++) y[i] = s[i] / 32767;
-    const low = this.lowBand(x), lvl = levelDb(y), hf = this.hfBand(y);
-    const t = this.gateOn ? this.gate.step({ vad, lvl, low, hf }) : 1;
-    if (this.dbg) { const d = this.dbg; d.vad.push(vad); d.lvl.push(lvl); d.noise.push(this.gate.noiseDb); d.low.push(low); d.hf.push(hf); d.open.push(t >= 1 ? 1 : 0); d.st.push(this.gate.state); }
+    const low = this.lowBand(x), lvl = levelDb(y), hf = this.hfBand(y), { st, harm } = this.pitch(y); // tom da voz já limpa
+    const t = this.gateOn ? this.gate.step({ vad, lvl, low, hf, st, harm }) : 1;
+    if (this.dbg) { const d = this.dbg; d.vad.push(vad); d.lvl.push(lvl); d.noise.push(this.gate.noiseDb); d.low.push(low); d.hf.push(hf); d.open.push(t >= 1 ? 1 : 0); d.st.push(this.gate.state); d.pitch.push(st); d.harm.push(harm); d.spk.push(this.gate.speechDb); d.med.push(this.gate.pitch); }
     return t;
   }
   // modo RNNoise: o quadro limpo entra na fila; o mais antigo sai com o maior alvo da fila (abre antes da palavra)

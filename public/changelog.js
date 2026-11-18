@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-17-7', title: 'Microfone: só a sua voz, sem ganho automático; tela sem vazar o outro monitor',
+    items: [
+      { i: 'mic', t: 'Só a minha voz', d: 'Com a redução Forte ou Máxima, a proteção por voz aprende nos primeiros segundos o volume e o tom da SUA voz e abafa as outras: alguém conversando ao fundo (principalmente voz feminina quando você é homem, e vice-versa), latido e moto. Gritar ou rir alto continua passando. Desliga em Voz e vídeo → "Só a minha voz".', try: 'voice' },
+      { i: 'mic', t: 'Ganho automático desligado', d: 'Ele aumentava o microfone nas suas pausas, e o ruído e as vozes ao fundo subiam junto. Agora vem desligado (e foi desligado uma vez para todos). Dá para ligar de novo em Voz e vídeo.', try: 'voice' },
+      { i: 'screen', t: 'Tela inteira sem o som do outro monitor', d: 'Com "Só desta tela", um programa aberto nas duas telas (o mesmo navegador com vídeo no outro monitor), com janela minimizada lá, ou que abriu algo que está lá, fica de fora. Antes o som dele vazava para a transmissão.' },
+    ],
+  },
+  {
     id: '2026-11-17-6', title: 'Clipes: corte exato e enviar ao servidor; transmissões corrigidas',
     items: [
       { i: 'upload', t: 'Enviar clipe ao servidor', d: 'Em Meus clipes, "Enviar ao servidor" escolhe o canal (a sala onde o clipe foi gravado aparece primeiro): o clipe vai para o chat do canal e para a galeria de clipes do servidor.' },
