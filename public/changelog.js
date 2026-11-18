@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-18-2', title: 'Mais leve com a janela de lado e em servidores grandes',
+    items: [
+      { i: 'pause', t: 'GIFs e vídeos param fora de foco', d: 'Com a janela minimizada ou atrás de outra (jogando, por exemplo), os GIFs do chat, os avatares animados e os vídeos tocando sem som param, e voltam de onde estavam quando você volta. Vídeo com som continua. Dá para desligar em Configurações → Aparência.' },
+      { i: 'users', t: 'Lista de membros sem travar', d: 'Em servidores com milhares de pessoas, a lista mostra todo mundo de uma vez (sem "Mostrar mais"), mas só monta as linhas que estão na tela: rolar até o fim continua leve.' },
+      { i: 'image', t: 'Fotos em formatos novos', d: 'Fotos .jxl (JPEG XL) e .heic que o seu aparelho consegue abrir são convertidas antes de enviar, para todos conseguirem ver. Fotos .avif ganham versões menores no chat, como as outras.' },
+    ],
+  },
+  {
     id: '2026-11-18-1', title: 'Transmissão de jogos no Windows 10: sem borda amarela, sem atraso no mouse',
     items: [
       { i: 'screen', t: 'Jogo em tela cheia sem a janela de baixo', d: 'No Windows 10 a transmissão de jogo (ex.: Valorant) às vezes trocava sozinha para a captura de janela do Windows depois de alguns segundos: aparecia a borda amarela e quem assistia via a janela que estava atrás do jogo. Agora, no Windows 10, a janela do jogo vai só pela captura da tela (DXGI) e, se ela falhar, a transmissão continua pela tela do monitor do jogo.' },

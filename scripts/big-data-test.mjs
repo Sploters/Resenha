@@ -1,5 +1,5 @@
 // Servidor grande funcionando certo (banco do scripts/load/seed-big.mjs): READY só com quem está online (o resto chega ao
-// abrir o servidor), apelido e cor de cargo de quem estava fora do READY, lista de membros aos pedaços (rolar traz mais) e
+// abrir o servidor), apelido e cor de cargo de quem estava fora do READY, lista de membros virtual (só as linhas perto da tela ficam montadas) e
 // categorias da lateral montadas quando chegam perto da tela.
 // Uso: DATA_DIR=./.testdata-big node scripts/load/seed-big.mjs && node scripts/big-data-test.mjs
 import puppeteer from 'puppeteer-core'; import { spawn } from 'node:child_process'; import fs from 'node:fs'; import WebSocket from 'ws';
@@ -33,13 +33,24 @@ const st = await p.evaluate((g) => ({ n: window.__lc.S.guilds.get(g).members.siz
 ok(st.n === meta.n, 'ao abrir, a lista inteira chega', st);
 const nick = await p.evaluate(() => [...document.querySelectorAll('#msgs .msg .author')].map(e => e.textContent).filter(t => t.startsWith('Apelido')).length);
 ok(nick > 0, 'mensagens de quem não estava no READY mostram o apelido do servidor', { com_apelido: nick });
-// lista de membros aos pedaços
+// lista de membros virtual: só as linhas perto da tela ficam montadas, em qualquer ponto da rolagem
 await p.evaluate(() => [...document.querySelectorAll('#members .mgroup.col')].forEach(b => b.click())); await sleep(500);
-const before = await p.evaluate(() => document.querySelectorAll('#members .mem').length);
-ok(before < 1200 && (await p.evaluate(() => !!document.querySelector('#members .mem-more'))), 'grupos grandes começam com 200 linhas e um "Mostrar mais"', { linhas: before });
-for (let i = 0; i < 12; i++) { await p.evaluate(() => { const m = document.querySelector('#members .mem-list') || document.querySelector('#members'); for (const el of [m, document.querySelector('#members')]) if (el) el.scrollTop = el.scrollHeight; }); await sleep(250); }
-const after = await p.evaluate(() => document.querySelectorAll('#members .mem').length);
-ok(after > before + 250, 'rolando até o fim, mais membros entram', { antes: before, depois: after });
+const mlist = () => p.evaluate(() => { const l = document.querySelector('#members .mem-list'), r = [...l.querySelectorAll(':scope > .mem')], top = l.getBoundingClientRect();
+  const vis = r.filter(e => { const b = e.getBoundingClientRect(); return b.bottom > top.top && b.top < top.bottom; });
+  return { linhas: r.length, h: l.scrollHeight, first: vis[0]?.textContent.slice(0, 30), last: r.at(-1)?.textContent.slice(0, 30), vis: vis.length }; });
+const before = await mlist();
+ok(before.linhas < 120 && before.vis > 5 && before.h > 5000 * 40, 'com tudo aberto, poucas linhas montadas e a rolagem do tamanho da lista inteira', before);
+const steps = [];
+for (let i = 1; i <= 6; i++) { await p.evaluate((i) => { const l = document.querySelector('#members .mem-list'); l.scrollTop = (l.scrollHeight - l.clientHeight) * i / 6; }, i); await sleep(200); steps.push(await mlist()); }
+ok(steps.every(s => s.linhas < 120 && s.vis > 5), 'rolando até o fim, a janela acompanha (sempre há linhas na tela, nunca muitas montadas)', steps.map(s => [s.linhas, s.vis]));
+ok(new Set(steps.map(s => s.first)).size === steps.length, 'cada ponto da rolagem mostra pessoas diferentes', steps.map(s => s.first));
+const total = await p.evaluate(() => [...window.__lc.S.guilds.values()].find(g => g.members.size > 1000).members.size);
+const gap = await p.evaluate(() => { const l = document.querySelector('#members .mem-list'), last = [...l.querySelectorAll(':scope > .mem')].at(-1); return Math.round(l.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom); });
+ok(gap >= 0 && gap < 60, 'no fim da rolagem a última pessoa encosta no fim da lista (alturas certas)', { gap, total });
+// seu cartão: rola até você (que pode não estar montado) e pisca a linha
+await p.evaluate(() => { document.querySelector('#members .mem-list').scrollTop = 0; }); await sleep(200);
+await p.evaluate(() => document.querySelector('#members .mem-mecard')?.click()); await sleep(400);
+ok(await p.evaluate(() => { const el = document.querySelector('#members .mem.me'), l = document.querySelector('#members .mem-list'); if (!el) return false; const b = el.getBoundingClientRect(), t = l.getBoundingClientRect(); return b.top >= t.top && b.bottom <= t.bottom; }), '"Mostrar você na lista" rola até a sua linha');
 await p.evaluate(() => { const q = document.querySelector('#members .mem-q'); q.value = 'Pessoa Grande 4999'; q.dispatchEvent(new Event('input')); }); await sleep(500);
 ok(await p.evaluate(() => [...document.querySelectorAll('#members .mem')].some(e => e.textContent.includes('Pessoa Grande 4999'))), 'buscar acha quem está além do pedaço montado');
 await p.evaluate(() => { const q = document.querySelector('#members .mem-q'); q.value = ''; q.dispatchEvent(new Event('input')); }); await sleep(300);

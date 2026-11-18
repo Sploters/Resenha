@@ -268,9 +268,9 @@ export function framePos(img, s, round = false) {
     : `inset(${f(p.y * k)} ${f((100 - p.x) * k)} ${f((100 - p.y) * k)} ${f(p.x * k)})`;
   return img;
 }
-// foto enviada (/files/<id>.png|jpg|webp/...) no tamanho em que aparece: versão WebP menor gerada pelo servidor
+// foto enviada (/files/<id>.png|jpg|webp|avif/...) no tamanho em que aparece: versão WebP menor gerada pelo servidor
 // (server/thumbs.js; o dobro em telas de alta densidade). Outros endereços (GIF, externos) ficam como estão.
-const IMG_FILE = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp))\//i;
+const IMG_FILE = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp|avif))\//i;
 // Avatares padrão (/avatars/<n>.png, 554–1024 px) têm versões de 64/128/256 px em /avatars/s<lado>/<n>.webp
 // (scripts/avatar-sizes.mjs): antes um avatar de 24 px baixava e decodificava a imagem de 554 px (~13 KB; a de 64 px tem ~1,6 KB).
 const DEF_AV = /^\/avatars\/(\d+)\.(?:png|webp|jpe?g)$/i, AV_SIZES = [64, 128, 256];

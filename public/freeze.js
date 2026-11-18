@@ -2,6 +2,7 @@ import { S } from './state.js';
 
 // Avatares e banners animados (gif/webp/apng). Modos: 'always' (padrão), 'speak' (na chamada ficam parados e animam enquanto a pessoa fala; perfis seguem animados), 'never' (nada anima)
 const ANIM = /\.(gif|webp|apng)(\?|#|$)|^data:image\/(gif|webp|apng)/i;
+const STATIC = /^\/avatars\//; // avatares padrão (/avatars/s64/3.webp) nunca animam: não precisam de quadro parado
 const SEL = '.avatar, .upbanner, .mebanner, [class*="banner"]';
 const TILE = '.tile[data-bg="banner"]';
 const stills = new Map(); // src -> Promise<dataURL>
@@ -14,12 +15,14 @@ const still = (src) => {
   return stills.get(src);
 };
 const mode = () => S.prefs?.animMode || 'always';
-const freezeIt = (el) => { const m = mode(); return m === 'never' || (m === 'speak' && !!el.closest('#stage') && !el.closest('.speaking')); };
+// away: janela minimizada ou fora de foco (awaypause.js) — tudo para, como em 'never', até ela voltar
+let away = false;
+const freezeIt = (el) => { const m = mode(); return away || m === 'never' || (m === 'speak' && !!el.closest('#stage') && !el.closest('.speaking')); };
 
 function applyImg(img) {
   if (!img.closest?.(SEL)) return;
   const src = img.dataset.orig || img.getAttribute('src') || '';
-  if (!ANIM.test(src)) return;
+  if (!ANIM.test(src) || STATIC.test(src)) return;
   if (!freezeIt(img)) { if (img.dataset.orig && img.getAttribute('src') !== img.dataset.orig) img.src = img.dataset.orig; return; }
   img.dataset.orig = src;
   still(src).then((u) => { if (u && img.dataset.orig === src && freezeIt(img)) img.src = u; });
@@ -48,11 +51,12 @@ const obs = new MutationObserver((ms) => {
 });
 let watching = false;
 const syncWatch = () => {
-  const need = mode() !== 'always';
+  const need = away || mode() !== 'always';
   if (need === watching) return; watching = need;
   if (need) { obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true }); scan(document.body); }
   else { obs.disconnect(); obs.takeRecords(); scan(document.body); } // voltando para "Sempre": devolve as animações
 };
 // troca nas configurações chama refreshFreeze; a preferência também pode chegar de outro aparelho: confere a cada 5 s
+export function setAway(on) { if (on === away) return; away = on; refreshFreeze(); }
 export const refreshFreeze = () => { const was = watching; syncWatch(); if (was === watching) scan(document.body); };
 setTimeout(syncWatch); setInterval(syncWatch, 5000); // no próximo tique: S.prefs e o corpo da página já existem

@@ -14,6 +14,7 @@ import { prettyName, DEFAULT_NAME_WORDS } from './chnames.js';
 import { PREVIEW_TRIGGERS } from './chpreview.js';
 import { MAX_VOL } from './quick.js';
 import { refreshFreeze } from './freeze.js';
+import { refreshAwayPause } from './awaypause.js';
 import { connectionsPage } from './activity.js';
 import { intentPrefsBlock } from './intents.js';
 import { litePage, liteOn } from './lite.js';
@@ -460,7 +461,8 @@ function appearancePage() {
       h('label.f', 'Arredondamento dos cartões', slider(0, 20, S.prefs.radius, 1, set('radius'), v => v + 'px')),
       h('label.f', 'Formato da hora'), choiceCards([[0, '24 horas', h('span.hr-prev', '21:30')], [1, '12 horas', h('span.hr-prev', '9:30 PM')]], S.prefs.hour12 ? 1 : 0, (v) => { S.prefs.hour12 = !!v; save(); applyTheme(); }),
       row('Mostrar prévias de links no chat', 'Pré-visualiza imagens (.png/.jpg/.gif), vídeos do YouTube/TikTok/Instagram e jogos da loja da Steam.', toggle(S.prefs.embedLinks !== false, v => { S.prefs.embedLinks = v; save(); })),
-      row('Enviar imagens no tamanho original', 'Desligado: as fotos são comprimidas antes de enviar (WebP, até 2560 px), ficando bem mais leves para enviar e abrir. GIFs nunca são alterados.', toggle(!!S.prefs.imgOriginal, v => { S.prefs.imgOriginal = v; save(); }))),
+      row('Enviar imagens no tamanho original', 'Desligado: as fotos são comprimidas antes de enviar (até 2560 px, em WebP — ou AVIF, quando o navegador souber gerar), ficando bem mais leves para enviar e abrir. Fotos .jxl (JPEG XL) e .heic que este aparelho abre viram WebP, para todos conseguirem ver. GIFs nunca são alterados.', toggle(!!S.prefs.imgOriginal, v => { S.prefs.imgOriginal = v; save(); })),
+      row('Pausar GIFs e vídeos fora de foco', 'Com a janela minimizada ou atrás de outra (jogando, por exemplo), GIFs, avatares animados e vídeos sem som param e voltam de onde estavam quando você volta. Economiza CPU e placa de vídeo. Vídeo tocando com som continua.', toggle(S.prefs.awayPause !== false, v => { S.prefs.awayPause = v; save(); refreshAwayPause(); }))),
     section('Animações'), card(row('Animações aprimoradas', 'Transições suaves ao trocar de canal, abrir janelas e menus e receber mensagens. "Reduzir animações" em Acessibilidade tem prioridade. Cores dos cargos, avatares animados e contraste ficam em Acessibilidade.', toggle(S.prefs.animations !== false, set('animations')))),
     section('Tradução'), card(
       h('label.f', 'Traduzir mensagens para', (() => { const s = h('select', { onchange: () => { S.prefs.trLang = s.value; save(); } }, Object.entries(LANGS).map(([k, l]) => h('option', { value: k, selected: myLang() === k }, l))); return s; })()),

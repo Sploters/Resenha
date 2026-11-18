@@ -10,8 +10,8 @@ const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE_PATH || (process.env.FFMPEG_PATH ? process.env.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1') : 'ffprobe');
 const VIDEO = /^[a-f0-9]{24}\.(webm|mp4)$/;
 // fotos (anexos, perfis, ícones de servidor): versões menores em WebP no tamanho em que a tela mostra. GIF fica de fora
-// (perderia a animação). GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp>?s=<lado>
-const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp)$/i;
+// (perderia a animação). GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp|avif>?s=<lado>
+const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp|avif)$/i;
 const SIZES = [64, 128, 256, 480, 960, 1600];
 
 // HDR = curva PQ (HDR10/Dolby Vision) ou HLG (o HDR do iPhone); 10 bits sem HDR também pesa para decodificar
