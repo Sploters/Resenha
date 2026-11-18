@@ -24,16 +24,23 @@ const srv = http.createServer((req, res) => {
 });
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
 const MOCK = `http://127.0.0.1:${srv.address().port}`;
-const out = await new Promise((resolve) => {
-  const p = spawn(electron, [...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'scripts/watch-desktop-app', '--user-data-dir=' + path.resolve('.testdata-watch-desktop')], { env: { ...process.env, MOCK, RESENHA_WATCH_TEST_HOSTS: '127.0.0.1', ELECTRON_ENABLE_LOGGING: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let o = ''; p.stdout.on('data', d => (o += d)); p.stderr.on('data', d => (o += d));
-  const t = setTimeout(() => p.kill('SIGKILL'), 90_000);
-  p.on('close', () => { clearTimeout(t); resolve(o); });
+// O resultado vem por arquivo, e a espera é pelo fim do processo principal ('exit'), não pelo fechamento da saída
+// ('close'): no GitHub Actions um processo auxiliar do Electron às vezes continuava vivo segurando a saída, e o teste
+// esperava para sempre (estourava os 300 s do executor sem imprimir nada). No limite mata o grupo todo.
+const RES = path.resolve('.testdata-watch-desktop.result.json'), LOG = path.resolve('.testdata-watch-desktop.log');
+fs.rmSync(RES, { force: true });
+const logFd = fs.openSync(LOG, 'w');
+const exitInfo = await new Promise((resolve) => {
+  const p = spawn(electron, [...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : []), 'scripts/watch-desktop-app', '--user-data-dir=' + path.resolve('.testdata-watch-desktop')], { env: { ...process.env, MOCK, RESULT_FILE: RES, RESENHA_WATCH_TEST_HOSTS: '127.0.0.1', ELECTRON_ENABLE_LOGGING: '0' }, stdio: ['ignore', logFd, logFd], detached: process.platform !== 'win32' });
+  const killAll = () => { try { process.platform !== 'win32' ? process.kill(-p.pid, 'SIGKILL') : p.kill('SIGKILL'); } catch { } };
+  const t = setTimeout(() => { killAll(); resolve({ timeout: true }); }, 90_000);
+  p.on('exit', (code, sig) => { clearTimeout(t); setTimeout(killAll, 200); resolve({ code, sig }); });
+  p.on('error', (e) => { clearTimeout(t); resolve({ error: e.message }); });
 });
-srv.close();
-const line = out.split('\n').find(l => l.startsWith('RESULT '));
-if (!line) { console.log(out.slice(-3000)); ok(false, 'o app de teste não terminou'); process.exit(1); }
-const R = JSON.parse(line.slice(7));
+fs.closeSync(logFd); srv.close(); srv.closeAllConnections?.();
+let R = null; try { R = JSON.parse(fs.readFileSync(RES, 'utf8')); } catch { }
+if (!R) { console.log(fs.readFileSync(LOG, 'utf8').slice(-3000)); ok(false, 'o app de teste não terminou', exitInfo); process.exit(1); }
+if (R.timeout) console.log('  app de teste parou no passo: ' + R.step);
 if (R.exception) console.log(R.exception);
 ok(R.hostOk.netflix && !R.hostOk.evil && R.hostOk.prime, 'só endereços do próprio serviço abrem na janela', R.hostOk);
 ok(R.outside?.ok === false, 'abrir endereço fora do serviço é recusado', R.outside);
