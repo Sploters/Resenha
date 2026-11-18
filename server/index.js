@@ -200,6 +200,11 @@ const timedOut = (gid, uid) => !!gid && (get('SELECT timeout_until t FROM member
 function audit(gid, actor, action, target = null, details = '') {
   run('INSERT INTO audit_log(id,guild_id,actor_id,action,target_id,details,created_at) VALUES(?,?,?,?,?,?,?)', newId(), gid, actor, action, target, String(details).slice(0, 500), Date.now());
 }
+// registro de auditoria guardado por 45 dias (como no Discord; AUDIT_DAYS muda): o que passou disso é apagado ao subir e a cada 6 h,
+// e a leitura já não mostra o que venceu entre uma limpeza e outra
+const AUDIT_DAYS = Math.max(1, +process.env.AUDIT_DAYS || 45), auditSince = () => Date.now() - AUDIT_DAYS * 864e5;
+const pruneAudit = () => run('DELETE FROM audit_log WHERE created_at < ?', auditSince());
+pruneAudit(); setInterval(pruneAudit, 6 * 3600e3).unref();
 const reputation = createReputation({ db, all, get, run, newId, can, P, dispatch, guildMemberIds, memberObj, audit });
 // limite de mensagens: rajada de 5, recarrega 1 a cada 0,8 s
 const buckets = new Map();
@@ -641,10 +646,10 @@ app.delete('/api/guilds/:id/bans/:uid', auth, wrap((req, res) => {
 }));
 app.get('/api/guilds/:id/audit', auth, wrap((req, res) => {
   if (!can(req.params.id, req.uid, P.MANAGE_GUILD)) return bad(res, 'Sem permissão', 403);
-  const rows = req.query.before ? all('SELECT * FROM audit_log WHERE guild_id=? AND id<? ORDER BY id DESC LIMIT 100', req.params.id, String(req.query.before))
-    : all('SELECT * FROM audit_log WHERE guild_id=? ORDER BY id DESC LIMIT 100', req.params.id);
+  const rows = req.query.before ? all('SELECT * FROM audit_log WHERE guild_id=? AND id<? AND created_at>=? ORDER BY id DESC LIMIT 100', req.params.id, String(req.query.before), auditSince())
+    : all('SELECT * FROM audit_log WHERE guild_id=? AND created_at>=? ORDER BY id DESC LIMIT 100', req.params.id, auditSince());
   const ids = new Set(rows.flatMap(r => [r.actor_id, r.target_id]).filter(Boolean));
-  res.json({ entries: rows, users: [...ids].map(userPub).filter(Boolean) });
+  res.json({ entries: rows, users: [...ids].map(userPub).filter(Boolean), keep_days: AUDIT_DAYS });
 }));
 app.patch('/api/guilds/:id/members/:uid', auth, wrap((req, res) => {
   const gid = req.params.id, target = req.params.uid === 'me' ? req.uid : req.params.uid;

@@ -70,6 +70,7 @@ export function auditPage(gid) {
   const load = async (before) => {
     const r = await tryApi('GET', `/guilds/${gid}/audit${before ? '?before=' + before : ''}`); if (!r) return;
     for (const u of r.users) names.set(u.id, u);
+    if (r.keep_days) keep.textContent = `Ações de moderação e de administração feitas neste servidor. Cada registro fica guardado por ${r.keep_days} dias e depois é apagado.`;
     for (const e of r.entries) {
       const tgt = USER_TARGET.test(e.action) ? h('b', nm(e.target_id)) : null;
       let det = e.details || '';
@@ -83,8 +84,9 @@ export function auditPage(gid) {
     more.onclick = () => busy(more, load(r.entries.at(-1).id));
     if (!box.children.length) box.append(hint('Nenhuma ação registrada ainda.'));
   };
+  const keep = hint('Ações de moderação e de administração feitas neste servidor. Cada registro fica guardado por 45 dias e depois é apagado.');
   load();
-  return h('div', h('h2', 'Registro de auditoria'), hint('Ações de moderação e de administração feitas neste servidor.'), box, more);
+  return h('div', h('h2', 'Registro de auditoria'), keep, box, more);
 }
 
 // ---------- Reputação (moderação comunitária) ----------
