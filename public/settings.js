@@ -647,8 +647,8 @@ function voicePage(ctx, reg) {
   const vadSens = h('label.f', { style: { marginTop: '4px' } }, 'Sensibilidade da proteção por voz',
     slider(0, 100, S.prefs.vadSens ?? 50, 5, (v) => { S.prefs.vadSens = v; }, sensTxt, (v) => { save(); voice.micGraph?.setVadGate?.({ sens: v }); test?.setVadGate?.({ sens: v }); }));
   // trava na voz (vadgate-core.js lock): aprende o volume e o tom de quem está no microfone; muda ao vivo
-  const lockBox = h('div', toggleCards([{ on: S.prefs.voiceLock !== false, label: 'Só a minha voz', sub: 'Abafa vozes ao fundo',
-    desc: 'Aprende, nos primeiros segundos falando, o volume e o tom da SUA voz e abafa as outras: alguém conversando no cômodo ao lado (mãe, namorada, TV), além de latido e moto. Gritar ou rir alto continua passando. Se outra pessoa for falar no mesmo microfone, desligue.',
+  const lockBox = h('div', toggleCards([{ on: S.prefs.voiceLock === true, label: 'Só a minha voz', sub: 'Abafa vozes ao fundo',
+    desc: 'Aprende, nos primeiros segundos falando, o volume e o tom da SUA voz e abafa as outras: alguém conversando no cômodo ao lado (mãe, namorada, TV), além de latido e moto. Gritar ou rir alto continua passando. Vem desligado: só vale a pena com gente falando perto de você. Se a sua voz ficar baixa ou cortando, desligue. Se outra pessoa for falar no mesmo microfone, desligue.',
     prev: h('span.vp-fx', icon('user', 30)), fn: (v) => { S.prefs.voiceLock = v; save(); voice.micGraph?.setVadGate?.({ lock: v }); test?.setVadGate?.({ lock: v }); } }]));
   const vadExtra = h('div', vadSens, lockBox);
   vadExtra.style.display = S.prefs.vadGate !== false ? '' : 'none';

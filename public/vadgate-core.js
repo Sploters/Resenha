@@ -56,8 +56,10 @@ export function gateParams(sens = 50, over = {}) {
     lockOnsetDb: lerp(32, 46),   // começo de palavra até tanto abaixo do seu volume abre provisório...
     lockOnsetMs: 60,             // ...por no máximo esse tempo, esperando chegar perto do seu volume
     learnFrames: 120,            // quadros de fala para aprender o volume (e o dobro para o tom)
-    unlockMs: 3000,              // sua voz (no seu tom) bloqueada por ser baixa por tanto tempo, sem nada perto: o volume
-                                 // típico desce aos poucos (trocou de microfone ou se afastou)
+    unlockMs: 1000,              // sua voz (no seu tom) bloqueada por ser baixa por tanto tempo: o volume típico desce
+                                 // (afastou do microfone, passou a falar mais baixo). Era 3 s + 2 s e 5 dB/s: perto do
+                                 // microfone, falar uns 14 dB mais baixo que o começo da conversa cortava 80% da fala
+    unlockDb: 0.25,              // ...tanto por quadro (25 dB/s)
     ...over,
   };
 }
@@ -70,7 +72,7 @@ export function createGate(p) {
   let since = 1e9, fooled = 0, soft = false, stuck = false, calm = 0, loudRun = 0; // quadros desde a última voz, voz seguida, detector enganado
   const win = new Float32Array(Math.max(1, Math.round(p.floorWinMs / FRAME_MS))).fill(-90); let wi = 0, noise = -90, filled = 0;
   // trava na voz: volume típico da fala (~percentil 75 dos quadros de voz), histograma do tom (meio semitom por casa)
-  let spk = null, spkN = 0, fScore = 0, segRun = 0, segGap = 0, quietRun = 0, lockArmed = true, blocked = 0, sinceNear = 1e9, takeover = 0;
+  let spk = null, spkN = 0, fScore = 0, segRun = 0, segGap = 0, quietRun = 0, lockArmed = true, blocked = 0, unblocked = 0, sinceNear = 1e9, takeover = 0;
   const hist = new Float32Array(96); let histW = 0, med = null, medAge = 0;
   const pitchMed = () => { if (histW < p.learnFrames * 2 * 0.5) return null; let acc = 0; for (let i = 0; i < hist.length; i++) { acc += hist[i]; if (acc >= histW / 2) return i / 2; } return null; };
   const g = {
@@ -99,7 +101,10 @@ export function createGate(p) {
       // para voz masculina e vem com o tom "sujo")
       const shout = lvl >= spk - p.pitchLoudDb && harm >= 0.6 && Math.abs(st - med) <= p.shoutSt;
       const foreign = ptOn && voiced && !own && !shout;
-      const near = !lvOn || lvl >= spk - p.nearDb, keepNear = !lvOn || lvl >= spk - p.keepNearDb;
+      // no SEU tom e com som de voz de perto, abre bem mais abaixo do volume aprendido (antes isso só valia para manter
+      // aberta: a sua própria fala um pouco mais baixa ficava atenuada, abrindo só em pedaços — voz "robótica")
+      const ownOpen = lvOn && ptOn && own && harm >= 0.7 && lvl >= spk - p.ownNearDb;
+      const near = !lvOn || lvl >= spk - p.nearDb || ownOpen, keepNear = !lvOn || lvl >= spk - p.keepNearDb;
       // voz de outra pessoa SEGUIDA (vários quadros): um quadro solto com tom errado (erro de oitava na sua própria fala) não conta
       fScore = foreign ? fScore * 0.8 + 1 : own ? fScore * 0.5 : fScore * 0.9;
       const otherTalking = fScore >= 1.7; // ~2 quadros seguidos
@@ -115,7 +120,8 @@ export function createGate(p) {
       const lockKeep = !p.lock || ((keepNear || ownNear) && (!otherTalking || (lvl >= spk - p.pitchLoudDb && !foreign))); // pode MANTER aberta
       if (near && vad >= need && loud) sinceNear = 0; else sinceNear++;
       // sua voz ficou bem mais baixa de vez (outro microfone, afastou): depois de unlockMs, o volume típico desce aos poucos
-      if (lvOn && !near && own && vad >= need && loud && sinceNear * FRAME_MS > 2000) { if (++blocked * FRAME_MS > p.unlockMs) spk -= 0.05; } else if (sinceNear === 0) blocked = 0;
+      // (a contagem só zera depois de 1 s sem bloqueio: as sílabas que ainda passam no meio não recomeçam a espera)
+      if (lvOn && !near && own && vad >= need && loud) { unblocked = 0; if (++blocked * FRAME_MS > p.unlockMs) spk -= p.unlockDb; } else if (++unblocked > 100) blocked = 0;
       // começo de palavra: o volume ainda está subindo (os primeiros 30-60 ms ficam bem abaixo do seu volume típico).
       // Abre provisório, como a consoante; se não chegar perto do seu volume em lockOnsetMs, fecha (voz de fundo não chega)
       // depois de uma abertura provisória que não se confirmou, só tenta de novo após silêncio de verdade (150 ms): senão a
@@ -149,7 +155,9 @@ export function createGate(p) {
       // aprende com a fala que passou pela porta (aberta pela voz, não pelo começo provisório)
       if (p.lock && open && vad >= 0.8 && lvl >= noise + 10) {
         // só os quadros perto do topo ensinam o volume (depois de aprendido): a voz de fundo que passou não puxa para baixo
-        if (spk == null) spk = lvl; else if (!lvOn || lvl >= spk - 6) spk += (lvl - spk) * (lvl > spk ? 0.05 : 0.0167);
+        // a sua própria fala (seu tom, som de perto) também ensina para baixo: o volume aprendido acompanha você quando
+        // passa a falar mais baixo, em vez de ficar preso no trecho mais alto da conversa
+        if (spk == null) spk = lvl; else if (!lvOn || lvl >= spk - 6 || ownOpen) spk += (lvl - spk) * (lvl > spk ? 0.05 : 0.0167);
         spkN++;
         // o tom só aprende com fala contínua (latido é rajada curta: não ensina)
         if (voiced && harm >= 0.7 && segRun >= 20 && (!lvOn || lvl >= spk - 8)) {

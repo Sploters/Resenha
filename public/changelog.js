@@ -6,10 +6,11 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
-    id: '2026-11-18-5', title: 'Watch Together junto com as transmissões e voz sem cortes',
+    id: '2026-11-18-5', title: 'Voz sem cortes e Watch Together junto com as transmissões',
     items: [
       { i: 'screen', t: 'Assistir uma transmissão com o Watch Together aberto', d: 'Quando alguém da sala transmite, aparece "AO VIVO" no topo do Watch Together. Um clique abre a transmissão e o vídeo continua tocando no mini player. Abrir uma transmissão por qualquer outro lugar também minimiza o player.' },
       { i: 'tv', t: 'Barra da chamada no lugar', d: 'Os botões da chamada não aparecem mais por cima do player: a barra fica parada embaixo dele, e o mini player nasce acima dela.' },
+      { i: 'mic', t: 'Sua voz não baixa mais sozinha', d: '"Só a minha voz" aprendia o seu volume pelos trechos mais altos da conversa. Quem fala perto do microfone e depois baixava um pouco a voz era tratado como "voz de fundo": a voz ia sumindo e ficava cortada, robótica. Agora ele vem desligado (ligue em Voz e vídeo se tiver gente falando perto de você) e, ligado, acompanha você quando fala mais baixo.' },
       { i: 'mic', t: 'Cancelamento de eco sem cortar a sua voz', d: 'O filtro usava como referência todo som do app, inclusive o vídeo do Watch Together, e cortava a sua voz enquanto ele tocava. Agora tira só a voz e as transmissões da chamada. O modo antigo fica em Voz e vídeo → "Cancelar também o som do app".' },
     ],
   },

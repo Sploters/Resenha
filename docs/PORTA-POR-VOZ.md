@@ -125,7 +125,20 @@ vez (`migrateAgc` em `public/app.js`, marca `agcV = 2`); depois vale a escolha d
   ~250 ms faz a porta esquecer o tom e reaprender. Voz que ficou bem mais baixa de vez (trocou de microfone) desce o
   volume aprendido aos poucos depois de 3 s.
 - Atenuação da porta fechada: -38,5 dB na sensibilidade 50 (era -35).
-- Configurações > Voz e vídeo > "Só a minha voz" (ligado por padrão; muda ao vivo). `prefs.voiceLock = false` desliga.
+- Configurações > Voz e vídeo > "Só a minha voz" (**desligado por padrão** desde 2026-11-18; muda ao vivo).
+  `prefs.voiceLock === true` liga.
+
+### Correção: cortava a própria voz (2026-11-18)
+Relato: perto do microfone, sala silenciosa, a voz ia baixando e ficava "robótica". Causa: o volume aprendido só subia
+com os trechos mais altos da conversa; falando uns 14 dB mais baixo depois (afastar alguns centímetros de um microfone
+perto da boca já dá isso), a sua voz ficava abaixo de `nearDb` e era tratada como voz de fundo: -38,5 dB, abrindo só em
+pedaços de 60 ms. A liberação levava 2 s + 3 s e depois descia 5 dB/s, e qualquer sílaba que passava recomeçava a espera.
+Simulação (mesma pessoa, falando a -16 dBFS e depois a -30 dBFS): **80% da fala abaixada → 16%**, só no primeiro ~1,5 s.
+- No seu tom e com som de perto (`harm ≥ 0,7`), a voz abre até `ownNearDb` abaixo do volume aprendido (antes só mantinha).
+- A sua própria fala também ensina o volume para baixo.
+- Liberação: 1 s (`unlockMs`) e 25 dB/s (`unlockDb`); a contagem só zera depois de 1 s sem bloqueio.
+- Troca: voz de fundo no mesmo tom e falando sem parar passa a passar depois de ~1 s (limite já conhecido).
+- E a trava agora é opcional: quem estava no padrão fica com ela desligada.
 
 ## Medições
 Simulador em Node com o mesmo RNNoise e a mesma porta (voz real do MS-SNSD; latido e motor do ESC-50; voz de fundo com

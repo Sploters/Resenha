@@ -104,7 +104,8 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
       // a porta é um extra: se ela não carregar, segue a redução de ruído de sempre (sem a proteção)
       let smart = vadGateOn(prefs);
       if (smart) await ensureModule(ctx, 'vadgate', '/vadgate-worklet.js').catch((e) => { console.warn('vadgate', e); smart = false; });
-      const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, lock: prefs.voiceLock !== false, params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
+      const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, lock: prefs.voiceLock === true, // "Só a minha voz": desligado por padrão (ligado, cortava a própria voz de quem fala perto do microfone)
+      params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
       if (mode === 'rnnoise') {
         // com a porta: o próprio nó dela faz o RNNoise (e reaproveita a probabilidade de voz); sem: o nó RNNoise de sempre
         if (smart) chain(vg(true, await loadWasm('rnnoise')));

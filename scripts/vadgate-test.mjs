@@ -91,7 +91,10 @@ const quiet = { vad: 0, lvl: -80 };
   ok(open <= 2, 'voz feminina 6 dB abaixo da sua (mesmo cômodo): não abre (no máximo 1-2 quadros)', { open });
   run(g, 60, quiet); open = 0; for (let i = 0; i < 100; i++) if (g.step(me(-42, 110)) === 1) open++;
   ok(open <= L.lockOnsetMs / 10 + 1, `voz no seu tom, mas bem longe: só o começo provisório (${L.lockOnsetMs} ms) e fecha`, { open, depois: g.state });
-  ok(run(g, 50, me(-42, 110)) < 1, '...e não reabre enquanto ela continua falando');
+  // no seu tom e falando sem parar: depois de ~1 s a porta entende que é você que se afastou/baixou a voz e reabre (antes
+  // levava 5 s, e a sua própria fala mais baixa ficava cortada em pedaços). Voz de fundo no mesmo tom é o limite conhecido
+  let back = 0; for (let i = 0; i < 150; i++) if (g.step(me(-42, 110)) === 1) back++;
+  ok(back > 50, '...e se continuar no seu tom, em ~1 s volta a passar (você se afastou do microfone)', { back });
   run(g, 60, quiet); ok(run(g, 3, me(-26, 112)) === 1, 'sua voz abre na hora');
   run(g, 60, quiet); ok(run(g, 3, me(-30, 105)) === 1, 'sua voz mais baixinha (no seu tom): abre');
   run(g, 60, quiet); ok(run(g, 3, me(-22, 190)) === 1, 'grito/risada (tom mais alto, no seu volume, limpo): abre');

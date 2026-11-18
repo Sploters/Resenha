@@ -32,12 +32,12 @@ try {
   const warn = await p.evaluate(() => [...document.querySelectorAll('.hintline.keep')].some(n => /não está detectando/.test(n.innerText) && n.offsetParent));
   ok(!warn, 'com som chegando: sem o aviso de "não está detectando nenhuma entrada"');
   await click(/^Parar teste$/);
-  // "Só a minha voz" (trava na voz) ligado por padrão, e o ganho automático desligado
+  // "Só a minha voz" (trava na voz) desligado por padrão (cortava a voz de quem fala perto do microfone), e o ganho automático desligado
   const sw = (lbl) => p.evaluate((l) => { const b = [...document.querySelectorAll('button.tog')].find(x => x.querySelector('.ch-lbl')?.textContent.trim() === l); return b ? { on: b.getAttribute('aria-checked') === 'true', vis: !!b.offsetParent } : null; }, lbl);
   const lock = await sw('Só a minha voz');
-  ok(lock && lock.on && lock.vis, '"Só a minha voz" aparece ligado com a redução por IA', lock);
+  ok(lock && !lock.on && lock.vis, '"Só a minha voz" aparece desligado com a redução por IA', lock);
   await p.evaluate(() => [...document.querySelectorAll('button.tog')].find(x => x.querySelector('.ch-lbl')?.textContent.trim() === 'Só a minha voz').click());
-  ok(await p.evaluate(() => window.__lc.S.prefs.voiceLock === false), 'desligar grava voiceLock = false');
+  ok(await p.evaluate(() => window.__lc.S.prefs.voiceLock === true), 'ligar grava voiceLock = true');
   const agc = await sw('Ganho automático');
   ok(agc && !agc.on && (await p.evaluate(() => window.__lc.S.prefs.agc)) === false, 'ganho automático desligado por padrão', agc);
   const menuLbl = await p.evaluate(async () => { const m = await window.__lc.import('ui.js'); return Object.values(m.NOISE_INFO).map(x => x[0]); });
