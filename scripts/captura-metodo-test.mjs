@@ -170,13 +170,18 @@ try {
   await unshare(A);
   await A.evaluate(() => { window.__oldApp = false; window.__lc.voice._natCap = null; });
 
-  // 8) Windows 10: DXGI primeiro; tela cheia exclusiva congela o DXGI simulado? Não: aqui o DXGI falha de vez -> WGC assume
-  console.log('-- 8. Windows 10: DXGI primeiro, falha -> WGC');
+  // 8) Windows 10, janela: só DXGI. O WGC lá tem borda amarela e tira o jogo da apresentação direta (mouse com atraso,
+  //    imagem da janela de baixo): mesmo com o DXGI falhando de vez, nunca passa para o WGC (segue pelo Chromium)
+  console.log('-- 8. Windows 10: janela só pelo DXGI; falha -> Chromium (nunca WGC)');
   OSB = 19045;
-  await share(A, 'dxgi=fail@2', 'auto');
-  await A.waitForFunction(() => window.__lc.voice.native?.method === 'wgc', { timeout: 15000 }).catch(() => { });
+  await share(A, 'dxgi=ok', 'auto');
   c = await info(A);
-  ok(c?.order?.[0] === 'dxgi' && /Windows 10/.test(c.plan) && c.active === 'wgc' && c.history.some(e => e.kind === 'method' && e.from === 'dxgi' && /falhou/.test(e.why)), 'Windows 10 começa no DXGI; erro -> WGC, com o motivo', { order: c?.order, active: c?.active });
+  ok(JSON.stringify(c?.order) === '["dxgi"]' && /Windows 10/.test(c.plan) && c.active === 'dxgi', 'Windows 10, janela: só DXGI na ordem', { order: c?.order, active: c?.active, plan: c?.plan });
+  await unshare(A);
+  await share(A, 'dxgi=fail@2', 'auto');
+  await A.waitForFunction(() => !window.__lc.voice.native && window.__lc.voice.sfu?.producers?.screen, { timeout: 25000 }).catch(() => { });
+  s = await state(A);
+  ok(!s.native && s.chromiumVideo && !helpers.some(h => h.events.some(e => e.t === 'method' && e.m === 'wgc')), 'DXGI falhou: segue pelo Chromium sem nunca abrir o WGC', { s, methods: helpers.flatMap(h => h.events.filter(e => e.t === 'method').map(e => e.m)) });
   await unshare(A);
 
   // 9) 30 FPS (o padrão): jogo no Windows 10 vai pelo nativo (DXGI pega a tela cheia exclusiva; o Chromium congelava);
@@ -224,9 +229,15 @@ try {
   await share(A, 'wgc=fail@1,dxgi=nostart', 'auto', { fps: 60, srcInfo: valo });
   await A.waitForFunction(() => !window.__lc.voice.native && window.__lc.voice.sfu?.producers?.screen, { timeout: 15000 }).catch(() => { });
   sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
-  ok(!s.native && s.chromiumVideo && sel.at(-1) === 'window:4242:0', 'nativo falhou: o Chromium volta para a janela do jogo antes de transmitir (nunca a tela inteira)', { sel, s });
+  ok(!s.native && s.chromiumVideo && sel.at(-1) === 'screen:0:0', 'nativo falhou com jogo em TELA CHEIA: o Chromium fica na tela do monitor do jogo (a janela pela WGC teria borda amarela e atrasaria o jogo)', { sel, s });
   await watch(B, a.id);
   ok(await viewerFrames(B, a.id) > 20, 'quem assiste vê pelo Chromium');
+  await unshare(A);
+  await A.evaluate(() => { window.__sel.length = 0; });
+  await share(A, 'wgc=fail@1,dxgi=nostart', 'auto', { fps: 60, srcInfo: { ...valo, fullscreen: false } });
+  await A.waitForFunction(() => !window.__lc.voice.native && window.__lc.voice.sfu?.producers?.screen, { timeout: 15000 }).catch(() => { });
+  sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
+  ok(!s.native && s.chromiumVideo && sel.at(-1) === 'window:4242:0', 'nativo falhou com jogo em JANELA: o Chromium volta para a janela do jogo (nunca a tela inteira)', { sel, s });
   await unshare(A);
   await A.evaluate(() => { window.__os = 26200; window.__lc.voice._natCap = null; });
   await share(A, '', 'auto', { fps: 30, srcInfo: game });

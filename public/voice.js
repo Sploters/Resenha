@@ -1365,9 +1365,18 @@ export class Voice {
   }
   // antes de mandar o vídeo pelo Chromium: se ele estava na tela só para a prévia (acima), volta para a JANELA do jogo
   // (nunca transmitir a tela inteira no lugar da janela escolhida). Sem conseguir, para a transmissão.
+  // Exceção: jogo em TELA CHEIA no Windows 10. Lá a captura de janela do Chromium é a WGC: borda amarela, o jogo deixa de
+  // ser apresentado direto (mouse com atraso para quem joga, cursor some) e a imagem congela ou mostra a janela de baixo
+  // (relato com Valorant). A tela do monitor do jogo é a mesma imagem (o jogo cobre o monitor) e vai pelo DXGI, sem nada
+  // disso: fica nela.
   async chromiumOnWindow() {
     const id = this._natWinId; if (!id || !this.screen) return true;
     const d = window.lcDesktop, old = this.screen.getVideoTracks()[0], o = this.screenOpts || {};
+    const si = o.srcInfo || {}; // minimizado = jogo em tela cheia depois do Alt+Tab (ex.: 4:3 esticado, que não mede o monitor todo)
+    if ((si.fullscreen || si.game && si.minimized) && old?.readyState === 'live') {
+      this.capLog({ t: 'capnote', msg: 'jogo em tela cheia no Windows 10: o modo normal segue na tela do monitor do jogo (sem a captura de janela, que tem borda amarela e atrasa o jogo)' });
+      return true;
+    }
     try {
       await d.selectSource(id, o.srcInfo?.name || '');
       const video = { frameRate: capFps(o.fps), cursor: o.cursor === false ? 'never' : 'always' };

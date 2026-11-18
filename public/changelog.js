@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-18-1', title: 'Transmissão de jogos no Windows 10: sem borda amarela, sem atraso no mouse',
+    items: [
+      { i: 'screen', t: 'Jogo em tela cheia sem a janela de baixo', d: 'No Windows 10 a transmissão de jogo (ex.: Valorant) às vezes trocava sozinha para a captura de janela do Windows depois de alguns segundos: aparecia a borda amarela e quem assistia via a janela que estava atrás do jogo. Agora, no Windows 10, a janela do jogo vai só pela captura da tela (DXGI) e, se ela falhar, a transmissão continua pela tela do monitor do jogo.' },
+      { i: 'gamepad', t: 'Mouse sem atraso enquanto transmite', d: 'A transmissão pedia prioridade máxima na placa de vídeo e passava na frente do jogo a cada quadro, e quem jogava sentia o mouse atrasado. Agora o jogo vem primeiro.' },
+    ],
+  },
+  {
     id: '2026-11-17-7', title: 'Microfone: só a sua voz, sem ganho automático; tela sem vazar o outro monitor',
     items: [
       { i: 'mic', t: 'Só a minha voz', d: 'Com a redução Forte ou Máxima, a proteção por voz aprende nos primeiros segundos o volume e o tom da SUA voz e abafa as outras: alguém conversando ao fundo (principalmente voz feminina quando você é homem, e vice-versa), latido e moto. Gritar ou rir alto continua passando. Desliga em Voz e vídeo → "Só a minha voz".', try: 'voice' },

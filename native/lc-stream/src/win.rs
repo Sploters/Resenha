@@ -30,21 +30,19 @@ use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
 pub(crate) type R<T> = Result<T, String>;
 
-#[link(name = "gdi32")]
-extern "system" { fn D3DKMTSetProcessSchedulingPriorityClass(process: windows::Win32::Foundation::HANDLE, class: i32) -> i32; }
-const GPU_CLASS_HIGH: i32 = 4; // D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH
-/// Prioridades para a transmissão não perder quadros quando o jogo puxa CPU/GPU (o programa roda sem janela, em segundo
+/// Prioridades para a transmissão não perder quadros quando o jogo puxa CPU (o programa roda sem janela, em segundo
 /// plano, e o Windows 11 tende a tratá-lo como tarefa de fundo):
 /// - sem EcoQoS (o Windows 11 pode pôr processo de fundo em núcleos de economia e com o relógio mais lento) e sem
 ///   ignorar a resolução de timer;
 /// - thread da captura/codificação acima do normal (não tempo real: o laço acorda a cada quadro e não pode tomar o
 ///   processador do jogo);
-/// - prioridade de GPU: o processo na classe ALTA do agendador da placa (D3DKMTSetProcessSchedulingPriorityClass, o que
-///   o OBS faz) e as threads no máximo que o Windows aceitar (SetGPUThreadPriority, 7 -> 1). Com o jogo usando 80-90% da
-///   placa, a captura e a conversão ficavam na fila atrás dele e o DXGI entregava ~46 de 60 quadros (Windows 10, AMD).
-///   O trabalho do lc-stream na placa é pequeno (conversão de cor; o codificador é um bloco à parte), então tirar a
-///   frente custa pouco ao jogo. Tempo real (REALTIME) exige administrador e pode travar a tela: não usa.
+/// - prioridade de GPU só um degrau acima do normal (SetGPUThreadPriority 1). NÃO usa mais a classe ALTA do agendador
+///   da placa (D3DKMTSetProcessSchedulingPriorityClass) nem a thread de GPU no máximo (7): com isso a conversão de cor
+///   da transmissão passava na frente do jogo a cada quadro e o jogo atrasava a imagem — quem jogava sentia o mouse
+///   com atraso (relato com Valorant no Windows 10). O jogo vem antes da transmissão: perder um quadro na transmissão é
+///   melhor do que atrasar o jogo.
 /// Cada passo é independente; o resultado vai no evento "started" para o diagnóstico.
+const GPU_PRIORITY: i32 = 1;
 pub(crate) fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
     use windows::Win32::System::Threading::*;
     let eco = unsafe {
@@ -52,9 +50,8 @@ pub(crate) fn tune(dxgi: &IDXGIDevice) -> serde_json::Value {
         SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &st as *const _ as *const core::ffi::c_void, std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32).is_ok()
     };
     let thread = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL).is_ok() };
-    let class = unsafe { D3DKMTSetProcessSchedulingPriorityClass(GetCurrentProcess(), GPU_CLASS_HIGH) } >= 0;
-    let gpu = [7, 5, 3, 1].into_iter().find(|&p| unsafe { dxgi.SetGPUThreadPriority(p) }.is_ok());
-    serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpuClassHigh": class, "gpu": gpu.is_some(), "gpuThread": gpu })
+    let gpu = unsafe { dxgi.SetGPUThreadPriority(GPU_PRIORITY) }.is_ok();
+    serde_json::json!({ "noEcoQos": eco, "thread": thread, "gpuClassHigh": false, "gpu": gpu, "gpuThread": if gpu { Some(GPU_PRIORITY) } else { None } })
 }
 pub(crate) fn e<T>(r: windows::core::Result<T>, what: &str) -> R<T> { r.map_err(|x| format!("{what}: {} (0x{:08X})", x.message(), x.code().0 as u32)) }
 

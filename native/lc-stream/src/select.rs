@@ -2,6 +2,11 @@
 //! fato (quadros novos, imagem preta, imagem mudando) e devolve ações para o pipeline (capture.rs). Testado com
 //! `cargo test` em qualquer sistema. Regras (docs/CAPTURA-WGC-DXGI.md, "Integração"):
 //! - Ordem inicial: Windows 11 -> WGC, DXGI; Windows 10 -> DXGI, WGC. Só um ponto de partida: o que vale é o resultado.
+//! - Windows 10 (automático): o WGC desenha a borda amarela (não dá para tirar lá) e, aberto numa janela de jogo, tira o
+//!   jogo da apresentação direta (o Windows passa a compor a tela do jogo): o mouse fica com atraso para quem joga, o
+//!   cursor some e, em tela cheia, a imagem congela ou mostra o que está atrás. Por isso lá: JANELA só pelo DXGI (se o
+//!   DXGI não der, GiveUp e o app segue capturando a tela pelo Chromium, sem borda); MONITOR usa o WGC só se o DXGI não
+//!   abrir ou morrer de vez, nunca como candidato "ao lado" por tela preta/parada.
 //! - Tela preta ou imagem parada (com sinal de que a tela devia estar mudando) não troca na hora: abre o outro método
 //!   ao lado ("candidato") e só troca se ele mostrar uma imagem melhor. Se não mostrar, fica onde está e espera cada
 //!   vez mais para tentar de novo (10 s, 20 s, 40 s ... 5 min).
@@ -106,7 +111,8 @@ impl Selector {
         let (order, plan_why) = match mode {
             Mode::Force(m) => (vec![m], format!("forçado nas configurações: só {}", m.id().to_uppercase())),
             Mode::Auto if win11 => (vec![Method::Wgc, Method::Dxgi], format!("Windows 11 (build {os_build}): WGC primeiro (isola a janela, sem borda); DXGI de reserva")),
-            Mode::Auto => (vec![Method::Dxgi, Method::Wgc], format!("Windows 10 (build {os_build}): DXGI primeiro (sem borda amarela e segue funcionando em tela cheia exclusiva); WGC de reserva")),
+            Mode::Auto if window_src => (vec![Method::Dxgi], format!("Windows 10 (build {os_build}), janela: só DXGI (o WGC lá tem borda amarela e atrasa o jogo)")),
+            Mode::Auto => (vec![Method::Dxgi, Method::Wgc], format!("Windows 10 (build {os_build}): DXGI primeiro (sem borda amarela e segue funcionando em tela cheia exclusiva); WGC só se o DXGI não funcionar")),
         };
         Self { mode, win11, window_src, order, per: Default::default(), active: None, active_since: 0.0, got_first: false, black_since: None, stale_since: None, cand: None,
             next_check: 0.0, backoff: BACKOFF_MIN, next_return: 0.0, return_backoff: RETURN_MIN, switches: vec![], noted_forced: false, noted_budget: false, notes: vec![], plan_why }
@@ -186,7 +192,9 @@ impl Selector {
         if let Some((_, why)) = trig {
             if self.forced() { if !self.noted_forced { self.noted_forced = true; self.note(now, format!("{why}; método forçado nas configurações, sem troca")); } return Action::None; }
             let o = a.other();
-            if now < self.next_check || !self.usable(o) { return Action::None; }
+            // Windows 10: nunca abre o WGC "ao lado" (borda amarela na tela de quem joga e o jogo deixa de ser apresentado
+            // direto enquanto ele estiver aberto, mesmo que seja descartado depois)
+            if now < self.next_check || !self.usable(o) || (o == Method::Wgc && !self.win11 && !self.forced()) { return Action::None; }
             if !self.budget_ok(now) { if !self.noted_budget { self.noted_budget = true; self.note(now, format!("{why}; limite de {MAX_SWITCHES} trocas em {SWITCH_WINDOW:.0} s atingido, mantendo {}", a.id().to_uppercase())); } return Action::None; }
             self.cand = Some(Cand { m: o, since: now, why: why.clone(), returning: false, frames: 0, black: 0, lit: 0, changed: 0, act_changed: 0 });
             return Action::OpenCandidate(o, format!("{why}: testando {} ao lado", o.id().to_uppercase()));
@@ -382,12 +390,33 @@ mod tests {
     }
 
     #[test]
-    fn windows10_janela_nao_volta_para_o_dxgi_que_falhou() {
+    fn windows10_janela_nunca_usa_wgc() {
+        // borda amarela e jogo atrasado: no Windows 10 a janela é só DXGI; se ele morrer, o app segue pelo Chromium
         let mut s = Selector::new(Mode::Auto, 19045, true);
+        assert_eq!(s.order(), vec![Method::Dxgi]);
         s.opened(0.0, Method::Dxgi);
-        assert!(matches!(s.active_error(2.0, "erro"), Action::SwitchCold(Method::Wgc, _)));
-        s.switched_cold(2.0, Method::Wgc);
-        for i in 5..2000 { assert_eq!(s.tick(i as f64 * 0.5, &ok(30)), Action::None, "t={}", i as f64 * 0.5); }
+        for i in 0..40 { assert_eq!(s.tick(i as f64 * 0.5, &black()), Action::None); } // preto: não abre WGC ao lado
+        assert!(matches!(s.active_error(30.0, "erro"), Action::GiveUp(_)));
+        // não abriu: tenta o próprio DXGI de novo (até HARD_FAILS) e desiste, sem passar pelo WGC
+        let mut s = Selector::new(Mode::Auto, 19045, true);
+        let mut last = Action::None;
+        for i in 0..HARD_FAILS { last = s.open_failed(i as f64, Method::Dxgi, "nao abriu"); assert!(!matches!(last, Action::SwitchCold(Method::Wgc, _))); }
+        assert!(matches!(last, Action::GiveUp(_)), "{last:?}");
+    }
+
+    #[test]
+    fn windows10_monitor_nao_abre_wgc_ao_lado() {
+        let mut s = Selector::new(Mode::Auto, 19045, false);
+        s.opened(0.0, Method::Dxgi);
+        for i in 0..40 { assert_eq!(s.tick(i as f64 * 0.5, &black()), Action::None); }
+        // mas se o DXGI morrer de vez, o WGC ainda serve de reserva para a tela inteira
+        assert!(matches!(s.active_error(30.0, "erro"), Action::SwitchCold(Method::Wgc, _)));
+    }
+
+    #[test]
+    fn windows10_forcado_wgc_continua_valendo() {
+        let s = Selector::new(Mode::Force(Method::Wgc), 19045, true);
+        assert_eq!(s.order(), vec![Method::Wgc]);
     }
 
     #[test]
