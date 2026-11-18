@@ -2,7 +2,7 @@
 // o vídeo começava até 1 s antes do ponto escolhido. Aqui o trecho é decodificado a partir do quadro-chave anterior e
 // recodificado (WebCodecs, na placa de vídeo quando dá) começando exatamente no ponto marcado; o áudio é copiado como está.
 // Sem imports de UI. Lança erro quando não dá (navegador sem WebCodecs, codec desconhecido): quem chama usa o corte rápido.
-import { splitWebm, parseCluster, readId, readSize } from './webm.js';
+import { splitWebm, parseCluster, readId, readSize, seekIdAt } from './webm.js';
 
 const uint = (b, p, n) => { let v = 0; for (let i = 0; i < n; i++) v = v * 256 + b[p + i]; return v; };
 const txt = (b, p, n) => new TextDecoder().decode(b.subarray(p, p + n)).replace(/\0+$/, '');
@@ -18,9 +18,9 @@ function children(b, from, to) {
 }
 
 // trilhas do cabeçalho: [{ num, type (1 vídeo, 2 áudio), codec, priv, w, h, raw (o TrackEntry inteiro) }]
-function tracksOf(h) {
+export function tracksOf(h) {
   for (let i = 0; i < h.length - 4; i++) {
-    if (h[i] !== 0x16 || h[i + 1] !== 0x54 || h[i + 2] !== 0xae || h[i + 3] !== 0x6b) continue;
+    if (h[i] !== 0x16 || h[i + 1] !== 0x54 || h[i + 2] !== 0xae || h[i + 3] !== 0x6b || seekIdAt(h, i)) continue;
     const s = readSize(h, i + 4); if (!s) return [];
     const end = s.unknown ? h.length : Math.min(h.length, i + 4 + s.len + s.value);
     return children(h, i + 4 + s.len, end).filter(e => e.id === 0xae).map((e) => {
@@ -38,9 +38,10 @@ function tracksOf(h) {
   return [];
 }
 
-// todos os quadros: [{ track, t (ms desde o início do arquivo), key, data }]
-function framesOf(sp) {
-  const out = []; let base = null;
+// todos os quadros: [{ track, t (ms desde o início do arquivo), key, data }]. abs: t no tempo do próprio arquivo (sem zerar
+// no 1º cluster), para o áudio gravado ao vivo cujo começo já saiu do buffer
+export function framesOf(sp, abs = false) {
+  const out = []; let base = abs ? 0 : null;
   for (const c of sp.clusters) {
     const x = parseCluster(c); if (!x) throw new Error('cluster ilegível');
     base ??= x.ts;
@@ -94,7 +95,7 @@ const sel = (id, s) => el(id, new TextEncoder().encode(s));
 const fel = (id, v) => { const dv = new DataView(new ArrayBuffer(8)); dv.setFloat64(0, v); return el(id, new Uint8Array(dv.buffer)); };
 
 // ebml: bytes do cabeçalho EBML original (antes do Segment). frames: [{ track, t (ms), key, data }] já na ordem do tempo
-function writeWebm(ebml, video, audioRaw, durMs, frames) {
+export function writeWebm(ebml, video, audioRaw, durMs, frames) {
   const vEntry = el(0xae, uel(0xd7, video.num), uel(0x73c5, video.num), uel(0x83, 1), sel(0x86, video.codec),
     ...(video.priv ? [el(0x63a2, video.priv)] : []), el(0xe0, uel(0xb0, video.w), uel(0xba, video.h)));
   const parts = [ebml, Uint8Array.from([0x18, 0x53, 0x80, 0x67, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),

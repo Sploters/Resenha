@@ -3503,7 +3503,7 @@ function renderVoiceUI(speakOnly) {
       // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
       // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
       if (mine) voice.syncPreview(); // transmissão nativa: prévia leve, ou 30 fps se ela também alimenta o clipe próprio
-      if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx());
+      if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx(), { native: mine && voice.nativeClips() });
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
             const sctl = streamControls({ key, uid, mine, scr, inRoom, who: nm(uid) });

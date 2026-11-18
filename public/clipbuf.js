@@ -1,5 +1,6 @@
 // Buffer circular de uma transmissão: MediaRecorder em WebM, ~65s, e corte dos últimos N segundos. Sem imports de UI (testável).
-import { findClusters, parseCluster, buildClip, videoTrack } from './webm.js';
+import { findClusters, parseCluster, buildClip, videoTrack, splitWebm } from './webm.js';
+import { tracksOf, framesOf, writeWebm } from './cliprecode.js';
 
 const KEEP = 65000; // padrão: 60 s de clipe + folga (opts.keep muda: clipes de 2 min guardam ~125 s)
 
@@ -123,5 +124,111 @@ export function createBuffer(stream, audio, opts = {}) {
     return out && new Blob([out], { type: 'video/webm' });
   };
   buf.stop = () => { buf.stopped = true; buf.onEnd = null; try { if (buf.rec && buf.rec.state !== 'inactive') buf.rec.stop(); } catch { /* já parado */ } buf.limiter?.stop(); buf.chunks = []; buf.clusters = []; buf.header = null; };
+  return buf;
+}
+
+// ---------- clipe da própria transmissão pelo programa nativo (app desktop, 60/120 FPS) ----------
+// O lc-stream guarda os quadros H.264 que a placa de vídeo JÁ comprimiu para a transmissão (native/lc-stream/src/replay.rs).
+// Aqui só o ÁUDIO é gravado (Opus, leve) e, ao clipar, os dois viram um WebM igual ao do MediaRecorder (cortar, recortar
+// exato, compartilhar: tudo igual). Antes o Chromium capturava a tela de novo e recomprimia em H.264 só para o clipe.
+// O vídeo sai na taxa e na qualidade da transmissão (até 120 FPS), sem o limite de FPS do clipe: não dá para tirar
+// quadros de um H.264 pronto sem recomprimir.
+
+// arquivo do programa: "LCRB" | versão | largura | altura | avcC | quadros (hora em ms do relógio do sistema, chave, AVC)
+export function parseNativeClip(b) {
+  if (!(b instanceof Uint8Array)) b = new Uint8Array(b);
+  if (b.length < 21 || String.fromCharCode(b[0], b[1], b[2], b[3]) !== 'LCRB' || b[4] !== 1) return null;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const w = dv.getUint32(5, true), h = dv.getUint32(9, true), al = dv.getUint32(13, true);
+  let p = 17 + al; if (p + 4 > b.length) return null;
+  const avcc = b.subarray(17, p), n = dv.getUint32(p, true); p += 4;
+  const frames = [];
+  for (let i = 0; i < n; i++) {
+    if (p + 13 > b.length) return null;
+    const at = dv.getFloat64(p, true), key = b[p + 8] === 1, len = dv.getUint32(p + 9, true); p += 13;
+    if (p + len > b.length) return null;
+    frames.push({ at, key, data: b.subarray(p, p + len) }); p += len;
+  }
+  return frames.length && frames[0].key ? { w, h, avcc, frames } : null;
+}
+
+// cabeçalho EBML de um WebM (quando não há áudio para copiar o do MediaRecorder)
+const EBML_WEBM = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42, 0xf2, 0x81, 0x04, 0x42, 0xf3, 0x81, 0x08,
+  0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d, 0x42, 0x87, 0x81, 0x04, 0x42, 0x85, 0x81, 0x02]);
+const segStart = (h) => { for (let i = 0; i < Math.min(h.length - 4, 128); i++) if (h[i] === 0x18 && h[i + 1] === 0x53 && h[i + 2] === 0x80 && h[i + 3] === 0x67) return i; return -1; };
+
+// vídeo do programa (parseNativeClip) + áudio gravado ao vivo ({ bytes: WebM de áudio, anchor: hora do tempo 0 dele }) ->
+// WebM com cluster novo em cada quadro-chave (onde o corte pode começar). Os dois se alinham pela hora do relógio.
+export function muxNativeClip(nv, audio) {
+  const base = nv.frames[0].at, video = { num: 1, codec: 'V_MPEG4/ISO/AVC', priv: nv.avcc, w: nv.w, h: nv.h };
+  let ebml = EBML_WEBM, araw = null, af = [];
+  const sp = audio?.bytes?.length ? splitWebm(audio.bytes) : null, tr = sp && tracksOf(sp.header).find(t => t.type === 2);
+  if (tr && segStart(sp.header) > 0) {
+    ebml = sp.header.subarray(0, segStart(sp.header)); araw = tr.raw; video.num = tr.num === 1 ? 2 : 1;
+    try { af = framesOf(sp, true).filter(f => f.track === tr.num).map(f => ({ ...f, key: true, t: Math.round(audio.anchor + f.t - base) })); } catch { af = []; araw = null; }
+  }
+  const vf = nv.frames.map(f => ({ track: video.num, t: Math.round(f.at - base), key: f.key, data: f.data }));
+  // fim: o último quadro mais a duração típica de um quadro
+  const gaps = vf.slice(1).map((f, i) => f.t - vf[i].t).filter(x => x > 0).sort((a, b) => a - b), step = gaps[gaps.length >> 1] || 16;
+  const end = vf[vf.length - 1].t + step;
+  const frames = [...vf, ...(araw ? af.filter(f => f.t >= 0 && f.t < end) : [])].sort((a, b) => a.t - b.t || (a.track === video.num ? -1 : 1));
+  return { bytes: writeWebm(ebml, video, araw, end, frames), ms: end, audio: !!araw };
+}
+
+// opts: { keep (ms), desk (window.lcDesktop) }. audio: o stream da mistura (createMixer) ou null
+export function createNativeBuffer(audio, opts = {}) {
+  const desk = opts.desk || window.lcDesktop;
+  if (!desk?.nativeClip) return null;
+  const keep = opts.keep || KEEP;
+  const buf = { native: true, keep, fps: 0, maxFps: 0, bps: 0, how: 'nativo', mimeType: 'video/webm;codecs=h264,opus', hasAudio: false, rec: null,
+    header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), anchor: 0, q: Promise.resolve(), onEnd: null, ready: Promise.resolve() };
+  desk.nativeClipKeep?.(keep);
+  // áudio: os mesmos pedaços de 1 s do MediaRecorder do clipe normal, guardados pelo mesmo tempo
+  const ingest = async (blob, t) => {
+    const bytes = new Uint8Array(await blob.arrayBuffer()), start = buf.size;
+    const joined = new Uint8Array(buf.tail.length + bytes.length); joined.set(buf.tail); joined.set(bytes, buf.tail.length);
+    for (const off of findClusters(joined, start - buf.tail.length)) {
+      // cabeçalho = tudo antes do 1º cluster (pode ter chegado em mais de um pedaço)
+      if (!buf.header) buf.header = new Uint8Array(await new Blob([...buf.chunks.map(c => c.blob), blob]).slice(0, off).arrayBuffer());
+      buf.clusters.push(off);
+    }
+    buf.tail = bytes.slice(-3); buf.size += bytes.length;
+    buf.chunks.push({ start, size: bytes.length, t, blob });
+    while (buf.chunks.length > 1 && buf.chunks[0].t < t - keep) buf.chunks.shift();
+    while (buf.clusters.length && buf.clusters[0] < buf.chunks[0].start) buf.clusters.shift();
+  };
+  const tracks = audio?.getAudioTracks?.().filter(t => t.readyState === 'live') || [];
+  const mime = window.MediaRecorder && ['audio/webm;codecs=opus', 'audio/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  if (tracks.length && mime) {
+    try {
+      const rec = buf.rec = new MediaRecorder(new MediaStream(tracks), { mimeType: mime, audioBitsPerSecond: 160_000 });
+      buf.hasAudio = true;
+      rec.ondataavailable = (e) => { if (e.data?.size) { const t = Date.now(); buf.q = buf.q.then(() => ingest(e.data, t)).catch(() => { }); } };
+      rec.onerror = () => { buf.rec = null; }; // segue só com o vídeo
+      // tempo 0 do áudio: o MediaRecorder conta a partir do primeiro pedaço de áudio, que chega logo depois de start()
+      rec.start(1000); buf.anchor = Date.now();
+    } catch { buf.rec = null; buf.hasAudio = false; }
+  }
+  const audioBytes = async () => {
+    await buf.q;
+    if (!buf.header || !buf.clusters.length) return null;
+    const a = buf.clusters[0], parts = [buf.header];
+    for (const c of buf.chunks) { if (c.start + c.size <= a) continue; parts.push(c.blob.slice(Math.max(0, a - c.start))); }
+    return new Uint8Array(await new Blob(parts).arrayBuffer());
+  };
+  // Blob WebM com os últimos `secs` segundos (do quadro-chave anterior), ou null (buf.error diz por quê)
+  buf.cut = async (secs) => {
+    const r = await desk.nativeClip(secs);
+    if (!r?.ok || !r.bytes) { buf.error = r?.error || 'sem resposta'; return null; }
+    const nv = parseNativeClip(r.bytes); if (!nv) { buf.error = 'arquivo do programa ilegível'; return null; }
+    const out = muxNativeClip(nv, buf.rec || buf.chunks.length ? { bytes: await audioBytes(), anchor: buf.anchor } : null);
+    buf.last = { frames: nv.frames.length, ms: out.ms, w: nv.w, h: nv.h, audio: out.audio, fps: Math.round(nv.frames.length / Math.max(0.001, out.ms / 1000)) };
+    return new Blob([out.bytes], { type: 'video/webm' });
+  };
+  buf.stop = () => {
+    buf.stopped = true; buf.onEnd = null;
+    try { if (buf.rec && buf.rec.state !== 'inactive') buf.rec.stop(); } catch { /* já parado */ }
+    desk.nativeClipKeep?.(0); buf.chunks = []; buf.clusters = []; buf.header = null;
+  };
   return buf;
 }

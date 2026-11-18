@@ -7,6 +7,10 @@ const path = require('path');
 const fs = require('fs');
 
 let proc = null, onEvent = () => { }, probed = null;
+// clipes da própria transmissão (native/lc-stream/src/replay.rs): o programa guarda os quadros que já comprimiu e grava
+// os últimos segundos num arquivo quando a página pede. keepMs vale também para o próximo programa aberto (reinício).
+let keepMs = 0, clipSeq = 0;
+const clipWait = new Map(); // id -> { resolve, timer }
 const log = (...a) => console.log('[native]', ...a);
 const helperPath = () => {
   const cands = [path.join(process.resourcesPath || '', 'lc-stream.exe'), path.join(__dirname, 'native', 'lc-stream.exe')];
@@ -75,9 +79,10 @@ async function sourceFor(id) {
   return {};
 }
 
+const failClips = (error) => { for (const id of [...clipWait.keys()]) clipDone({ id, ok: false, error }); };
 function stop() {
   const p = proc; if (!p) return;
-  proc = null;
+  proc = null; failClips('a transmissão nativa parou');
   try { p.stdin.write('stop\n'); p.stdin.end(); } catch { }
   setTimeout(() => { try { p.kill(); } catch { } }, 3000);
 }
@@ -90,6 +95,7 @@ async function start(o) {
   const cfg = { host: String(o.host), port: o.port | 0, ssrc: o.ssrc >>> 0, pt: o.pt | 0, key: String(o.key), serverKey: String(o.serverKey),
     fps: Math.max(1, Math.min(240, o.fps | 0)), height: Math.max(144, Math.min(2160, o.height | 0)), kbps: Math.max(500, Math.min(100000, o.kbps | 0)), cursor: o.cursor !== false, ...(await sourceFor(o.sourceId)) };
   if (MODES.includes(o.capture)) { cfg.capture = o.capture; cfg.osBuild = winBuild; }
+  if (keepMs > 0) cfg.clipKeepMs = keepMs;
   // camadas do simulcast (da leve para a cheia), cada uma com o próprio ssrc
   if (Array.isArray(o.layers)) cfg.layers = o.layers.slice(0, 3).map(l => ({ ssrc: l.ssrc >>> 0, height: Math.max(144, Math.min(2160, l.height | 0)), fps: Math.max(1, Math.min(240, l.fps | 0)), kbps: Math.max(300, Math.min(100000, l.kbps | 0)) }));
   const p = spawn(exe, ['--stdin'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -103,6 +109,7 @@ async function start(o) {
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
         let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.t === 'clip') { clipDone(ev); continue; }
         if (ev.t === 'started') { clearTimeout(t); finish({ ok: true, ...ev }); }
         if (ev.t === 'error') { clearTimeout(t); finish({ ok: false, error: ev.error }); }
         if (proc === p || ev.t !== 'stats') onEvent(ev);
@@ -110,9 +117,30 @@ async function start(o) {
     });
     p.stderr.on('data', (d) => log(String(d).trim()));
     p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); });
-    p.on('exit', (code) => { clearTimeout(t); finish({ ok: false, error: 'o programa fechou (código ' + code + ')' }); if (proc === p) { proc = null; onEvent({ t: 'exit', code }); } });
+    p.on('exit', (code) => { clearTimeout(t); finish({ ok: false, error: 'o programa fechou (código ' + code + ')' }); if (proc === p) { proc = null; failClips('o programa de transmissão fechou'); onEvent({ t: 'exit', code }); } });
     p.stdin.write(JSON.stringify(cfg) + '\n');
   });
 }
 
-module.exports = { capable, codecEnv, start, stop, onNativeEvent: (cb) => { onEvent = cb; }, shutdown: stop };
+const send = (o) => { try { proc?.stdin.write(JSON.stringify(o) + '\n'); return !!proc; } catch { return false; } };
+// liga (ms > 0) ou desliga (0) o buffer dos clipes; até 10 min
+function clipKeep(ms) { keepMs = Math.max(0, Math.min(600000, +ms || 0)); send({ cmd: 'clipKeep', ms: keepMs }); }
+// os últimos `secs` segundos: { ok, bytes (Buffer), frames, ms } ou { ok: false, error }. O programa grava um arquivo
+// temporário (o vídeo pode ter centenas de MB: pela saída padrão em JSON seria lento) que é lido e apagado aqui.
+function clip(secs) {
+  if (!proc) return Promise.resolve({ ok: false, error: 'a transmissão nativa não está no ar' });
+  const id = ++clipSeq, file = path.join(require('os').tmpdir(), `resenha-clip-${process.pid}-${id}.lcrb`);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { clipWait.delete(id); fs.rm(file, { force: true }, () => { }); resolve({ ok: false, error: 'o programa de transmissão não respondeu' }); }, 20000);
+    clipWait.set(id, { resolve, timer });
+    if (!send({ cmd: 'clip', id, secs: Math.max(1, Math.min(600, +secs || 30)), path: file })) clipDone({ id, ok: false, error: 'o programa de transmissão fechou' });
+  });
+}
+function clipDone(ev) {
+  const w = clipWait.get(ev.id); if (!w) return;
+  clipWait.delete(ev.id); clearTimeout(w.timer);
+  if (!ev.ok) return w.resolve({ ok: false, error: ev.error || 'falhou' });
+  fs.readFile(ev.path, (err, bytes) => { fs.rm(ev.path, { force: true }, () => { }); w.resolve(err ? { ok: false, error: err.message } : { ok: true, bytes, frames: ev.frames, ms: ev.ms }); });
+}
+
+module.exports = { capable, codecEnv, start, stop, clip, clipKeep, onNativeEvent: (cb) => { onEvent = cb; }, shutdown: stop };

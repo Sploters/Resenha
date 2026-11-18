@@ -443,6 +443,9 @@ app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shut
 ipcMain.handle('native-capable', (_e, mode) => native.capable(mode));
 ipcMain.handle('native-start', (_e, o) => native.start({ ...(o || {}), sourceId: (o && o.sourceId) || pickedSource }));
 ipcMain.on('native-stop', () => native.stop());
+// clipes da própria transmissão nativa: os quadros que o programa já comprimiu (sem captura nem compressão a mais)
+ipcMain.handle('native-clip', (_e, secs) => native.clip(secs));
+ipcMain.on('native-clip-keep', (_e, ms) => native.clipKeep(ms));
 ipcMain.handle('codec-env', () => native.codecEnv());
 // só esta página das Configurações do Windows (onde fica o Pacote de Recursos de Mídia das edições "N")
 ipcMain.on('open-optional-features', () => { if (process.platform === 'win32') shell.openExternal('ms-settings:optionalfeatures').catch(() => { }); });

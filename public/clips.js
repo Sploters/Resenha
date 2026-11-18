@@ -2,7 +2,7 @@
 // guardado só neste aparelho (cliplocal.js) até a pessoa compartilhar; quem preferir pode postar direto no chat da sala.
 import { S, api, toast } from './state.js';
 import { addLocalClip } from './cliplocal.js';
-import { createBuffer, createMixer } from './clipbuf.js';
+import { createBuffer, createMixer, createNativeBuffer } from './clipbuf.js';
 import { openTrimmer } from './cliptrim.js';
 
 const bufs = new Map(); // chave da transmissão -> buffer
@@ -19,19 +19,21 @@ export const clipFps = () => ([30, 60, 0].includes(S.prefs.clipFps) ? S.prefs.cl
 export const clipDest = () => (S.prefs.clipDest === 'post' ? 'post' : 'local');
 export const clipKeys = () => [...bufs.keys()];
 // diagnóstico (relatório de problema / testes): quantas fontes de áudio entram no clipe de cada transmissão
-export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0), fps: b.fps, maxFps: b.maxFps, limiter: b.how, bps: b.bps, mime: b.mimeType }; };
+export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0), fps: b.fps, maxFps: b.maxFps, limiter: b.how, bps: b.bps, mime: b.mimeType, native: !!b.native, last: b.last || null }; };
 
 // audio: fontes de áudio do clipe — o áudio da transmissão e o MICROFONE de quem transmite (só no clipe: na transmissão ao
 // vivo a voz continua indo separada, como voz da call). ctx: AudioContext para misturar (sem ele, usa só a primeira fonte).
+// opts.native: a sua transmissão está indo pelo programa nativo do app desktop: o vídeo do clipe sai dos quadros que ele
+// já comprimiu (clipbuf.js createNativeBuffer) e o Chromium grava só o áudio — sem capturar e comprimir a tela de novo
 const vsig = (stream) => stream.getVideoTracks().map(t => t.id).join(',');
-export function startBuffer(key, stream, audio = [], ctx = null) {
-  const sources = (Array.isArray(audio) ? audio : [audio]).filter(Boolean), cur = bufs.get(key);
-  if (cur && cur.stream === stream && cur.vsig === vsig(stream) && cur.keep === keepMs() && cur.hw === (S.prefs.clipHw !== false) && cur.maxFps === clipFps()) { cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
+export function startBuffer(key, stream, audio = [], ctx = null, opts = {}) {
+  const sources = (Array.isArray(audio) ? audio : [audio]).filter(Boolean), cur = bufs.get(key), native = !!opts.native;
+  if (cur && !!cur.native === native && (native || cur.stream === stream && cur.vsig === vsig(stream) && cur.hw === (S.prefs.clipHw !== false) && cur.maxFps === clipFps()) && cur.keep === keepMs()) { cur.stream = stream; cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
   if (cur) stopBuffer(key);
   const mixer = ctx ? createMixer(ctx) : null;
   mixer?.set(sources);
-  const hw = S.prefs.clipHw !== false;
-  const b = createBuffer(new MediaStream(stream.getVideoTracks()), mixer ? mixer.stream : sources.find(s => s.getAudioTracks().length), { keep: keepMs(), hw, maxFps: clipFps() }); if (!b) { mixer?.stop(); return; }
+  const hw = S.prefs.clipHw !== false, audioIn = mixer ? mixer.stream : sources.find(s => s.getAudioTracks().length);
+  const b = native ? createNativeBuffer(audioIn, { keep: keepMs() }) : createBuffer(new MediaStream(stream.getVideoTracks()), audioIn, { keep: keepMs(), hw, maxFps: clipFps() }); if (!b) { mixer?.stop(); return; }
   Object.assign(b, { stream, vsig: vsig(stream), mixer, hw });
   if (mixer) Object.defineProperty(b, 'hasAudio', { get: () => mixer.had });
   b.onEnd = () => { if (bufs.get(key) === b) { bufs.delete(key); mixer?.stop(); } };

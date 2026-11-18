@@ -900,12 +900,12 @@ function clipsPage(reg) {
     root.replaceChildren(h('h2', 'Clipes'),
       hint('Durante uma transmissão na sala de voz, a Resenha guarda os últimos segundos em segundo plano. Apertou o atalho logo depois do lance, ele vira um clipe. Como no Discord, o clipe fica só neste aparelho: você escolhe qual compartilhar pelo + do campo de mensagem → Compartilhar um clipe.'),
       card(
-        row('Gravar clipes', 'Gravar a sua própria transmissão codifica o jogo duas vezes: em PCs mais fracos pode custar FPS. Se o jogo pesar, deixe só nas dos outros ou ligue o Modo leve.',
+        row('Gravar clipes', 'No app desktop, transmitindo a 60 ou 120 FPS pela placa de vídeo, o clipe da sua transmissão reaproveita o vídeo já comprimido para ela e quase não pesa. Nos outros casos (navegador, 30 FPS, PC sem codificador na placa) ele codifica o jogo de novo: em PCs mais fracos pode custar FPS; deixe só nas dos outros ou ligue o Modo leve.',
           seg({ off: 'Desligado', others: 'Transmissões dos outros', all: 'Todas, inclusive a minha' }, mode, (v) => { S.prefs.clipsOn = v === 'all' ? true : v === 'off' ? false : undefined; if (v === 'others') delete S.prefs.clipsOn; save(); restart(); draw(); })),
         row('Atalho do clipe', desktop ? 'Funciona com o jogo em foco (com "Atalhos globais" ligado no app desktop). Mostra um aviso no canto da tela, fora da transmissão, e toca um som.' : 'Com a aba em foco. No app desktop funciona também com o jogo em foco.', keyBtn()),
         row('Duração do clipe', 'Quanto do que acabou de acontecer entra no clipe. Com 2 min, cada transmissão ocupa de ~90 MB (30 FPS) a ~165 MB (120 FPS) de memória enquanto grava.',
           seg({ 15: '15s', 30: '30s', 60: '1 min', 120: '2 min' }, secs, (v) => { const was = Math.max(60, secs); S.prefs.clipSecs = +v; save(); if (Math.max(60, +v) !== was) restart(); draw(); })),
-        row('Taxa de quadros do clipe', 'Igual à transmissão grava na taxa de quem transmite, até 120 FPS: mais fluido, mas pesa cerca do dobro de 60 para gravar e o arquivo fica maior. Em PCs mais fracos ou sem codificação pela placa, 30 FPS é o mais leve.',
+        row('Taxa de quadros do clipe', 'Igual à transmissão grava na taxa de quem transmite, até 120 FPS: mais fluido, mas pesa cerca do dobro de 60 para gravar e o arquivo fica maior. Em PCs mais fracos ou sem codificação pela placa, 30 FPS é o mais leve. O clipe da sua transmissão pela placa (app desktop, 60/120 FPS) sai sempre na taxa e na qualidade dela.',
           seg({ 30: '30 FPS', 60: '60 FPS', 0: 'Igual à transmissão' }, [30, 60, 0].includes(S.prefs.clipFps) ? S.prefs.clipFps : 60, (v) => { S.prefs.clipFps = +v; save(); restart(); draw(); })),
         row('Ao salvar um clipe', 'Neste aparelho: ninguém vê até você compartilhar (editar, cortar e escolher o título antes). No chat da sala: sobe na hora para o chat e a galeria do servidor, como antes.',
           seg({ local: 'Guardar neste aparelho', post: 'Postar no chat da sala' }, S.prefs.clipDest === 'post' ? 'post' : 'local', (v) => { S.prefs.clipDest = v; save(); draw(); })),
@@ -916,7 +916,7 @@ function clipsPage(reg) {
         h('div.btns.keybtns', h('button.btn', { onclick: () => openMyClips() }, icon('clip', 16), 'Ver meus clipes'),
           h('button.btn.red', { onclick: async () => { const u = await localClipsUsage(); if (!u.count) return toast('Nenhum clipe para apagar'); if (await confirmBox('Apagar todos os clipes', `${u.count} ${u.count === 1 ? 'clipe' : 'clipes'} (${mb(u.bytes)}) serão apagados deste aparelho. Clipes já compartilhados continuam no chat. Não dá para desfazer.`, 'Apagar todos')) { await clearLocalClips(); toast('Clipes apagados deste aparelho'); } } }, 'Apagar todos'))),
       section('Requisitos'),
-      card(note('Funciona no app desktop e no navegador (Chrome, Edge). O clipe leva o vídeo e o áudio da transmissão, a voz da sala, o soundboard e o bot de música. Gravar as transmissões que você assiste é leve; gravar a sua própria pesa mais no jogo, por isso fica opcional.')));
+      card(note('Funciona no app desktop e no navegador (Chrome, Edge). O clipe leva o vídeo e o áudio da transmissão, a voz da sala, o soundboard e o bot de música. Gravar as transmissões que você assiste é leve; gravar a sua própria pesa mais no jogo (menos no app desktop a 60/120 FPS, que reaproveita o vídeo da transmissão), por isso fica opcional.')));
     refreshUsage();
   };
   draw();

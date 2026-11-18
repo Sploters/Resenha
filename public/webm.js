@@ -23,12 +23,16 @@ const uint = (b, p, n) => { let v = 0; for (let i = 0; i < n; i++) v = v * 256 +
 const size8 = (v) => { const o = new Uint8Array(8); o[0] = 0x01; for (let i = 7; i >= 1; i--) { o[i] = v % 256; v = Math.floor(v / 256); } return o; };
 const u64 = (v) => { const o = new Uint8Array(8); for (let i = 7; i >= 0; i--) { o[i] = v % 256; v = Math.floor(v / 256); } return o; };
 
+// os bytes do ID de Tracks também aparecem DENTRO do índice (SeekHead > Seek > SeekID 53 AB 84 <id>) que ffmpeg e outros
+// gravam antes das trilhas: essa ocorrência não é o elemento (o MediaRecorder não grava índice)
+export const seekIdAt = (h, i) => i >= 3 && h[i - 3] === 0x53 && h[i - 2] === 0xab && h[i - 1] === 0x84;
+
 // número da trilha de vídeo no cabeçalho (Tracks > TrackEntry com TrackType 1). O MediaRecorder numera as trilhas na ordem
 // em que o primeiro quadro de cada uma chega: se o áudio chega antes, o vídeo vira a trilha 2. Sem cabeçalho legível: 1.
 export function videoTrack(h) {
   if (!h) return 1;
   for (let i = 0; i < h.length - 4; i++) {
-    if (h[i] !== 0x16 || h[i + 1] !== 0x54 || h[i + 2] !== 0xae || h[i + 3] !== 0x6b) continue;
+    if (h[i] !== 0x16 || h[i + 1] !== 0x54 || h[i + 2] !== 0xae || h[i + 3] !== 0x6b || seekIdAt(h, i)) continue;
     const s = readSize(h, i + 4); if (!s) return 1;
     const end = s.unknown ? h.length : Math.min(h.length, i + 4 + s.len + s.value);
     for (let q = i + 4 + s.len; q < end;) {

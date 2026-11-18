@@ -164,6 +164,7 @@
     "upload-test": 12,
     "ux-test": 46,
     "voice-network-test": 100,
-    "voicefx-test": 10
+    "voicefx-test": 10,
+    "native-clip-test": 60
   }
 }

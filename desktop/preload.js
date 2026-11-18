@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   nativeCapable: (mode) => ipcRenderer.invoke('native-capable', mode),
   nativeStart: (o) => ipcRenderer.invoke('native-start', o),
   nativeStop: () => ipcRenderer.send('native-stop'),
+  // clipe da própria transmissão nativa: { ok, bytes (Uint8Array), frames, ms } dos últimos `secs` segundos
+  nativeClip: (secs) => ipcRenderer.invoke('native-clip', secs),
+  nativeClipKeep: (ms) => ipcRenderer.send('native-clip-keep', ms),
   onNativeEvent: (cb) => ipcRenderer.on('native-event', (_e, ev) => cb(ev)),
   // codecs: o Windows tem a Media Foundation (edições "N" vêm sem)? e atalho para instalar (Configurações > Transmissão)
   codecEnv: () => ipcRenderer.invoke('codec-env'),

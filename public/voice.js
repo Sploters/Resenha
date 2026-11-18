@@ -1490,11 +1490,15 @@ export class Voice {
     this._capNote = c.ok ? c.note || null : null;
     return !!c.ok;
   }
-  // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados ela também é a fonte do clipe (clips.js grava
+  // clipe da própria transmissão pelo programa nativo (app desktop que sabe fazer isso): o vídeo do clipe vem dos quadros
+  // que ele já comprimiu, então a prévia continua leve. Vale também enquanto o programa abre/reabre (pending), para o
+  // buffer não ficar trocando entre o nativo e o do Chromium a cada reinício
+  nativeClips() { return !!(this.native && window.lcDesktop?.nativeClip); }
+  // prévia leve (10 fps, 360p). Com os clipes da própria transmissão ligados e app desktop antigo ela também é a fonte do clipe (clips.js grava
   // esta trilha): aí segue o FPS do clipe (Configurações → Clipes: 30, 60 ou o da transmissão) sem passar do da
   // transmissão, até 1080p — antes ficava sempre em 30 e o clipe de quem transmite a 120 saía a 30
   previewSpec() {
-    if (this.prefs?.clipsOn !== true) return { fps: 10, h: 360 };
+    if (this.prefs?.clipsOn !== true || this.nativeClips()) return { fps: 10, h: 360 };
     const o = this.screenOpts || {}, want = [30, 60, 0].includes(this.prefs?.clipFps) ? this.prefs.clipFps : 60, src = +o.fps || 60;
     return { fps: want ? Math.min(want, src) : src, h: Math.min(o.res === 'source' ? 1080 : +o.res || 1080, 1080) };
   }

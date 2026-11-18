@@ -9,6 +9,7 @@
 //! Fora do Windows (testes): a "captura" é um ffmpeg (testsrc) gerando H.264.
 mod rtp;
 mod srtp;
+pub mod replay;
 pub mod select;
 #[cfg(not(windows))]
 mod sim;
@@ -21,7 +22,7 @@ mod poc;
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub fn arg(name: &str, default: &str) -> String {
@@ -41,7 +42,9 @@ pub struct Layer { pub ssrc: u32, pub height: u32, pub fps: u32, pub kbps: u32 }
 /// cursor: desenhar o ponteiro do mouse na captura (opção "mostrar o cursor" da transmissão)
 pub struct Opts { pub host: String, pub port: u16, pub pt: u8, pub key: Option<(String, String)>, pub secs: u64, pub layers: Vec<Layer>, pub source: Source, pub app: bool, pub cursor: bool, pub stop: Arc<AtomicBool>,
     /// método de captura pedido pelo app (auto | wgc | dxgi). None = caminho clássico (win::run, o da versão anterior)
-    pub capture: Option<String>, pub os_build: u32 }
+    pub capture: Option<String>, pub os_build: u32,
+    /// buffer dos clipes da própria transmissão (só no modo app; comandos clip/clipKeep pela entrada padrão)
+    pub replay: Option<Arc<Mutex<replay::Replay>>> }
 impl Opts { pub fn top(&self) -> &Layer { self.layers.last().unwrap() } }
 
 pub fn emit(v: serde_json::Value) { let mut o = std::io::stdout().lock(); let _ = writeln!(o, "{v}"); let _ = o.flush(); }
@@ -51,7 +54,7 @@ pub struct Meter { start: Instant, sec: u64, cap: u32, sent: u32, bytes: u64, ls
     /// campos a mais no evento "stats" (captura com escolha de método); Null no caminho clássico
     pub extra: serde_json::Value }
 impl Meter {
-    pub fn new(o: &Opts) -> Self { Self { start: Instant::now(), sec: 0, cap: 0, sent: 0, bytes: 0, lsent: vec![0; o.layers.len()], last_layers: vec![0; o.layers.len()], hist_cap: vec![], hist_sent: vec![], hist_bytes: vec![], enc_ms: vec![], skipped_busy: 0, repeats: 0, secs: o.secs, app: o.app, stop: o.stop.clone(), size: (0, 0), extra: serde_json::Value::Null } }
+    pub fn new(o: &Opts) -> Self { replay::set_clock_origin(); Self { start: Instant::now(), sec: 0, cap: 0, sent: 0, bytes: 0, lsent: vec![0; o.layers.len()], last_layers: vec![0; o.layers.len()], hist_cap: vec![], hist_sent: vec![], hist_bytes: vec![], enc_ms: vec![], skipped_busy: 0, repeats: 0, secs: o.secs, app: o.app, stop: o.stop.clone(), size: (0, 0), extra: serde_json::Value::Null } }
     pub fn elapsed(&self) -> f64 { self.start.elapsed().as_secs_f64() }
     pub fn captured(&mut self) { self.cap += 1; }
     /// quadro enviado na camada `layer` (a última é a cheia: é ela que conta como "fps enviados")
@@ -114,14 +117,16 @@ fn main() {
         let v: serde_json::Value = match serde_json::from_str(&line) { Ok(v) => v, Err(e) => { emit(serde_json::json!({ "t": "error", "error": format!("configuracao invalida: {e}") })); std::process::exit(2); } };
         let src = if let Some(w) = v["window"].as_i64() { Source::Window(w as isize) } else if let (Some(x), Some(y)) = (v["monitor"][0].as_i64(), v["monitor"][1].as_i64()) { Source::Monitor(x as i32, y as i32) } else { Source::Primary };
         let st = stop.clone();
-        std::thread::spawn(move || { let mut l = String::new(); loop { l.clear(); match std::io::stdin().read_line(&mut l) { Ok(0) | Err(_) => break, Ok(_) if l.trim() == "stop" => break, _ => {} } } st.store(true, Ordering::Relaxed); });
+        let rp = Arc::new(Mutex::new(replay::Replay::new(v["clipKeepMs"].as_u64().unwrap_or(0).min(10 * 60_000))));
+        let rp2 = rp.clone();
+        std::thread::spawn(move || { let mut l = String::new(); loop { l.clear(); match std::io::stdin().read_line(&mut l) { Ok(0) | Err(_) => break, Ok(_) if l.trim() == "stop" => break, Ok(_) => command(&rp2, l.trim()) } } st.store(true, Ordering::Relaxed); });
         let fps = v["fps"].as_u64().unwrap_or(120) as u32; let height = v["height"].as_u64().unwrap_or(1080) as u32; let kbps = v["kbps"].as_u64().unwrap_or(16000) as u32;
         let mut layers: Vec<Layer> = v["layers"].as_array().map(|a| a.iter().map(|l| Layer { ssrc: l["ssrc"].as_u64().unwrap_or(0) as u32, height: l["height"].as_u64().unwrap_or(540) as u32, fps: l["fps"].as_u64().unwrap_or(60) as u32, kbps: l["kbps"].as_u64().unwrap_or(2500) as u32 }).collect()).unwrap_or_default();
         if layers.is_empty() { layers.push(Layer { ssrc: v["ssrc"].as_u64().unwrap_or(0) as u32, height, fps, kbps }); }
         Opts { host: v["host"].as_str().unwrap_or("").into(), port: v["port"].as_u64().unwrap_or(0) as u16, pt: v["pt"].as_u64().unwrap_or(102) as u8,
             key: match (v["key"].as_str(), v["serverKey"].as_str()) { (Some(a), Some(b)) => Some((a.into(), b.into())), _ => None },
             secs: v["secs"].as_u64().unwrap_or(0), layers, source: src, app: true, cursor: v["cursor"].as_bool().unwrap_or(true), stop,
-            capture: v["capture"].as_str().map(String::from), os_build: v["osBuild"].as_u64().unwrap_or(0) as u32 }
+            capture: v["capture"].as_str().map(String::from), os_build: v["osBuild"].as_u64().unwrap_or(0) as u32, replay: Some(rp) }
     } else {
         let Some((host, port, ssrc, pt, key)) = parse_code(&arg("--code", "")) else {
             eprintln!("Codigo invalido. Gere o codigo na Resenha (Configuracoes > Transmissao > Teste 120 FPS) e cole aqui.");
@@ -129,7 +134,7 @@ fn main() {
         };
         let top = Layer { ssrc, height: arg("--height", "1080").parse().unwrap_or(1080), fps: arg("--fps", "120").parse().unwrap_or(120), kbps: arg("--kbps", "16000").parse().unwrap_or(16000) };
         Opts { host, port, pt, key, secs: arg("--secs", "60").parse().unwrap_or(60), layers: vec![top], source: Source::Primary, app: false, cursor: true, stop,
-            capture: if std::env::args().any(|a| a == "--metodo") { Some(arg("--metodo", "auto")) } else { None }, os_build: arg("--os-build", "0").parse().unwrap_or(0) }
+            capture: if std::env::args().any(|a| a == "--metodo") { Some(arg("--metodo", "auto")) } else { None }, os_build: arg("--os-build", "0").parse().unwrap_or(0), replay: None }
     };
     if !o.app { let t = o.top(); eprintln!("  enviando para {}:{} (ssrc {}), {} fps, {} p, {} kbps, {} s{}", o.host, o.port, t.ssrc, t.fps, t.height, t.kbps, o.secs, if o.key.is_some() { ", criptografado (SRTP)" } else { "" }); }
     if let Err(e) = run(&o) {
@@ -138,8 +143,31 @@ fn main() {
     }
 }
 
+/// Comandos do app pela entrada padrão (uma linha JSON cada), fora da captura: o dump do clipe não segura nenhum quadro.
+///   {"cmd":"clipKeep","ms":65000}                   liga / muda / desliga (0) o buffer dos clipes
+///   {"cmd":"clip","id":1,"secs":30,"path":"..."}   grava os últimos `secs` s no arquivo -> {"t":"clip","id":1,"ok":true,...}
+fn command(rp: &Arc<Mutex<replay::Replay>>, line: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return };
+    match v["cmd"].as_str() {
+        Some("clipKeep") => { if let Ok(mut r) = rp.lock() { r.set_keep(v["ms"].as_u64().unwrap_or(0).min(10 * 60_000)); } }
+        Some("clip") => {
+            let id = v["id"].clone(); let path = v["path"].as_str().unwrap_or("").to_string();
+            let snap = rp.lock().ok().and_then(|r| r.snapshot(v["secs"].as_f64().unwrap_or(30.0).max(1.0)));
+            let res = match snap {
+                None => Err("ainda nao ha video gravado".to_string()),
+                Some(_) if path.is_empty() => Err("sem caminho".to_string()),
+                Some(s) => s.write_to(&path).map(|n| (n, s.frames.len(), s.duration_ms())),
+            };
+            emit(match res { Ok((n, k, ms)) => serde_json::json!({ "t": "clip", "id": id, "ok": true, "path": path, "bytes": n, "frames": k, "ms": ms.round() }),
+                Err(e) => serde_json::json!({ "t": "clip", "id": id, "ok": false, "error": e }) });
+        }
+        _ => {}
+    }
+}
+
 pub fn sender(o: &Opts) -> Result<rtp::Session, String> {
     let mut tx = rtp::Session::new(&o.host, o.port).map_err(|e| format!("UDP: {e}"))?;
+    tx.replay = o.replay.clone();
     for l in &o.layers { tx.add_stream(l.ssrc, o.pt); }
     tx.set_pace_kbps(o.layers.iter().map(|l| l.kbps as u64).sum());
     if let Some((a, b)) = &o.key { tx.set_srtp(a, b)?; }
@@ -190,6 +218,7 @@ fn run(o: &Opts) -> Result<(), String> {
     let sim_out = |s: &mut sim::Sim| { for ev in s.events.drain(..) { if o.app { emit(ev); } else { eprintln!("  {ev}"); } } };
     if o.app { emit(started); }
     if let Some(s) = &mut sim { sim_out(s); }
+    replay::set_clock_origin(); // os carimbos da simulação contam a partir daqui
     let t0 = Instant::now(); let mut next: Vec<f64> = vec![0.0; o.layers.len()]; let mut k: Vec<u64> = vec![0; o.layers.len()];
     while !m.done() {
         // próxima camada a vencer

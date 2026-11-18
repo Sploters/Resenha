@@ -26,7 +26,9 @@ pub struct Stream {
 }
 
 /// Um socket UDP (o PlainTransport aprende o endereço do primeiro pacote: todas as camadas saem dele) e N fluxos.
-pub struct Session { sock: UdpSocket, out: Pacer, rx: Option<crate::srtp::Rx>, key: Option<String>, pub streams: Vec<Stream>, pub rtcp_bad: u64 }
+pub struct Session { sock: UdpSocket, out: Pacer, rx: Option<crate::srtp::Rx>, key: Option<String>, pub streams: Vec<Stream>, pub rtcp_bad: u64,
+    /// clipes da própria transmissão (replay.rs): recebe os quadros da camada cheia (a última) já comprimidos
+    pub replay: Option<std::sync::Arc<std::sync::Mutex<crate::replay::Replay>>> }
 
 /// Envio no ritmo (como o "pacer" do WebRTC). Antes cada quadro saía de uma vez: um quadro-chave de 1080p (100-300 KB,
 /// centenas de pacotes) em rajada enchia a fila do roteador/VPN de quem transmite e do servidor, e quem assistia via
@@ -104,7 +106,7 @@ impl Session {
         sock.connect((host, port))?;
         sock.set_nonblocking(true)?;
         let out = Pacer::new(sock.try_clone()?);
-        Ok(Self { sock, out, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0 })
+        Ok(Self { sock, out, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0, replay: None })
     }
     /// ritmo do envio: 2,5x a soma das taxas das camadas (kbps), como o WebRTC
     pub fn set_pace_kbps(&mut self, kbps: u64) { self.out.rate(kbps * 1000 * 5 / 2); }
@@ -172,6 +174,7 @@ impl Session {
         for n in nals { list.push(n.to_vec()); }
         let k = list.len();
         for (j, n) in list.iter().enumerate() { self.send_nal(i, n, ts, j == k - 1); }
+        if i + 1 == self.streams.len() { if let Some(r) = &self.replay { if let Ok(mut r) = r.lock() { r.push(&list, key, ts); } } }
         let st = &mut self.streams[i];
         st.stats.frames += 1; if key { st.stats.keyframes += 1; }
         self.maybe_sr(i, ts);

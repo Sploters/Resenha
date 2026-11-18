@@ -97,13 +97,19 @@ try {
   ok(cfg.fps === 120 && cfg.height === 720 && cfg.key?.length === 40 && cfg.serverKey?.length === 40 && cfg.host === 'localhost' && cfg.port >= 41011, 'o programa recebeu fps, altura, chaves SRTP e o endereço do servidor', { fps: cfg.fps, height: cfg.height, port: cfg.port, host: cfg.host, kbps: cfg.kbps });
   const prev = await A.evaluate(() => window.__lc.voice.screen.getVideoTracks()[0].getConstraints());
   ok(prev.frameRate?.ideal === 10 && prev.frameRate?.max === 13, 'captura do Chromium fica só como prévia leve (10 fps)', prev.frameRate);
-  // clipes da própria transmissão ligados: a prévia também é a fonte do clipe, então sobe para o FPS do clipe (até 1080p); desligados, volta
-  const pv = await A.evaluate(async () => { const v = window.__lc.voice, t = () => v.screen.getVideoTracks()[0].getConstraints(), S = window.__lc.S;
-    S.prefs.clipsOn = true; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on = t();
+  // clipes da própria transmissão ligados. App desktop novo (nativeClip): o clipe sai dos quadros do programa
+  // (scripts/native-clip-test.mjs), então a prévia continua leve. App antigo: a prévia também é a fonte do clipe e sobe para
+  // o FPS do clipe (até 1080p); desligados, volta
+  const pv = await A.evaluate(async () => { const v = window.__lc.voice, t = () => v.screen.getVideoTracks()[0].getConstraints(), S = window.__lc.S, d = window.lcDesktop;
+    S.prefs.clipsOn = true; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const nat = t();
+    const real = window.lcDesktop; window.lcDesktop = new Proxy({}, { get: (_t, k) => (k === 'nativeClip' || k === 'nativeClipKeep' ? undefined : d[k]) }); // app antigo
+    v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on = t();
     S.prefs.clipFps = 30; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const on30 = t(); delete S.prefs.clipFps;
     S.prefs.clipsOn = false; v.syncPreview(); await new Promise(r => setTimeout(r, 300)); const off = t();
-    return { on: [on.frameRate?.ideal, on.height?.max], on30: [on30.frameRate?.ideal, on30.height?.max], off: [off.frameRate?.ideal, off.height?.max] }; });
-  ok(pv.on[0] === 60 && pv.on[1] === 720 && pv.on30[0] === 30 && pv.off[0] === 10 && pv.off[1] === 360, 'com clipes próprios ligados a prévia vai ao FPS do clipe (60 padrão, 30 se escolhido) na resolução escolhida', pv);
+    window.lcDesktop = real;
+    return { nat: [nat.frameRate?.ideal, nat.height?.max], on: [on.frameRate?.ideal, on.height?.max], on30: [on30.frameRate?.ideal, on30.height?.max], off: [off.frameRate?.ideal, off.height?.max] }; });
+  ok(pv.nat[0] === 10 && pv.nat[1] === 360, 'app novo: com clipes próprios ligados a prévia continua leve (o clipe vem do programa)', pv.nat);
+  ok(pv.on[0] === 60 && pv.on[1] === 720 && pv.on30[0] === 30 && pv.off[0] === 10 && pv.off[1] === 360, 'app antigo: com clipes próprios ligados a prévia vai ao FPS do clipe (60 padrão, 30 se escolhido) na resolução escolhida', pv);
   // espectador: palco normal
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`) || !!document.querySelector(`.tile.screen[data-sid="${uid}"]`), { timeout: 15000 }, a.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);

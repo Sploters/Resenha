@@ -193,6 +193,20 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `VIEW` → 5 sincronizações de presença; 50 "digitando…" → 4; 6.000 mensagens → conexão fechada, as outras de pé.
 
 ## App desktop
+- [x] ★ **Clipe da própria transmissão sem capturar e comprimir de novo** (2026-11-18, `native/lc-stream/src/replay.rs`,
+      `desktop/native.js clip/clipKeep`, `public/clipbuf.js createNativeBuffer`; teste `scripts/native-clip-test.mjs`).
+      Transmitindo pelo programa nativo (60/120 FPS) com clipes próprios ligados, o Chromium capturava a mesma tela de novo
+      (a prévia subia para até 1080p no FPS do clipe) e o MediaRecorder recomprimia tudo em H.264 só para o clipe — o item
+      "Gravação contínua dos clipes" acima mediu +18% de um núcleo por transmissão. Agora o `lc-stream` guarda os quadros que
+      a placa de vídeo já comprimiu para a transmissão (camada cheia, em AVC, sempre começando num quadro-chave, até 400 MB) e,
+      no atalho, grava os últimos N s num arquivo temporário (comando pela entrada padrão, fora da thread da captura). A página
+      grava só o áudio (Opus) e junta os dois num WebM igual ao de antes (cortar, corte exato e compartilhar seguem iguais),
+      alinhados pela hora do relógio. A prévia do Chromium fica em 10 fps/360p. O clipe sai na taxa e na qualidade da
+      transmissão (até 120 FPS): tirar quadros de um H.264 pronto exigiria recomprimir. Queda para o Chromium: o clipe volta ao
+      MediaRecorder e o programa solta a memória; app antigo (sem `nativeClip`): tudo como antes.
+      Medido no Linux (ffmpeg no lugar da captura): clipe de 5 s a 720p120 com 621 quadros, todos os da transmissão, áudio
+      alinhado, pedido respondido em ~3 ms. **Não medido num Windows ainda**: conferir o FPS do jogo com clipes próprios ligados
+      antes e depois, e que o clipe abre na galeria.
 - [x] ★ **Programa nativo aberto o tempo todo, avisos por evento e aviso do clipe nativo** (2026-11-13, `lc-audio --serve`
       em `native/lc-audio/src/serve.rs`, `events.rs`, `toast.rs`; `desktop/helper.js`; teste `scripts/helper-test.mjs`).
       - **Um processo só:** antes, cada pergunta abria um `lc-audio.exe`: a lista de janelas a cada 20 s para o "Jogando…",
