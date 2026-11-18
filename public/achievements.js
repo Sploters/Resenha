@@ -71,12 +71,23 @@ export function achievementsView(uid, { compact = false } = {}) {
     return h('div.ach-note.ok', icon('check', 16), h('span', s.synced_at ? `Steam sincronizada ${fmtDate(s.synced_at)}` + (s.state === 'error' ? ' (alguns jogos não responderam)' : '') : 'Steam vinculada'),
       h('button.btn.grey.sm', { onclick: (e) => syncNow(e.currentTarget) }, icon('refresh', 14), 'Sincronizar agora'));
   }
+  // arte do jogo: Steam (pelo número do jogo, achado pelo nome também para PlayStation/Xbox/Epic), senão a da loja da
+  // Epic, senão o troféu. Platina ganha a medalha no canto
+  const artFor = (x) => {
+    if (x.appid) return gameIcon(steamGame(x), 44);
+    if (x.image) return h('img.ach-art', { src: x.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.replaceWith(h('span.ach-pi', icon('trophy', 26))) });
+    return h('span.ach-pi', icon(x.kind === 'platinum' ? 'medal' : 'trophy', 26));
+  };
+  const achTip = (a) => `${a.name}${a.desc ? ' — ' + a.desc : ''}${a.pct != null ? ` (${fmtPct(a.pct)} dos jogadores)` : ''}`;
   function perfectCard(x) {
-    const ic = x.manual ? h('span.ach-pi', icon(x.kind === 'platinum' ? 'medal' : 'trophy', 26)) : gameIcon(steamGame(x), 44);
+    const sub = x.manual ? [x.platform_name, KIND[x.kind], x.total && `${x.total} conquistas`].filter(Boolean).join(' · ') : `Steam · 100% · ${x.total} conquistas`;
     return h('div.ach-card' + (x.manual ? '.manual' : '') + (x.kind === 'platinum' ? '.plat' : ''),
-      ic, h('div.ach-ci', h('b', { title: x.title }, x.title),
-        h('small', x.manual ? `${x.platform_name} · ${KIND[x.kind]}` : `Steam · 100% · ${x.total} conquistas`),
-        h('small.ach-when', fmtDate(x.at), x.manual && h('span.ach-inf', { title: 'Registrado pela pessoa; a plataforma não permite conferir' }, 'informado'))),
+      h('span.ach-art-w', artFor(x), x.kind === 'platinum' && h('span.ach-medal', { title: 'Platina' }, icon('medal', 12))),
+      h('div.ach-ci', h('b', { title: x.title }, x.title),
+        h('small', sub),
+        x.plat_pct != null && h('small.ach-plat', { title: 'Dado público da Epic Games' }, `Só ${fmtPct(x.plat_pct)} dos jogadores fizeram 100%`),
+        h('small.ach-when', fmtDate(x.at), x.manual && h('span.ach-inf', { title: 'Registrado pela pessoa; a plataforma não permite conferir' }, 'informado')),
+        x.icons?.length > 0 && h('div.ach-icons', { 'aria-label': 'Conquistas mais raras do jogo' }, x.icons.map(a => h('img', { src: a.icon, alt: a.name, title: achTip(a), loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() })))),
       data.me && x.manual && h('button.ibtn.ach-del', { title: 'Remover', 'aria-label': `Remover ${x.title}`, onclick: () => delManual(x) }, icon('x', 14)));
   }
   function achRow(a) {

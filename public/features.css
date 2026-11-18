@@ -2120,3 +2120,10 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 .achv.compact .ach-sum { grid-template-columns: repeat(2, 1fr); }
 .achv.compact .ach-grid, .achv.compact .ach-games { grid-template-columns: 1fr; }
 @media (max-width: 600px) { #trophyview .dbodywrap { padding: 16px; } .ach-grid, .ach-games { grid-template-columns: 1fr; } }
+.ach-card { align-items: flex-start; }
+.ach-art-w { position: relative; flex: none; display: inline-flex; }
+.ach-art { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; }
+.ach-medal { position: absolute; right: -5px; bottom: -5px; display: inline-flex; padding: 2px; border-radius: 50%; background: var(--bg-sec, #2b2d31); color: #a8c0ff; }
+.ach-plat { color: #a8c0ff !important; }
+.ach-icons { display: flex; gap: 4px; margin-top: 6px; }
+.ach-icons img { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; background: var(--bg-mod-hover); }

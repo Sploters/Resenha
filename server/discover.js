@@ -320,7 +320,7 @@ export function mountDiscover(app, { auth, dataDir }) {
   async function findApp(name) {
     const k = nameKey(name); if (k.length < 2) return null;
     return cached('sfind:' + k, 7 * 864e5, async () => {
-      const r = await get(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(String(name).slice(0, 80))}&l=english&cc=${country()}`, 'json', 6000);
+      const r = await get(`${steamBase()}/api/storesearch/?term=${encodeURIComponent(String(name).slice(0, 80))}&l=english&cc=${country()}`, 'json', 6000);
       const hit = (r?.items || []).find(x => x.type === 'app' && nameKey(x.name) === k);
       return hit ? { appid: String(hit.id), title: String(hit.name).replace(/[™®]/g, '').replace(/\s+/g, ' ').trim() } : null;
     }).catch(() => null);

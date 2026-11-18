@@ -7,7 +7,9 @@
 //     a aba (se passou de 6 h), no botão "Sincronizar agora" e de tempos em tempos para quem tem a Steam vinculada.
 //   - PlayStation, Xbox, Epic, Nintendo e outras: essas plataformas não têm API pública oficial para ler troféus de outra
 //     pessoa (a da Epic só existe dentro do próprio jogo). A pessoa pode registrar as platinas e os 100% dela à mão; a tela
-//     marca esses como "informado" (não verificado).
+//     marca esses como "informado" (não verificado). O jogo registrado é procurado pelo nome na loja da Steam e na da Epic
+//     (server/epicstore.js): o cartão ganha a arte do jogo e as conquistas mais raras dele, com os ícones (Epic: catálogo
+//     público de conquistas; Steam: GetSchemaForGame), e quantos % dos jogadores fizeram 100% (Epic).
 //
 // PRIVACIDADE: a mesma regra da biblioteca de jogos (users.games_share em server/games.js → canSee): servidores, só amigos
 // ou ninguém; bloqueio esconde. A pessoa sempre vê as próprias.
@@ -18,13 +20,14 @@
 //   POST   /api/achievements/manual      { platform, title, kind: 'platinum'|'complete', achieved_at? } -> platina/100% informado
 //   DELETE /api/achievements/manual/:id
 import { PollError } from './integrations/errors.js';
+import { findEpicGame, epicAchievements } from './epicstore.js';
 
 export const MANUAL_PLATFORMS = { psn: 'PlayStation', xbox: 'Xbox', epic: 'Epic Games', switch: 'Nintendo Switch', gog: 'GOG', ea: 'EA app', ubisoft: 'Ubisoft Connect', battlenet: 'Battle.net', other: 'Outra' };
 const KINDS = ['platinum', 'complete'];
 const ACH_GAMES = +process.env.ACH_GAMES || 40;   // jogos consultados por pessoa a cada sincronização
 const FRESH = 6 * 3600e3, AUTO_EVERY = 24 * 3600e3, INFO_TTL = 7 * 864e5, MANUAL_GAP = 120e3, MANUAL_MAX = 300;
 
-export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, canSee, ensureLibrary = async () => { }, clean, log = console.log, now = () => Date.now() }) {
+export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, canSee, ensureLibrary = async () => { }, findSteamApp = async () => null, clean, log = console.log, now = () => Date.now() }) {
   db.exec(`CREATE TABLE IF NOT EXISTS ach_games(
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, platform TEXT NOT NULL, appid TEXT NOT NULL, title TEXT,
     total INTEGER NOT NULL DEFAULT 0, unlocked INTEGER NOT NULL DEFAULT 0, last_unlock INTEGER, checked_at INTEGER, PRIMARY KEY(user_id, platform, appid));
@@ -38,6 +41,7 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, platform TEXT NOT NULL, title TEXT NOT NULL,
     kind TEXT NOT NULL, achieved_at INTEGER, created_at INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS ach_manual_user ON ach_manual(user_id, achieved_at DESC);`);
+  try { db.exec('ALTER TABLE ach_manual ADD COLUMN art TEXT'); } catch { /* já existe */ }
 
   const steamAcct = (uid) => get("SELECT * FROM linked_accounts WHERE user_id=? AND platform='steam'", uid);
   const syncRow = (uid) => get("SELECT * FROM ach_sync WHERE user_id=? AND platform='steam'", uid);
@@ -99,6 +103,41 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
   }
   if (process.env.ACH_SYNC !== '0') { const loop = () => { timer = setTimeout(async () => { await sweep().catch(() => { }); loop(); }, 3600e3); timer.unref?.(); }; loop(); }
 
+  // ---- arte e conquistas das platinas registradas à mão ----
+  // O jogo é procurado pelo nome na loja da Steam (arte oficial) e na Epic (arte da loja e o catálogo público de
+  // conquistas). Platina/100% = todas desbloqueadas, então o cartão mostra as mais raras do jogo com os ícones e quantas
+  // são. Catálogo: o da Epic para jogos da Epic (ou sem Steam); senão o da Steam (precisa da chave). Feito uma vez ao
+  // registrar (e de novo depois de 7 dias se nada foi achado). art = { at, steam?, epic?: { slug, image, thumb }, total?, plat_pct?, src?, icons? }
+  const ART_RETRY = 7 * 864e5, resolving = new Set();
+  const rarest = (list) => list.filter(a => a.icon).sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101)).slice(0, 5).map(a => ({ name: a.name, desc: a.desc || '', icon: a.icon, pct: a.pct ?? null }));
+  async function steamCatalog(appid) {
+    let info = infoOf(appid);
+    const ad = getAdapter('steam');
+    if (!info && ad?.achievementInfo && ad.configured()) {
+      try { info = await ad.achievementInfo(appid); run("INSERT OR REPLACE INTO ach_info(platform,appid,data,fetched_at) VALUES('steam',?,?,?)", appid, JSON.stringify(info), now()); } catch { info = null; }
+    }
+    const list = Object.values(info?.list || {});
+    return list.length ? { total: list.length, list, src: 'steam' } : null;
+  }
+  async function resolveArt(m) {
+    if (resolving.has(m.id)) return; resolving.add(m.id);
+    try {
+      const art = { at: now() };
+      const [steam, epic] = await Promise.all([findSteamApp(m.title).catch(() => null), findEpicGame(m.title).catch(() => null)]);
+      if (steam?.appid) art.steam = String(steam.appid);
+      if (epic) art.epic = { slug: epic.slug, image: epic.image, thumb: epic.thumb };
+      const fromEpic = async () => { const e = epic?.sandbox && await epicAchievements(epic.sandbox).catch(() => null); return e?.list.length ? { total: e.total, plat_pct: e.platinumPct, list: e.list, src: 'epic' } : null; };
+      const fromSteam = async () => (art.steam ? steamCatalog(art.steam) : null);
+      const cat = m.platform === 'epic' || !art.steam ? (await fromEpic()) || (await fromSteam()) : (await fromSteam()) || (await fromEpic());
+      if (cat) Object.assign(art, { total: cat.total, src: cat.src, icons: rarest(cat.list), ...(cat.plat_pct != null ? { plat_pct: cat.plat_pct } : {}) });
+      run('UPDATE ach_manual SET art=? WHERE id=?', JSON.stringify(art), m.id);
+      dispatch([m.user_id], 'ACHIEVEMENTS_UPDATE', {});
+    } catch (e) { log('[conquistas] arte de ' + m.title + ': ' + e.message); }
+    finally { resolving.delete(m.id); }
+  }
+  const artOf = (m) => { try { return m.art ? JSON.parse(m.art) : null; } catch { return null; } };
+  const needsArt = (m) => { const a = artOf(m); return !a || (!a.steam && !a.epic && now() - (a.at || 0) > ART_RETRY); };
+
   // ---- leitura ----
   function view(uid, viewer) {
     const a = steamAcct(uid), ad = getAdapter('steam'), s = syncRow(uid);
@@ -107,9 +146,15 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     const gameOf = (g) => ({ platform: 'steam', appid: g.appid, title: g.title || info(g.appid)?.title || 'Jogo ' + g.appid });
     const ach = (u) => { const d = info(u.appid)?.list?.[u.api]; const g = games.find(x => x.appid === u.appid); return { appid: u.appid, game: g ? gameOf(g).title : null, api: u.api, name: d?.name || u.api, desc: d?.desc || '', icon: d?.icon || null, pct: d?.pct ?? null, at: u.unlocked_at }; };
     const unlocks = all('SELECT * FROM ach_unlocks WHERE user_id=? ORDER BY COALESCE(unlocked_at,0) DESC', uid);
-    const perfect = games.filter(g => g.unlocked >= g.total).map(g => ({ ...gameOf(g), total: g.total, at: g.last_unlock }));
-    const manual = all('SELECT * FROM ach_manual WHERE user_id=? ORDER BY COALESCE(achieved_at,created_at) DESC', uid)
-      .map(m => ({ id: m.id, platform: m.platform, platform_name: MANUAL_PLATFORMS[m.platform] || m.platform, title: m.title, kind: m.kind, at: m.achieved_at, manual: true }));
+    // 100% da Steam: as conquistas mais raras do jogo (todas desbloqueadas) com os ícones
+    const steamIcons = (appid) => rarest(Object.values(info(appid)?.list || {}));
+    const perfect = games.filter(g => g.unlocked >= g.total).map(g => ({ ...gameOf(g), total: g.total, at: g.last_unlock, icons: steamIcons(g.appid) }));
+    const rows = all('SELECT * FROM ach_manual WHERE user_id=? ORDER BY COALESCE(achieved_at,created_at) DESC', uid);
+    for (const m of rows) if (needsArt(m)) setTimeout(() => resolveArt(m), 0); // registros antigos (ou que não acharam nada há 7 dias)
+    const manual = rows.map(m => { const a = artOf(m) || {};
+      return { id: m.id, platform: m.platform, platform_name: MANUAL_PLATFORMS[m.platform] || m.platform, title: m.title, kind: m.kind, at: m.achieved_at, manual: true,
+        ...(a.steam ? { appid: a.steam } : {}), ...(a.epic?.thumb ? { image: a.epic.thumb, epic_url: `https://store.epicgames.com/pt-BR/p/${a.epic.slug}` } : {}),
+        ...(a.total ? { total: a.total } : {}), ...(a.plat_pct != null ? { plat_pct: a.plat_pct } : {}), icons: a.icons || [], icons_from: a.src || null }; });
     const rare = unlocks.map(ach).filter(x => x.pct != null).sort((x, y) => x.pct - y.pct).slice(0, 6);
     return {
       me: uid === viewer,
@@ -151,6 +196,7 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     if (get('SELECT 1 x FROM ach_manual WHERE user_id=? AND platform=? AND kind=? AND lower(title)=lower(?)', req.uid, platform, kind, title)) return bad(res, 'Você já registrou isso', 409);
     const id = newId();
     run('INSERT INTO ach_manual(id,user_id,platform,title,kind,achieved_at,created_at) VALUES(?,?,?,?,?,?,?)', id, req.uid, platform, title, kind, at, now());
+    setTimeout(() => resolveArt(get('SELECT * FROM ach_manual WHERE id=?', id)), 0); // arte e conquistas do jogo chegam por ACHIEVEMENTS_UPDATE
     dispatch([req.uid], 'ACHIEVEMENTS_UPDATE', {});
     res.json(view(req.uid, req.uid));
   }));
@@ -161,7 +207,7 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
   }));
 
   return {
-    syncSteam, sweep,
+    syncSteam, sweep, resolveArt,
     onUnlinked(uid) { for (const t of ['ach_games', 'ach_unlocks', 'ach_sync']) run(`DELETE FROM ${t} WHERE user_id=? AND platform='steam'`, uid); },
     stop() { stopped = true; clearTimeout(timer); },
   };

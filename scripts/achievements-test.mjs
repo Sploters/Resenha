@@ -33,12 +33,20 @@ const mock = http.createServer((q, r) => {
   }
   if (u.pathname.startsWith('/ISteamUserStats/GetSchemaForGame')) { calls.info++; const a = SCHEMA[sp.get('appid')] || []; return r.end(JSON.stringify({ game: { gameName: NAMES[sp.get('appid')], availableGameStats: { achievements: a.map(([api, n, d]) => ({ name: api, displayName: n, description: d, icon: `${M}/img/${api}.svg`, icongray: '', hidden: 0 })) } } })); }
   if (u.pathname.startsWith('/ISteamUserStats/GetGlobalAchievementPercentagesForApp')) { const a = SCHEMA[sp.get('gameid')] || []; return r.end(JSON.stringify({ achievementpercentages: { achievements: a.map(([api, , , p]) => ({ name: api, percent: String(p) })) } })); }
+  // loja da Steam (busca pelo nome) e loja + conquistas públicas da Epic
+  if (u.pathname === '/store/api/storesearch/') { const t = sp.get('term'); return r.end(JSON.stringify({ items: t === 'God of War Ragnarök' ? [{ type: 'app', id: 7001, name: 'God of War Ragnarök' }] : [] })); }
+  if (u.pathname === '/epic/content/alan-wake-2') return r.end(JSON.stringify({ productName: 'Alan Wake 2', namespace: 'abc123abc123abc123', pages: [{ type: 'productHome', _images_: [`${M}/img/AW2.svg`], data: {} }] }));
+  if (u.pathname.startsWith('/epic/content/')) { r.statusCode = 404; return r.end('{}'); }
+  if (u.pathname === '/epic/ach/abc123abc123abc123/locale/pt-BR') return r.end(JSON.stringify({ totalAchievements: 3, platinumRarity: { percent: 2 }, achievements: [
+    { achievement: { unlockedDisplayName: 'Escape da gravidade', unlockedDescription: 'Use um sinalizador', unlockedIconLink: `${M}/img/E1.svg`, rarity: { percent: 22 } } },
+    { achievement: { unlockedDisplayName: 'Fim do pesadelo', unlockedDescription: 'Termine o jogo', unlockedIconLink: `${M}/img/E2.svg`, rarity: { percent: 4 } } },
+    { achievement: { unlockedDisplayName: 'Sem ícone', unlockedDescription: '', rarity: { percent: 1 } } }] }));
   if (u.pathname.startsWith('/img/')) { r.setHeader('content-type', 'image/svg+xml'); return r.end('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="8" fill="#b8860b"/><path d="M20 18h24v8a12 12 0 0 1-24 0Z" fill="#fff"/></svg>'); }
   r.statusCode = 404; r.end('{}');
 }).listen(MOCK);
 fs.rmSync(DATA, { recursive: true, force: true }); fs.mkdirSync(DATA, { recursive: true });
-fs.writeFileSync(DATA + '/discover.json', JSON.stringify({ steamApi: M + '/sapi', steamAssets: M + '/', news: [], epic: false, tournaments: false }));
-const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC: '0', STEAM_OPENID_URL: M + '/openid/login', STEAM_API_BASE: M, STEAM_API_KEY: 'CHAVE-DE-TESTE', GAMES_SYNC: '0', ACH_SYNC: '0', ACH_GAP_MS: '0' }, stdio: 'ignore' });
+fs.writeFileSync(DATA + '/discover.json', JSON.stringify({ steamApi: M + '/sapi', steamAssets: M + '/', steamBase: M + '/store', news: [], epic: false, tournaments: false }));
+const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC: '0', STEAM_OPENID_URL: M + '/openid/login', STEAM_API_BASE: M, STEAM_API_KEY: 'CHAVE-DE-TESTE', GAMES_SYNC: '0', ACH_SYNC: '0', ACH_GAP_MS: '0', EPIC_CONTENT_BASE: M + '/epic/content', EPIC_ACH_BASE: M + '/epic/ach' }, stdio: 'ignore' });
 process.on('exit', () => { try { srv.kill(); } catch { } });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
@@ -91,6 +99,11 @@ try {
   r = await add({ platform: 'epic', title: 'Alan Wake 2', kind: 'complete' });
   const epic = r.manual.find(x => x.platform === 'epic');
   ok(!!epic && epic.at === null, 'Epic: 100% sem data');
+  // arte e conquistas do jogo: God of War achado pelo nome na Steam (catálogo da Steam); Alan Wake 2 na loja da Epic
+  ok(await waitFor(async () => { const m = (await call(beto.tok, 'GET', '/users/@me/achievements')).manual; return m.every(x => x.icons_from); }), 'os registros ganham a arte e as conquistas do jogo');
+  const mm = (await call(beto.tok, 'GET', '/users/@me/achievements')).manual, gow = mm.find(x => x.platform === 'psn'), aw = mm.find(x => x.platform === 'epic');
+  ok(gow.appid === '7001' && gow.icons_from === 'steam' && gow.total === 3 && gow.icons[0].name === 'Colecionador' && gow.icons[0].icon.endsWith('/ALL.svg'), 'PlayStation: jogo achado na Steam pelo nome, com as conquistas mais raras e os ícones', gow);
+  ok(aw.image?.includes('/img/AW2.svg') && aw.icons_from === 'epic' && aw.total === 3 && aw.plat_pct === 2 && aw.icons.map(x => x.name).join() === 'Fim do pesadelo,Escape da gravidade', 'Epic: arte da loja, conquistas públicas com ícones (as raras primeiro) e quantos % fizeram 100%', aw);
 
   // quem vê: mesma regra da biblioteca
   const seen = await call(ana.tok, 'GET', `/users/${beto.id}/achievements`);
@@ -110,6 +123,7 @@ try {
   ok(cards.length === 3 && cards.includes('Estrela Cadente') && cards.includes('God of War Ragnarök'), 'platinas da Steam e informadas juntas', cards);
   ok(await p.$$eval('#trophyview .ach-card.manual .ach-inf', els => els.length) === 2, 'as informadas aparecem marcadas como "informado"');
   ok(await p.$eval('#trophyview .ach-rar', el => el.textContent.startsWith('Ultrarrara')), 'a mais rara marcada como Ultrarrara');
+  ok(await p.$$eval('#trophyview .ach-card .ach-icons img', els => els.length) >= 6 && await p.$('#trophyview .ach-card img.ach-art') !== null, 'cartões com a arte do jogo e os ícones das conquistas');
   await p.screenshot({ path: OUT + '/aba.png' });
   // registrar pela tela
   await p.evaluate(() => document.querySelector('#trophyview .ach-add').click()); await p.waitForSelector('.modal input[placeholder]');
