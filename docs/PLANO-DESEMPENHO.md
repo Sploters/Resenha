@@ -193,6 +193,20 @@ Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados
       `VIEW` → 5 sincronizações de presença; 50 "digitando…" → 4; 6.000 mensagens → conexão fechada, as outras de pé.
 
 ## App desktop
+- [x] ★ **Clipe das transmissões assistidas sem recomprimir** (2026-11-18, `public/cliptap-worker.js`, `clipbuf.js attachTap/
+      createTapBuffer`, `voice.js screenTap`, `server/sfu.js` case `keyframe`; testes `scripts/clip-tap-test.mjs` (VP8) e
+      `scripts/native-clip-test.mjs` (H.264)). Antes o MediaRecorder recomprimia o vídeo já decodificado de cada transmissão
+      assistida o tempo todo. Agora um worker encaixado no receptor do WebRTC (RTCRtpScriptTransform, o mesmo da cifra)
+      copia os quadros comprimidos como chegam (VP8 ou H.264) e só o áudio é gravado; o WebM sai igual ao de antes.
+      Detalhes que custaram: o Chromium **ignora o encaixe colocado depois da negociação**, mesmo antes do 1º quadro — ele
+      entra pelo `onRtpReceiver` do `consume()` do mediasoup-client, e por isso só nas transmissões recebidas com os clipes
+      ligados (ligar depois: MediaRecorder até a próxima transmissão). O Chromium quase não manda quadro-chave sozinho:
+      passando de 5 s sem um, quem grava pede ao servidor, que limita a um por transmissão a cada 4 s (`CLIP_KEY_GAP_MS`)
+      — o clipe começa até ~5 s antes do pedido (antes ~1 s). Tempo dos quadros pelo carimbo RTP ancorado na chegada mais
+      rápida, mais o atraso do buffer de vídeo (para casar com o áudio, que já sai tocando).
+      Medido (`scripts/media-cpu.mjs ONLY=tap`, 1080p VP8 por WebRTC, 2 rodadas): sem buffer 63,4% · MediaRecorder
+      81,8% (**+18,4%**) · quadros recebidos 63,7% (**+0,3%**, o worker 0,5%), mesmo FPS. Fora: chamadas protegidas (a
+      cifra ocupa o encaixe), malha P2P e navegador sem RTCRtpScriptTransform seguem no MediaRecorder.
 - [x] ★ **Clipe da própria transmissão sem capturar e comprimir de novo** (2026-11-18, `native/lc-stream/src/replay.rs`,
       `desktop/native.js clip/clipKeep`, `public/clipbuf.js createNativeBuffer`; teste `scripts/native-clip-test.mjs`).
       Transmitindo pelo programa nativo (60/120 FPS) com clipes próprios ligados, o Chromium capturava a mesma tela de novo

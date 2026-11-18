@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 
 const PORT = Number(process.env.RTC_PORT || 40000);
 const SOURCES = ['mic', 'cam', 'screen', 'screenaudio'];
+// pedidos de quadro-chave dos clipes (case 'keyframe'): producer -> hora do último
+const KEY_GAP_MS = Number(process.env.CLIP_KEY_GAP_MS || 4000), keyAsked = new Map();
 const MEDIA_CODECS = [
   { kind: 'audio', mimeType: 'audio/opus', clockRate: 48000, channels: 2 },
   { kind: 'video', mimeType: 'video/VP8', clockRate: 90000, parameters: { 'x-google-start-bitrate': 1000 } },
@@ -348,6 +350,17 @@ export async function sfuRequest(cid, uid, op, d) {
         }
       }
       return { viewers };
+    }
+    // clipe da transmissão de outra pessoa sem recomprimir (public/cliptap-worker.js): o clipe só começa num quadro-chave e o
+    // Chromium quase não manda um sozinho. Quem grava pede; o quadro-chave sai para TODOS que assistem, então vale um por
+    // transmissão a cada KEY_GAP_MS, por mais gente que peça
+    case 'keyframe': {
+      const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind !== 'video') return { ok: false };
+      const now = Date.now(), last = keyAsked.get(c.producerId) || 0;
+      if (now - last < KEY_GAP_MS) return { ok: false, wait: KEY_GAP_MS - (now - last) };
+      keyAsked.set(c.producerId, now); if (keyAsked.size > 500) keyAsked.delete(keyAsked.keys().next().value);
+      await c.requestKeyFrame().catch(() => { });
+      return { ok: true };
     }
     case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); if (peer.modDeaf && c?.appData.source === 'mic') return {}; await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
     default: throw new Error('operação desconhecida');

@@ -165,6 +165,7 @@
     "ux-test": 46,
     "voice-network-test": 100,
     "voicefx-test": 10,
-    "native-clip-test": 60
+    "native-clip-test": 40,
+    "clip-tap-test": 25
   }
 }

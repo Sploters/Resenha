@@ -157,10 +157,10 @@ const EBML_WEBM = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x8
   0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d, 0x42, 0x87, 0x81, 0x04, 0x42, 0x85, 0x81, 0x02]);
 const segStart = (h) => { for (let i = 0; i < Math.min(h.length - 4, 128); i++) if (h[i] === 0x18 && h[i + 1] === 0x53 && h[i + 2] === 0x80 && h[i + 3] === 0x67) return i; return -1; };
 
-// vídeo do programa (parseNativeClip) + áudio gravado ao vivo ({ bytes: WebM de áudio, anchor: hora do tempo 0 dele }) ->
+// vídeo já comprimido (parseNativeClip, ou o worker dos quadros recebidos: codec V_VP8 sem avcC) + áudio gravado ao vivo ({ bytes: WebM de áudio, anchor: hora do tempo 0 dele }) ->
 // WebM com cluster novo em cada quadro-chave (onde o corte pode começar). Os dois se alinham pela hora do relógio.
 export function muxNativeClip(nv, audio) {
-  const base = nv.frames[0].at, video = { num: 1, codec: 'V_MPEG4/ISO/AVC', priv: nv.avcc, w: nv.w, h: nv.h };
+  const base = nv.frames[0].at, video = { num: 1, codec: nv.codec || 'V_MPEG4/ISO/AVC', priv: nv.avcc || null, w: nv.w, h: nv.h };
   let ebml = EBML_WEBM, araw = null, af = [];
   const sp = audio?.bytes?.length ? splitWebm(audio.bytes) : null, tr = sp && tracksOf(sp.header).find(t => t.type === 2);
   if (tr && segStart(sp.header) > 0) {
@@ -175,14 +175,12 @@ export function muxNativeClip(nv, audio) {
   return { bytes: writeWebm(ebml, video, araw, end, frames), ms: end, audio: !!araw };
 }
 
-// opts: { keep (ms), desk (window.lcDesktop) }. audio: o stream da mistura (createMixer) ou null
-export function createNativeBuffer(audio, opts = {}) {
-  const desk = opts.desk || window.lcDesktop;
-  if (!desk?.nativeClip) return null;
-  const keep = opts.keep || KEEP;
-  const buf = { native: true, keep, fps: 0, maxFps: 0, bps: 0, how: 'nativo', mimeType: 'video/webm;codecs=h264,opus', hasAudio: false, rec: null,
+// Buffer em que o VÍDEO já vem comprimido de fora (programa nativo ou receptor do WebRTC) e só o ÁUDIO é gravado aqui.
+// src: { fetch(secs) -> Promise<{ ok, nv (como parseNativeClip) } | { ok: false, error }>, keep(ms), stop(), how, mime }
+function createSplicedBuffer(src, audio, keep) {
+  const buf = { keep, fps: 0, maxFps: 0, bps: 0, how: src.how, mimeType: src.mime, hasAudio: false, rec: null,
     header: null, chunks: [], clusters: [], size: 0, tail: new Uint8Array(0), anchor: 0, q: Promise.resolve(), onEnd: null, ready: Promise.resolve() };
-  desk.nativeClipKeep?.(keep);
+  src.keep(keep);
   // áudio: os mesmos pedaços de 1 s do MediaRecorder do clipe normal, guardados pelo mesmo tempo
   const ingest = async (blob, t) => {
     const bytes = new Uint8Array(await blob.arrayBuffer()), start = buf.size;
@@ -218,17 +216,79 @@ export function createNativeBuffer(audio, opts = {}) {
   };
   // Blob WebM com os últimos `secs` segundos (do quadro-chave anterior), ou null (buf.error diz por quê)
   buf.cut = async (secs) => {
-    const r = await desk.nativeClip(secs);
-    if (!r?.ok || !r.bytes) { buf.error = r?.error || 'sem resposta'; return null; }
-    const nv = parseNativeClip(r.bytes); if (!nv) { buf.error = 'arquivo do programa ilegível'; return null; }
+    const r = await src.fetch(secs);
+    if (!r?.ok) { buf.error = r?.error || 'sem resposta'; return null; }
+    const nv = r.nv;
     const out = muxNativeClip(nv, buf.rec || buf.chunks.length ? { bytes: await audioBytes(), anchor: buf.anchor } : null);
-    buf.last = { frames: nv.frames.length, ms: out.ms, w: nv.w, h: nv.h, audio: out.audio, fps: Math.round(nv.frames.length / Math.max(0.001, out.ms / 1000)) };
+    buf.last = { frames: nv.frames.length, ms: out.ms, w: nv.w, h: nv.h, codec: nv.codec || 'V_MPEG4/ISO/AVC', audio: out.audio, fps: Math.round(nv.frames.length / Math.max(0.001, out.ms / 1000)), ...(r.stats ? { src: r.stats } : {}) };
     return new Blob([out.bytes], { type: 'video/webm' });
   };
   buf.stop = () => {
     buf.stopped = true; buf.onEnd = null;
     try { if (buf.rec && buf.rec.state !== 'inactive') buf.rec.stop(); } catch { /* já parado */ }
-    desk.nativeClipKeep?.(0); buf.chunks = []; buf.clusters = []; buf.header = null;
+    src.stop(); buf.chunks = []; buf.clusters = []; buf.header = null;
   };
+  return buf;
+}
+
+// opts: { keep (ms), desk (window.lcDesktop) }. audio: o stream da mistura (createMixer) ou null
+export function createNativeBuffer(audio, opts = {}) {
+  const desk = opts.desk || window.lcDesktop;
+  if (!desk?.nativeClip) return null;
+  const buf = createSplicedBuffer({
+    how: 'nativo', mime: 'video/webm;codecs=h264,opus',
+    keep: (ms) => desk.nativeClipKeep?.(ms), stop: () => desk.nativeClipKeep?.(0),
+    fetch: async (secs) => {
+      const r = await desk.nativeClip(secs);
+      if (!r?.ok || !r.bytes) return { ok: false, error: r?.error || 'sem resposta' };
+      const nv = parseNativeClip(r.bytes);
+      return nv ? { ok: true, nv } : { ok: false, error: 'arquivo do programa ilegível' };
+    },
+  }, audio, opts.keep || KEEP);
+  buf.native = true;
+  return buf;
+}
+
+// ---------- clipe da transmissão de outra pessoa: os quadros comprimidos que chegam pelo WebRTC (cliptap-worker.js) ----------
+// Só pelo servidor (SFU), em VP8 ou H.264, com RTCRtpScriptTransform e sem a cifra das chamadas protegidas (que já ocupa
+// o encaixe do receptor). Fora disso, quem chama usa o createBuffer (MediaRecorder). O vídeo sai na taxa e na qualidade
+// em que chega (a camada que o servidor manda para você), sem o limite de FPS do clipe.
+// Encaixa o worker no receptor do vídeo de uma transmissão que está chegando. Tem de ser DURANTE a negociação
+// (mediasoup-client consume({ onRtpReceiver })): depois dela o Chromium ignora o encaixe. Fica só deixando os quadros
+// passarem até um buffer de clipe pedir. null quando não dá.
+export function attachTap(receiver, codec) {
+  if (!receiver || receiver.transform || !window.RTCRtpScriptTransform || !window.Worker || !/^video\/(vp8|h264)$/i.test(codec || '')) return null;
+  try {
+    const worker = new Worker(new URL('./cliptap-worker.js', import.meta.url));
+    receiver.transform = new RTCRtpScriptTransform(worker, { codec });
+    return { worker, receiver, codec, busy: false, close: () => worker.terminate() };
+  } catch { return null; }
+}
+export const canTap = (tap) => !!(tap?.worker && !tap.busy);
+
+export function createTapBuffer(tap, audio, opts = {}) {
+  if (!canTap(tap)) return null;
+  const keep = opts.keep || KEEP, w = tap.worker;
+  tap.busy = true;
+  let seq = 0; const waits = new Map(), stats = { keyAsks: 0 };
+  w.onmessage = ({ data: m }) => {
+    if (m?.needKey) { stats.keyAsks++; tap.requestKey?.(); return; }
+    const f = waits.get(m?.id); if (f) { waits.delete(m.id); f(m); }
+  };
+  const buf = createSplicedBuffer({
+    how: 'quadros recebidos', mime: `video/webm;codecs=${/h264/i.test(tap.codec) ? 'h264' : 'vp8'},opus`,
+    keep: (ms) => w.postMessage({ cmd: 'keep', ms }),
+    // o worker continua no receptor (tirar não adianta: o Chromium não o religaria depois), só para de guardar
+    stop: () => { for (const f of waits.values()) f({ ok: false, error: 'parado' }); waits.clear(); w.onmessage = null; try { w.postMessage({ cmd: 'keep', ms: 0 }); } catch { /* worker encerrado */ } tap.busy = false; },
+    fetch: async (secs) => {
+      const id = ++seq, m = await new Promise((res) => { waits.set(id, res); w.postMessage({ cmd: 'clip', id, secs }); setTimeout(() => { if (waits.delete(id)) res({ ok: false, error: 'o worker não respondeu' }); }, 10000); });
+      if (!m.ok) return { ok: false, error: m.error + (m.stats ? ' ' + JSON.stringify(m.stats) : '') };
+      const delay = Math.max(0, Math.min(1000, (await tap.delayMs?.().catch(() => 0)) || 0)), sz = tap.size?.() || {};
+      const frames = []; let o = 0;
+      for (let i = 0; i < m.lens.length; i++) { frames.push({ at: m.ats[i] + delay, key: m.keys[i] === 1, data: m.data.subarray(o, o + m.lens[i]) }); o += m.lens[i]; }
+      return { ok: true, nv: { codec: m.codec, avcc: m.avcc, w: m.w || sz.w || 1920, h: m.h || sz.h || 1080, frames }, stats: { ...m.stats, ...stats, delay: Math.round(delay) } };
+    },
+  }, audio, keep);
+  buf.tap = tap;
   return buf;
 }

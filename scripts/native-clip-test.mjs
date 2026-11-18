@@ -24,6 +24,7 @@ execFileSync('cargo', ['build', '--release', '--quiet'], { cwd: 'native/lc-strea
 const BIN = 'native/lc-stream/target/release/lc-stream';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-clip-'));
 const probe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', f]).toString());
+const countFrames = (f) => +execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', f]).toString().trim();
 const decodeErrors = (f) => { try { return execFileSync('ffmpeg', ['-v', 'error', '-i', f, '-f', 'null', '-'], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim(); } catch (e) { return String(e.stderr || e.message).trim() || 'falhou'; } };
 
 // ---------- parte 1: o programa sozinho ----------
@@ -223,6 +224,25 @@ try {
   });
   ok(play.meta.w === 1280 && play.meta.played === true, 'o clipe abre e toca num <video> da página', play.meta);
   ok(play.exact && !play.exact.error && play.exact.size > 10000, 'corte exato (decodifica e recomprime o trecho) funciona no clipe nativo', play.exact);
+  // quem ASSISTE a transmissão nativa (H.264) clipa direto dos quadros que chegam (public/cliptap-worker.js)
+  await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);
+  await B.waitForFunction(async (key) => (await window.__lc.import('clips.js')).clipInfo(key)?.mode === 'tap', { timeout: 15000 }, key).catch(() => { });
+  await sleep(5000);
+  const bs = await B.evaluate(async (key, cid) => {
+    const m = await window.__lc.import('clips.js'), L = await window.__lc.import('cliplocal.js');
+    let cap = null; await m.saveClip(key, 3, { channelId: cid, who: 'alice', onCaptured: (ok, why) => { cap = { ok, why }; } });
+    const c = (await L.listLocalClips())[0]; if (!c) return { cap, info: m.clipInfo(key) };
+    const bytes = new Uint8Array(await c.blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return { cap, b64: btoa(s), last: m.clipInfo(key)?.last };
+  }, key, vch.id);
+  ok(bs.cap?.ok && bs.last?.codec === 'V_MPEG4/ISO/AVC', 'quem assiste: clipe com os quadros H.264 recebidos (sem recomprimir)', { cap: bs.cap, last: bs.last, info: bs.info });
+  const bf = path.join(path.dirname(cf), 'assistido.webm'); if (bs.b64) fs.writeFileSync(bf, Buffer.from(bs.b64, 'base64'));
+  const bp = bs.b64 ? probe(bf) : { streams: [], format: {} }, bv = bp.streams.find(s => s.codec_type === 'video');
+  const bfps = bs.b64 ? countFrames(bf) / +bp.format.duration : 0;
+  ok(bv?.codec_name === 'h264' && bv.width >= 640 && bfps > 50, 'H.264 no tamanho e na taxa em que chega (a camada que o servidor manda)', bv && { codec: bv.codec_name, w: bv.width, h: bv.height, fps: Math.round(bfps) });
+  ok(bs.b64 && !decodeErrors(bf), 'o ffmpeg decodifica o clipe de quem assiste sem erro', bs.b64 ? decodeErrors(bf).slice(0, 200) : '');
+  ok(bs.last?.src && bs.last.src.keyAsks <= 1, 'a transmissão nativa já manda quadro-chave a cada 2 s: quem assiste só pede para começar o buffer', bs.last?.src);
   // queda do programa de vez: a transmissão volta ao Chromium e o clipe também (MediaRecorder), sem ficar sem buffer
   await A.evaluate(() => window.__lc.voice.nativeFallback('teste'));
   await A.waitForFunction(async (key) => { const i = (await window.__lc.import('clips.js')).clipInfo(key); return i && !i.native; }, { timeout: 10000 }, key).catch(() => { });

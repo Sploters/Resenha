@@ -6,6 +6,7 @@ import { playSound } from './sounds.js';
 import { createFx, loadFx, FX_IDS } from './voicefx.js';
 import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
+import { attachTap } from './clipbuf.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -837,12 +838,17 @@ export class Voice {
     s.seen.add(producer_id);
     try {
       const r = await this.sfuReq('consume', { transport_id: s.recv.id, producer_id, rtpCapabilities: s.device.rtpCapabilities });
-      const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters });
-      if (this.sfu !== s) return c.close();
+      // clipes das transmissões dos outros ligados: o worker que guarda os quadros comprimidos (clipbuf.js attachTap) entra
+      // DURANTE a negociação (onRtpReceiver): depois dela o Chromium ignora o encaixe, mesmo sem quadro nenhum ainda. Até
+      // um buffer de clipe pedir, ele só deixa passar (screenTap)
+      let tap = null;
+      const wantTap = source === 'screen' && !this.e2ee && this.prefs?.clipsOn !== false;
+      const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters, ...(wantTap ? { onRtpReceiver: (rx) => { tap = attachTap(rx, r.rtpParameters?.codecs?.[0]?.mimeType); } } : {}) });
+      if (this.sfu !== s) { tap?.close(); return c.close(); }
       this.e2eeAttach(c.rtpReceiver, 'dec');
-      if (s.closedEarly?.delete(r.id)) { c.close(); s.seen.delete(producer_id); return; } // a transmissão acabou enquanto preparava
+      if (s.closedEarly?.delete(r.id)) { c.close(); tap?.close(); s.seen.delete(producer_id); return; } // a transmissão acabou enquanto preparava
       const p = this.ensurePeer(user_id), stream = new MediaStream([c.track]);
-      s.consumers.set(c.id, { c, uid: user_id, source });
+      s.consumers.set(c.id, { c, uid: user_id, source, tap });
       p.consumers.set(c.id, source); p.layer = undefined;
       if (source === 'mic') this.attachAudio(p, stream, 'mic');
       else if (source === 'screenaudio') this.attachAudio(p, stream, 'screen');
@@ -854,6 +860,20 @@ export class Voice {
       if (!held) await this.sfuReq('resume', { consumer_id: c.id });
       this.onUpdate();
     } catch (e) { console.warn('consume', e); s.seen.delete(producer_id); }
+  }
+  // Clipe da transmissão de outra pessoa direto dos quadros comprimidos que chegam (clipbuf.js createTapBuffer): o receptor
+  // do vídeo, o codec, o pedido de quadro-chave ao servidor e o atraso entre chegar e aparecer na tela (para alinhar com
+  // o áudio, que é gravado já tocando). null: chamada protegida (a cifra ocupa o receptor), malha P2P ou ainda chegando.
+  screenTap(uid) {
+    const s = this.sfu; if (this.e2ee || !s?.ready) return null;
+    const e = [...s.consumers.values()].filter(x => x.uid === uid && x.source === 'screen' && !x.c.closed).at(-1); if (!e?.tap) return null;
+    const c = e.c;
+    if (e.tap.requestKey) return e.tap; // o mesmo objeto a cada redesenho (clips.js compara)
+    return Object.assign(e.tap, {
+      requestKey: () => this.sfuReq('keyframe', { consumer_id: c.id }).catch(() => { }),
+      delayMs: async () => { let d = 0; (await c.rtpReceiver.getStats()).forEach(r => { if (r.type === 'inbound-rtp' && r.kind === 'video' && r.jitterBufferEmittedCount > 0) d = r.jitterBufferDelay / r.jitterBufferEmittedCount * 1000; }); return d; },
+      size: () => { const t = c.track.getSettings?.() || {}; return { w: t.width, h: t.height }; },
+    });
   }
   // Assiste um producer qualquer da sala, inclusive o próprio (teste da transmissão nativa: o vídeo faz a volta pelo servidor)
   async watchProducer(producer_id) {
@@ -867,7 +887,7 @@ export class Voice {
   onSfuConsumerClosed({ consumer_id }) {
     const e = this.sfu?.consumers.get(consumer_id);
     if (!e) { if (this.sfu) (this.sfu.closedEarly ||= new Set()).add(consumer_id); return; } // ainda chegando (onSfuProducer)
-    this.sfu.consumers.delete(consumer_id); e.c.close();
+    this.sfu.consumers.delete(consumer_id); e.c.close(); e.tap?.close();
     const p = this.peers.get(e.uid); if (!p) return;
     p.consumers.delete(consumer_id);
     if (e.source === 'mic') { p.audioEl?.remove(); p.audioEl = null; this.analysers.get(e.uid)?.src.disconnect(); this.analysers.delete(e.uid); this.speaking.delete(e.uid); }
@@ -1001,7 +1021,7 @@ export class Voice {
   drop(uid) {
     const p = this.peers.get(uid); if (!p) return;
     p.pc?.close(); p.audioEl?.remove(); p.screenAudioEl?.remove(); this.unboost(p, 'audioEl'); this.unboost(p, 'screenAudioEl');
-    for (const id of p.consumers?.keys() || []) { this.sfu?.consumers.get(id)?.c.close(); this.sfu?.consumers.delete(id); }
+    for (const id of p.consumers?.keys() || []) { const e = this.sfu?.consumers.get(id); e?.c.close(); e?.tap?.close(); this.sfu?.consumers.delete(id); }
     this.analysers.get(uid)?.src.disconnect(); this.analysers.delete(uid); this.speaking.delete(uid);
     this.peers.delete(uid);
   }

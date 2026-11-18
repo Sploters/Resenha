@@ -5,7 +5,8 @@
 //    MediaRecorder recomprime uma cópia a 30 fps (o mesmo createBuffer do app). Também mede quanto ele guarda na memória.
 //  - Cifra: duas conexões WebRTC na mesma página (vai e volta: quem envia cifra, quem recebe decifra), com câmera 720p e
 //    microfone; com a cifra, cada quadro passa pelo worker real (RTCRtpScriptTransform), como numa chamada protegida.
-// Uso: node scripts/media-cpu.mjs   (SECS=15, ROUNDS=2, ONLY=clip|e2ee, JSON=arquivo)
+//  - Clipe da transmissão assistida (ONLY=tap): por WebRTC, sem buffer x MediaRecorder x os quadros recebidos (cliptap-worker.js).
+// Uso: node scripts/media-cpu.mjs   (SECS=15, ROUNDS=2, ONLY=clip|e2ee|tap, JSON=arquivo)
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -90,6 +91,45 @@ if (!ONLY || ONLY === 'e2ee') {
   }
   OUT.e2ee = { width: last?.width, scriptTransform: last?.script, off: avg(R.off, 'total'), on: avg(R.on, 'total'), worker: avg(R.on, 'worker'), extra: +(avg(R.on, 'total') - avg(R.off, 'total')).toFixed(2), frames: avg(R.on, 'perSec'), kbps: avg(R.on, 'kbps'), fpsOff: avg(R.off, 'fps'), fpsOn: avg(R.on, 'fps'), bad: Math.max(0, ...R.on.map(x => x.bad)) };
   console.log(`  Média: sem ${OUT.e2ee.off}% → com ${OUT.e2ee.on}% (+${OUT.e2ee.extra}% de um núcleo; o worker da cifra ${OUT.e2ee.worker}%) para ${OUT.e2ee.frames} quadros/s a ~${OUT.e2ee.kbps} kbps; vídeo ${OUT.e2ee.fpsOff} → ${OUT.e2ee.fpsOn} fps.`);
+}
+// ---------- 3) clipe da transmissão assistida: MediaRecorder (antes) x quadros recebidos (cliptap-worker.js) ----------
+// A "transmissão" chega por WebRTC (vai e volta na mesma página, VP8), como a de outra pessoa pelo servidor, e toca num
+// <video>. Sem buffer / com o buffer antigo (recomprime o vídeo decodificado) / com o novo (copia os quadros comprimidos).
+if (!ONLY || ONLY === 'tap') {
+  console.log('\n== Clipe da transmissão assistida (1080p 30 fps por WebRTC): sem buffer x MediaRecorder x quadros recebidos ==');
+  const MODES = ['off', 'rec', 'tap'], R = { off: [], rec: [], tap: [] }; const held = {};
+  for (let r = 0; r < ROUNDS; r++) for (const mode of MODES) {
+    await page.evaluate(async (mode) => {
+      const { createBuffer, attachTap, createTapBuffer } = await import('/clipbuf.js');
+      const media = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080, frameRate: 30 } });
+      const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+      a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate); b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate);
+      const snd = a.addTransceiver(media.getVideoTracks()[0], { direction: 'sendonly', sendEncodings: [{ maxBitrate: 6_000_000 }] }).sender;
+      snd.setParameters({ ...snd.getParameters(), degradationPreference: 'maintain-resolution' }).catch(() => { });
+      // VP8 (como a transmissão pelo Chromium chega no servidor)
+      const vp8 = RTCRtpReceiver.getCapabilities('video').codecs.filter(c => /vp8|rtx/i.test(c.mimeType));
+      let tap = null; window.call = { a, b, media, vids: [] };
+      b.ontrack = (e) => {
+        if (mode === 'tap') { tap = attachTap(e.receiver, 'video/VP8'); window.call.buf = createTapBuffer(tap, null, {}); }
+        const v = document.createElement('video'); v.muted = true; v.srcObject = new MediaStream([e.track]); document.body.append(v); v.play(); window.call.vids.push(v);
+        if (mode === 'rec') window.call.buf = createBuffer(new MediaStream([e.track]), null);
+      };
+      a.getTransceivers()[0].setCodecPreferences?.(vp8);
+      await a.setLocalDescription(); await b.setRemoteDescription(a.localDescription); await b.setLocalDescription(); await a.setRemoteDescription(b.localDescription);
+      window.call.tap = tap;
+    }, mode);
+    await sleep(+(process.env.WARM || 12000));
+    const m = await measure(), p = pct(m.d, m.secs, { worker: /^renderer \/ DedicatedWorker/i });
+    const st = await page.evaluate(async () => { let f = 0, w = 0; (await window.call.b.getStats()).forEach(x => { if (x.type === 'inbound-rtp' && x.kind === 'video') { f = x.framesPerSecond; w = x.frameWidth; } }); return { fps: f, w }; });
+    R[mode].push({ ...p, ...st });
+    console.log(`  rodada ${r + 1} ${{ off: 'sem buffer', rec: 'MediaRecorder', tap: 'quadros recebidos' }[mode]}: total ${p.total}%  worker ${p.worker}%  vídeo ${st.fps} fps (${st.w}px)`);
+    if (mode === 'tap') held.tap = await page.evaluate(async () => { const b = await window.call.buf.cut(60); return b ? b.size : 0; });
+    await page.evaluate(() => { const c = window.call; c.buf?.stop(); c.tap?.close(); c.a.close(); c.b.close(); c.media.getTracks().forEach(t => t.stop()); c.vids.forEach(v => { v.srcObject = null; v.remove(); }); });
+    await sleep(1000);
+  }
+  OUT.tap = { off: avg(R.off, 'total'), rec: avg(R.rec, 'total'), tap: avg(R.tap, 'total'), worker: avg(R.tap, 'worker'), width: R.tap[0]?.w, fps: avg(R.tap, 'fps'), tapClipMB: held.tap ? +(held.tap / 1048576).toFixed(1) : null };
+  OUT.tap.extraRec = +(OUT.tap.rec - OUT.tap.off).toFixed(2); OUT.tap.extraTap = +(OUT.tap.tap - OUT.tap.off).toFixed(2);
+  console.log(`  Média: sem buffer ${OUT.tap.off}% · MediaRecorder ${OUT.tap.rec}% (+${OUT.tap.extraRec}) · quadros recebidos ${OUT.tap.tap}% (+${OUT.tap.extraTap}; worker ${OUT.tap.worker}%) de um núcleo.`);
 }
 if (process.env.JSON) fs.writeFileSync(process.env.JSON, JSON.stringify(OUT, null, 2));
 await browser.close(); setTimeout(() => process.exit(0), 200);

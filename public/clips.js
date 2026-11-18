@@ -2,7 +2,7 @@
 // guardado só neste aparelho (cliplocal.js) até a pessoa compartilhar; quem preferir pode postar direto no chat da sala.
 import { S, api, toast } from './state.js';
 import { addLocalClip } from './cliplocal.js';
-import { createBuffer, createMixer, createNativeBuffer } from './clipbuf.js';
+import { createBuffer, createMixer, createNativeBuffer, createTapBuffer } from './clipbuf.js';
 import { openTrimmer } from './cliptrim.js';
 
 const bufs = new Map(); // chave da transmissão -> buffer
@@ -19,21 +19,36 @@ export const clipFps = () => ([30, 60, 0].includes(S.prefs.clipFps) ? S.prefs.cl
 export const clipDest = () => (S.prefs.clipDest === 'post' ? 'post' : 'local');
 export const clipKeys = () => [...bufs.keys()];
 // diagnóstico (relatório de problema / testes): quantas fontes de áudio entram no clipe de cada transmissão
-export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0), fps: b.fps, maxFps: b.maxFps, limiter: b.how, bps: b.bps, mime: b.mimeType, native: !!b.native, last: b.last || null }; };
+export const clipInfo = (key) => { const b = bufs.get(key); return b && { hasAudio: !!b.hasAudio, audioSources: b.mixer?.size ?? (b.hasAudio ? 1 : 0), fps: b.fps, maxFps: b.maxFps, limiter: b.how, bps: b.bps, mime: b.mimeType, native: !!b.native, mode: b.mode, last: b.last || null, error: b.error || null }; };
 
 // audio: fontes de áudio do clipe — o áudio da transmissão e o MICROFONE de quem transmite (só no clipe: na transmissão ao
 // vivo a voz continua indo separada, como voz da call). ctx: AudioContext para misturar (sem ele, usa só a primeira fonte).
-// opts.native: a sua transmissão está indo pelo programa nativo do app desktop: o vídeo do clipe sai dos quadros que ele
-// já comprimiu (clipbuf.js createNativeBuffer) e o Chromium grava só o áudio — sem capturar e comprimir a tela de novo
+// De onde vem o vídeo do clipe (o áudio é sempre gravado aqui):
+// - opts.native: a sua transmissão está indo pelo programa nativo do app desktop: os quadros que ele já comprimiu
+//   (clipbuf.js createNativeBuffer) — sem capturar e comprimir a tela de novo
+// - opts.tap (voice.screenTap): a transmissão de outra pessoa: os quadros comprimidos como chegam do servidor
+//   (createTapBuffer) — sem recomprimir o vídeo decodificado
+// - nenhum dos dois (ou não deu): MediaRecorder grava e comprime o vídeo da tela (createBuffer), como sempre
 const vsig = (stream) => stream.getVideoTracks().map(t => t.id).join(',');
 export function startBuffer(key, stream, audio = [], ctx = null, opts = {}) {
-  const sources = (Array.isArray(audio) ? audio : [audio]).filter(Boolean), cur = bufs.get(key), native = !!opts.native;
-  if (cur && !!cur.native === native && (native || cur.stream === stream && cur.vsig === vsig(stream) && cur.hw === (S.prefs.clipHw !== false) && cur.maxFps === clipFps()) && cur.keep === keepMs()) { cur.stream = stream; cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
+  const sources = (Array.isArray(audio) ? audio : [audio]).filter(Boolean), cur = bufs.get(key);
+  const mode = opts.native ? 'native' : opts.tap ? 'tap' : 'rec';
+  const same = cur && cur.mode === mode && cur.keep === keepMs() && (mode === 'native' || mode === 'tap' && cur.tap === opts.tap
+    || mode === 'rec' && cur.stream === stream && cur.vsig === vsig(stream) && cur.hw === (S.prefs.clipHw !== false) && cur.maxFps === clipFps());
+  // tap que não deu (navegador sem o encaixe, codec diferente): fica no MediaRecorder sem tentar de novo a cada redesenho
+  const fellBack = cur && mode === 'tap' && cur.mode === 'rec' && cur.tapFailed === opts.tap && cur.stream === stream && cur.keep === keepMs();
+  if (same || fellBack) { cur.stream = stream; cur.mixer?.set(sources); return; } // áudio mudou (microfone trocado, chegou depois): só remistura, sem perder o que já foi gravado
   if (cur) stopBuffer(key);
   const mixer = ctx ? createMixer(ctx) : null;
   mixer?.set(sources);
   const hw = S.prefs.clipHw !== false, audioIn = mixer ? mixer.stream : sources.find(s => s.getAudioTracks().length);
-  const b = native ? createNativeBuffer(audioIn, { keep: keepMs() }) : createBuffer(new MediaStream(stream.getVideoTracks()), audioIn, { keep: keepMs(), hw, maxFps: clipFps() }); if (!b) { mixer?.stop(); return; }
+  let b = mode === 'native' ? createNativeBuffer(audioIn, { keep: keepMs() }) : mode === 'tap' ? createTapBuffer(opts.tap, audioIn, { keep: keepMs() }) : null;
+  if (b) b.mode = mode;
+  else if (mode !== 'native') {
+    b = createBuffer(new MediaStream(stream.getVideoTracks()), audioIn, { keep: keepMs(), hw, maxFps: clipFps() });
+    if (b) { b.mode = 'rec'; if (mode === 'tap') b.tapFailed = opts.tap; }
+  }
+  if (!b) { mixer?.stop(); return; }
   Object.assign(b, { stream, vsig: vsig(stream), mixer, hw });
   if (mixer) Object.defineProperty(b, 'hasAudio', { get: () => mixer.had });
   b.onEnd = () => { if (bufs.get(key) === b) { bufs.delete(key); mixer?.stop(); } };
