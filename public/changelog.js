@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-18-3', title: 'Conquistas, jogos do servidor e sala de voz em espera',
+    items: [
+      { i: 'medal', t: 'Aba Conquistas', d: 'Em Jogos → Conquistas: seus jogos 100% da Steam, as conquistas mais raras e as recentes, e o progresso de cada jogo. PlayStation, Xbox e Epic não deixam outros apps lerem os troféus, então dá para registrar suas platinas de lá (aparecem como "informado"). Suas conquistas também ficam numa aba do seu perfil.' },
+      { i: 'gamepad', t: 'Jogos que a galera mais joga', d: 'O topo da lista de canais e o cartão de convite mostram os jogos que mais gente do servidor jogou nos últimos 30 dias, com uma chama quando o jogo está bombando na semana.' },
+      { i: 'pause', t: 'Em espera na chamada', d: 'Precisa sair um pouco? O botão de pausa no painel de voz desliga seu microfone e seu áudio sem sair da sala, e os outros veem "Em espera". Voltar deixa tudo como estava.' },
+      { i: 'users', t: 'Sala de voz separada por jogos', d: 'Clique direito numa sala de voz → Separar por jogos: quem está jogando a mesma coisa fica junto, e quem está em espera vai para o fim.' },
+      { i: 'clock', t: 'Registro de auditoria por 45 dias', d: 'O registro de auditoria do servidor guarda cada ação por 45 dias, como no Discord.' },
+    ],
+  },
+  {
     id: '2026-11-18-2', title: 'Mais leve com a janela de lado e em servidores grandes',
     items: [
       { i: 'pause', t: 'GIFs e vídeos param fora de foco', d: 'Com a janela minimizada ou atrás de outra (jogando, por exemplo), os GIFs do chat, os avatares animados e os vídeos tocando sem som param, e voltam de onde estavam quando você volta. Vídeo com som continua. Dá para desligar em Configurações → Aparência.' },

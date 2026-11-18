@@ -48,6 +48,7 @@ import { initVrrFix } from './vrrfix.js';
 import { reportVideoCaps } from './codecs.js';
 import { track, flow, watchClicks, startTimer, stopTimer, cancelTimer, timing, navTo } from './ux.js';
 let discoverMod = null;
+const renderTrophies = (main) => { main.replaceChildren(screenSkeleton('Conquistas')); return import('./achievements.js').then(m => { if (S.view.kind === 'trophies') m.renderTrophies(main); }); }; // aba Conquistas da seção Jogos
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
 // Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
 // lista de membros segurava o #members antigo — e, por ele, o chat antigo inteiro (~600 elementos, mensagens de voz com
@@ -369,6 +370,7 @@ function onEvent(t, d) {
     case 'ACTIVITY_UPDATE': onActivityUpdate(d); onLfgActivity(d.user_id); break;
     case 'INTEGRATION_UPDATE': onIntegrationUpdate(d); break;
     case 'GAMES_UPDATE': onGamesUpdate(d); break;
+    case 'ACHIEVEMENTS_UPDATE': dispatchEvent(new CustomEvent('rs-achievements', { detail: d })); break; // aba Conquistas e perfil (achievements.js)
     case 'GAME_DEAL': onGameDeal(d); break;
     case 'GAME_DEAL_SEEN': onDealsSeen(); break;
     case 'EVENT_UPDATE': onEventUpdate(d); break;
@@ -694,7 +696,8 @@ function applyRoute(first) {
     // '#/@me/messages' (links e abas antigas) é a mesma tela dos Amigos: a lista de conversas fica do lado
     if (cid === 'lfg') S.view = { kind: 'lfg', gid: '@me', cid: 'lfg', tab: S.view.tab }; // seção Jogos: Procurar jogadores (não é uma DM)
     if (cid === 'discover') S.view = { kind: 'discover', gid: '@me', cid: 'discover', tab: S.view.tab }; // seção Jogos: Descobrir (notícias, promoções, lançamentos)
-    if (cid === 'lfg' || cid === 'discover') localStorage.setItem('lc_games', cid);
+    if (cid === 'trophies') S.view = { kind: 'trophies', gid: '@me', cid: 'trophies', tab: S.view.tab }; // seção Jogos: Conquistas (platinas e conquistas)
+    if (cid === 'lfg' || cid === 'discover' || cid === 'trophies') localStorage.setItem('lc_games', cid);
     { const fm = /^(\d+)\/files$/.exec(cid || ''); if (fm && S.dms.has(fm[1])) S.view = { kind: 'files', gid: '@me', cid: 'files', dm: fm[1], tab: S.view.tab }; } // Arquivos de uma DM
   } else {
     const g = guild(gid);
@@ -797,8 +800,8 @@ function railSortable(rail) {
     } });
 }
 function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
-const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover');
-function openGames() { track('games_open'); S.favMode = false; go('@me', localStorage.getItem('lc_games') === 'discover' ? 'discover' : 'lfg'); } // volta para a última das duas
+const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover' || S.view.kind === 'trophies');
+function openGames() { track('games_open'); S.favMode = false; const last = localStorage.getItem('lc_games'); go('@me', last === 'discover' || last === 'trophies' ? last : 'lfg'); } // volta para a última aberta
 // ---------- busca em tudo (lupa no topo da barra) ----------
 // a lista da esquerda vira o painel de busca: onde procurar, ordem (novas/antigas/relevantes) e resultados agrupados por
 // servidor e por conversa; abrir um grupo mostra as mensagens ali mesmo
@@ -1705,7 +1708,7 @@ async function profile(anchor, uid, gid) {
   popout(anchor, node, anchor.closest('#members') || anchor.closest('.msg') ? 'left' : 'right');
 }
 // perfil completo de outra pessoa (clicar na foto/banner do cartão): banner e dados à esquerda, atividade e itens em comum à direita
-async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum
+async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigos em comum, 2 servidores em comum, 3 conquistas
   const seq = ++profileSeq, u = await tryApi('GET', `/users/${uid}`); if (!u) return;
   if (seq !== profileSeq) { mergeUser(u); return; }
   mergeUser(u);
@@ -1757,7 +1760,9 @@ async function openUserProfile(uid, gid, tab = 0) { // tab: 0 atividade, 1 amigo
   const tabs = [
     ['Atividade', () => vch ? [h('h4', 'Agora'), row(h('div.upgi', icon('voice', 22)), vg ? chName(vch) : 'Chamada', vg ? `Em uma sala de voz em ${vg.name}` : 'Em uma chamada', vg && (() => { close(); go(vg.id, vch.id); }))] : [empty(`${u.display_name} não está fazendo nada no momento.`)]],
     [`${friends.length} ${friends.length === 1 ? 'amigo' : 'amigos'} em comum`, () => friends.length ? friends.map(f => row(avatar(f, 40, { ring: 'var(--bg-float)' }), f.display_name, f.username, () => { close(); openUserProfile(f.id); })) : [empty('Nenhum amigo em comum.')]],
-    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: imgUrl(x.icon, 32), alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]]];
+    [`${guilds.length} ${guilds.length === 1 ? 'servidor' : 'servidores'} em comum`, () => guilds.length ? guilds.map(x => row(x.icon ? h('img.upgi', { src: imgUrl(x.icon, 32), alt: '' }) : h('div.upgi', initials(x.name)), x.name, '', () => { close(); go(x.id); })) : [empty('Nenhum servidor em comum.')]],
+    // platinas e conquistas (public/achievements.js, carregado só quando a aba abre)
+    ['Conquistas', () => { const box = h('div.upach', h('div.ach-loading', 'Carregando conquistas…')); import('./achievements.js').then(mod => box.replaceChildren(mod.achievementsView(uid, { compact: true }))); return [box]; }]];
   const panel = h('div.uppanel'), bar = h('div.uptabs');
   const show = (i) => { [...bar.children].forEach((b, j) => b.classList.toggle('on', i === j)); panel.replaceChildren(...tabs[i][1]()); };
   bar.append(...tabs.map(([t], i) => h('button', { onclick: () => show(i) }, t)));
@@ -1924,6 +1929,7 @@ function renderMain() {
   if (v.kind === 'files') return renderFiles(main, v.dm ? { dm: v.dm } : { gid: v.gid });
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
+  if (v.kind === 'trophies') return renderTrophies(main);
   if (v.pendingPost) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('p', 'Abrindo o post…')));
   const ch = channelById(v.cid);
   if (ch?.type === 15) return renderForum(main, ch);

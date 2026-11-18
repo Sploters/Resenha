@@ -43,6 +43,7 @@ import { initSessions, hashPw, pwMatches, passwordProblem, loginBlocked, loginFa
 import { mountDiscover } from './discover.js';
 import { knownGame, WRAPPER_EXE } from '../public/gamecatalog.js';
 import { mountGames } from './games.js';
+import { mountAchievements } from './achievements.js';
 import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
 import { createLimits, LIMITS } from './limits.js';
@@ -1848,6 +1849,7 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
 const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), log: console.log });
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
+const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
 const intents = mountIntents(app, {
   auth, wrap, bad, db, get, all, run, newId, dispatch, userPub, clean, log: console.log,
@@ -1929,7 +1931,7 @@ app.delete('/api/integrations/:platform', auth, wrap((req, res) => {
   const cur = accountOf(req.uid, p); if (cur) activity.onUnlinking(req.uid, p, cur.external_id);
   run('DELETE FROM linked_accounts WHERE user_id=? AND platform=?', req.uid, p);
   run('DELETE FROM activities WHERE user_id=? AND platform=?', req.uid, p); run('DELETE FROM game_prefs WHERE user_id=? AND platform=?', req.uid, p);
-  if (p === 'steam') games.onUnlinked(req.uid);
+  if (p === 'steam') { games.onUnlinked(req.uid); achievements.onUnlinked(req.uid); }
   dispatch([req.uid], 'INTEGRATION_UPDATE', { platform: p, account: null });
   res.json({});
 }));

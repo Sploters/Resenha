@@ -17,7 +17,7 @@ async function fetchT(url, opts = {}, ms = 10000) {
 }
 
 export default {
-  id: 'steam', name: 'Steam', capabilities: ['link', 'presence', 'playtime', 'library', 'wishlist'],
+  id: 'steam', name: 'Steam', capabilities: ['link', 'presence', 'playtime', 'library', 'wishlist', 'achievements'],
   configured: () => !!key(),
 
   startLink({ returnTo, realm }) {
@@ -60,6 +60,33 @@ export default {
     const j = (await r.json().catch(() => null))?.response;
     if (!j) throw new PollError('resposta inválida', 502);
     return { items: (j.items || []).filter(x => x.appid).map(x => ({ appid: String(x.appid), added: x.date_added ? x.date_added * 1000 : null, priority: x.priority ?? null })) };
+  },
+
+  // Conquistas de um jogo (ISteamUserStats, oficial; nomes em português). { private: true } com perfil/detalhes privados,
+  // { none: true } quando o jogo não tem conquistas; senão { total, unlocked: [{ api, at }] }
+  async achievements(steamid, appid) {
+    if (!key()) throw new PollError('STEAM_API_KEY ausente', 401);
+    const r = await fetchT(`${API()}/ISteamUserStats/GetPlayerAchievements/v1/?key=${encodeURIComponent(key())}&steamid=${steamid}&appid=${encodeURIComponent(appid)}&l=brazilian`, {}, 15000);
+    const j = (await r.json().catch(() => null))?.playerstats;
+    if (r.status === 403 || /not public/i.test(j?.error || '')) return { private: true };
+    if (r.status === 400 || (j && j.success === false)) return { none: true }; // "Requested app has no stats"
+    if (!r.ok || !j) throw new PollError('Steam respondeu ' + r.status, r.status === 401 ? 401 : r.status);
+    const list = j.achievements || [];
+    if (!list.length) return { none: true };
+    return { total: list.length, unlocked: list.filter(a => a.achieved === 1 || a.achieved === true).map(a => ({ api: String(a.apiname), at: a.unlocktime ? a.unlocktime * 1000 : null })) };
+  },
+  // nomes, descrições e ícones das conquistas (GetSchemaForGame) + quantos % dos jogadores têm cada uma (raridade)
+  async achievementInfo(appid) {
+    if (!key()) throw new PollError('STEAM_API_KEY ausente', 401);
+    const [sr, pr] = await Promise.all([
+      fetchT(`${API()}/ISteamUserStats/GetSchemaForGame/v2/?key=${encodeURIComponent(key())}&appid=${encodeURIComponent(appid)}&l=brazilian`, {}, 15000),
+      fetchT(`${API()}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${encodeURIComponent(appid)}`, {}, 15000).catch(() => null)]);
+    if (!sr.ok) throw new PollError('Steam respondeu ' + sr.status, sr.status);
+    const g = (await sr.json().catch(() => null))?.game, pct = pr?.ok ? (await pr.json().catch(() => null))?.achievementpercentages?.achievements || [] : [];
+    const out = { title: g?.gameName || null, list: {} };
+    for (const a of g?.availableGameStats?.achievements || []) out.list[a.name] = { name: a.displayName || a.name, desc: a.description || '', icon: a.icon || null, hidden: !!a.hidden };
+    for (const a of pct) if (out.list[a.name]) out.list[a.name].pct = Math.round(+a.percent * 10) / 10;
+    return out;
   },
 
   // Lote de até 100 SteamIDs por chamada (1 requisição atende todos os usuários vinculados)
