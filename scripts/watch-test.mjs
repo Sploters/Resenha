@@ -87,6 +87,9 @@ try {
   let w = await W(A);
   ok(w.joined && w.sess.host === (await A.evaluate(() => window.__lc.S.me.id)) && w.sess.mode === 'hosting', 'Watch Together aberto: Ana é a anfitriã, modo Hosting');
   ok(await A.$eval('#stage', s => s.classList.contains('wt-cover')) && await A.$eval('#stage > .bar', b => getComputedStyle(b).visibility === 'visible'), 'cobre o palco e mantém a barra da chamada visível');
+  // os botões que flutuam acima da barra (participantes, layout) não ficam por cima do player, e ele termina acima da barra
+  ok(await A.evaluate(() => { const wt = document.querySelector('#wt').getBoundingClientRect(), st = document.querySelector('#stage'), bar = st.querySelector(':scope > .bar');
+    return wt.bottom <= st.getBoundingClientRect().top + bar.offsetTop && [...bar.querySelectorAll('.partbtn, .layoutbtn, .bar-ctl')].every(e => getComputedStyle(e).display === 'none'); }), 'player termina acima da barra da chamada e nada da barra fica por cima dele');
   await shot(A, '02-vazio');
   // Beto vê o quadro da atividade no palco e entra
   await B.waitForSelector('.tile.wttile button', { timeout: 8000 });

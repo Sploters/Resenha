@@ -702,6 +702,10 @@ function voicePage(ctx, reg) {
   const camBtn = h('button.btn.grey', { onclick: async () => { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; camPrev.style.display = 'none'; return; } try { camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: S.prefs.videoId ? { exact: S.prefs.videoId } : undefined, height: { ideal: S.prefs.camRes }, frameRate: { ideal: S.prefs.camFps } } }); camPrev.srcObject = camStream; camPrev.style.display = 'block'; } catch (e) { toast('Câmera: ' + e.message, true); } } }, 'Testar câmera');
   // "Redefinir voz e vídeo": redesenha a página com os valores novos
   const redraw = () => { stopTest(); camStream?.getTracks().forEach(t => t.stop()); root.replaceWith(voicePage(ctx, reg)); };
+  // cancelamento de eco do som do próprio app (voice.js echoConstraint): desligado por padrão, cortava a voz com vídeo tocando
+  const echoAllRow = row('Cancelar também o som do app', 'Por padrão o cancelamento de eco tira só a voz e as transmissões da chamada. Ligado, tira também vídeos do Watch Together, soundboard e clipes que saem dos seus alto-falantes, mas pode cortar a sua voz enquanto eles tocam. Só faz sentido sem fone de ouvido.',
+    toggle(S.prefs.echoAll === true, v => { S.prefs.echoAll = v; save(); restartTest(); }));
+  echoAllRow.style.display = S.prefs.echo === false ? 'none' : '';
   const root = h('div', h('h2', 'Voz e vídeo'),
     card(sel('audioinput', 'inputId', 'Dispositivo de entrada', restartTest), sel('audiooutput', 'outputId', 'Dispositivo de saída', () => { applyOutput(voice); test?.setOutput?.(S.prefs.outputId); }),
       h('label.f', 'Volume do microfone', slider(0, 200, S.prefs.inputVolume, 5, v => { S.prefs.inputVolume = v; save(); if (test) test.gain.gain.value = v / 100; if (voice.micGraph) voice.micGraph.gain.gain.value = v / 100; }, v => v + '%')),
@@ -711,9 +715,9 @@ function voicePage(ctx, reg) {
       noiseCards, h('div.btns', { style: { marginTop: '10px' } }, envBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Mede o ruído do seu ambiente e sugere o filtro')), envOut, vadBox,
       toggleCards([
         { on: S.prefs.gate, label: 'Porta de ruído', desc: 'Silencia o microfone abaixo do limite. Útil com teclado mecânico e ventoinhas.', prev: h('span.vp-gate', h('i.g1'), h('i.g2'), h('i.g3'), h('i.g4'), h('i.g5'), h('b.vp-line')), fn: v => { S.prefs.gate = v; save(); gateBox.style.display = v ? '' : 'none'; restartTest(); } },
-        { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que o som dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); restartTest(); } },
+        { on: S.prefs.echo !== false, label: 'Cancelamento de eco', desc: 'Evita que a voz dos outros saindo dos seus alto-falantes volte pelo microfone.', prev: h('span.vp-echo', icon('vol', 26), h('i.e1'), h('i.e2'), h('i.e3')), fn: v => { S.prefs.echo = v; save(); echoAllRow.style.display = v ? '' : 'none'; restartTest(); } },
         { on: S.prefs.agc === true, label: 'Ganho automático', desc: 'Deixa sua voz sempre no mesmo volume, perto ou longe do microfone. Desligado por padrão: ele também aumenta o ruído e as vozes ao fundo nas suas pausas.', prev: h('span.vp-agc', h('i', { style: { height: '30%' } }), h('i', { style: { height: '70%' } }), h('i', { style: { height: '45%' } }), h('b.vp-eq'), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } }), h('i.eq', { style: { height: '55%' } })), fn: v => { S.prefs.agc = v; save(); restartTest(); } }]),
-      gateBox),
+      gateBox, echoAllRow),
     section('Teste de microfone'), card(hint('Está com problemas no microfone? Comece um teste e fale algo: sua voz volta pelo dispositivo de saída escolhido acima e a barra mostra o nível que chega.'),
       h('div.btns', testBtn, h('span', { style: { color: 'var(--text-muted)' } }, 'Ouvir a mim mesmo (use fones!)'), toggle(loopback, (v) => { loopback = v; S.prefs.micTestLoop = v; save(); test?.setLoopback(v); })), meterWrap, noInput, inCallNote),
     section('Botão de entrar na sala'), card(row('Tamanho do botão no palco', 'Fora da chamada, a sala de voz mostra um botão para entrar. Compacto ocupa menos espaço; o botão "Entrar" pequeno no topo, ao lado do nome da sala, aparece sempre.',

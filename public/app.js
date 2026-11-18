@@ -67,7 +67,7 @@ function releaseOldScreens() {
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFilesClip } from './files.js';
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
-import { initWatch, onWatchEvent, watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry, pendingWatch, placeWatch, watchSetEnv } from './watch.js';
+import { initWatch, onWatchEvent, watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry, pendingWatch, placeWatch, watchSetEnv, yieldStage } from './watch.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys, NOISE_INFO } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
@@ -3935,6 +3935,7 @@ function watchedStreams() {
 function watchOnly(uid) {
   for (const v of watchedStreams()) if (v.user_id !== uid) { voice.closeStream(v.user_id); if (S.focus === 's:' + v.user_id) S.focus = null; }
   voice.openStream(uid); S.focus = 's:' + uid;
+  yieldStage(); // Watch Together aberto cobria o palco: vira mini player para a transmissão aparecer
 }
 function stopWatching(uids) { for (const u of uids) { voice.closeStream(u); if (S.focus === 's:' + u) S.focus = null; } renderVoiceUI(); }
 function watchOptItems() {
@@ -4412,7 +4413,9 @@ initWatch({ send: gwSend, voice: () => voice, channelById, goCall: (ch) => go(ch
     const ids = new Set([...[...S.rels.values()].filter(r => r.type === 1).map(r => r.user?.id || r.id), ...(guild(ch.guild_id)?.members?.keys() || [])]);
     const on = (u) => (S.users.get(u)?.status && S.users.get(u).status !== 'offline' ? 0 : 1);
     return [...ids].filter(u => u && canCallInvite(u)).sort((a, b) => on(a) - on(b)); },
-  invite: (uid) => sendCallInvite(uid, { activity: 'watch' }) });
+  invite: (uid) => sendCallInvite(uid, { activity: 'watch' }),
+  streams: () => (voice?.channelId ? [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.screen && v.user_id !== S.me.id).map(v => v.user_id) : []),
+  watchStream: (uid) => { watchOnly(uid); renderVoiceUI(); } });
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onWatchInvite: (cid) => pendingWatch(cid), onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
 initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { inboxTab = tab; showInbox(); } });

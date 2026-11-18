@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-18-5', title: 'Watch Together junto com as transmissões e voz sem cortes',
+    items: [
+      { i: 'screen', t: 'Assistir uma transmissão com o Watch Together aberto', d: 'Quando alguém da sala transmite, aparece "AO VIVO" no topo do Watch Together. Um clique abre a transmissão e o vídeo continua tocando no mini player. Abrir uma transmissão por qualquer outro lugar também minimiza o player.' },
+      { i: 'tv', t: 'Barra da chamada no lugar', d: 'Os botões da chamada não aparecem mais por cima do player: a barra fica parada embaixo dele, e o mini player nasce acima dela.' },
+      { i: 'mic', t: 'Cancelamento de eco sem cortar a sua voz', d: 'O filtro usava como referência todo som do app, inclusive o vídeo do Watch Together, e cortava a sua voz enquanto ele tocava. Agora tira só a voz e as transmissões da chamada. O modo antigo fica em Voz e vídeo → "Cancelar também o som do app".' },
+    ],
+  },
+  {
     id: '2026-11-18-4', title: 'Watch Together mais caprichado e câmera espelhada',
     items: [
       { i: 'video', t: 'Inverter a imagem da câmera', d: 'Clique direito no botão da câmera → Inverter a imagem (ou em Configurações → Voz e vídeo). A imagem fica espelhada para todos na chamada, e a sua prévia mostra o mesmo que os outros veem.', try: 'voice' },

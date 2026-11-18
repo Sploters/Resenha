@@ -133,11 +133,17 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
   return Object.assign(out, { first, last });
 }
 
+// Cancelamento de eco: por padrão só o som da CHAMADA (vozes e transmissões, que chegam pelo WebRTC) é tirado do
+// microfone ('remote-only'). Com true, o navegador usa como referência todo som que a página toca — o vídeo do Watch
+// Together, soundboard, clipes —, e com um vídeo tocando sem parar o filtro passava a cortar a voz de quem fala por
+// cima dele, mesmo sem eco nenhum (fone). "Cancelar também o som do app" (prefs.echoAll) volta ao modo antigo.
+// Navegador que não conhece 'remote-only' lê o texto como true (o cancelamento de sempre).
+export const echoConstraint = (prefs) => (prefs.echo === false ? false : prefs.echoAll === true ? true : 'remote-only');
 // Cria o microfone processado. Retorna { raw, stream, analyser, dispose, setLoopback }
 export async function createMic(prefs, ctx) {
   const mode = prefs.noiseMode || 'standard';
   const want = (id) => ({ audio: { deviceId: id ? { exact: id } : undefined,
-    echoCancellation: prefs.echo !== false, noiseSuppression: mode === 'standard',
+    echoCancellation: echoConstraint(prefs), noiseSuppression: mode === 'standard',
     autoGainControl: prefs.agc === true, channelCount: 1, sampleRate: 48000 }, video: false });
   let raw;
   try { raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)); } catch (e) {

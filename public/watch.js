@@ -12,7 +12,7 @@ import { expectedPos, createClock, decide, syncState, fmtTime, waitingStart, par
 import { makePlayer } from './watchplayers.js';
 import { vrrSource, vrrPoke } from './vrrfix.js';
 
-let ctx = { send: () => { }, voice: () => null, channelById: () => null, inviteCandidates: () => [], invite: async () => false };
+let ctx = { send: () => { }, voice: () => null, channelById: () => null, inviteCandidates: () => [], invite: async () => false, streams: () => [], watchStream: () => { } };
 export const initWatch = (c) => { ctx = { ...ctx, ...c }; };
 // app desktop: o YouTube toca num iframe (não é um <video> desta página), então avisa o anti-piscada (public/vrrfix.js)
 // que tem vídeo tocando — sem isso, com G-Sync/FreeSync em janela, o monitor ficava trocando de frequência e piscando
@@ -252,6 +252,19 @@ export async function startWatch() {
 export async function joinWatch() { const r = await act('join'); if (r) { W.mini = false; onState(r); } }
 export const openWatch = () => { if (!W.joined) return joinWatch(); W.open = true; W.mini = false; place(); paint(); ctx.rerender?.(); };
 export const minimizeWatch = () => { W.mini = true; place(); ctx.rerender?.(); };
+// alguém pediu para assistir uma transmissão da sala (palco, lista, menu): o player vira mini e continua tocando, senão
+// ele cobria o palco e a transmissão ficava escondida atrás dele
+export const yieldStage = () => { if (W.joined && W.open && !W.mini) { W.mini = true; place(); } };
+// transmissões de outras pessoas na sala: aparecem no topo do Watch Together (o palco fica coberto por ele)
+function liveBtn() {
+  const list = (ctx.streams() || []).filter(u => u !== me()); if (!list.length) return null;
+  const go = (uid) => { minimizeWatch(); ctx.watchStream(uid); };
+  const label = list.length === 1 ? `${nm(list[0])} ao vivo` : `${list.length} transmissões`;
+  return h('button.wt-hbtn.wt-live', { title: list.length === 1 ? `Assistir a transmissão de ${nm(list[0])} (o vídeo continua no mini player)` : 'Assistir uma transmissão (o vídeo continua no mini player)',
+    onclick: (e) => list.length === 1 ? go(list[0]) : menu(e, list.map(uid => ({ label: nm(uid), icon: 'screen', fn: () => go(uid) }))) },
+  h('span.wt-livedot', 'AO VIVO'), h('span.wt-livel', label));
+}
+let liveKey = '';
 export async function leaveWatch() { await act('leave'); teardown(); ctx.rerender?.(); }
 export const pendingWatch = (cid) => { W.pendingJoin = cid; };
 export const watchActive = () => !!W.sess;
@@ -373,14 +386,25 @@ function place() {
   stage?.classList.toggle('wt-cover', !mini && !!onCall);
   if (mini) { if (lastRect !== 'mini') { lastRect = 'mini'; Object.assign(ui.root.style, { left: '', top: '', width: '', height: '' }); applyMiniPos(); } return; }
   ui.root.style.right = ui.root.style.bottom = '';
-  const r = stage.getBoundingClientRect(), bar = stage.querySelector(':scope > .bar'), b = bar?.getBoundingClientRect();
-  const hgt = Math.max(240, (b && b.height ? b.top : r.bottom) - r.top - 4);
+  // topo da barra pela posição no layout (offsetTop), não pelo retângulo na tela: o retângulo inclui o deslocamento da
+  // animação de esconder a barra, e o player crescia por cima dela enquanto ela estava escondida
+  const r = stage.getBoundingClientRect(), bar = stage.querySelector(':scope > .bar');
+  const hgt = Math.max(240, (bar && bar.offsetHeight ? bar.offsetTop : r.height) - 4);
   const key = [r.left, r.top, r.width, hgt].map(Math.round).join(',');
   if (key === lastRect) return; lastRect = key;
   Object.assign(ui.root.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: hgt + 'px' });
   ui.root.classList.toggle('narrow', r.width < 1000); ui.root.classList.toggle('stack', r.width < 760); // layout pela largura real (o chat da sala pode estar aberto ao lado)
 }
-function applyMiniPos() { const p = W.miniPos || store.get('miniPos', null); if (!p || !ui) return; W.miniPos = p; ui.root.style.right = Math.max(4, Math.min(innerWidth - 120, p.right)) + 'px'; ui.root.style.bottom = Math.max(4, Math.min(innerHeight - 80, p.bottom)) + 'px'; }
+function applyMiniPos() {
+  let p = W.miniPos || store.get('miniPos', null); if (!ui) return;
+  // sem posição escolhida: no canto, mas acima da barra da chamada (antes cobria o "Sair da chamada")
+  if (!p) {
+    const st = document.getElementById('stage'), bar = st?.querySelector(':scope > .bar'); // posição de layout (a barra pode estar escondida/deslocada)
+    ui.root.style.right = ui.root.style.bottom = '';
+    if (bar?.offsetHeight && st.getClientRects().length) ui.root.style.bottom = Math.max(16, innerHeight - (st.getBoundingClientRect().top + bar.offsetTop) + 8) + 'px';
+    return;
+  }
+  W.miniPos = p; ui.root.style.right = Math.max(4, Math.min(innerWidth - 120, p.right)) + 'px'; ui.root.style.bottom = Math.max(4, Math.min(innerHeight - 80, p.bottom)) + 'px'; }
 export const placeWatch = () => { if (W.open) place(); };
 
 function paint() { if (!W.joined) return place(); build(); paintHead(); paintAsk(); paintControls(); paintSide(); paintOverlay(); place(); }
@@ -403,10 +427,11 @@ function ctlSwitch() {
     icon(sharing || mine ? 'users' : 'lock', 14), h('span', sharing ? 'Todos controlam' : mine ? 'Você pode controlar' : `${nm(s.host)} controla`));
 }
 function paintHead() {
-  const s = W.sess, host = s.host;
+  const s = W.sess, host = s.host; liveKey = (ctx.streams() || []).join(',');
   ui.head.replaceChildren(
     h('div.wt-brand', h('span.wt-logo', icon('tv', 18)), h('div', h('b', 'Watch Together'), h('small', s.current ? s.current.title : 'Nada tocando'))),
     h('div.wt-hsp'),
+    liveBtn(),
     h('div.wt-hostchip', { title: `${nm(host)} é o anfitrião` }, avatar(user(host), 20, { status: false }), h('span', nm(host)), icon('crown', 12)),
     ctlSwitch(),
     h('span.wt-hsep'),
@@ -659,6 +684,7 @@ export function watchTile() {
 export function watchVoiceChanged() {
   const v = ctx.voice();
   if (W.sess && (!v?.channelId || v.channelId !== W.cid)) { teardown(); }
+  if (W.joined && ui && (ctx.streams() || []).join(',') !== liveKey) paintHead(); // alguém começou/parou de transmitir
   place();
 }
 

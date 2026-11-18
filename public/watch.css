@@ -8,6 +8,12 @@
   border-radius: 8px; overflow: hidden; outline: none; }
 #wt.hidden { display: none; }
 #stage.wt-cover > :not(.bar) { visibility: hidden; }
+/* palco coberto: a barra da chamada fica parada e à vista (o player está fora do #vcall, então passar o mouse nele
+   "saía" da chamada e a barra deslizava para baixo; o player crescia por cima e a barra reaparecia sobre os controles
+   do vídeo). Os botões que flutuam acima da barra (participantes, layout, controles da transmissão) mexem no palco,
+   que está escondido: saem, senão ficavam por cima do player */
+#vcall #stage.wt-cover > .bar, body:has(#stage.wt-cover) #vcall > #topbar { opacity: 1 !important; transform: none !important; pointer-events: auto !important; transition: none; }
+#stage.wt-cover > .bar > .partbtn, #stage.wt-cover > .bar > .layoutbtn, #stage.wt-cover > .bar > .bar-ctl, body:has(#stage.wt-cover) #vc-layout-slot { display: none !important; }
 /* app desktop: o iframe do YouTube desenhado pela página, sempre pelo mesmo caminho (igual ao filtro dos <video> em ux.css) */
 html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 
@@ -292,3 +298,9 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 #wt.stack .wt-empty h2 { font-size: 18px; } #wt.stack .wt-empty p, #wt.stack .wt-svcline { display: none; }
 #wt.stack .wt-ext-why, #wt.stack .wt-me small { display: none; } #wt.stack .wt-ext { padding: 14px; } #wt.stack .wt-ext h2 { font-size: 18px; } #wt.stack .wt-vclock { font-size: 32px; } #wt.stack .wt-vbox { margin: 8px auto; }
 @media (prefers-reduced-motion: reduce) { #wt, #wt * { transition: none !important; } }
+
+/* alguém da sala transmitindo: o palco está coberto, então o aviso fica no topo (abre a transmissão e minimiza o player) */
+.wt-live { gap: 8px; color: var(--interactive-hover); background: var(--bg-mod-hover); }
+.wt-livedot { padding: 1px 5px; border-radius: 4px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.wt-livel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+#wt.mini .wt-live, #wt.stack .wt-livel { display: none; }

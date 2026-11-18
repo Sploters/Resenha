@@ -199,3 +199,21 @@ ao Watch Together** (046fd81) neste ambiente: não são regressão desta funcion
 - **Volume:** arrastar não redesenha mais os controles (redesenhar destruía o controle no meio do arraste).
 - **Tela cheia:** o vídeo ocupa a tela inteira e os controles ficam por cima, sumindo com o mouse parado.
 
+
+## Transmissões, barra da chamada e eco (2026-11-18)
+- **Transmissão de outra pessoa com o Watch Together aberto:** o player cobre o palco (`#stage.wt-cover`), então a
+  transmissão ficava escondida sem aviso. Agora o topo mostra "AO VIVO · Fulano ao vivo" (`liveBtn`, lista vinda de
+  `ctx.streams`); o clique minimiza o player e abre a transmissão (`ctx.watchStream` → `watchOnly`). Qualquer outro
+  "Assistir" (lista da sala, menu da pessoa, quadro do palco) chama `yieldStage()` e também minimiza.
+- **Barra da chamada por cima do player:** o `#wt` fica fora do `#vcall`; com o mouse no player a regra
+  `#vcall:not(:hover)` escondia a barra (deslocada para baixo), `place()` media o retângulo deslocado e o player crescia
+  por cima dela, e ao voltar a barra aparecia sobre os controles do vídeo. Agora, com o palco coberto, a barra e o topo
+  ficam parados e à vista, a altura vem de `bar.offsetTop` (posição de layout, sem a animação) e os botões que flutuam
+  acima da barra (`.partbtn`, `.layoutbtn`, `.bar-ctl`, layout do topo) saem. O mini player nasce acima da barra.
+- **Cancelamento de eco cortando a voz:** com `echoCancellation: true` o Chromium usa como referência todo som que a
+  página toca, inclusive o vídeo do YouTube; com o vídeo tocando sem parar o filtro cortava a voz de quem falava por
+  cima dele, mesmo de fone. O microfone agora pede `echoCancellation: 'remote-only'` (só o áudio da chamada, que chega
+  pelo WebRTC, é cancelado; `echoConstraint` em `public/voice.js`). "Cancelar também o som do app" (`prefs.echoAll`)
+  volta ao modo antigo. Navegadores sem `'remote-only'` leem o texto como `true`.
+  Limite: vozes com volume acima de 100% ou com efeito de voz passam pelo WebAudio e não entram nessa referência; quem
+  usa caixa de som e aumenta alguém acima de 100% pode precisar ligar "Cancelar também o som do app".
