@@ -21,12 +21,12 @@ vrrSource(() => !!W.joined && !!W.player && W.player.state() === 'playing' && !u
 const store = { get: (k, d) => { try { const v = localStorage.getItem('wt.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('wt.' + k, JSON.stringify(v)); } catch { } } };
 const W = {
   sess: null, cid: null, joined: false, open: false, mini: false, lastSeq: -1, clock: createClock(), clockTimer: null,
-  player: null, itemId: null, ready: false, error: null, strikes: 0, lastFix: 0, seekLat: 0.25, drift: 0, fixes: 0, residualCheck: 0,
+  player: null, itemId: null, ready: false, error: null, strikes: 0, lastFix: 0, seekLat: 0.25, drift: 0, fixes: 0, residualCheck: 0, rate: 1, nudges: 0, dHist: [], settleUntil: 0, startSeq: -1, startT: 0,
   reports: {}, tab: 'queue', results: null, suggest: null, searching: false, svc: 'youtube', pendingJoin: null,
   autoplayBlocked: false, bufSince: 0, lastReport: 0, lastRepKey: '', ready_ext: false, myPos: null,
-  vol: store.get('vol', 80), muted: store.get('muted', false), env: { desktopWindow: false, widevine: false },
+  vol: store.get('vol', 80), muted: store.get('muted', false), cc: store.get('cc', false), env: { desktopWindow: false, widevine: false },
 };
-export const watchState = () => ({ sess: W.sess, joined: W.joined, open: W.open, mini: W.mini, itemId: W.itemId, error: W.error, drift: W.drift, fixes: W.fixes, playerTime: W.player?.time?.() ?? null, playerState: W.player?.state?.() ?? null, clockOffset: W.clock.offset, vol: W.vol, muted: W.muted, lastSeq: W.lastSeq, autoplayBlocked: W.autoplayBlocked, reports: W.reports });
+export const watchState = () => ({ sess: W.sess, joined: W.joined, open: W.open, mini: W.mini, itemId: W.itemId, error: W.error, drift: W.drift, fixes: W.fixes, rate: W.rate, nudges: W.nudges, syncErr: W.player && W.sess?.current ? W.player.time() - expectedPos(W.sess.pb, W.clock.now(), W.sess.current.duration || W.player.duration() || 0) : null, playerTime: W.player?.time?.() ?? null, playerState: W.player?.state?.() ?? null, clockOffset: W.clock.offset, vol: W.vol, muted: W.muted, lastSeq: W.lastSeq, autoplayBlocked: W.autoplayBlocked, reports: W.reports });
 // ---------- app desktop: janela do serviço com a conta de cada um (desktop/watchwin.js) ----------
 const desk = typeof window !== 'undefined' && window.lcDesktop?.watchOpen ? window.lcDesktop : null;
 W.env.desktopWindow = !!desk;
@@ -93,7 +93,7 @@ export function onWatchEvent(t, d) {
   if (t === 'WATCH_STATE') return onState(d);
   if (t === 'WATCH_SYNC') {
     if (!W.sess || d.id !== W.sess.id || d.pb.seq <= W.lastSeq) return; // atrasado: já aplicamos um mais novo
-    W.sess.pb = d.pb; W.lastSeq = d.pb.seq; W.strikes = 0;
+    W.sess.pb = d.pb; W.lastSeq = d.pb.seq; W.strikes = 0; W.dHist = [];
     applyNow(); paint(); return;
   }
   if (t === 'WATCH_ASK') { if (W.sess && d.id === W.sess.id && isHost() && W.sess.mode === 'hosting' && !W.sess.controllers.includes(d.uid)) { W.asks = [...(W.asks || []).filter(u => u !== d.uid), d.uid]; paintAsk(); if (W.mini || !W.open) toast(`${nm(d.uid)} pediu para controlar o vídeo`); } return; }
@@ -131,16 +131,16 @@ function loadCurrent() {
   const pos = expectedPos(pb, now, dur), play = pb.status === 'playing' && !waitingStart(pb, now);
   const sameKind = W.player && W.player.item?.service === it.service && it.service === 'youtube';
   if (!sameKind) destroyPlayer();
-  W.itemId = it.id; W.error = it.error || null; W.ready = false; W.stuckSince = 0; W.mutedTry = false; W.autoplayBlocked = false; W.strikes = 0; W.lastFix = 0; W.ready_ext = false; W.myPos = null;
+  W.itemId = it.id; W.error = it.error || null; W.ready = false; W.stuckSince = 0; W.mutedTry = false; W.playIssued = false; W.autoplayBlocked = false; W.strikes = 0; W.lastFix = 0; W.ready_ext = false; W.myPos = null; W.rate = 1; W.dHist = []; W.settleUntil = 0; W.startSeq = -1; clearTimeout(W.startT);
   if (!W.player) {
     W.player = makePlayer(it, host, {
       onReady: () => { W.ready = true; applyNow(); paint(); },
-      onState: () => { if (W.player?.state() === 'playing' && W.autoplayBlocked) { W.autoplayBlocked = false; paintOverlay(); } vrrPoke(); report(); paintControls(); },
+      onState: () => { const st = W.player?.state(); if (st === 'playing' && W.autoplayBlocked && navigator.userActivation?.hasBeenActive) tryUnmute(); if (st === 'playing') W.player?.applyCaptions?.(W.cc); vrrPoke(); report(); paintControls(); },
       onError: (code) => { if (code === 'embed_blocked' && W.sess?.current?.embed_ok) code = 'yt_refused'; if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
       onEnded: () => { const c = W.sess?.current; if (c) fire('ended', { item_id: c.id }); },
       onDuration: (s) => { const c = W.sess?.current; if (c && !(c.duration > 0) && s > 0) { c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
     }, W.env);
-    W.player.setVolume(W.vol); W.player.setMuted(W.muted);
+    W.player.setVolume(W.vol); W.player.setMuted(W.muted); W.player.ccPref = W.cc;
     if (external(it) && desk) W.player.attachBridge?.(bridgeFor(it.service)); // app desktop: janela do serviço (desktop/watchwin.js)
   }
   W.player.load(it, { pos, play });
@@ -153,18 +153,22 @@ function tick(force) {
   const now = W.clock.now(), dur = s.current.duration || p.duration() || 0, pb = s.pb;
   const exp = expectedPos(pb, now, dur), st = p.state();
   if (pb.status === 'playing') {
-    if (waitingStart(pb, now)) { // começo marcado: espera parado no ponto de partida
+    if (waitingStart(pb, now)) { // começo marcado: espera parado no ponto exato de partida
       if (st === 'playing') p.pause();
-      if (Math.abs(p.time() - pb.pos) > .4) p.seek(pb.pos);
+      if (Math.abs(p.time() - pb.pos) > .05) p.seek(pb.pos);
+      scheduleStart(pb);
       paintOverlay(); return;
     }
     if ((st === 'paused' || st === 'idle' || (st === 'ended' && exp < dur - 1)) && !W.autoplayBlocked) p.play();
     // player travado em "não iniciado" com a sala tocando (som automático bloqueado sem aviso, ou o site recusou):
     // 1º tenta sem som (o navegador sempre deixa) e avisa; se continuar parado, explica em vez de ficar preto
+    // o YouTube carregado sem tocar fica em "não iniciado" (estado 'loading' aqui): é preciso mandar o play. Antes isso
+    // não acontecia, e depois de 5 s a proteção abaixo tocava sem som (o ícone continuava com o volume ligado)
+    if (st === 'loading' && !W.playIssued && !W.autoplayBlocked) { W.playIssued = true; W.stuckSince = performance.now(); p.play(); }
     if (st === 'loading') {
       W.stuckSince = W.stuckSince || performance.now();
       const stuck = performance.now() - W.stuckSince;
-      if (stuck > 5000 && !W.mutedTry) { W.mutedTry = true; W.autoplayBlocked = true; p.setMuted(true); p.play(); paintOverlay(); }
+      if (stuck > 8000 && !W.mutedTry) { W.mutedTry = true; W.autoplayBlocked = true; p.setMuted(true); p.play(); paintOverlay(); }
       else if (stuck > 15000 && !W.error) { W.error = 'stuck'; report(true); paintOverlay(); return; }
     } else W.stuckSince = 0;
   } else if (st === 'playing' || (st === 'buffering' && pb.status !== 'playing')) p.pause();
@@ -174,14 +178,46 @@ function tick(force) {
     return paintOverlay();
   }
   if (p.buffering()) { if (!W.bufSince) W.bufSince = performance.now(); } else W.bufSince = 0;
-  const t = performance.now();
-  // depois de uma correção, mede o que sobrou e ajusta a mira (latência de busca deste player/conexão)
-  if (W.residualCheck && t > W.residualCheck && !p.buffering() && pb.status === 'playing') { W.residualCheck = 0; const res = p.time() - exp; if (Math.abs(res) < 1.5) W.seekLat = Math.max(0, Math.min(1.5, W.seekLat - res * .6)); }
-  const r = decide({ expected: exp, actual: p.time(), playing: pb.status === 'playing', buffering: p.buffering(), strikes: force ? 1 : W.strikes, lastFix: force ? 0 : W.lastFix, now: t, seekLatency: W.seekLat });
-  W.strikes = r.strikes; W.drift = r.drift;
-  if (r.action === 'seek') { p.seek(r.target); W.lastFix = t; W.fixes++; if (pb.status === 'playing') W.residualCheck = t + 1500; }
-  if (pb.status === 'paused' && Math.abs(p.time() - exp) > .3 && r.action !== 'seek') p.seek(exp);
+  const t = performance.now(), playing = pb.status === 'playing';
+  if (t < W.settleUntil && !force) return; // logo depois de um pulo a posição informada pelo player ainda é velha
+  // depois de um pulo, mede o que sobrou e ajusta a mira (latência de busca deste player/conexão)
+  if (W.residualCheck && t > W.residualCheck && !p.buffering() && playing) { W.residualCheck = 0; const res = p.time() - exp; if (Math.abs(res) < 1.5) W.seekLat = Math.max(0, Math.min(1.5, W.seekLat - res * .6)); }
+  // diferença medida = mediana das últimas leituras (uma leitura isolada do player pode vir atrasada)
+  const raw = p.time() - exp;
+  W.dHist.push(raw); if (W.dHist.length > 5) W.dHist.shift();
+  const med = force ? raw : [...W.dHist].sort((a, b) => a - b)[W.dHist.length >> 1];
+  const r = decide({ expected: exp, actual: exp + med, playing, buffering: p.buffering(), strikes: force ? 1 : W.strikes, lastFix: force ? 0 : W.lastFix, now: t,
+    seekLatency: W.seekLat, canRate: p.canRate && playing, rate: W.rate, seekTol: p.seekTol });
+  W.strikes = r.strikes; W.drift = med;
+  if (r.action === 'seek') {
+    if (W.rate !== 1) { W.rate = 1; p.setRate(1); }
+    p.seek(r.target); W.lastFix = t; W.fixes++; W.dHist = []; W.settleUntil = t + 450;
+    if (playing) W.residualCheck = t + 1500;
+  } else if (r.action === 'rate' || (r.action === 'wait' && W.rate !== 1)) {
+    const nr = r.action === 'rate' ? r.rate : 1;
+    if (nr !== W.rate) { W.rate = nr; p.setRate(nr); if (nr !== 1) W.nudges++; }
+  }
+  if (!playing && W.rate !== 1) { W.rate = 1; p.setRate(1); }
 }
+// começo/play marcado para o instante `at` do servidor: um timer no ponto exato (a conferência periódica a cada 200 ms
+// chegava a começar até 400 ms atrasada, e cada um atrasava diferente)
+function scheduleStart(pb) {
+  if (W.startSeq === pb.seq) return;
+  W.startSeq = pb.seq; clearTimeout(W.startT);
+  W.startT = setTimeout(() => {
+    const P = W.player, cur = W.sess?.pb;
+    if (!P || !cur || cur.seq !== pb.seq || cur.status !== 'playing' || W.error) return;
+    P.play(); W.dHist = []; W.settleUntil = performance.now() + 300;
+  }, Math.max(0, pb.at - W.clock.now()));
+}
+// tocando sem som porque o navegador bloqueou: volta o som assim que der (a página já teve um clique, ou no próximo)
+function tryUnmute() {
+  if (!W.autoplayBlocked || W.muted || !W.player) return;
+  W.autoplayBlocked = false; W.player.setMuted(false); W.player.setVolume(W.vol);
+  setTimeout(() => { if (W.player && W.player.state() !== 'playing' && W.sess?.pb.status === 'playing') { W.autoplayBlocked = true; W.player.setMuted(true); W.player.play(); } paintOverlay(); }, 700);
+  paintOverlay();
+}
+if (typeof window !== 'undefined') window.addEventListener('pointerdown', () => setTimeout(tryUnmute, 0), true);
 function report(now) {
   const s = W.sess, p = W.player; if (!W.joined || !s) return;
   const it = s.current, ext = external(it) && !p?.controllable;
@@ -195,7 +231,8 @@ function report(now) {
 let loops = null;
 function startLoops() {
   if (loops) return;
-  loops = [setInterval(() => { tick(); report(); paintTime(); }, 400), setInterval(() => { if (W.joined) syncClock(1); }, 30_000), setInterval(place, 250)];
+  // conferência a cada 200 ms; o relógio da sala é reamostrado a cada 10 s (fica a amostra de menor ida e volta)
+  loops = [setInterval(() => { tick(); report(); paintTime(); }, 200), setInterval(() => { if (W.joined) syncClock(2); }, 10_000), setInterval(place, 250)];
 }
 function stopLoops() { (loops || []).forEach(clearInterval); loops = null; }
 function teardown(keepUi) {
@@ -235,7 +272,19 @@ const lockedHint = () => toast(`Só ${nm(W.sess.host)} controla o vídeo agora. 
 async function askControl() { const r = await act('ask'); if (r && !r.already) toast(`Pedido enviado para ${nm(W.sess.host)}`); }
 const setMode = (mode) => { if (W.sess && W.sess.mode !== mode) act('mode', { mode }); };
 const grant = (uid, on) => { W.asks = (W.asks || []).filter(u => u !== uid); act('grant', { uid, on }); paintAsk(); };
-function setVol(v, muted = W.muted) { W.vol = v; W.muted = muted; store.set('vol', v); store.set('muted', muted); W.player?.setVolume(v); W.player?.setMuted(muted); paintControls(); }
+function setVol(v, muted = W.muted) {
+  W.vol = v; W.muted = muted; store.set('vol', v); store.set('muted', muted); W.player?.setVolume(v); W.player?.setMuted(muted);
+  if (!muted) W.autoplayBlocked = false;
+  // só o ícone e a posição do controle: sem redesenhar a barra (o controle sendo arrastado continua o mesmo)
+  const ic = ui?.controls.querySelector('.wt-volbox > .wt-cb'), r = ui?.controls.querySelector('.wt-vol');
+  if (ic) { ic.replaceChildren(icon(muted || !v ? 'volmute' : v < 50 ? 'vollow' : 'vol', 18)); ic.title = muted ? 'Ativar som (m)' : 'Silenciar (m)'; }
+  if (r && !holding) { r.value = muted ? 0 : v; r.style.setProperty('--p', (muted ? 0 : v) + '%'); }
+  if (ui?.overlay.querySelector('.wt-unmute') && !W.autoplayBlocked) paintOverlay();
+}
+const setCc = (on) => {
+  W.cc = on; store.set('cc', on); W.player?.applyCaptions?.(on, true); paintControls();
+  if (on) setTimeout(() => { if (W.cc && W.player?.captionTracks?.() === 0) toast('Este vídeo não tem legendas'); }, 2500);
+};
 function resync() { W.lastFix = 0; W.strikes = 1; syncClock(3).then(() => tick(true)); if (W.error && !ERRORS[W.error]?.fatal) { const it = W.sess?.current; W.error = null; W.itemId = null; destroyPlayer(); if (it) loadCurrent(); } toast('Ressincronizando com a sala'); }
 async function addLink(raw, extra = {}) {
   let url = String(raw || '').trim(); if (!url) return null;
@@ -275,7 +324,7 @@ function build() {
   const stagebox = h('div.wt-stagebox', playerHost, catcher, overlay);
   const head = h('div.wt-head'), controls = h('div.wt-ctl'), side = h('aside.wt-side'), people = h('div.wt-people');
   const search = h('input.wt-search', { type: 'search', maxLength: 500, autocomplete: 'off', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(search.value); } } });
-  const main = h('div.wt-main', stagebox, controls);
+  const main = h('div.wt-main', { onpointermove: () => fsWake(), onpointerdown: () => fsWake() }, stagebox, controls);
   const askbar = h('div.wt-askbar');
   const root = h('div#wt.wt.hidden', { tabindex: '-1', role: 'region', 'aria-label': 'Watch Together', onkeydown: keys }, head, askbar, h('div.wt-body', main, side));
   document.body.append(root);
@@ -297,10 +346,20 @@ function keys(e) {
   else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo((W.player?.time() || 0) - 5); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo((W.player?.time() || 0) + 5); }
   else if (e.key === 'm') setVol(W.vol, !W.muted);
+  else if (e.key === 'c') setCc(!W.cc);
   else if (e.key === 'f') fullscreen();
   else if (e.key === 'Escape' && !document.fullscreenElement) minimizeWatch();
 }
 function fullscreen() { if (!ui) return; if (document.fullscreenElement) document.exitFullscreen?.(); else ui.main.requestFullscreen?.().catch(() => { }); }
+// tela cheia: o vídeo ocupa o monitor inteiro e os controles ficam por cima, sumindo com o mouse parado (antes a
+// barra ficava embaixo do vídeo e "roubava" um pedaço da tela, como acontecia com os clipes)
+let fsIdleT = 0;
+function fsWake() {
+  if (!ui || document.fullscreenElement !== ui.main) return;
+  ui.main.classList.remove('fsidle'); clearTimeout(fsIdleT);
+  fsIdleT = setTimeout(() => { if (!holding && !ui.controls.matches(':hover')) ui.main.classList.add('fsidle'); else fsWake(); }, 2500);
+}
+if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', () => { if (!ui) return; if (document.fullscreenElement === ui.main) fsWake(); else { clearTimeout(fsIdleT); ui.main.classList.remove('fsidle'); } });
 
 // posição da camada: cobre o palco da chamada (menos a barra) ou vira mini player
 let lastRect = '';
@@ -365,16 +424,21 @@ function paintAsk() {
     h('button.btn.sm.grey', { onclick: () => { W.asks = W.asks.filter(u => u !== uid); paintAsk(); } }, 'Agora não'),
     list.length === 1 && h('button.wt-asklink', { onclick: () => setMode('sharing') }, 'Liberar para todos'))));
 }
-let bar = null;
+let bar = null, holding = false, pendingCtl = false;
+// arrastando a barra do vídeo ou o volume: nada redesenha os controles (redesenhar destruía o controle no meio do
+// arraste, e o volume "fechava" sozinho); o que ficou pendente é aplicado ao soltar
+if (typeof window !== 'undefined') window.addEventListener('pointerup', () => { if (!holding) return; holding = false; ui?.controls.classList.remove('voldrag'); if (pendingCtl) { pendingCtl = false; paintControls(); } }, true);
 function paintControls() {
   if (!ui || !W.sess) return;
+  if (holding) { pendingCtl = true; return; }
   const s = W.sess, it = s.current, ctl = canCtl(), playing = s.pb.status === 'playing';
   const dis = !it || !ctl;
   const title = ctl ? '' : ` (só ${nm(s.host)} controla)`;
-  bar = h('input.wt-seek', { type: 'range', min: 0, max: 1000, step: 1, value: 0, disabled: dis, 'aria-label': 'Posição do vídeo',
+  const hold = () => { holding = true; };
+  bar = h('input.wt-seek', { type: 'range', min: 0, max: 1000, step: 1, value: 0, disabled: dis, 'aria-label': 'Posição do vídeo', onpointerdown: hold,
     oninput: () => { bar.dragging = true; paintTime(); }, onchange: () => { bar.dragging = false; const d = it?.duration || W.player?.duration() || 0; if (d) seekTo(+bar.value / 1000 * d); } });
   // volume: ícone do alto-falante + controle curto que abre ao passar o mouse (só para você), separado da barra do vídeo
-  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', oninput: (e) => { e.target.style.setProperty('--p', e.target.value + '%'); setVol(+e.target.value, +e.target.value === 0); } });
+  const vol = h('input.wt-vol', { type: 'range', min: 0, max: 100, value: W.muted ? 0 : W.vol, 'aria-label': 'Volume (só para você)', onpointerdown: () => { hold(); ui.controls.classList.add('voldrag'); }, oninput: (e) => { e.target.style.setProperty('--p', e.target.value + '%'); setVol(+e.target.value, +e.target.value === 0); } });
   vol.style.setProperty('--p', (W.muted ? 0 : W.vol) + '%');
   const volIco = W.muted || !W.vol ? 'volmute' : W.vol < 50 ? 'vollow' : 'vol';
   ui.controls.replaceChildren(
@@ -389,6 +453,7 @@ function paintControls() {
       h('span.wt-clock', h('span.wt-time', '0:00'), h('span.wt-dur', ' / ' + (it?.duration ? fmtTime(it.duration) : '--:--'))),
       h('div.wt-sp'),
       h('span.wt-sync'),
+      it?.service === 'youtube' && h('button.wt-cb.wt-ccbtn' + (W.cc ? '.on' : ''), { title: W.cc ? 'Desativar legendas (c) — só para você' : 'Ativar legendas (c) — só para você', 'aria-label': 'Legendas', 'aria-pressed': W.cc ? 'true' : 'false', onclick: () => setCc(!W.cc) }, h('span.wt-cc', 'CC')),
       it && !ctl && h('button.wt-askbtn', { title: `Só ${nm(s.host)} controla o vídeo agora. Peça para controlar também.`, onclick: askControl }, icon('lock', 14), h('span', 'Pedir controle')),
       h('button.wt-cb', { title: 'Ressincronizar com a sala', 'aria-label': 'Ressincronizar', onclick: resync }, icon('refresh', 16)),
       h('button.wt-cb', { title: 'Tela cheia (f)', 'aria-label': 'Tela cheia', onclick: fullscreen }, icon('expand', 16))));
@@ -415,10 +480,10 @@ function paintSyncBadge() {
   if (!it) return el.replaceChildren();
   if (external(it) && !W.player?.controllable) { el.className = 'wt-sync ext'; el.replaceChildren(icon('users', 12), h('span', LEVELS[levelOf(it)].label)); el.title = LEVELS[levelOf(it)].desc; return; }
   const p = W.player, buf = p?.buffering(), d = W.drift;
-  const st = W.error ? 'err' : buf ? 'buf' : Math.abs(d) <= .6 ? 'ok' : 'off';
+  const st = W.error ? 'err' : buf ? 'buf' : Math.abs(d) <= .15 ? 'ok' : 'off';
   el.className = 'wt-sync ' + st;
-  el.title = st === 'ok' ? `Sincronizado com a sala (diferença ${(d * 1000).toFixed(0)} ms)` : st === 'off' ? `Fora de sincronia por ${Math.abs(d).toFixed(1)} s — corrigindo` : st === 'buf' ? 'Carregando o vídeo' : 'Erro no player';
-  el.replaceChildren(h('i'), h('span', st === 'ok' ? 'Sincronizado' : st === 'off' ? (d > 0 ? '+' : '−') + Math.abs(d).toFixed(1) + ' s' : st === 'buf' ? 'Carregando…' : 'Erro'));
+  el.title = st === 'ok' ? `Sincronizado com a sala (diferença ${(d * 1000).toFixed(0)} ms)` : st === 'off' ? `Fora de sincronia por ${(Math.abs(d) * 1000).toFixed(0)} ms — ${W.rate !== 1 ? 'ajustando a velocidade' : 'corrigindo'}` : st === 'buf' ? 'Carregando o vídeo' : 'Erro no player';
+  el.replaceChildren(h('i'), h('span', st === 'ok' ? 'Sincronizado' : st === 'off' ? (d > 0 ? '+' : '−') + (Math.abs(d) < 1 ? (Math.abs(d) * 1000).toFixed(0) + ' ms' : Math.abs(d).toFixed(1) + ' s') : st === 'buf' ? 'Carregando…' : 'Erro'));
 }
 
 function paintOverlay() {

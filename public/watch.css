@@ -44,7 +44,12 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 /* ---------- corpo: player + lateral ---------- */
 .wt-body { flex: 1; min-height: 0; display: flex; }
 .wt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #000; }
-.wt-main:fullscreen { background: #000; }
+.wt-main:fullscreen { background: #000; position: relative; }
+/* tela cheia: vídeo no monitor inteiro; controles por cima (fundo sólido, sem desfoque), somem com o mouse parado */
+.wt-main:fullscreen .wt-stagebox { position: absolute; inset: 0; }
+.wt-main:fullscreen .wt-ctl { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 16px 10px; background: rgba(17,18,20,.88); transition: opacity .2s; }
+.wt-main:fullscreen.fsidle .wt-ctl { opacity: 0; pointer-events: none; }
+.wt-main:fullscreen.fsidle, .wt-main:fullscreen.fsidle .wt-catch { cursor: none; }
 .wt-stagebox { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
 .wt-player, .wt-player > *, .wt-player iframe, .wt-v { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .wt-v { object-fit: contain; background: #000; }
@@ -136,7 +141,10 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 /* volume: só o alto-falante; o controle (curto e branco) abre ao lado com o mouse em cima, como nos players de vídeo */
 .wt-volbox { display: flex; align-items: center; flex: none; }
 .wt-volslide { width: 0; overflow: hidden; transition: width .15s ease; display: flex; align-items: center; }
-.wt-volbox:hover .wt-volslide, .wt-volbox:focus-within .wt-volslide { width: 76px; }
+.wt-volbox:hover .wt-volslide, .wt-volbox:focus-within .wt-volslide, .wt-ctl.voldrag .wt-volslide { width: 76px; } /* arrastando: fica aberto mesmo com o mouse fora */
+/* legendas (CC): aceso quando ligadas */
+.wt-cc { font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 1px 4px; border-radius: 3px; border: 1.5px solid currentColor; line-height: 1.1; }
+.wt-ccbtn { color: var(--wt-ctl-dim); } .wt-ccbtn.on { color: #fff; } .wt-ccbtn.on .wt-cc { background: #fff; color: #111214; border-color: #fff; }
 .wt-vol { width: 64px; margin: 0 6px 0 2px; height: 14px; --p: 80%; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
 .wt-vol::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(90deg, #fff var(--p), rgba(255,255,255,.25) var(--p)); }
 .wt-vol::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px; border-radius: 50%; background: #fff; }

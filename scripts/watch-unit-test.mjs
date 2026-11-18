@@ -41,23 +41,37 @@ console.log('— sincronização (lógica pura)');
   clk.add(0, 5100, 200); clk.add(1000, 6050, 1100); clk.add(2000, 7400, 2800);
   ok(Math.abs(clk.offset - 5000) < 1 && clk.rtt === 100, 'relógio escolhe a amostra de menor ida e volta', { off: clk.offset, rtt: clk.rtt });
   fake = 100; ok(clk.now() === 5100, 'relógio comum = local + diferença');
-  let r = decide({ expected: 10, actual: 10.3, playing: true, now: 10000 });
-  ok(r.action === 'none', 'dentro da tolerância: nada');
+  // sem ajuste de velocidade (player que não aceita): pula, com tolerância de 0,25 s
+  let r = decide({ expected: 10, actual: 10.2, playing: true, now: 10000 });
+  ok(r.action === 'none', 'sem velocidade: dentro da tolerância, nada');
   r = decide({ expected: 10, actual: 11, playing: true, now: 10000 });
-  ok(r.action === 'none' && r.strikes === 1, '1 s fora: espera confirmar na 2ª leitura');
+  ok(r.action === 'none' && r.strikes === 1, 'sem velocidade: 1 s fora espera confirmar na 2ª leitura');
   r = decide({ expected: 10, actual: 11, playing: true, now: 10000, strikes: 1 });
-  ok(r.action === 'seek' && Math.abs(r.target - 10.25) < 1e-9, '2ª leitura fora: pula para a esperada + latência');
+  ok(r.action === 'seek' && Math.abs(r.target - 10.25) < 1e-9, 'sem velocidade: 2ª leitura fora pula para a esperada + latência');
   r = decide({ expected: 10, actual: 15, playing: true, now: 10000 });
-  ok(r.action === 'seek', 'muito longe: corrige na hora');
-  r = decide({ expected: 10, actual: 15, playing: true, now: 10000, lastFix: 9000 });
-  ok(r.action === 'none', 'logo depois de corrigir: espera (sem ficar pulando)');
+  ok(r.action === 'seek', 'muito longe: pula na hora');
+  r = decide({ expected: 10, actual: 15, playing: true, now: 10000, lastFix: 9500 });
+  ok(r.action === 'none', 'logo depois de pular: espera (sem ficar pulando)');
   r = decide({ expected: 10, actual: 15, playing: true, buffering: true, now: 10000 });
   ok(r.action === 'wait', 'carregando: não corrige durante o buffer');
-  r = decide({ expected: 20, actual: 21, playing: false, now: 10000, lastFix: 9900 });
-  ok(r.action === 'seek' && r.target === 20, 'pausado: alinha na posição exata');
+  r = decide({ expected: 20, actual: 20.1, playing: false, now: 10000, lastFix: 9000 });
+  ok(r.action === 'seek' && r.target === 20, 'pausado: alinha no ponto exato (100 ms já corrige)');
+  // com ajuste de velocidade: diferença pequena corrige sem pular
+  r = decide({ expected: 10, actual: 10.05, playing: true, now: 10000, canRate: true });
+  ok(r.action === 'none', 'velocidade: 50 ms não mexe');
+  r = decide({ expected: 10, actual: 10.4, playing: true, now: 10000, canRate: true });
+  ok(r.action === 'none' && r.strikes === 1, 'velocidade: 0,4 s espera confirmar (leitura isolada não mexe)');
+  r = decide({ expected: 10, actual: 10.4, playing: true, now: 10000, canRate: true, strikes: 1 });
+  ok(r.action === 'rate' && r.rate < 1 && r.rate >= 0.9, 'adiantado 0,4 s: freia um pouco (sem pular)', r.rate);
+  r = decide({ expected: 10, actual: 9.7, playing: true, now: 10000, canRate: true, strikes: 1 });
+  ok(r.action === 'rate' && r.rate > 1 && r.rate <= 1.1, 'atrasado 0,3 s: acelera um pouco', r.rate);
+  r = decide({ expected: 10, actual: 10.02, playing: true, now: 10000, canRate: true, rate: 0.95 });
+  ok(r.action === 'rate' && r.rate === 1, 'alcançou (20 ms): volta para a velocidade normal');
+  r = decide({ expected: 10, actual: 12, playing: true, now: 10000, canRate: true, rate: 0.95 });
+  ok(r.action === 'seek' && r.rate === 1, 'velocidade: mais de 1,5 s pula na hora');
   ok(syncState({ state: 'playing', pos: 12, at: 3000 }, pb, 3000) === 'ok' && syncState({ state: 'playing', pos: 8, at: 3000 }, pb, 3000) === 'behind' && syncState({ state: 'playing', pos: 16, at: 3000 }, pb, 3000) === 'ahead' && syncState({ buffering: true }, pb, 3000) === 'buffering', 'indicador de sincronia por participante');
   ok(parseTime('1:02:03') === 3723 && parseTime('12:34') === 754 && parseTime('x') === null && fmtTime(3723) === '1:02:03' && fmtTime(65) === '1:05', 'tempo ↔ texto');
-  ok(TOLERANCE <= 0.5, 'tolerância de 0,5 s');
+  ok(TOLERANCE <= 0.25, 'tolerância de 0,25 s sem ajuste de velocidade');
 }
 
 console.log('— sessões no servidor');

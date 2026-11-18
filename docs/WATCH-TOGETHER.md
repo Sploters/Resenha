@@ -182,3 +182,20 @@ ao Watch Together** (046fd81) neste ambiente: não são regressão desta funcion
 - Sem item atual (fila acabou ou o atual foi removido), o player é destruído. Antes ele só pausava e continuava visível
   (e clicável) atrás de "A fila acabou".
 
+## Sincronia fina, som no começo, legendas e tela cheia (2026-11-18)
+- **Sincronia** (`decide` em `public/watchsync.js`): diferença medida pela mediana das últimas 5 leituras, a cada
+  200 ms. Tocando: até 40 ms está ok; acima de 0,1 s (2 leituras) o vídeo acelera ou freia entre 0,9× e 1,1×
+  (`setRate`) até voltar a menos de 40 ms, sem pular; acima de 1,5 s pula na hora. Player que não aceita velocidade
+  fracionada (o YouTube às vezes arredonda para 0,75/1/1,25; conferido 0,7 s depois de pedir) cai para pulos com
+  tolerância de 0,25 s. Pausado: alinha no ponto exato acima de 50 ms. Começo e play marcados no futuro (`at`) são
+  disparados por um timer no instante exato, não pela conferência periódica. Relógio da sala reamostrado a cada 10 s.
+  Teste de ponta a ponta: cada navegador a menos de 150 ms da sala, por 3 s seguidos, depois de pausar, voltar, entrar
+  tarde, reconectar e trocar de anfitrião.
+- **Mudo no começo:** o YouTube carregado sem autoplay fica "não iniciado" (-1) e o motor não mandava o play; depois
+  de 5 s a proteção de autoplay tocava sem som. Agora manda o play nesse estado, a proteção só age depois de 8 s, e
+  se o navegador realmente bloquear, o som volta sozinho no primeiro clique.
+- **Legendas:** desligadas por padrão (`unloadModule('captions')`, porque o YouTube liga pela conta mesmo com
+  `cc_load_policy=0`); botão CC e tecla C ligam a faixa em português (ou no idioma do aparelho). Só para quem ligou.
+- **Volume:** arrastar não redesenha mais os controles (redesenhar destruía o controle no meio do arraste).
+- **Tela cheia:** o vídeo ocupa a tela inteira e os controles ficam por cima, sumindo com o mouse parado.
+

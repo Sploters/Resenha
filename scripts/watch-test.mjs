@@ -70,6 +70,9 @@ try {
   const W = (P) => P.evaluate(async () => { const s = (await window.__lc.import('watch.js')).watchState(); return JSON.parse(JSON.stringify(s)); });
   const cmd = (P, op, extra) => P.evaluate(async (op, extra) => { try { return await (await window.__lc.import('watch.js')).watchCmd(op, extra); } catch (e) { return { error: e.message, code: e.code }; } }, op, extra);
   const ptime = async (P) => (await W(P)).playerTime;
+  // clique pela própria página: os controles são redesenhados a cada mudança de estado (o clique do puppeteer acha o
+  // botão e, quando vai clicar, ele já foi trocado por outro)
+  const tap = (P, sel) => P.$eval(sel, e => e.click());
   const voiceOk = (P) => P.evaluate(() => !!window.__lc.voice.active && window.__lc.voice.channelId != null);
 
   await A.evaluate(() => document.querySelector('.vchead button[title="Fechar chat"]')?.click()); await sleep(500); // Ana: palco largo (Beto fica com o chat aberto: layout estreito)
@@ -95,18 +98,28 @@ try {
 
   // ---------- buscar e adicionar pela interface ----------
   console.log('— fila e busca');
-  await A.click('.wt-tab:nth-child(2)'); // Adicionar
+  await tap(A, '.wt-tab:nth-child(2)'); // Adicionar
   await A.type('.wt-search', 'gatos', { delay: 60 });
   ok(await A.$eval('.wt-search', i => i.value === 'gatos' && document.activeElement === i), 'digitar na busca não perde o foco quando a lateral é redesenhada');
   await A.keyboard.press('Enter');
   await A.waitForSelector('.wt-res .wt-add', { timeout: 8000 }).catch(async (e) => { await shot(A, 'falha-busca'); throw e; });
   ok(await A.$$eval('.wt-res', r => r.length) === 3, 'busca mostra os resultados (YouTube Data API)');
   await shot(A, '04-busca');
-  await A.click('.wt-res .wt-add');
+  await tap(A, '.wt-res .wt-add');
   w = await until(async () => { const x = await W(A); return x.sess?.current && x.playerState === 'playing' && x; }, 12000);
   ok(w?.sess.current.ref === IDS.long && w.sess.current.title.startsWith('Gatos'), 'resultado adicionado e tocando sozinho', w?.sess?.current?.title);
   const tb = await until(async () => { const t = await ptime(B); return t > 1 && t; }, 10000);
   ok(tb > 1, 'o vídeo começou também para o Beto');
+  // começa com som: antes o player ficava "não iniciado" e, depois de 5 s, a proteção tocava sem som
+  await sleep(6000);
+  const snd = await Promise.all([A, B].map(P => P.evaluate(() => { const p = window.__ytmock.players.at(-1); return { muted: p.isMuted(), playing: p.getPlayerState() === 1 }; })));
+  ok(snd.every(x => !x.muted && x.playing) && !(await W(A)).autoplayBlocked && !(await W(B)).autoplayBlocked, 'o vídeo começa com som para todos (sem precisar mexer no volume)', snd);
+  ok(await A.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 'legendas automáticas da conta ficam desligadas por padrão');
+  await tap(A, '.wt-ccbtn');
+  ok(await until(() => A.evaluate(() => { const c = window.__ytmock.players.at(-1).cc; return c.on && c.track === 'pt'; }), 3000), 'botão CC liga as legendas no idioma do aparelho');
+  ok(await B.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 'legendas são só para quem ligou');
+  await tap(A, '.wt-ccbtn');
+  ok(await until(() => A.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 3000), 'botão CC desliga as legendas');
   // adicionar por link (Beto) e link duplicado
   ok(!(await cmd(B, 'add', { url: `https://youtu.be/${IDS.two}` })).error, 'Beto adiciona por link (todos podem adicionar no Hosting)');
   ok((await cmd(C, 'add', { url: `https://www.youtube.com/watch?v=${IDS.two}` })).code === 'duplicate', 'duplicado recusado');
@@ -114,51 +127,63 @@ try {
   ok(!(await cmd(C, 'add', { url: `https://youtu.be/${IDS.four}` })).error, 'Caio adiciona outro');
   await sleep(1500);
   // sincronia entre navegadores
-  const spread = async () => { const t = await Promise.all([A, B, C].map(ptime)); return Math.max(...t) - Math.min(...t); };
+  // diferença de cada um para a posição da sala, medida dentro da própria página (no mesmo instante do relógio comum)
+  const errs3 = async (Ps = [A, B, C]) => Promise.all(Ps.map(async P => (await W(P)).syncErr));
+  const spread = async (Ps) => { const e = await errs3(Ps); return Math.max(...e.map(Math.abs)); };
+  await until(async () => (await spread()) < 0.1, 8000, 300);
   let sp = await spread();
-  ok(sp < 0.8, 'tocando sincronizado nos 3 navegadores (diferença < 0,8 s)', +sp.toFixed(2));
-  await A.click('.wt-tab:nth-child(1)'); await sleep(300);
+  ok(sp < 0.15, 'tocando sincronizado nos 3 navegadores (cada um a menos de 150 ms da sala)', +sp.toFixed(3));
+  // 3 s seguidos sem sair da faixa (não basta encostar uma vez)
+  let worst = 0; for (let i = 0; i < 10; i++) { worst = Math.max(worst, await spread()); await sleep(300); }
+  ok(worst < 0.15, 'continua a menos de 150 ms por 3 s', +worst.toFixed(3));
+  // diferença pequena (0,4 s) corrige pela velocidade, sem pular
+  const f0 = (await W(C)).fixes, n0 = (await W(C)).nudges;
+  await C.evaluate(() => { const v = document.querySelector('#wt video'); v.currentTime += 0.4; });
+  ok(await until(async () => (await W(C)).nudges > n0, 4000), 'adiantado 0,4 s: ajusta a velocidade', (await W(C)).rate);
+  ok(await until(async () => Math.abs((await W(C)).syncErr) < 0.1 && (await W(C)).rate === 1, 10000, 300) && (await W(C)).fixes === f0, 'alcançou a sala sem pular e voltou à velocidade normal', { err: (await W(C)).syncErr, fixes: (await W(C)).fixes - f0 });
+  await tap(A, '.wt-tab:nth-child(1)'); await sleep(300);
   await shot(A, '05-tocando-fila');
-  await B.click('.wt-tab:nth-child(3)'); await sleep(900);
+  await tap(B, '.wt-tab:nth-child(3)'); await sleep(900);
   await shot(B, '06-pessoas');
 
   // ---------- Hosting ----------
   console.log('— Hosting e Sharing');
   const seqB = (await W(A)).lastSeq;
-  await B.click('.wt-pp'); await sleep(600);
+  await tap(B, '.wt-pp'); await sleep(600);
   ok((await W(A)).lastSeq === seqB && (await W(A)).sess.pb.status === 'playing', 'Hosting: o play/pause do Beto não muda nada para a sala');
   ok((await cmd(B, 'pause')).code === 'forbidden', 'Hosting: servidor recusa o pause do Beto');
   ok(await B.$('.wt-askbtn') !== null, '"Pedir controle" aparece para quem não controla');
   // pedir controle: a anfitriã recebe o pedido no topo e libera com um clique
   const betoId = await B.evaluate(() => window.__lc.S.me.id);
-  await B.click('.wt-askbtn');
+  await tap(B, '.wt-askbtn');
   ok(await until(() => A.$('.wt-askbar .wt-ask'), 4000), 'pedido de controle do Beto aparece para a anfitriã');
   await shot(A, '06b-pedido-controle');
   await A.evaluate(() => document.querySelector('.wt-askbar .wt-ask .btn').click());
   ok(await until(async () => (await W(B)).sess.controllers.includes(betoId) && !(await B.$('.wt-askbtn')), 4000) && !(await A.$('.wt-askbar .wt-ask')), '"Liberar": Beto passa a controlar e o pedido some');
-  await A.click('.wt-tab:nth-child(3)'); await sleep(400);
+  await tap(A, '.wt-tab:nth-child(3)'); await sleep(400);
   ok(await A.$('.wt-sw.on') !== null, 'em Pessoas, a chave "pode controlar" do Beto aparece ligada');
   await shot(A, '06c-pessoas-anfitria');
-  await A.click('.wt-sw.on');
+  await tap(A, '.wt-sw.on');
   ok(await until(async () => !(await W(B)).sess.controllers.includes(betoId), 4000), 'desligar a chave tira o controle do Beto');
-  await A.click('.wt-tab:nth-child(1)'); await sleep(200);
+  await tap(A, '.wt-tab:nth-child(1)'); await sleep(200);
   const caioItem = (await W(A)).sess.queue.find(q => q.ref === IDS.four);
   ok((await cmd(B, 'remove', { id: caioItem.id })).code === 'forbidden', 'Hosting: Beto não remove o item do Caio');
-  await A.click('.wt-pp'); // Ana pausa pela interface
+  await tap(A, '.wt-pp'); // Ana pausa pela interface
   await until(async () => (await W(C)).playerState === 'paused', 5000);
   await sleep(500);
   const pa = await Promise.all([A, B, C].map(ptime));
-  ok((await W(C)).sess.pb.status === 'paused' && Math.max(...pa) - Math.min(...pa) < 0.3, 'anfitriã pausa: todos pausam no mesmo ponto', pa.map(x => +x.toFixed(2)));
+  ok((await W(C)).sess.pb.status === 'paused' && Math.max(...pa) - Math.min(...pa) < 0.08, 'anfitriã pausa: todos pausam no mesmo ponto (menos de 80 ms)', pa.map(x => +x.toFixed(3)));
   await shot(A, '07-pausado');
   await cmd(A, 'seek', { pos: 30 }); await sleep(1200);
   const ps = await Promise.all([A, B, C].map(ptime));
   ok(ps.every(t => Math.abs(t - 30) < 0.4), 'posição (30 s) aplicada a todos', ps.map(x => +x.toFixed(2)));
   await cmd(A, 'play'); await sleep(2500);
-  sp = await spread(); ok(sp < 0.8, 'play: voltam a tocar juntos', +sp.toFixed(2));
+  await until(async () => (await spread()) < 0.1, 5000, 300);
+  sp = await spread(); ok(sp < 0.15, 'play: voltam a tocar juntos (menos de 150 ms)', +sp.toFixed(3));
   // Sharing
   await A.evaluate(() => [...document.querySelectorAll('.wt-ctlsw button')].find(b => b.textContent === 'Todos').click()); await until(async () => (await W(B)).sess.mode === 'sharing', 4000);
   ok((await W(B)).sess.mode === 'sharing', 'anfitriã liga o Sharing pelo botão');
-  await B.click('.wt-pp');
+  await tap(B, '.wt-pp');
   ok(await until(async () => (await W(A)).sess.pb.status === 'paused' && (await W(A)).sess.pb.by === (await B.evaluate(() => window.__lc.S.me.id)), 5000), 'Sharing: Beto pausa para todos');
   await cmd(C, 'play'); await sleep(1800);
   ok((await W(A)).sess.pb.status === 'playing', 'Sharing: Caio dá play para todos');
@@ -175,6 +200,39 @@ try {
   await C.evaluate(() => { const v = document.querySelector('#wt video'); v.pause(); }); // pausa "por fora" (não é comando)
   await sleep(1500);
   ok((await W(A)).sess.pb.status === 'playing' && (await W(C)).playerState === 'playing', 'pause que não veio da interface não vira comando (sem eco) e o player volta a tocar');
+
+  // ---------- arrastar o volume: o controle não fecha nem é recriado no meio do arraste ----------
+  const vb = await A.$('.wt-volbox > .wt-cb'); const vbr = await vb.boundingBox();
+  await A.mouse.move(vbr.x + vbr.width / 2, vbr.y + vbr.height / 2); await sleep(300);
+  const vh = await A.$('.wt-vol'), vr = await vh.boundingBox();
+  await A.mouse.move(vr.x + vr.width * 0.8, vr.y + vr.height / 2); await A.mouse.down();
+  await cmd(A, 'seek', { pos: 12 }); // um comando da sala no meio do arraste redesenha os controles
+  await A.mouse.move(vr.x + vr.width * 0.5, vr.y + vr.height / 2 + 40, { steps: 6 }); // e o mouse sai de cima do volume
+  await sleep(500);
+  const mid = await A.evaluate((el) => ({ alive: el.isConnected, open: el.parentElement.getBoundingClientRect().width > 40 }), vh);
+  await A.mouse.move(vr.x + vr.width * 0.2, vr.y + vr.height / 2 + 40, { steps: 4 }); await A.mouse.up(); await sleep(300);
+  const vEnd = (await W(A)).vol;
+  ok(mid.alive && mid.open && vEnd < 40, 'arrastar o volume: o controle continua aberto e o mesmo durante o arraste', { ...mid, vol: vEnd });
+  await A.evaluate(() => { const r = document.querySelector('.wt-vol'); r.value = 80; r.dispatchEvent(new Event('input', { bubbles: true })); });
+
+  // ---------- player que não aceita velocidade fracionada: cai para pulos pequenos ----------
+  await B.evaluate(() => { window.__ytmockRoundRates = true; });
+  const fb0 = (await W(B)).fixes;
+  await B.evaluate(() => { const v = document.querySelector('#wt video'); v.currentTime += 0.6; });
+  ok(await until(async () => (await W(B)).fixes > fb0 && Math.abs((await W(B)).syncErr) < 0.25, 10000, 300), 'sem velocidade fracionada (YouTube arredondando): corrige pulando', { err: (await W(B)).syncErr });
+  ok(await B.evaluate(() => document.querySelector('#wt video').playbackRate === 1), 'e volta para a velocidade normal');
+
+  // ---------- tela cheia: vídeo no monitor inteiro, controles por cima ----------
+  await A.evaluate(() => document.querySelector('.wt-cb[aria-label="Tela cheia"]').click()); await sleep(800);
+  const fs1 = await A.evaluate(() => { const m = document.fullscreenElement, sb = document.querySelector('#wt .wt-stagebox').getBoundingClientRect(); return { fs: m?.classList.contains('wt-main'), h: sb.height, H: innerHeight, w: sb.width, W: innerWidth }; });
+  ok(fs1.fs && Math.abs(fs1.h - fs1.H) < 2 && Math.abs(fs1.w - fs1.W) < 2, 'tela cheia: o vídeo ocupa a tela inteira (controles não tiram espaço)', fs1);
+  await A.mouse.move(400, 300); await sleep(300);
+  const vis = await A.evaluate(() => getComputedStyle(document.querySelector('#wt .wt-ctl')).opacity);
+  await A.mouse.move(700, 200); await sleep(100); await sleep(3200);
+  const hid = await A.evaluate(() => getComputedStyle(document.querySelector('#wt .wt-ctl')).opacity);
+  ok(+vis > 0.5 && +hid === 0, 'controles aparecem com o mouse e somem parado', { vis, hid });
+  await shot(A, '07b-tela-cheia');
+  await A.evaluate(() => document.exitFullscreen()); await sleep(500);
 
   // ---------- volume local ----------
   await B.evaluate(() => { const r = document.querySelector('.wt-vol'); r.value = 10; r.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -221,7 +279,7 @@ try {
   await A.mouse.move(r0.x + 60, r0.y + 15); await A.mouse.down(); await A.mouse.move(r0.x - 300, r0.y - 200, { steps: 8 }); await A.mouse.up();
   const r1 = await A.$eval('#wt', e => e.getBoundingClientRect().toJSON());
   ok(Math.abs(r1.x - (r0.x - 360)) < 4 && Math.abs(r1.y - (r0.y - 215)) < 4, 'mini player arrastável pelo cabeçalho', { de: [r0.x, r0.y], para: [r1.x, r1.y] });
-  await A.click('#wt .wt-expbtn'); await sleep(800); // expandir pelo próprio mini player: volta para a tela da chamada
+  await tap(A, '#wt .wt-expbtn'); await sleep(800); // expandir pelo próprio mini player: volta para a tela da chamada
   ok(await A.$eval('#wt', e => !e.classList.contains('mini')) && await A.evaluate((cid) => window.__lc.S.view.cid === cid, vc), 'expandir pelo mini player volta para a chamada com o Watch Together aberto');
 
   // ---------- reconexão: Beto recarrega a página ----------
@@ -231,12 +289,13 @@ try {
   ok(await until(async () => (await W(B)).joined && (await W(B)).playerState === 'playing', 12000), 'Beto recarregou e voltou sozinho para o Watch Together');
   await sleep(2500);
   sp = Math.abs((await ptime(A)) - (await ptime(B)));
-  ok(sp < 0.8, 'reconectado já na posição da sala', +sp.toFixed(2));
+  await until(async () => (await spread([A, B])) < 0.1, 6000, 300); sp = await spread([A, B]);
+  ok(sp < 0.15, 'reconectado já na posição da sala (menos de 150 ms)', +sp.toFixed(3));
 
   // ---------- convite para assistir junto ----------
   console.log('— convite');
   const D = await open('duda');
-  await A.click('.wt-hbtn[title^="Convidar"]'); await A.waitForSelector('.wt-invpop .wt-invrow');
+  await tap(A, '.wt-hbtn[title^="Convidar"]'); await A.waitForSelector('.wt-invpop .wt-invrow');
   await shot(A, '11-convidar');
   await A.evaluate(() => [...document.querySelectorAll('.wt-invrow')].find(r => /duda/i.test(r.textContent)).querySelector('button').click());
   await D.waitForSelector('#call-banner', { timeout: 8000 });
@@ -245,7 +304,8 @@ try {
   await D.click('#call-banner .btn.green');
   ok(await until(async () => (await W(D)).joined && (await W(D)).playerState === 'playing', 15000), 'aceitar: entra na chamada e no Watch Together já tocando');
   await sleep(2000);
-  ok(Math.abs((await ptime(A)) - (await ptime(D))) < 0.8, 'quem chegou depois está sincronizado');
+  await until(async () => (await spread([A, D])) < 0.1, 6000, 300);
+  ok((await spread([A, D])) < 0.15, 'quem chegou depois está sincronizado (menos de 150 ms)', +(await spread([A, D])).toFixed(3));
 
   // ---------- anfitrião sai (fecha o app) ----------
   console.log('— anfitrião sai');
@@ -264,7 +324,7 @@ try {
   await B.waitForSelector('.wt-ext', { timeout: 8000 });
   ok(await B.$eval('.wt-ext', e => /Sincronização assistida/.test(e.textContent) && /própria conta/.test(e.textContent)), 'Netflix: painel de sincronização assistida, sem player integrado');
   ok((await W(B)).sess.pb.status === 'paused', 'começa pausado esperando a turma abrir na própria conta');
-  await B.click('.wt-ready'); await sleep(1200);
+  await tap(B, '.wt-ready'); await sleep(1200);
   await shot(B, '14-netflix-assistido');
   await cmd(HP, 'play');
   await B.waitForSelector('.wt-ext .wt-count', { timeout: 3000 });
@@ -278,7 +338,8 @@ try {
   ok(await until(async () => (await W(B)).sess.current?.service === 'file' && (await W(B)).playerState === 'playing' && (await W(C)).playerState === 'playing', 10000), 'link de vídeo toca integrado para todos');
   await sleep(2500);
   const fsp = Math.abs((await ptime(B)) - (await ptime(C)));
-  ok(fsp < 0.8, 'link de vídeo sincronizado', +fsp.toFixed(2));
+  await until(async () => (await spread([B, C])) < 0.1, 6000, 300);
+  ok((await spread([B, C])) < 0.15, 'link de vídeo sincronizado (menos de 150 ms)', +(await spread([B, C])).toFixed(3));
   await shot(B, '16-link-de-video');
 
   // ---------- remover o vídeo atual com a fila vazia: o player sai da tela ----------

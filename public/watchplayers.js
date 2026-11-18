@@ -13,6 +13,10 @@ class Base {
   state() { return this.st; }
   buffering() { return this.st === 'buffering' || this.st === 'loading'; }
   get controllable() { return true; }
+  // ajuste fino pela velocidade (sincronia sem pulos): os players que aceitam sobrescrevem
+  get canRate() { return false; }
+  setRate() { }
+  get seekTol() { return 0.25; }
 }
 
 // ---------- YouTube (IFrame Player API oficial) ----------
@@ -50,7 +54,7 @@ export class YouTubePlayer extends Base {
     this.p = new YT.Player(div, {
       videoId: item.ref, width: '100%', height: '100%',
       host: window.__wtYtHost || 'https://www.youtube.com',
-      playerVars: { autoplay: play ? 1 : 0, controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1, start: startAt, enablejsapi: 1, origin: location.origin },
+      playerVars: { autoplay: play ? 1 : 0, cc_load_policy: this.ccPref ? 1 : 0, hl: (navigator.language || 'pt-BR').split('-')[0], cc_lang_pref: (navigator.language || 'pt-BR').split('-')[0], controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1, start: startAt, enablejsapi: 1, origin: location.origin },
       events: {
         onReady: () => { this.ready = true; this.applyVol(); if (Math.abs(pos - startAt) > .3) this.p.seekTo(pos, true); if (play) this.p.playVideo(); this.cb.onReady(); this.dur(); },
         onStateChange: (e) => {
@@ -64,11 +68,35 @@ export class YouTubePlayer extends Base {
       },
     });
   }
+  // legendas: o YouTube liga sozinho conforme a conta/idioma, mesmo com cc_load_policy=0. Ligadas: carrega o módulo e
+  // escolhe a faixa no idioma do aparelho (ou a primeira); desligadas: descarrega o módulo. Reaplicado quando cada
+  // vídeo começa (o módulo é carregado depois do play) e mais uma vez logo depois, porque às vezes ele volta
+  applyCaptions(on = this.ccPref, force) {
+    this.ccPref = !!on; if (!this.ready || !this.p) return;
+    const key = this.item?.ref + '|' + this.ccPref; if (!force && this.ccKey === key) return; this.ccKey = key;
+    const go = () => { try {
+      if (!this.ccPref) { this.p.unloadModule?.('captions'); this.p.unloadModule?.('cc'); return; }
+      this.p.loadModule?.('captions');
+      const lang = (navigator.language || 'pt').split('-')[0].toLowerCase();
+      const list = this.p.getOption?.('captions', 'tracklist') || [];
+      const t = list.find(x => /^pt/i.test(x.languageCode || '')) || list.find(x => x.languageCode?.toLowerCase().startsWith(lang)) || list[0]; // o app é em português
+      if (t) this.p.setOption?.('captions', 'track', { languageCode: t.languageCode });
+    } catch { } };
+    go(); clearTimeout(this.ccT); this.ccT = setTimeout(go, 1500);
+  }
+  captionTracks() { try { return (this.p.getOption('captions', 'tracklist') || []).length; } catch { return -1; } }
   dur() { const d = this.duration(); if (d > 0 && d !== this.lastDur) { this.lastDur = d; this.cb.onDuration(d); } }
   play() { this.ready && this.p.playVideo(); }
   pause() { this.ready && this.p.pauseVideo(); }
   seek(s) { this.ready && this.p.seekTo(Math.max(0, s), true); }
   time() { try { return this.ready ? +this.p.getCurrentTime() || 0 : 0; } catch { return 0; } }
+  // velocidade fracionada (0,95×, 1,05×…): o YouTube aceita em vários players, mas pode arredondar para as da lista
+  // (0,75/1/1,25). Confere logo depois de pedir; se não ficou como pedido, desiste e o motor passa a pular
+  get canRate() { return this.rateOk !== false; }
+  setRate(r) {
+    if (!this.ready) return; try { this.p.setPlaybackRate(r); } catch { this.rateOk = false; return; }
+    if (r !== 1 && this.rateOk === undefined) setTimeout(() => { try { const got = +this.p.getPlaybackRate(); if (Math.abs(got - r) > 0.001) { this.rateOk = false; this.p.setPlaybackRate(1); } else this.rateOk = true; } catch { this.rateOk = false; } }, 700);
+  }
   duration() { try { return this.ready ? +this.p.getDuration() || 0 : 0; } catch { return 0; } }
   applyVol() { if (!this.ready) return; this.p.setVolume(this.vol); this.muted ? this.p.mute() : this.p.unMute(); }
   setVolume(v) { this.vol = Math.max(0, Math.min(100, v)); this.applyVol(); }
@@ -96,6 +124,8 @@ export class Html5Player extends Base {
   pause() { this.v?.pause(); }
   seek(s) { if (this.v) this.v.currentTime = Math.max(0, s); }
   time() { return this.v?.currentTime || 0; }
+  get canRate() { return true; }
+  setRate(r) { if (this.v) { this.v.preservesPitch = true; this.v.playbackRate = r; } }
   duration() { const d = this.v?.duration; return d && isFinite(d) ? d : 0; }
   applyVol() { if (this.v) { this.v.volume = this.vol / 100; this.v.muted = this.muted; } }
   setVolume(v) { this.vol = Math.max(0, Math.min(100, v)); this.applyVol(); }
@@ -112,6 +142,7 @@ export class Html5Player extends Base {
 export class ExternalPlayer extends Base {
   constructor(host, cb, env = {}) { super(host, cb); this.env = env; this.vt = 0; this.vtAt = 0; this.vPlaying = false; this.bridge = null; }
   get controllable() { return !!this.bridge?.ok; }
+  get seekTol() { return 0.5; } // pular na Netflix/Prime pesa: tolerância maior
   state() { const l = this.bridge?.ok && this.bridge.last; if (!l) return this.st; return l.ended ? 'ended' : l.buffering ? 'buffering' : l.paused ? 'paused' : 'playing'; }
   buffering() { const l = this.bridge?.ok && this.bridge.last; return l ? !!l.buffering : false; }
   load(item, { pos = 0, play = false } = {}) {

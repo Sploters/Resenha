@@ -19,6 +19,8 @@
     v.addEventListener('waiting', () => st(S.BUFFERING));
     v.addEventListener('ended', () => st(S.ENDED));
     window.__ytmock.players.push(this);
+    // legendas: a conta simulada tem legendas automáticas ligadas (o YouTube ignora cc_load_policy=0 nesse caso)
+    this.cc = { on: true, track: 'pt' };
     this._load(o.videoId, (o.playerVars || {}).start || 0, !!(o.playerVars || {}).autoplay, true);
   }
   Player.prototype._load = function (id, start, play, first) {
@@ -31,7 +33,9 @@
     v.onloadedmetadata = () => {
       if (start) v.currentTime = start;
       if (first) { first = false; this.ev.onReady?.({ target: this }); }
-      if (play) this.playVideo(); else { this.state = S.CUED; this.ev.onStateChange?.({ data: S.CUED, target: this }); }
+      // como no YouTube real: o 1º vídeo carregado sem autoplay fica "não iniciado" (-1) até alguém mandar o play;
+      // só o cueVideoById deixa "pronto" (5)
+      if (play) this.playVideo(); else if (first) { this.state = S.UNSTARTED; this.ev.onStateChange?.({ data: S.UNSTARTED, target: this }); } else { this.state = S.CUED; this.ev.onStateChange?.({ data: S.CUED, target: this }); }
     };
   };
   Player.prototype.playVideo = function () { this.v.play().catch(() => this.ev.onAutoplayBlocked?.({ target: this })); };
@@ -47,6 +51,13 @@
   Player.prototype.isMuted = function () { return this.v.muted; };
   Player.prototype.loadVideoById = function (o) { const id = typeof o === 'string' ? o : o.videoId; this._load(id, o.startSeconds || 0, true); };
   Player.prototype.cueVideoById = function (o) { const id = typeof o === 'string' ? o : o.videoId; this._load(id, o.startSeconds || 0, false); };
+  // velocidade: o player simulado aceita frações (0,95×…); com window.__ytmockRoundRates arredonda como os da lista
+  Player.prototype.setPlaybackRate = function (r) { this.v.playbackRate = window.__ytmockRoundRates ? Math.round(r * 4) / 4 : r; };
+  Player.prototype.getPlaybackRate = function () { return this.v.playbackRate; };
+  Player.prototype.loadModule = function (m) { if (m === 'captions') this.cc.on = true; };
+  Player.prototype.unloadModule = function (m) { if (m === 'captions' || m === 'cc') this.cc.on = false; };
+  Player.prototype.getOption = function (m, k) { return m === 'captions' && k === 'tracklist' ? [{ languageCode: 'en' }, { languageCode: 'pt' }] : undefined; };
+  Player.prototype.setOption = function (m, k, v) { if (m === 'captions' && k === 'track') { this.cc.on = true; this.cc.track = v?.languageCode || null; } };
   Player.prototype.destroy = function () { this.v.pause(); this.v.remove(); };
   window.YT = { Player, PlayerState: S };
   setTimeout(() => window.onYouTubeIframeAPIReady?.(), 30);

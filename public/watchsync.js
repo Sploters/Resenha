@@ -1,9 +1,16 @@
 // Watch Together: lógica de sincronização pura (sem DOM, sem rede). Usada pelo cliente (public/watch.js) e pelos
 // testes no Node (scripts/watch-unit-test.mjs).
 
-export const TOLERANCE = 0.5;   // s: diferença aceitável entre a posição local e a esperada
-export const HARD = 2.0;        // s: acima disso corrige na hora, sem esperar a 2ª leitura
-export const COOLDOWN = 2500;   // ms: intervalo mínimo entre duas correções automáticas
+// Sincronia fina: diferenças pequenas são corrigidas pela VELOCIDADE (o vídeo acelera ou freia um pouco até alcançar,
+// sem pulo nem engasgo); só diferenças grandes pulam. Pausado, alinha no ponto exato.
+export const IN_SYNC = 0.04;    // s: abaixo disso está em sincronia (volta para a velocidade normal)
+export const RATE_START = 0.1;  // s: acima disso (em 2 leituras seguidas) começa o ajuste pela velocidade
+export const MAX_NUDGE = 0.1;   // velocidade entre 0,9× e 1,1× (imperceptível na fala e na música)
+export const GAIN = 0.5;        // quanto da diferença é corrigido por segundo (0,5 s de diferença → 0,9×/1,1×)
+export const TOLERANCE = 0.25;  // s: sem ajuste de velocidade (player que não aceita), pula acima disso
+export const PAUSE_TOL = 0.05;  // s: pausado, pula para o ponto exato acima disso
+export const HARD = 1.5;        // s: acima disso pula na hora (ajustar pela velocidade demoraria demais)
+export const COOLDOWN = 2500;   // ms: intervalo mínimo entre dois pulos automáticos pequenos
 export const START_LEAD = 1500; // ms: o servidor marca o começo de um vídeo novo um pouco no futuro (todos carregam)
 
 // posição (s) que o player deveria estar mostrando no instante `now` (relógio do servidor)
@@ -36,20 +43,36 @@ export function createClock(nowFn = () => Date.now()) {
   };
 }
 
-// Decide se o player precisa ser corrigido. Entrada:
+// Decide a correção do player. Entrada:
 //   expected, actual (s) · playing (o estado autoritativo é "tocando") · buffering (o player está carregando)
-//   strikes (leituras fora da tolerância seguidas) · lastFix (ms da última correção) · now (ms) · seekLatency (s)
-// Saída: { action: 'none'|'seek'|'wait', target, drift, strikes }
-export function decide({ expected, actual, playing, buffering = false, strikes = 0, lastFix = 0, now = 0, seekLatency = 0.25 }) {
-  const drift = actual - expected; // > 0: adiantado; < 0: atrasado
-  if (buffering) return { action: 'wait', drift, strikes: 0, target: null };
-  if (Math.abs(drift) <= TOLERANCE) return { action: 'none', drift, strikes: 0, target: null };
+//   strikes (leituras seguidas fora da faixa) · lastFix (ms do último pulo) · now (ms) · seekLatency (s)
+//   canRate (o player aceita velocidade fracionada) · rate (velocidade atual) · seekTol (tolerância sem velocidade)
+// Saída: { action: 'none'|'seek'|'rate'|'wait', target, rate, drift, strikes }
+export function decide({ expected, actual, playing, buffering = false, strikes = 0, lastFix = 0, now = 0, seekLatency = 0.25, canRate = false, rate = 1, seekTol = TOLERANCE }) {
+  const drift = actual - expected, a = Math.abs(drift); // drift > 0: adiantado; < 0: atrasado
+  const keep = (extra) => ({ action: 'none', drift, strikes: 0, target: null, rate, ...extra });
+  if (buffering) return { action: rate !== 1 ? 'rate' : 'wait', drift, strikes: 0, target: null, rate: 1 };
+  if (!playing) {
+    if (a > PAUSE_TOL && now - lastFix > 300) return { action: 'seek', drift, strikes: 0, target: Math.max(0, expected), rate: 1 };
+    return keep();
+  }
+  if (a >= HARD) {
+    if (now - lastFix < 1000) return keep({ strikes: strikes + 1 });
+    return { action: 'seek', drift, strikes: 0, target: Math.max(0, expected + seekLatency), rate: 1 };
+  }
+  if (canRate) {
+    if (a <= IN_SYNC) return rate !== 1 ? { action: 'rate', drift, strikes: 0, target: null, rate: 1 } : keep();
+    const s = strikes + 1;
+    if (rate === 1 && (a <= RATE_START || s < 2)) return keep({ strikes: a > RATE_START ? s : 0 });
+    // adiantado → mais devagar; atrasado → mais rápido. Arredonda em 0,01 para não mexer a cada leitura
+    const r = Math.round((1 - Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, drift * GAIN))) * 100) / 100;
+    return r !== rate ? { action: 'rate', drift, strikes: 0, target: null, rate: r } : keep();
+  }
+  // sem ajuste de velocidade: pula (com uma tolerância maior, porque cada pulo engasga um pouco)
+  if (a <= seekTol) return keep();
   const s = strikes + 1;
-  const urgent = !playing || Math.abs(drift) >= HARD;
-  if (now - lastFix < COOLDOWN && !(!playing && Math.abs(drift) > TOLERANCE)) return { action: 'none', drift, strikes: s, target: null };
-  if (!urgent && s < 2) return { action: 'none', drift, strikes: s, target: null };
-  // tocando: mira um pouco à frente (o tempo que o player leva para pular e voltar a tocar)
-  return { action: 'seek', drift, strikes: 0, target: Math.max(0, expected + (playing ? seekLatency : 0)) };
+  if (now - lastFix < COOLDOWN || s < 2) return keep({ strikes: s });
+  return { action: 'seek', drift, strikes: 0, target: Math.max(0, expected + seekLatency), rate: 1 };
 }
 
 // rótulo de sincronia de um participante (relatório dele vs. posição esperada)
@@ -62,7 +85,7 @@ export function syncState(report, pb, now, duration = 0) {
   const age = Math.max(0, now - report.at) / 1000;
   const theirs = report.pos + (report.state === 'playing' ? age : 0);
   const d = theirs - expectedPos(pb, now, duration);
-  if (Math.abs(d) <= 1.0) return 'ok';
+  if (Math.abs(d) <= 0.25) return 'ok';
   return d > 0 ? 'ahead' : 'behind';
 }
 
