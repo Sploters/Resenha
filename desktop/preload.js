@@ -61,4 +61,9 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   // codecs: o Windows tem a Media Foundation (edições "N" vêm sem)? e atalho para instalar (Configurações > Transmissão)
   codecEnv: () => ipcRenderer.invoke('codec-env'),
   openOptionalFeatures: () => ipcRenderer.send('open-optional-features'),
+  // Watch Together: janela do serviço com a conta de cada um (desktop/watchwin.js). Eventos: { service, t: 'drm'|'state'|'login'|'error'|'closed'|'seek_unsupported', ... }
+  watchOpen: (o) => ipcRenderer.invoke('watch-open', o),
+  watchCmd: (service, c) => ipcRenderer.invoke('watch-cmd', service, c),
+  watchClose: (service) => ipcRenderer.send('watch-close', service),
+  onWatchEvent: (() => { let cb = null; ipcRenderer.on('watch-event', (_e, m) => cb?.(m)); return (f) => { cb = f; }; })(),
 });

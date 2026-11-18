@@ -32,7 +32,9 @@
       "appaudio.js",
       "helper.js",
       "updsplash.js",
-      "updatekey.js"
+      "updatekey.js",
+      "watchwin.js",
+      "watchbridge.js"
     ],
     "win": {
       "target": [

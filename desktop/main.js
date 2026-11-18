@@ -428,6 +428,8 @@ ipcMain.on('flash-frame', () => { if (win && !win.isFocused()) win.flashFrame(tr
 // aviso de clipe capturado por cima do jogo (desktop/clipflash.js)
 ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.show({ ok: o.ok !== false, title: String(o.title || '').slice(0, 80), sub: String(o.sub || '').slice(0, 120), kind: o.kind === 'share' ? 'share' : undefined }, appAudio.getHelper()); });
 // controle remoto (desktop/remote.js): o renderer só chama start depois que o dono aceitou
+// Watch Together: janela do serviço (Netflix/Prime/Crunchyroll) na conta de cada um; ver desktop/watchwin.js
+const watchWins = require('./watchwin').createWatchWindows({ sendToApp: (m) => { if (win && !win.isDestroyed()) win.webContents.send('watch-event', m); }, log: (...a) => log(...a) });
 ipcMain.handle('remote-capable', () => remote.capable());
 ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));
 ipcMain.on('remote-input', (_e, ev) => remote.input(ev));
@@ -438,7 +440,7 @@ let pttWanted = null;
 const applyPtt = () => remote.setPtt(cfg.globalHotkeys ? pttWanted : null);
 ipcMain.handle('ptt-set', (_e, code) => { pttWanted = code || null; const r = applyPtt(); return { ...r, global: !!cfg.globalHotkeys }; });
 remote.onPtt((down) => { if (win && !win.isDestroyed()) win.webContents.send('ptt', down); });
-app.on('before-quit', () => { frontWatch?.stop(); remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
+app.on('before-quit', () => { watchWins.closeAll(); frontWatch?.stop(); remote.shutdown(); native.shutdown(); clipFlash.hide(); appAudio.shutdown(); });
 // transmissão a 120 FPS (desktop/native.js): o renderer pede a sessão ao servidor e passa as chaves para cá
 ipcMain.handle('native-capable', (_e, mode) => native.capable(mode));
 ipcMain.handle('native-start', (_e, o) => native.start({ ...(o || {}), sourceId: (o && o.sourceId) || pickedSource }));
