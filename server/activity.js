@@ -182,6 +182,44 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     return out.sort((a, b) => b.at - a.at).slice(0, limit);
   }
 
+  // ---- jogos que a galera mais joga num servidor (como o cartão do servidor no Discord) ----
+  // Conta, para cada jogo, quantos membros jogaram nos últimos `days` dias (o histórico guarda 30) e quantos estão jogando
+  // agora. Só entram contas que compartilham a atividade (PC fora de "off", conta vinculada fora de "off"), sem jogos
+  // escondidos nem launchers, e só jogos com pelo menos MIN_PLAYERS pessoas (o cartão não entrega o que UMA pessoa joga).
+  // hot: muita gente nesta semana (a chama do Discord). Guardado por 10 min por servidor.
+  const GG_TTL = 10 * 60e3, ggCache = new Map();
+  // o mesmo jogo pode vir pela Steam (appid), pelo PC com o appid ou só com o nome: casa por qualquer um dos dois
+  const ggKeys = (platform, gameId, title, d) => { const st = platform === 'steam' ? gameId : d?.steam; return [st && 's:' + st, 'n:' + String(title || gameId).toLowerCase().replace(/[^a-z0-9]+/g, '')].filter(Boolean); };
+  function guildGames(gid, { days = 30, limit = 8, minPlayers = +process.env.GUILD_GAMES_MIN || 2 } = {}) {
+    const ck = gid + ':' + days + ':' + limit, hit = ggCache.get(ck); if (hit && now() - hit.at < GG_TTL) return hit.list;
+    const since = now() - days * 864e5, week = now() - 7 * 864e5;
+    const shares = (uid, platform) => platform === 'pc' ? pcVis(uid) !== 'off' : (acct(uid, platform)?.visibility || 'off') !== 'off';
+    const memo = new Map(), ok = (uid, platform) => { const k = uid + ':' + platform; if (!memo.has(k)) memo.set(k, shares(uid, platform)); return memo.get(k); };
+    const games = new Map(), add = (uid, platform, gameId, title, d, t, live) => {
+      if (!ok(uid, platform) || hiddenGame(uid, platform, gameId) || isLauncher({ id: gameId, title })) return;
+      const ks = ggKeys(platform, gameId, title, d);
+      let x = ks.map(k => games.get(k)).find(Boolean);
+      if (!x) x = { platform, game: { id: gameId, title }, at: 0, players: new Set(), week: new Set(), now: new Set(), secs: 0 };
+      for (const k of ks) games.set(k, x);
+      if (t >= x.at) { x.at = t; x.platform = platform; x.game = { id: gameId, title, ...(d?.icon ? { icon: d.icon } : x.game.icon ? { icon: x.game.icon } : {}), ...(d?.steam ? { steam: d.steam } : x.game.steam ? { steam: x.game.steam } : {}) }; }
+      x.players.add(uid); if (t >= week) x.week.add(uid); if (live) x.now.add(uid);
+      if (d?.seconds) x.secs += d.seconds;
+    };
+    for (const ev of all(`SELECT a.user_id, a.platform, a.game_id, a.title, a.data, a.created_at FROM activities a JOIN members m ON m.user_id=a.user_id AND m.guild_id=?
+      WHERE a.created_at>? AND a.kind IN ('game_start','game_stop')`, gid, since)) {
+      let d = null; try { d = ev.data ? JSON.parse(ev.data) : null; } catch { }
+      add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, false);
+    }
+    const members = new Set(all('SELECT user_id FROM members WHERE guild_id=?', gid).map(r => r.user_id));
+    for (const e of current.values()) if (!e.quiet && members.has(e.uid) && !isInvisible(e.uid)) add(e.uid, e.platform, e.game.id, e.game.title, e.game, now(), true);
+    const list = [...new Set(games.values())].filter(x => x.players.size >= minPlayers)
+      .sort((a, b) => b.players.size - a.players.size || b.week.size - a.week.size || b.secs - a.secs || b.at - a.at).slice(0, limit)
+      .map(x => ({ platform: x.platform, game: x.game, players: x.players.size, week: x.week.size, playing: x.now.size, hours: Math.round(x.secs / 360) / 10, hot: x.week.size >= 3 || x.now.size >= 3 }));
+    ggCache.set(ck, { at: now(), list });
+    if (ggCache.size > 500) for (const [k, v] of ggCache) if (now() - v.at > GG_TTL) ggCache.delete(k);
+    return list;
+  }
+
   // ---- ganchos chamados pelas rotas ----
   // consulta logo (vinculou, ligou a visibilidade): vários pedidos juntos viram UMA consulta. Antes cada um agendava a sua
   // para 200 ms depois (todos passavam pela checagem antes da primeira rodar) e a Steam recebia o mesmo lote várias vezes
@@ -193,7 +231,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   return {
     start() { stopped = false; setTimeout(() => tick().catch(() => { }), 3000).unref?.(); schedule(); },
     stop() { stopped = true; clearTimeout(timer); },
-    tick, poke, readyFor, feedFor, highlightsFor, canSee, audience,
+    tick, poke, readyFor, feedFor, highlightsFor, guildGames, canSee, audience,
+    _ggClear() { ggCache.clear(); },
     onLinked() { poke(); },
     // desvinculou: encerra a publicação (avisando o público ANTES de apagar a conta) e limpa o cache da conta
     onUnlinking(uid, platform, externalId) {

@@ -171,6 +171,21 @@ function showGameCard(anchor, uid) {
   gameCard.style.top = Math.max(8, Math.min(r.top - 12, innerHeight - ch - 8)) + 'px';
   gameCardTick = setInterval(() => { if (!gameCard?.isConnected) return hideGameCard(); time.textContent = elapsed(a.since); }, 1000);
 }
+// jogos que a galera do servidor mais joga (cabeçalho do servidor e cartão de convite), como no Discord: os primeiros
+// ícones à vista (com a chama quando o jogo está bombando na semana) e "+N" com o resto; passar o mouse mostra o nome e
+// quantos jogaram, clicar abre o jogo. list: GET /api/guilds/:id/games (ou o convite)
+const ggTip = (x) => `${x.game.title} — ${x.players} ${x.players === 1 ? 'pessoa jogou' : 'pessoas jogaram'} nos últimos 30 dias` + (x.playing ? ` · ${x.playing} jogando agora` : '');
+export function guildGamesRow(list, { size = 24, show = 5 } = {}) {
+  if (!list?.length) return null;
+  const btn = (x) => { const b = h('button.gg-game', { type: 'button', title: ggTip(x), 'aria-label': ggTip(x), onclick: openGame(x) }, gameIcon(x, size), x.hot && h('span.gg-hot', { title: 'Muita gente jogando nesta semana' }, icon('fire', 10)));
+    return b; };
+  const head = list.slice(0, list.length > show ? show - 1 : show), rest = list.slice(head.length);
+  const more = rest.length > 0 && h('button.gg-game.gg-more', { type: 'button', title: rest.map(x => x.game.title).join(', '), 'aria-label': `Mais ${rest.length} jogos`,
+    onclick: (e) => { e.stopPropagation(); const box = e.currentTarget.nextElementSibling; box.hidden = !box.hidden; } }, gameIcon(rest[0], size), h('span.gg-n', '+' + rest.length));
+  const extra = rest.length > 0 && h('div.gg-extra', { hidden: true }, rest.map(x => h('button.gg-row', { type: 'button', title: ggTip(x), onclick: openGame(x) }, gameIcon(x, 20), titleEl(x, 'span'), h('small', String(x.players)))));
+  return h('div.gg', { role: 'list', 'aria-label': 'Jogos que a galera mais joga' }, ...head.map(btn), more, extra);
+}
+
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando
 export function voiceGameIcon(uid) {
   const a = activityOf(uid); if (!a) return null;

@@ -644,6 +644,11 @@ app.delete('/api/guilds/:id/bans/:uid', auth, wrap((req, res) => {
   audit(req.params.id, req.uid, 'member_unban', req.params.uid);
   res.json({});
 }));
+// jogos que a galera do servidor mais joga (cabeçalho do servidor e cartão de convite; server/activity.js → guildGames)
+app.get('/api/guilds/:id/games', auth, wrap((req, res) => {
+  if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', req.params.id, req.uid)) return bad(res, 'Sem permissão', 403);
+  res.json({ games: activity.guildGames(req.params.id) });
+}));
 app.get('/api/guilds/:id/audit', auth, wrap((req, res) => {
   if (!can(req.params.id, req.uid, P.MANAGE_GUILD)) return bad(res, 'Sem permissão', 403);
   const rows = req.query.before ? all('SELECT * FROM audit_log WHERE guild_id=? AND id<? AND created_at>=? ORDER BY id DESC LIMIT 100', req.params.id, String(req.query.before), auditSince())
@@ -928,7 +933,7 @@ app.get('/api/invites/:code', wrap((req, res) => {
   const me = sessions.lookup((req.headers.authorization || '').replace(/^Bearer /, ''))?.user_id;
   const friends = me ? all(`SELECT u.* FROM members m JOIN users u ON u.id=m.user_id JOIN relationships r1 ON r1.user_id=? AND r1.other_id=m.user_id AND r1.type=1
     JOIN relationships r2 ON r2.user_id=m.user_id AND r2.other_id=? AND r2.type=1 WHERE m.guild_id=? LIMIT 50`, me, me, i.guild_id).map(u => ({ ...pubUser(u), status: statusFor(me, u), platforms: platformsFor(me, u) })) : [];
-  res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online, friends });
+  res.json({ code: i.code, guild: { id: i.guild_id, name: i.name, icon: i.icon, banner: i.banner, accent: i.accent }, members: ms.length, online, friends, games: activity.guildGames(i.guild_id) });
 }));
 app.post('/api/invites/:code', auth, wrap((req, res) => {
   const i = get('SELECT * FROM invites WHERE code=?', req.params.code);

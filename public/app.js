@@ -78,7 +78,7 @@ import { profileCard, STATUS_TXT } from './card.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
-import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
+import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, guildGamesRow, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
@@ -960,6 +960,17 @@ function openMeSection() { if (S.view.kind === 'dm') track('back_to_friends', 'r
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
 const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
+// jogos que a galera do servidor mais joga (como no cartão do servidor no Discord): pedido no máximo a cada 10 min por
+// servidor; quando chega, a lista redesenha. Sem jogos com gente suficiente, não aparece nada
+const ggCache = new Map();
+function srvGames(g) {
+  let c = ggCache.get(g.id);
+  if ((!c || Date.now() - c.at > 10 * 60e3) && !c?.p) {
+    const e = { at: c?.at || 0, list: c?.list || null, p: null }; ggCache.set(g.id, c = e);
+    e.p = api('GET', `/guilds/${g.id}/games`).then(r => { e.list = r?.games || []; }).catch(() => { }).finally(() => { e.at = Date.now(); e.p = null; if (S.view.gid === g.id && e.list?.length) renderSide(); });
+  }
+  return c.list?.length ? h('div.srv-games', h('span.sg-l', 'Jogam aqui'), guildGamesRow(c.list, { size: 20, show: 6 })) : null;
+}
 function voiceCard(anchor, g) {
   document.getElementById('vcard')?.remove();
   const r = anchor.getBoundingClientRect();
@@ -1131,6 +1142,7 @@ function renderSide() {
       g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
+      srvGames(g),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
     const cats = g.channels.filter(c => c.type === 4), byParent = new Map();
     for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
@@ -2348,6 +2360,7 @@ function inviteCard(code) {
     card.replaceChildren(top, h('div.ivh', inside() ? 'Você já está neste servidor' : 'Você foi convidado para entrar em um servidor'),
       h('div.ivbody', ic, h('div.ivinfo', h('b', { title: g.name }, g.name),
         h('div.ivstats', h('span', h('i.on'), `${info.online} online`), h('span', h('i'), `${info.members} ${info.members === 1 ? 'membro' : 'membros'}`)),
+        info.games?.length > 0 && h('div.ivgames', guildGamesRow(info.games, { size: 20, show: 6 })),
         info.friends?.length > 0 && h('div.ivfriends', { title: info.friends.map(u => u.display_name).join(', ') }, avStack(info.friends, 18), h('span', `${friendNames(info.friends)} ${info.friends.length === 1 ? 'está' : 'estão'} aqui`))), btn));
   });
   return card;
