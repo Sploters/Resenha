@@ -1100,7 +1100,7 @@ function invitesPage(gid) {
     if (!list.length) box.append(note('Nenhum convite ativo.'));
   };
   draw();
-  return h('div', h('h2', 'Convites'), h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`); draw(); } }, 'Criar convite'), box);
+  return h('div', h('h2', 'Convites'), h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`, { new: true }); draw(); } }, 'Criar convite'), box);
 }
 const lockedSwitch = (on, title = 'Igual ou acima do seu cargo mais alto') => h('div.switch' + (on ? '.on' : ''), { role: 'switch', 'aria-checked': String(!!on), 'aria-disabled': 'true', title, style: { opacity: '.45', cursor: 'not-allowed' } });
 function rolesPage(gid) {

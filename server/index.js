@@ -45,6 +45,7 @@ import { knownGame, WRAPPER_EXE } from '../public/gamecatalog.js';
 import { mountGames } from './games.js';
 import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
+import { createLimits, LIMITS } from './limits.js';
 import { translate, translateEnabled, engineName } from './translate.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 
@@ -384,6 +385,7 @@ const auth = (req, res, next) => {
 const wrap = (fn) => (req, res) => { try { fn(req, res); } catch (e) { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); } };
 const wrapA = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).catch((e) => { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); });
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
+const lim = createLimits({ get }); // limites de conta e de servidor (server/limits.js)
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // compressão da API, tempo de cada rota (lentas em <dados>/slow.log) e velocidade real de quem usa (server/perf.js)
 mountPerf(app, { auth, wrap, bad, dataDir: DATA_DIR, isAdmin: (uid) => reportAdmin()?.id === uid, notifyAdmin: (text) => { const a = reportAdmin(); if (a) dispatch([a.id], 'ADMIN_ALERT', { text }); } });
@@ -559,6 +561,7 @@ app.post('/api/me/delete', auth, wrap((req, res) => {
 // Guilds
 app.post('/api/guilds', auth, wrap((req, res) => {
   const name = clean(req.body.name, 100); if (!name) return bad(res, 'Nome obrigatório');
+  { const why = lim.guildJoin(req.uid); if (why) return bad(res, why, 409); }
   const gid = createGuild(req.uid, name);
   dispatch([req.uid], 'GUILD_CREATE', guildFull(gid));
   res.json({ id: gid });
@@ -725,6 +728,7 @@ app.post('/api/guilds/:id/roles', auth, wrap((req, res) => {
   if (!can(req.params.id, req.uid, P.MANAGE_ROLES)) return bad(res, 'Sem permissão', 403);
   const gid = req.params.id, id = newId(), perms = Number(req.body.perms) | 0;
   if (perms & ~memberPerms(gid, req.uid)) return bad(res, 'Você não pode dar uma permissão que não tem', 403);
+  { const why = lim.role(gid); if (why) return bad(res, why, 409); }
   // cargo novo entra no fim da lista (posição 1), abaixo de quem criou; os outros sobem uma posição
   const ids = guildMemberIds(gid);
   tx(() => {
@@ -790,6 +794,7 @@ app.post('/api/guilds/:id/channels', auth, wrap((req, res) => {
   name = name || 'novo-canal';
   const id = newId(), pos = (get('SELECT MAX(position) m FROM channels WHERE guild_id=?', gid).m ?? 0) + 1;
   const parent = get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id ?? ''), gid) ? String(req.body.parent_id) : null;
+  { const why = lim.channel(gid, type, type === 4 ? null : parent); if (why) return bad(res, why, 409); }
   run('INSERT INTO channels(id,guild_id,type,name,position,parent_id,created_at) VALUES(?,?,?,?,?,?,?)', id, gid, type, name, pos, parent, Date.now());
   if (type === 15) run('UPDATE channels SET forum=? WHERE id=?', JSON.stringify({ tags: [['Discussão', '💬'], ['Dúvida', '❓'], ['Mídia', '🎬'], ['Jogatina', '🎮']].map(([n, e], i) => ({ id: 't' + (i + 1), name: n, emoji: e, color: forum.TAG_COLORS[i] })), guidelines: '' }), id); // fórum novo já vem com tags
   dispatch(guildMemberIds(gid), 'CHANNEL_CREATE', get('SELECT * FROM channels WHERE id=?', id));
@@ -799,12 +804,12 @@ app.post('/api/guilds/:id/channels', auth, wrap((req, res) => {
 app.patch('/api/channels/:id', auth, wrap((req, res) => {
   const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
   if (!ch || !ch.guild_id || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
+  const np = req.body.parent_id !== undefined && ch.type !== 4 && ch.type !== 11
+    ? (req.body.parent_id && get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id), ch.guild_id)?.id || null) : undefined;
+  if (np && np !== ch.parent_id) { const why = lim.inCategory(np); if (why) return bad(res, why, 409); }
   run('UPDATE channels SET name=?,topic=?,position=? WHERE id=?', clean(req.body.name, 100) || ch.name, req.body.topic !== undefined ? clean(req.body.topic, 1024) : ch.topic, Number.isFinite(+req.body.position) && req.body.position !== undefined ? +req.body.position : ch.position, ch.id);
   // mudar de categoria (null: sem categoria). Sincronizado continua sincronizado: passa a seguir a categoria nova
-  if (req.body.parent_id !== undefined && ch.type !== 4 && ch.type !== 11) {
-    const np = req.body.parent_id && get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id), ch.guild_id)?.id || null;
-    if (np !== (ch.parent_id || null)) run('UPDATE channels SET parent_id=? WHERE id=?', np, ch.id);
-  }
+  if (np !== undefined && np !== (ch.parent_id || null)) run('UPDATE channels SET parent_id=? WHERE id=?', np, ch.id);
   dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_UPDATE', get('SELECT * FROM channels WHERE id=?', ch.id));
   if (req.body.name !== undefined || req.body.topic !== undefined) audit(ch.guild_id, req.uid, 'channel_update', ch.id, get('SELECT name FROM channels WHERE id=?', ch.id).name);
   res.json({});
@@ -879,6 +884,7 @@ app.post('/api/channels/:id/duplicate', auth, wrap((req, res) => {
   if (!ch || !ch.guild_id || !CH_TYPES.includes(ch.type) || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
   let name = clean(req.body?.name, 100) || ch.name;
   if (SLUG_TYPES.includes(ch.type)) name = name.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-') || ch.name;
+  { const why = lim.channel(ch.guild_id, ch.type, ch.type === 4 ? null : ch.parent_id); if (why) return bad(res, why, 409); }
   const id = newId();
   db.exec('BEGIN');
   try {
@@ -898,6 +904,10 @@ app.post('/api/channels/:id/duplicate', auth, wrap((req, res) => {
 // Invites
 app.post('/api/guilds/:id/invites', auth, wrap((req, res) => {
   if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', req.params.id, req.uid)) return bad(res, 'Sem permissão', 403);
+  // "Convidar pessoas" reaproveita o último convite que a pessoa criou neste servidor (como no Discord): abrir o
+  // convite várias vezes não enche o servidor de códigos. Código novo só pedindo ({ new: true }, em Configurações › Convites)
+  if (req.body?.new !== true) { const old = get('SELECT code FROM invites WHERE guild_id=? AND creator_id=? ORDER BY created_at DESC LIMIT 1', req.params.id, req.uid); if (old) return res.json({ code: old.code }); }
+  { const why = lim.invite(req.params.id); if (why) return bad(res, why, 409); }
   const code = crypto.randomBytes(5).toString('base64url');
   run('INSERT INTO invites(code,guild_id,creator_id,created_at) VALUES(?,?,?,?)', code, req.params.id, req.uid, Date.now());
   res.json({ code });
@@ -920,6 +930,7 @@ app.post('/api/invites/:code', auth, wrap((req, res) => {
   if (!i) return bad(res, 'Convite inválido ou expirado', 404);
   if (get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', i.guild_id, req.uid)) return bad(res, 'Você foi banido deste servidor', 403);
   if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', i.guild_id, req.uid)) {
+    { const why = lim.guildJoin(req.uid); if (why) return bad(res, why, 409); }
     joinGuild(i.guild_id, req.uid);
     run('UPDATE invites SET uses=uses+1 WHERE code=?', i.code);
   }
@@ -1609,14 +1620,19 @@ app.post('/api/relationships', auth, wrap((req, res) => {
   if (ex && ex.type === 1) return bad(res, 'Vocês já são amigos');
   if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=2', t.id, req.uid)) return bad(res, 'Não foi possível enviar o pedido', 403);
   const incoming = ex && ex.type === 3;
+  { const why = incoming ? lim.friendAdd(req.uid, t.id) : lim.friendRequest(req.uid); if (why) return bad(res, why, 409); }
   setRel(req.uid, t.id, incoming ? 1 : 4); setRel(t.id, req.uid, incoming ? 1 : 3);
   res.json({});
 }));
 app.put('/api/relationships/:id', auth, wrap((req, res) => { // aceitar / bloquear
   const o = req.params.id;
   if (!getUser(o) || o === req.uid) return bad(res, 'Usuário não encontrado. Confira o nome de usuário (o @ do perfil, não o nome de exibição).', 404);
+  if (req.body.type === 2 && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=2', req.uid, o)) return res.json({}); // já bloqueado
+  if (req.body.type === 2) { const why = lim.block(req.uid); if (why) return bad(res, why, 409); }
   if (req.body.type === 2) { friendLost(o, req.uid); setRel(req.uid, o, 2); setRel(o, req.uid, null); reputation.onBlock(req.uid, o); } // bloquear logo depois de a pessoa falar conta como sinal (reputação)
-  else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) { setRel(req.uid, o, 1); setRel(o, req.uid, 1); uxFirst(req.uid, 'friend'); uxFirst(o, 'friend'); }
+  else if (get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=3', req.uid, o)) {
+    { const why = lim.friendAdd(req.uid, o); if (why) return bad(res, why, 409); }
+    setRel(req.uid, o, 1); setRel(o, req.uid, 1); uxFirst(req.uid, 'friend'); uxFirst(o, 'friend'); }
   else return bad(res, 'Sem pedido pendente');
   res.json({});
 }));
@@ -1959,7 +1975,7 @@ app.patch('/api/activity/pc', auth, wrap((req, res) => {
   if (before !== v) activity.onPcVisibility(req.uid, before, v);
   res.json({ visibility: v });
 }));
-app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD }));
+app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
 // política de privacidade e de segurança desta instalação (o dono pode editar os arquivos na raiz do projeto)
 for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 'SECURITY.md']])
