@@ -135,7 +135,7 @@ export function createWatch({
     const errs = on.map(([, m]) => m.report?.item_id === cur.id && m.report?.error).filter(Boolean);
     if (errs.length < on.length || !errs.every(e => ERRORS[e]?.fatal)) return;
     cur.error = errs[0];
-    broadcast(s, { notice: `"${cur.title}" não pode tocar aqui (${ERRORS[errs[0]].title.toLowerCase()}). Indo para o próximo…` });
+    broadcast(s, { notice: `"${cur.title}" não pode tocar aqui: ${ERRORS[errs[0]].title}. Indo para o próximo…` });
     s.fatalTimer = setTimeout(() => { s.fatalTimer = null; if (sessions.get(s.cid) === s && s.current === cur) advance(s, 'error'); }, fatalSkipMs);
   }
 

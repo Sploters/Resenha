@@ -67,6 +67,7 @@ function releaseOldScreens() {
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFilesClip } from './files.js';
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
 import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
+import { initWatch, onWatchEvent, watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry, pendingWatch, placeWatch, watchSetEnv } from './watch.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys, NOISE_INFO } from './ui.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
@@ -459,6 +460,7 @@ function onEvent(t, d) {
     case 'ROOM_CODE': if (d.channel_id === voice?.channelId) codeSet(d); break;
     case 'MUSIC_STATE': if (d.channel_id === voice.channelId) musicOnState(d); break;
     case 'MUSIC_RES': musicOnRes(d); break;
+    case 'WATCH_STATE': case 'WATCH_SYNC': case 'WATCH_MEMBERS': case 'WATCH_END': case 'WATCH_RES': onWatchEvent(t, d); break;
     case 'SOUNDS_UPDATE': { const g = guild(d.guild_id); if (g) { g.sounds = d.sounds; document.dispatchEvent(new Event('sb-changed')); } break; }
     case 'EMOJIS_UPDATE': { const g = guild(d.guild_id); if (g) { g.emojis = d.emojis; renderMessages(true); } break; }
     case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
@@ -3566,7 +3568,7 @@ function voiceUpdate(speakOnly) {
   if (!speakOnly) { syncGlobalPtt(voice); trackLastCall(); } // entrou/saiu da chamada: liga/desliga o push-to-talk global (só avisa o app se mudou)
   const want = speakOnly ? 1 : 2; if (vuiQ >= want) return;
   const first = !vuiQ; vuiQ = want;
-  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) applyCamFlow(); }); // câmera nova com a sala fora da tela também pausa
+  if (first) queueMicrotask(() => { const k = vuiQ; vuiQ = 0; renderVoiceUI(k === 1); if (k !== 1) { applyCamFlow(); watchVoiceChanged(); } }); // câmera nova com a sala fora da tela também pausa
 }
 // aba/janela escondida: quem está falando não é desenhado (ninguém vê); ao voltar, um redesenho põe em dia
 let speakStale = false;
@@ -3632,6 +3634,7 @@ function renderVoiceUI(speakOnly) {
   }
   const room = S.room?.cid === voice.channelId ? S.room : null;
   if (inRoom && room?.wb) tiles.push(h('div.tile.wbtile', { 'data-key': 'wb' }, boardCanvas('wb', { interactive: true }), h('div.wbbar', boardTools('wb', [h('button.ibtn', { title: 'Destacar / voltar à grade', onclick: () => { S.focus = S.focus === 'wb' ? null : 'wb'; renderVoiceUI(); } }, icon('expand', 16)), h('button.ibtn', { title: 'Fechar a lousa para todos', onclick: () => { clearBoard('wb'); voice.send('ROOM_ACT', { act: 'wb', on: false }); } }, icon('x', 16))]))));
+  { const wt = inRoom && watchTile(); if (wt) tiles.push(wt); }
   if (inRoom && room?.code) tiles.push(codeTile({ onFocus: () => { S.focus = S.focus === 'code' ? null : 'code'; renderVoiceUI(); }, onClose: () => voice.send('ROOM_ACT', { act: 'code', on: false }) }));
   const hasScreen = tiles.some(t => t.classList.contains('screen') || t.classList.contains('cstream'));
   const allTiles = tiles.length; // antes dos filtros: o botão de layout (onde se religa o filtro) não pode sumir por causa dele
@@ -3661,6 +3664,12 @@ function renderVoiceUI(speakOnly) {
     ctxOpts(btn('video', 'Câmera (clique direito: escolher a câmera)', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'), async () => camOptItems(await mediaDevs())),
     ctxOpts(btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio) · clique direito: opções rápidas' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''), async () => [...screenOptItems(), ...(watchOptItems().length ? ['-', ...watchOptItems()] : [])]),
     fxButton(24, true, '.solo-narrow'),
+    h('button.roundbtn.actbtn' + (watchLauncherEntry().on ? '.active' : ''), { title: 'Atividades: Watch Together, lousa, código…', 'aria-label': 'Atividades', 'data-act-btn': '', onclick: (e) => activityLauncher(e.currentTarget, [
+      watchLauncherEntry(),
+      { icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#3ba55d', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
+      { icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
+      { icon: 'gamepad', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#f0b232', fn: () => openGameNight(voice.channelId) },
+    ]) }, icon('rocket', 24)),
     abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
     abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
     abtn('gamepad', 'O que jogar hoje? (jogos que todo mundo da chamada tem)', false, () => openGameNight(voice.channelId)),
@@ -3686,6 +3695,7 @@ function renderVoiceUI(speakOnly) {
     voice.error && inRoom && h('div.verr', voice.error),
     !(empty && !inRoom) && bar].flat().filter(Boolean)));
   watchStage(); observeTiles(); markNarrow();
+  watchVoiceChanged();
 }
 // atalho de clipe: salva os últimos segundos da transmissão em destaque (ou da primeira que está sendo gravada)
 const hasScreenOf = (key) => !!S.voice.get(key.slice(2))?.screen;
@@ -4391,7 +4401,14 @@ initLfg({ intent: (pre) => openIntentModal(pre), go, joinVoice, channelById, set
 initClipsGallery({ go, jumpTo: (mid) => jumpTo(mid), share: (c) => shareClipModal(c) });
 initFiles({ go, jumpTo: (mid) => jumpTo(mid) });
 initDiag(() => voice); initPwa(); setTimeout(initAppUpdate, 1500); // aviso de versão nova do app desktop (depois da abertura, sem atrasá-la)
-initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
+// Watch Together (public/watch.js): convidar = convite para a chamada com a atividade 'watch'
+initWatch({ send: gwSend, voice: () => voice, channelById, rerender: () => { if (voice?.active) renderVoiceUI(); },
+  inviteCandidates: () => { const ch = voice?.channelId && channelById(voice.channelId); if (!ch?.guild_id) return [];
+    const ids = new Set([...[...S.rels.values()].filter(r => r.type === 1).map(r => r.user?.id || r.id), ...(guild(ch.guild_id)?.members?.keys() || [])]);
+    const on = (u) => (S.users.get(u)?.status && S.users.get(u).status !== 'offline' ? 0 : 1);
+    return [...ids].filter(u => u && canCallInvite(u)).sort((a, b) => on(a) - on(b)); },
+  invite: (uid) => sendCallInvite(uid, { activity: 'watch' }) });
+initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onWatchInvite: (cid) => pendingWatch(cid), onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
 initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { inboxTab = tab; showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });

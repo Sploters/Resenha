@@ -231,6 +231,7 @@ const I = {
   poll: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2ZM9 17H7v-7h2Zm4 0h-2V7h2Zm4 0h-2v-4h2Z',
   dot: 'M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z',
   devphone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm0 2v14h10V4Zm3.5 15h3v1.5h-3Z',
+  tv: 'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v2h8v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Zm0 14H3V5h18ZM10 7.5v7l5.5-3.5Z',
   live: { parts: ['M12 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z', 'M7.05 7.05 5.64 5.64a9 9 0 0 0 0 12.72l1.41-1.41a7 7 0 0 1 0-9.9ZM16.95 7.05l1.41-1.41a9 9 0 0 1 0 12.72l-1.41-1.41a7 7 0 0 0 0-9.9Z'] },
 };
 // emoji escolhido para um som do soundboard; sem escolha (ou o 🔊 que era colocado sozinho antes) mostra o ícone de alto-falante

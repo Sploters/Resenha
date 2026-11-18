@@ -22,7 +22,7 @@ const slugTitle = (s) => decodeURIComponent(String(s || '')).replace(/[-_]+/g, '
 
 export const SERVICES = {
   youtube: {
-    id: 'youtube', name: 'YouTube', color: '#ff0033', level: 'embedded', search: true,
+    id: 'youtube', on: 'no YouTube', name: 'YouTube', color: '#ff0033', level: 'embedded', search: true,
     caps: { embed: true, play: true, pause: true, seek: true, next: true, episode: true, volume: true },
     hint: 'Busque pelo nome ou cole um link do YouTube',
     parse(url) {
@@ -41,7 +41,7 @@ export const SERVICES = {
     openUrl: (it, pos = 0) => `https://www.youtube.com/watch?v=${it.ref}${pos > 1 ? '&t=' + Math.floor(pos) + 's' : ''}`,
   },
   file: {
-    id: 'file', name: 'Link de vídeo', color: '#5865f2', level: 'embedded', search: false,
+    id: 'file', on: 'no navegador', name: 'Link de vídeo', color: '#5865f2', level: 'embedded', search: false,
     caps: { embed: true, play: true, pause: true, seek: true, next: true, episode: true, volume: true },
     hint: 'Cole o link de um vídeo .mp4/.webm (ou de um vídeo enviado no chat)',
     parse(url, { origin } = {}) {
@@ -56,7 +56,7 @@ export const SERVICES = {
     openUrl: (it) => it.url,
   },
   netflix: {
-    id: 'netflix', name: 'Netflix', color: '#e50914', level: 'assisted', drm: true, desktopWindow: true, search: false,
+    id: 'netflix', on: 'na Netflix', name: 'Netflix', color: '#e50914', level: 'assisted', drm: true, desktopWindow: true, search: false,
     caps: { embed: false, play: 'bridge', pause: 'bridge', seek: 'bridge-experimental', next: false, episode: 'link', volume: 'local' },
     hint: 'Cole o link de um título ou episódio da Netflix (netflix.com/watch/… ou /title/…)',
     login: 'https://www.netflix.com/login',
@@ -68,7 +68,7 @@ export const SERVICES = {
     openUrl: (it) => it.url,
   },
   prime: {
-    id: 'prime', name: 'Prime Video', color: '#00a8e1', level: 'assisted', drm: true, desktopWindow: true, search: false,
+    id: 'prime', on: 'no Prime Video', name: 'Prime Video', color: '#00a8e1', level: 'assisted', drm: true, desktopWindow: true, search: false,
     caps: { embed: false, play: 'bridge', pause: 'bridge', seek: 'bridge', next: false, episode: 'link', volume: 'local' },
     hint: 'Cole o link de um título do Prime Video (primevideo.com/detail/… ou amazon…/gp/video/detail/…)',
     login: 'https://www.primevideo.com/',
@@ -84,7 +84,7 @@ export const SERVICES = {
     openUrl: (it) => it.url,
   },
   crunchyroll: {
-    id: 'crunchyroll', name: 'Crunchyroll', color: '#f47521', level: 'assisted', drm: true, desktopWindow: true, search: false,
+    id: 'crunchyroll', on: 'na Crunchyroll', name: 'Crunchyroll', color: '#f47521', level: 'assisted', drm: true, desktopWindow: true, search: false,
     caps: { embed: false, play: 'bridge', pause: 'bridge', seek: 'bridge', next: false, episode: 'link', volume: 'local' },
     hint: 'Cole o link de um episódio ou série da Crunchyroll (crunchyroll.com/watch/… ou /series/…)',
     login: 'https://www.crunchyroll.com/login',

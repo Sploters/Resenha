@@ -2115,6 +2115,7 @@ const watchDb = () => db.exec(`CREATE TABLE IF NOT EXISTS watch_history(guild_id
 watchDb();
 const YT_KEY = process.env.YOUTUBE_API_KEY || '';
 const OEMBED = process.env.WATCH_OEMBED_URL || 'https://www.youtube.com/oembed';
+const YT_API = process.env.WATCH_YT_API || 'https://www.googleapis.com/youtube/v3'; // WATCH_YT_API/WATCH_OEMBED_URL: só para os testes (scripts/watch-test.mjs)
 const isoDur = (d) => { const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(d || ''); return m ? ((+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0)) : 0; };
 const fetchJson = async (url, ms = 8000) => { const r = await fetch(url, { signal: AbortSignal.timeout(ms), headers: { 'user-agent': 'Mozilla/5.0 Resenha' } }); return { status: r.status, json: r.ok ? await r.json().catch(() => null) : null }; };
 // título/canal/miniatura pelo oEmbed oficial do YouTube (sem chave). 401/403 = incorporação desativada; 404/400 = não existe ou privado
@@ -2122,7 +2123,7 @@ async function watchMeta(it) {
   if (process.env.WATCH_OEMBED === '0') return {};
   const out = {};
   if (YT_KEY) {
-    try { const r = await fetchJson(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,status&id=${it.ref}&key=${YT_KEY}`);
+    try { const r = await fetchJson(`${YT_API}/videos?part=snippet,contentDetails,status&id=${it.ref}&key=${YT_KEY}`);
       const v = r.json?.items?.[0]; if (r.status === 200 && !v) return { notFound: true };
       if (v) return { title: v.snippet.title, channel: v.snippet.channelTitle, thumb: v.snippet.thumbnails?.high?.url, duration: isoDur(v.contentDetails.duration), embeddable: v.status.embeddable !== false };
     } catch { }
@@ -2138,7 +2139,7 @@ async function watchMeta(it) {
 // busca: YouTube Data API v3 (oficial) se houver YOUTUBE_API_KEY; senão o mesmo yt-dlp do bot de música
 async function watchSearch(q) {
   if (YT_KEY) {
-    const r = await fetchJson(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=12&q=${encodeURIComponent(q)}&key=${YT_KEY}`);
+    const r = await fetchJson(`${YT_API}/search?part=snippet&type=video&videoEmbeddable=true&maxResults=12&q=${encodeURIComponent(q)}&key=${YT_KEY}`);
     if (!r.json) throw new Error('A busca do YouTube não respondeu (verifique a YOUTUBE_API_KEY)');
     return r.json.items.map(x => ({ service: 'youtube', ref: x.id.videoId, url: 'https://www.youtube.com/watch?v=' + x.id.videoId, title: x.snippet.title, channel: x.snippet.channelTitle, thumb: x.snippet.thumbnails?.high?.url || x.snippet.thumbnails?.default?.url, duration: 0 }));
   }
