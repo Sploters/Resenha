@@ -154,7 +154,7 @@ try {
       recs: [...b.querySelectorAll('.wk-recs .wk-clip')].map(t), reason: t(b.querySelector('.wk-reason')), cats: [...b.querySelectorAll('.wk-cats .wk-clip')].map(t) };
   });
   ok(P.heads.includes('Clipes da semana') && P.heads.includes('Recomendados pra você'), 'painel: Clipes da semana e Recomendados pra você', P.heads);
-  ok(P.clips.length === 3 && /Clutch 1v4 absurdo/.test(P.clips[0]) && /Clipe da semana/.test(P.clips[0]), 'Top 3 com o campeão em destaque', P.clips);
+  ok(P.clips.length === 3 && /Clutch 1v4 absurdo/.test(P.clips[0]) && /Clipe da semana/i.test(P.clips[0]), 'Top 3 com o campeão em destaque', P.clips);
   ok(/4 4 2 100%/.test(P.clips[0]), 'métricas visíveis: visualizações, curtidas, compartilhamentos e retenção', P.clips[0]);
   ok(/Ver top 4/.test(P.more || ''), 'botão para expandir o ranking', P.more);
   ok(P.recs.some(r => /Clipe que você não viu/.test(r)) && !!P.reason, 'recomendado com o motivo à vista', { recs: P.recs, reason: P.reason });

@@ -75,13 +75,13 @@ try {
   ok(P.caps[0] === 'Jogando — 1' && /ana/.test(P.play[0] || '') && /VALORANT/.test(P.play[0] || ''), 'no topo, em destaque: quem está jogando agora', P.play);
   ok(P.heads.join('|') === 'A semana da galera|Clipes da semana|Recomendados pra você' && !P.old, 'seções: "A semana da galera", "Clipes da semana" e "Recomendados pra você" (sem o feed de eventos)', P.heads);
   ok(P.recs.some(r => /Ninguém viu/.test(r) && /amigo/.test(r)) && !P.recs.some(r => /Ace no último|Clutch do eu/.test(r)), 'recomendados: o que não está no ranking, com o motivo (sem repetir clipe)', P.recs);
-  ok(/Jogo da semana/.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
+  ok(/Jogo da semana/i.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
   ok(P.bars === 7 && P.barsOn === 5, 'a semana em 7 barrinhas (dias com partida acesos)', { bars: P.bars, on: P.barsOn });
   ok(P.rows.length === 2 && /^2 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[0]) && /^3 Hades 4,3h · 1 pessoa/.test(P.rows[1]), '2º e 3º em linhas compactas (jogar junto pesa mais que horas sozinho)', P.rows);
   ok(!P.rows.concat(P.hero).some(x => /PEAK|ELDEN|Dota|VALORANT/.test(x)), 'fora: insignificante (PEAK 10 min), escondido (caio), não amigo (zeca) e o que só começou agora', P.rows);
   ok(P.clips.length === 2 && /Ace no último round/.test(P.clips[0]) && /Clutch do eu/.test(P.clips[1]) && !P.clips.some(c => /Ninguém viu|antigo/.test(c)) && P.big, 'clipes da semana: só os com engajamento, o 1º grande com miniatura', P.clips);
-  ok(/Clipe da semana/.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2 0 90%$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 curtidas, 0 compartilhamentos, 90% assistido)', P.clips[0]);
-  ok(/Você aparece/.test(P.clips[1]), 'categoria personalizada: "Você aparece" (clipe da sua transmissão)', P.clips[1]);
+  ok(/Clipe da semana/i.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2 0 90%$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 curtidas, 0 compartilhamentos, 90% assistido)', P.clips[0]);
+  ok(/Você aparece/i.test(P.clips[1]), 'categoria personalizada: "Você aparece" (clipe da sua transmissão)', P.clips[1]);
   if (process.env.SHOTS) { await me.screenshot({ path: '.testshots/activepanel-wide.png' }); const el = await me.$('#active-now'); await el.screenshot({ path: '.testshots/activepanel-panel.png' }); await me.evaluate(() => { const b = document.querySelector('#active-now'); b.scrollTop = b.scrollHeight; }); await sleep(300); await el.screenshot({ path: '.testshots/activepanel-clips.png' }); await me.evaluate(() => { document.querySelector('#active-now').scrollTop = 0; }); }
   // ana parou de jogar: sai do topo na hora
   await ana.close(); await sleep(1200);

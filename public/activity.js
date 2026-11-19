@@ -362,7 +362,7 @@ function clipCard(c, i) {
   if (!c.tag && c.you) c = { ...c, tag: 'you' }; // clipe da sua transmissão no ranking: "Você aparece"
   if (i === 0) return h('div.wk-clip.big', clipAttrs(c),
     clipThumb(c, true),
-    h('div.wk-cinfo', avatar(u, 28, { status: false }), h('div.wk-ctxt', h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c))), c.tag && clipTag(c.tag)),
+    h('div.wk-cinfo', avatar(u, 28, { status: false }), h('div.wk-ctxt', c.tag && clipTag(c.tag), h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c)))),
     clipMetrics(c.metrics, true));
   return h('div.wk-clip.row', clipAttrs(c),
     clipThumb(c, false, i + 1),
