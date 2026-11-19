@@ -7,7 +7,7 @@ name: App desktop — instalador automático
 on:
   push:
     branches: [main]
-    paths: ['desktop/**']
+    paths: ['desktop/**', 'native/lc-input/**', 'native/lc-stream/**', 'native/lc-audio/**']
   workflow_dispatch: {}
 
 permissions:
@@ -58,7 +58,23 @@ jobs:
       - name: Conferir os arquivos do app
         run: node ../scripts/desktop-files-check.mjs
 
-      # os programas nativos (lc-input.exe e lc-stream.exe) já estão em desktop/native no repositório
+      # programas nativos (lc-input, lc-stream e lc-audio, em Rust): compilados aqui a cada release — os .exe não ficam no
+      # repositório. O Rust já vem na máquina Windows do GitHub; o cache guarda as dependências entre execuções.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/lc-input/target
+            native/lc-stream/target
+            native/lc-audio/target
+          key: cargo-win-${{ hashFiles('native/lc-input/Cargo.lock', 'native/lc-stream/Cargo.lock', 'native/lc-audio/Cargo.lock') }}
+
+      - name: Compilar os programas nativos
+        env:
+          NATIVE_REQUIRE_BUILD: '1'
+        run: node build-native.mjs
+
       - name: Montar o instalador
         run: npx electron-builder --win nsis portable --publish never -c.extraMetadata.version=${{ steps.ver.outputs.v }}
 

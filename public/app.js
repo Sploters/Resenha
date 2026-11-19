@@ -1474,7 +1474,7 @@ function channelMenu(e, g, c) {
     can(g.id, PERM.MANAGE_CHANNELS) && { label: c.type === 4 ? 'Editar categoria' : 'Editar canal', hint: can(g.id, PERM.MANAGE_ROLES) ? 'Nome, descrição e permissões' : null, fn: () => channelSettings(g, c) },
     can(g.id, PERM.MANAGE_CHANNELS) && c.type !== 4 && { label: 'Duplicar canal', hint: 'Mesma categoria, tópico e permissões', fn: () => duplicateChannel(g, c) },
     can(g.id, PERM.MANAGE_CHANNELS) && can(g.id, PERM.MANAGE_ROLES) && c.type === 4 && g.channels.some(k => k.parent_id === c.id && k.perm_sync === 0) && { label: 'Sincronizar canais com a categoria', hint: 'Os canais com permissões próprias voltam a seguir a categoria', fn: () => syncChildren(g, c) },
-    can(g.id, PERM.CREATE_INVITE) || true ? { label: 'Convidar pessoas', fn: () => inviteModal(g) } : null,
+    { label: 'Convidar pessoas', fn: () => inviteModal(g) }, // para todos: qualquer membro convida (o servidor não exige CREATE_INVITE)
     isChatCh(c) && { label: 'Apagar minhas mensagens aqui…', fn: () => openMyMessages({ places: [c.id], title: '#' + chName(c) }) },
     isChatCh(c) && can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Importar conversa do Discord…', fn: () => importModal(c) },
     S.prefs.devMode && { label: 'Copiar ID do canal', fn: () => navigator.clipboard?.writeText(c.id) },

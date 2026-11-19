@@ -1,6 +1,7 @@
 # Verificação automática a cada atualização.
-# - Toda vez que algo é enviado (qualquer branch) e em todo pull request: verificação rápida de sintaxe de todo o JS
-#   (npm run check, ~1 min). Pega arquivo quebrado antes de chegar ao servidor.
+# - Toda vez que algo é enviado (qualquer branch) e em todo pull request: verificação rápida (~2 min) — sintaxe de todo o
+#   JS (npm run check), lint (npm run lint) e os testes sem navegador (npm run test:fast: *-unit-test e smoke-test).
+#   Pega arquivo quebrado e erro bobo antes de chegar ao servidor.
 # - Ao enviar para a main, em pull requests e quando alguém pede (aba Actions → "Testes" → Run workflow): todos os testes
 #   de ponta a ponta (scripts/run-tests.mjs, a lista fica em scripts/tests.json), divididos em 3 máquinas que rodam ao mesmo
 #   tempo (~15 min). Em outra branch, ponha [testes] na mensagem do commit para rodar tudo também.
@@ -25,7 +26,7 @@ permissions:
 
 jobs:
   sintaxe:
-    name: Sintaxe
+    name: Verificação rápida (sintaxe, lint e testes sem navegador)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -33,8 +34,18 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
       - name: Verificar a sintaxe de todo o JS (servidor, app, desktop, scripts)
         run: node scripts/check.mjs
+      - name: Dependências do servidor
+        run: npm ci --no-audit --no-fund
+      # ESLint (eslint.config.js): variável não declarada, chave duplicada, código inalcançável... Só erro reprova
+      - name: Lint
+        run: npx eslint . --max-warnings=-1
+      # *-unit-test.mjs e smoke-test.mjs: lógica pura e o servidor subindo com a CSP, em segundos (scripts/run-tests.mjs)
+      - name: Testes rápidos
+        run: node scripts/run-tests.mjs --no-retry unit-test smoke-test
 
   testes:
     name: Testes (parte ${{ matrix.parte }} de 3)

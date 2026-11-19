@@ -127,7 +127,7 @@ async function spotifyTracks(u) {
   const list = Array.isArray(ent.trackList) && ent.trackList.length ? ent.trackList.map(t => ({ title: t.title, artist: t.subtitle || '', duration: Math.round((+t.duration || 0) / 1000) }))
     : [{ title: ent.name || ent.title, artist: (ent.artists || []).map(a => a.name).join(', ') || ent.subtitle || '', duration: Math.round((+ent.duration || 0) / 1000) }];
   return list.filter(t => t.title).slice(0, MAX_PLAYLIST).map(t => ({
-    title: String(t.title).slice(0, 140), artist: String(t.artist).replace(/ /g, ' ').slice(0, 80), duration: t.duration || 0, thumb: ent.coverArt?.sources?.[0]?.url || null,
+    title: String(t.title).slice(0, 140), artist: String(t.artist).replace(/\u00a0/g, ' ').slice(0, 80), duration: t.duration || 0, thumb: ent.coverArt?.sources?.[0]?.url || null,
     search: `ytsearch1:${t.artist ? t.artist + ' - ' : ''}${t.title}`.slice(0, 200), url: null,
   }));
 }
