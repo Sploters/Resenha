@@ -23,3 +23,6 @@ cookies.txt
 .load-result.json
 scripts/perf-big-*.json
 .testmedia*
+
+# programas nativos: compilados por desktop/build-native.mjs (no GitHub, a cada release), não versionados
+desktop/native/*.exe
