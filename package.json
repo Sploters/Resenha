@@ -17,13 +17,13 @@
     "node": ">=22.5"
   },
   "dependencies": {
+    "esbuild": "^0.28.2",
     "express": "^4.21.2",
     "mediasoup": "^3.32.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
-    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "globals": "^16.5.0",
     "mediabunny": "1.62.1",

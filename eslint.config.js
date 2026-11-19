@@ -20,7 +20,7 @@ export default [
       'no-useless-escape': 'off',
     },
   },
-  { files: ['server/**/*.js', 'scripts/**/*.{js,mjs}', '*.js', '*.mjs', 'desktop/**/*.mjs'], languageOptions: { globals: { ...globals.node } } },
+  { files: ['server/**/*.{js,mjs}', 'scripts/**/*.{js,mjs}', '*.js', '*.mjs', 'desktop/**/*.mjs'], languageOptions: { globals: { ...globals.node } } },
   // páginas do navegador: app, workers e worklets de áudio
   { files: ['public/**/*.js'], languageOptions: { globals: { ...globals.browser } } },
   { files: ['public/*-worker.js', 'public/sw.js'], languageOptions: { globals: { ...globals.worker, ...globals.serviceworker } } },

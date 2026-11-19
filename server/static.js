@@ -4,12 +4,30 @@
 // - módulos e CSS da raiz com ?v=<versão atual>: "immutable" por 1 ano. Os imports dentro deles também ganham ?v.
 //   A versão é um hash de todos os arquivos: qualquer mudança (deploy) troca a versão e tudo é baixado de novo.
 // - o resto (vendor, worklets, imagens): comprimido quando é texto/wasm, com ETag (revalida).
+// - .js e .css da raiz saem minificados (esbuild, arquivo por arquivo: os nomes e o jeito de carregar não mudam). O código
+//   é cheio de comentários e espaço, que só pesavam no download. STATIC_MINIFY=0 entrega como está no disco.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+import { execFile, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json; charset=utf-8' };
+// minificador: server/minify.mjs (esbuild) num processo à parte; sem esbuild (instalação antiga), entrega sem minificar
+let minOff = process.env.STATIC_MINIFY === '0';
+const minWorker = fileURLToPath(new URL('./minify.mjs', import.meta.url));
+const minDone = new Map(); // fonte -> minificado
+const runMinify = (items, sync) => {
+  const opts = { input: JSON.stringify(items), maxBuffer: 64 << 20, encoding: 'utf8' };
+  if (sync) { try { return JSON.parse(execFileSync(process.execPath, [minWorker], opts)); } catch { return items.map(() => null); } }
+  return new Promise((res) => { const c = execFile(process.execPath, [minWorker], opts, (err, out) => { try { res(err ? items.map(() => null) : JSON.parse(out)); } catch { res(items.map(() => null)); } }); c.stdin.end(opts.input); });
+};
+const minify = (code, ext) => {
+  if (minOff) return code;
+  if (!minDone.has(code)) minDone.set(code, runMinify([{ ext, code }], true)[0]); // arquivo mudou depois da subida (desenvolvimento)
+  return minDone.get(code) ?? code;
+};
 const COMPRESS = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '.wasm', '.txt', '.map', '.webmanifest']);
 const IMPORT_RE = /(\bfrom\s*|\bimport\s*)(['"])\.\/([\w.-]+\.js)\2/g;
 // import('./x.js') dinâmico (tela aberta sob demanda): também ganha ?v, mas NÃO entra no modulepreload da abertura
@@ -39,7 +57,8 @@ export function mountStatic(app, dir) {
     const ext = path.extname(file).toLowerCase();
     let body = fs.readFileSync(file);
     if (rel === 'index.html') body = Buffer.from(index());
-    else if (mods.has(rel)) body = Buffer.from(rewrite(body.toString('utf8')));
+    else if (mods.has(rel)) body = Buffer.from(minify(rewrite(body.toString('utf8')), ext));
+    else if (ext === '.css' && !rel.includes('/')) body = Buffer.from(minify(body.toString('utf8'), ext));
     const e = { mtime: st.mtimeMs, body, type: TYPES[ext] || null, ext, etag: '"' + crypto.createHash('sha1').update(body).digest('base64url').slice(0, 16) + '"' };
     cache.set(rel, e); return e;
   }
@@ -60,7 +79,12 @@ export function mountStatic(app, dir) {
     res.end(req.method === 'HEAD' ? undefined : out);
     return true;
   }
+  let warm = null;
   app.use((req, res, next) => {
+    if (warm && /\.(js|css)$/.test(req.path)) return void warm.then(() => serve(req, res, next));
+    serve(req, res, next);
+  });
+  function serve(req, res, next) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (/^\/(api|files|gateway)(\/|$)/.test(req.path)) return next();
     let rel = decodeURIComponent(req.path).replace(/^\/+/, '');
@@ -74,6 +98,20 @@ export function mountStatic(app, dir) {
     }
     const versioned = req.query.v === V && (mods.has(rel) || /^[\w.-]+\.css$/.test(rel));
     return send(req, res, rel, versioned) || next();
-  });
+  }
+  // minifica tudo logo na subida, num processo à parte e sem travar o servidor: quem pedir .js/.css antes de terminar
+  // (fração de segundo) espera ficar pronto
+  if (!minOff) {
+    const files = fs.readdirSync(root).filter(f => /\.(js|css)$/.test(f));
+    const items = files.map(f => { const src = fs.readFileSync(path.join(root, f), 'utf8'); return { ext: path.extname(f), code: mods.has(f) ? rewrite(src) : src }; });
+    warm = runMinify(items, false).then((out) => {
+      let ok = 0; out.forEach((m, i) => { if (m != null) { minDone.set(items[i].code, m); ok++; } });
+      if (!ok) minOff = true, console.warn('[static] não deu para minificar (esbuild instalado?): a interface sai como está no disco');
+      warm = null;
+      // já monta o que vai ser entregue e solta os textos-fonte (só o minificado fica na memória)
+      for (const f of files) entry(f, path.join(root, f));
+      minDone.clear();
+    });
+  }
   return V;
 }
