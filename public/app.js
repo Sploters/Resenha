@@ -66,7 +66,7 @@ function releaseOldScreens() {
 }
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFilesClip } from './files.js';
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
-import { initClipsGallery, renderClips, onClipEvent, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
+import { initClipsGallery, renderClips, onClipEvent, onClipStats, galleryFocus, openClip, releaseClips } from './clipsgallery.js';
 import { initWatch, onWatchEvent, watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry, pendingWatch, placeWatch, watchSetEnv, yieldStage } from './watch.js';
 import { initCallInvite, callCard, onCallInvite, onCallInviteUpdate, canCallInvite, sendCallInvite, inviteFrom, loadPendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { seg, toggle as uiToggle, qualityPanel, qualityLabel, comboFromEvent, comboToAccel, comboLabel, hotkey, desktopHotkeys, NOISE_INFO } from './ui.js';
@@ -80,7 +80,7 @@ import { profileCard, STATUS_TXT } from './card.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, canMoveVoice, canMoveTo, moveVoice, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
-import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, guildGamesRow, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
+import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, guildGamesRow, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl, onClipStats as onFeedClipStats } from './activity.js';
 import { toggleTranslation, isTranslated, translationBlock, translateOutgoing } from './translate.js';
 import { initDiag, openReport } from './diag.js';
 import { initPwa } from './pwa.js';
@@ -449,6 +449,7 @@ function onEvent(t, d) {
     }
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': case 'LFG_MESSAGE': case 'LFG_JOINED': case 'LFG_LEFT': onLfgEvent(t, d); break;
+    case 'CLIP_STATS': onClipStats(d); onFeedClipStats(d); break; // visualizações, curtidas, compartilhamentos e retenção mudaram
     case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;

@@ -30,7 +30,10 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 async function page(u, w = 1440) {
   const ctx = await browser.createBrowserContext(), p = await ctx.newPage(); await p.setViewport({ width: w, height: 1000 });
   p.on('pageerror', e => { console.log('  PAGEERROR', u.n, e.message); fails++; });
-  await p.evaluateOnNewDocument((t) => { localStorage.lc_token = t; }, u.tok);
+  await p.evaluateOnNewDocument((t) => {
+    localStorage.lc_token = t; window.__clipStats = 0; // conta os avisos CLIP_STATS que chegam pelo WebSocket
+    const WS = window.WebSocket; window.WebSocket = class extends WS { constructor(...a) { super(...a); this.addEventListener('message', (e) => { if (typeof e.data === 'string' && e.data.includes('"CLIP_STATS"')) window.__clipStats++; }); } };
+  }, u.tok);
   await p.goto(BASE); await p.waitForSelector('#rail .rail-wrap'); return p;
 }
 try {
@@ -189,6 +192,44 @@ try {
   // o autor não vê "Curtir" no próprio clipe
   await gal.close(); const dd = await page(U.duda); await dd.evaluate((gid) => window.__lc.go(gid, 'clips'), g.id); await sleep(2500);
   ok(await dd.evaluate(() => { const c = [...document.querySelectorAll('.clipcard')].find(c => /Clutch 1v4/.test(c.textContent)); return c && !c.querySelector('.clike'); }), 'autor não vê botão de curtir no próprio clipe');
+
+  console.log('tempo real');
+  // a galeria aberta (f4), o painel (eu) e um player aberto recebem as mudanças feitas por outras pessoas, sem recarregar
+  const rt = await page(U.f4); await rt.evaluate((gid) => window.__lc.go(gid, 'clips'), g.id); await sleep(2500);
+  const card = (P, t) => P.evaluate((t) => [...document.querySelectorAll('.clipcard')].find(c => c.querySelector('.ctitle')?.textContent === t)?.querySelector('.cstats')?.innerText.replace(/\s+/g, ' '), t);
+  const panelOf = (id) => me.evaluate((id) => document.querySelector(`#active-now .wk-clips [data-clip="${id}"] .wk-met`)?.innerText.replace(/\s+/g, ' '), id);
+  ok(await card(rt, 'Clutch 1v4 absurdo') === '4 4 2' && /^4 4 2/.test(await panelOf(C.joia.id) || ''), 'antes: 4 views, 4 curtidas, 2 compartilhamentos', [await card(rt, 'Clutch 1v4 absurdo'), await panelOf(C.joia.id)]);
+  await rt.evaluate(() => { window.__rtVid = document.querySelector('.clipcard video'); }); // a grade não pode ser redesenhada
+  await call(U.f3.tok, 'PUT', `/clips/${C.joia.id}/like`); await sleep(1800);
+  ok(await card(rt, 'Clutch 1v4 absurdo') === '4 5 2', 'curtida de outra pessoa aparece na galeria aberta', await card(rt, 'Clutch 1v4 absurdo'));
+  ok(await rt.evaluate(() => window.__rtVid === document.querySelector('.clipcard video')), 'só a linha de números muda (a grade não é redesenhada)');
+  ok(/^4 5 2/.test(await panelOf(C.joia.id) || ''), '…e no painel "Ativo agora"', await panelOf(C.joia.id));
+  await call(U.f3.tok, 'DELETE', `/clips/${C.joia.id}/like`); await sleep(1800);
+  ok(await card(rt, 'Clutch 1v4 absurdo') === '4 4 2', 'descurtir também atualiza', await card(rt, 'Clutch 1v4 absurdo'));
+  // visualização qualificada nova chega em tempo real; abrir e fechar não gera aviso
+  await call(U.f5.tok, 'POST', `/clips/${C.quatro.id}/view`); await sleep(1500);
+  ok(await card(rt, 'Quarto lugar') === '3 0 0', 'só abrir não muda os números', await card(rt, 'Quarto lugar'));
+  await watch(U.duda, C.quatro.id, 1); await sleep(1800);
+  ok(await card(rt, 'Quarto lugar') === '4 0 0', 'visualização qualificada de outra pessoa aparece na hora', await card(rt, 'Quarto lugar'));
+  // compartilhamento novo e apagar a mensagem que compartilhou
+  const sh = await call(U.duda.tok, 'POST', `/channels/${ch2.id}/messages`, { content: link(C.quatro) }); await sleep(1800);
+  ok(await card(rt, 'Quarto lugar') === '4 0 1', 'compartilhamento aparece na hora', await card(rt, 'Quarto lugar'));
+  await call(U.duda.tok, 'DELETE', `/channels/${ch2.id}/messages/${sh.id}`); await sleep(1800);
+  ok(await card(rt, 'Quarto lugar') === '4 0 0', 'apagou a mensagem com o link: o compartilhamento sai', await card(rt, 'Quarto lugar'));
+  // player aberto tocando: os números mudam sem reiniciar o vídeo
+  await rt.evaluate(() => [...document.querySelectorAll('.clipcard')].find(c => /Round normal/.test(c.textContent)).querySelector('.cthumb').click()); await sleep(1500);
+  const t0 = await rt.evaluate(() => { const v = document.querySelector('.modal.clipmodal video'); v.play(); return v.currentTime; });
+  await call(U.ana.tok, 'PUT', `/clips/${C.meh.id}/like`); await sleep(1800);
+  const pv = await rt.evaluate(() => { const m = document.querySelector('.modal.clipmodal'), v = m.querySelector('video'); return { s: m.querySelector('.pstatrow')?.innerText.replace(/\s+/g, ' '), t: v.currentTime, paused: v.paused }; });
+  ok(/^4 1 0/.test(pv.s || '') && pv.t > t0 && !pv.paused, 'player aberto: curtida aparece e o vídeo continua tocando', { ...pv, t0 });
+  if (process.env.SHOTS) await rt.screenshot({ path: OUT + '/tempo-real-player.png' });
+  // rajada de curtidas: chega um aviso só (agrupado) e o número final certo
+  await rt.evaluate(() => { window.__clipStats = 0; });
+  for (const n of ['beto', 'caio', 'f1', 'f2']) await call(U[n].tok, 'PUT', `/clips/${C.meh.id}/like`);
+  await sleep(1800);
+  const nEv = await rt.evaluate(() => window.__clipStats);
+  ok(nEv >= 1 && nEv <= 2, '4 curtidas seguidas viram 1 aviso (agrupado por segundo)', nEv);
+  ok(/^4 4 0/.test(await rt.evaluate(() => document.querySelector('.modal.clipmodal .pstatrow')?.innerText.replace(/\s+/g, ' ')) || ''), 'várias curtidas seguidas: número final certo (a do beto, autor, não entra)', await rt.evaluate(() => document.querySelector('.modal.clipmodal .pstatrow')?.innerText));
 } catch (e) { console.log('ERRO', e); fails++; }
 await browser.close(); srv.kill();
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');

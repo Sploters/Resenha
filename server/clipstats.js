@@ -175,9 +175,13 @@ export function createClipStats({ db, all, get, run, newId, friendsOf, canSeeCli
     const comp = Math.min(1, r.covered_ms / dur), wms = Math.min(r.watched_ms, dur); // loop não passa de uma volta
     // qualifica só com tempo de RELÓGIO compatível (a folga de rede não entra): ninguém assiste 3 s em 1 s
     const qual = uid !== c.author_id && isQualified(r.covered_ms, dur) && t - s.started_at >= qualifyMs(dur) / CFG.MAX_RATE;
+    const before = get('SELECT watch_ms, completion, qualified_at FROM clip_views WHERE clip_id=? AND user_id=?', c.id, uid);
     run(`UPDATE clip_views SET watch_ms=MAX(watch_ms,?), completion=MAX(completion,?), qualified_at=COALESCE(qualified_at, ?) WHERE clip_id=? AND user_id=?`,
       wms, comp, qual ? t : null, c.id, uid);
-    return { ok: true, qualified: qual, completion: r2(comp), clamped: r.clamped };
+    // changed: mudou o que todo mundo vê (nova visualização qualificada, ou a retenção de quem já contava subiu)
+    const wasQ = before?.qualified_at != null, isQ = wasQ || qual;
+    const changed = isQ && (!wasQ || comp > (before?.completion || 0) + 1e-6 || wms > (before?.watch_ms || 0));
+    return { ok: true, qualified: isQ, completion: r2(comp), clamped: r.clamped, changed };
   }
   function setLike(uid, c, on) {
     if (uid === c.author_id) return 'Você não pode curtir o próprio clipe';

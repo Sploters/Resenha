@@ -36,6 +36,18 @@ export async function toggleLike(c) {
   if (r) { Object.assign(c, { liked: r.liked, stats: r.stats }); upsert({ ...r, fav: c.fav }); }
   return r;
 }
+// métricas em tempo real (CLIP_STATS): troca só a linha de números do cartão e do player aberto, sem redesenhar
+// a grade (a prévia do mouse e o vídeo do player continuam tocando)
+const players = new Set(); // players abertos: { list, repaint(id) }
+export function onClipStats(d) {
+  const id = String(d.id);
+  for (const c of st.clips) if (String(c.id) === id) {
+    c.stats = d.stats;
+    const row = st.root?.querySelector(`.clipcard[data-id="${CSS.escape(id)}"] .cstats`);
+    if (row) row.replaceWith(clipStatsRow(c.stats));
+  }
+  for (const p of players) p.update(id, d.stats);
+}
 const mineClip = (c) => (c.author?.id || c.author_id) === S.me.id;
 
 // a prévia (primeiro quadro) só é baixada quando o cartão entra na tela
@@ -160,6 +172,8 @@ function player(i, list = st.clips, opts = {}) {
   const stats = h('div.pstats');
   const paintLike = (c) => { likeBtn.hidden = mineClip(c); likeBtn.classList.toggle('on', !!c.liked); likeBtn.setAttribute('aria-pressed', String(!!c.liked)); likeBtn.replaceChildren(icon('heart', 16), c.liked ? 'Curtido' : 'Curtir'); stats.replaceChildren(clipStatsRow(c.stats, { retention: true, cls: 'pstatrow' }) || ''); };
   let stopWatch = null; // sessão de exibição do clipe que está tocando (clipwatch.js)
+  const live = { update: (id, stats) => { for (const c of list) if (String(c.id) === id) c.stats = stats; if (String(list[cur]?.id) === id) paintLike(list[cur]); } };
+  players.add(live);
   // fora da galeria: atalho para a galeria do servidor (e para a mensagem no chat)
   const member = (c) => !!c && S.guilds.has(c.guild_id); // recebeu por link e não é do servidor: sem atalhos para a galeria/mensagem
   const extra = opts.standalone && member(list[cur]) && [h('button.btn.grey', { onclick: () => { dlg.close(); galleryFocus(list[cur].id); ctx.go(list[cur].guild_id, 'clips'); } }, icon('clip', 16), 'Ver na galeria'),
@@ -195,7 +209,7 @@ function player(i, list = st.clips, opts = {}) {
     trow.replaceChildren(inp); inp.focus(); inp.select();
   };
   const keys = (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowLeft') show(cur - 1); if (e.key === 'ArrowRight') show(cur + 1); };
-  addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => { removeEventListener('keydown', keys); stopWatch?.(); }));
+  addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => { removeEventListener('keydown', keys); stopWatch?.(); players.delete(live); }));
   const dlg = modal('Clipe', null, box, [], { width: 'min(1100px, 94vw)' });
   const md = dlg.el.querySelector('.modal');
   md?.classList.add('clipmodal');

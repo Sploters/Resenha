@@ -22,6 +22,7 @@ e o painel de `public/activity.js` continuam os mesmos, com o que faltava acresc
 - [x] Testes unitários (`scripts/clipstats-unit-test.mjs`) e de ponta a ponta com servidor e vídeo reais (`scripts/clipstats-test.mjs`)
 - [x] Cenários com poucas pessoas e poucos clipes
 - [x] Regressão: testes antigos de clipes e do painel ajustados à nova regra de visualização e passando
+- [x] Métricas em tempo real (evento `CLIP_STATS`) na galeria, no player aberto e no painel
 
 ## Onde está
 
@@ -109,6 +110,17 @@ Sem aprendizado de máquina: uma soma de sinais, cada um com o seu motivo.
 
 Multiplicado por um fator de novidade (`0,5 + 0,5·½^(idade/7 dias)`). Candidatos: últimos 30 dias, que você não
 assistiu de verdade, que não são seus e que não estão no ranking nem nas categorias. Até 4.
+
+## Tempo real
+
+Quando muda o que todo mundo vê — visualização qualificada nova, retenção de quem já contava, curtida/descurtida,
+compartilhamento novo ou mensagem com o link apagada — o servidor manda `CLIP_STATS { id, guild_id, stats }` para quem
+pode ver o clipe (`clipShareAudience`). Os avisos são agrupados por clipe: no máximo um a cada `CLIP_STATS_MS`
+(padrão 1 s), então 10 pessoas assistindo juntas não viram uma enxurrada. Abrir o player sem assistir não gera aviso.
+
+No app, a galeria troca só a linha de números do cartão (a grade e as prévias não são redesenhadas), o player aberto
+atualiza sem reiniciar o vídeo e o painel *Ativo agora* atualiza os números onde o clipe aparecer. A **ordem** do ranking
+não muda na hora (evita cartões pulando); ela é recalculada quando o painel recarrega.
 
 ## Mudança de comportamento
 

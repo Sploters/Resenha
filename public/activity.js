@@ -374,6 +374,15 @@ function miniClip(c, top) {
   return h('div.wk-clip.row.mini', clipAttrs(c), clipThumb(c, false),
     h('div.wk-ctxt', top, h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c)), clipMetrics(c.metrics)));
 }
+// métricas em tempo real (CLIP_STATS): atualiza os números do clipe onde ele aparecer no painel (ranking, destaques,
+// recomendados). A ORDEM do ranking não muda na hora: é recalculada quando o painel recarrega (evita cartões pulando)
+export function onClipStats(d) {
+  const w = feed?.week; if (!w) return;
+  const id = String(d.id); let hit = false;
+  for (const c of [...(w.clips || []), ...(w.clip_categories || []).map(x => x.clip), ...(w.clip_recs || [])])
+    if (String(c.id) === id) { c.metrics = { ...c.metrics, ...d.stats }; hit = true; }
+  if (hit && document.getElementById('actfeed')) S.redrawFeed?.();
+}
 let topOpen = false; // Top 3 → Top 5 (fica aberto enquanto o app está aberto)
 function clipSections(w) {
   const list = w.clips || [], cats = w.clip_categories || [], recs = w.clip_recs || [];

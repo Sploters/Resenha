@@ -1270,8 +1270,10 @@ app.delete('/api/channels/:id/messages/:mid', auth, wrap((req, res) => {
   const ch = channelFor(req, res); if (!ch) return;
   const m = get('SELECT * FROM messages WHERE id=? AND channel_id=?', req.params.mid, ch.id);
   if (!m || (m.author_id !== req.uid && !(ch.guild_id && can(ch.guild_id, req.uid, P.MANAGE_MESSAGES)))) return bad(res, 'Sem permissão', 403);
+  const sharedIds = all('SELECT clip_id FROM clip_shares WHERE message_id=?', m.id).map(r => r.clip_id); // a mensagem levava o link: o compartilhamento sai
   run('DELETE FROM messages WHERE id=?', m.id);
   dropClipsOfMessage(m.id);
+  for (const cid of sharedIds) pushClipStats(cid);
   if (m.author_id !== req.uid) audit(ch.guild_id, req.uid, 'message_delete', m.author_id, `#${ch.name}: ${(m.content || '').slice(0, 200)}`);
   dispatch(channelAudience(ch), 'MESSAGE_DELETE', { id: m.id, channel_id: ch.id, guild_id: ch.guild_id });
   res.json({});
@@ -1381,6 +1383,19 @@ const CLIP_URL = /^\/files\/[a-f0-9]{24}\.(webm|mp4)\/[^/]{1,300}$/; // devolvid
 const clipStats = createClipStats({ db, all, get, run, newId, canSeeClip: (u, c) => clipAccess(u, c),
   friendsOf: (uid) => all(`SELECT r1.other_id id FROM relationships r1 JOIN relationships r2 ON r2.user_id=r1.other_id AND r2.other_id=r1.user_id WHERE r1.user_id=? AND r1.type=1 AND r2.type=1`, uid).map(r => r.id),
   clipGame: (c, v) => activity.clipGame(c, v), gameKeys: (g) => activity.gameKeys(g) });
+// métricas em tempo real: quem pode ver o clipe recebe CLIP_STATS { id, guild_id, stats } quando muda uma visualização
+// qualificada, a retenção, uma curtida ou um compartilhamento. Agrupado por clipe (no máximo 1 aviso por CLIP_STATS_MS):
+// 10 pessoas assistindo ao mesmo tempo não viram 10 avisos por batida.
+const CLIP_STATS_MS = +process.env.CLIP_STATS_MS || 1000, statsSoon = new Map();
+function pushClipStats(id) {
+  if (statsSoon.has(id)) return;
+  const tm = setTimeout(() => {
+    statsSoon.delete(id);
+    const c = get('SELECT * FROM clips WHERE id=?', id); if (!c) return;
+    dispatch(clipShareAudience(c), 'CLIP_STATS', { id: c.id, guild_id: c.guild_id, stats: clipStats.pubStats(clipStats.metrics([c.id]).get(c.id)) });
+  }, CLIP_STATS_MS);
+  tm.unref?.(); statsSoon.set(id, tm);
+}
 // stats: passe o resultado de clipStats.statsFor quando montar vários de uma vez (a galeria); sozinho, calcula o do clipe
 const clipObj = (c, uid, st = clipStats.statsFor([c.id], uid).get(c.id)) => ({ id: c.id, guild_id: c.guild_id, channel_id: c.channel_id, message_id: c.message_id, title: c.title, url: c.url, size: c.size, secs: c.secs, has_audio: !!c.has_audio, created_at: c.created_at,
   author: userPub(c.author_id), streamer: c.streamer_id ? userPub(c.streamer_id) : null, fav: !!get('SELECT 1 x FROM clip_favs WHERE user_id=? AND clip_id=?', uid, c.id),
@@ -1392,7 +1407,7 @@ const clipShareAudience = (c) => [...new Set([...clipAudience(c), ...all('SELECT
 const CLIP_LINK_G = /\/#\/clip\/(\d{1,24})\b/g;
 function recordClipShares(row, uid) {
   const ids = [...new Set([...String(row.content || '').matchAll(CLIP_LINK_G)].map(m => m[1]))].slice(0, 3);
-  for (const id of ids) { const c = get('SELECT * FROM clips WHERE id=?', id); if (c && clipAccess(uid, c)) run('INSERT OR IGNORE INTO clip_shares(message_id,clip_id,channel_id) VALUES(?,?,?)', row.id, c.id, row.channel_id); }
+  for (const id of ids) { const c = get('SELECT * FROM clips WHERE id=?', id); if (c && clipAccess(uid, c)) { run('INSERT OR IGNORE INTO clip_shares(message_id,clip_id,channel_id) VALUES(?,?,?)', row.id, c.id, row.channel_id); if (uid !== c.author_id) pushClipStats(c.id); } }
 }
 // a mensagem do clipe sumiu (apagada no chat, ou o vídeo foi removido dela): o clipe sai da galeria
 function dropClipsOfMessage(mid) {
@@ -1486,12 +1501,15 @@ app.post('/api/clips/:id/view', auth, wrap((req, res) => { const c = clipFor(req
 app.post('/api/clips/:id/watch', auth, wrap((req, res) => {
   const c = clipFor(req, res); if (!c) return;
   const r = clipStats.beat(req.uid, c, req.body?.session, { watched_ms: req.body?.watched_ms, covered_ms: req.body?.covered_ms });
+  if (r.changed) pushClipStats(c.id);
   res.json(r);
 }));
 // curtir: uma por pessoa; o autor não curte o próprio clipe
 const likeRoute = (on) => wrap((req, res) => {
   const c = clipFor(req, res); if (!c) return;
+  const was = !!get('SELECT 1 x FROM clip_likes WHERE user_id=? AND clip_id=?', req.uid, c.id);
   const err = clipStats.setLike(req.uid, c, on); if (err) return bad(res, err, err.startsWith('Calma') ? 429 : 400);
+  if (was !== on) pushClipStats(c.id);
   res.json(clipObj(c, req.uid));
 });
 app.put('/api/clips/:id/like', auth, likeRoute(true));
