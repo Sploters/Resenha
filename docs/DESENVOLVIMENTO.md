@@ -7,6 +7,9 @@ Como gerar os arquivos do cliente, montar o app desktop, rodar os testes e medir
 
     npm start              # sobe o servidor (node server/index.js)
     npm run check          # sintaxe de todo o JS (node --check em server/, public/, desktop/ e scripts/)
+    npm run lint           # ESLint (eslint.config.js)
+    npm run test:fast      # testes sem navegador: *-unit-test e smoke-test, em segundos
+    npm test               # todos os testes (node scripts/run-tests.mjs)
     npm run build:vendor   # gera os arquivos de public/vendor (ver abaixo)
     npm run perf:budget    # compara um relatório de desempenho com os limites (ver "Desempenho e carga")
 
@@ -17,20 +20,29 @@ RNNoise da porta por voz (`scripts/vendor-rnnoise-vad.mjs`).
 
 ## App desktop
 Instaladores em `desktop/dist/`: `Resenha-Setup-<versão>.exe` e `Resenha-Portable-<versão>.exe`. Regerar:
-`cd desktop && npm install && npm run dist`. O controle remoto usa o programa nativo `native/lc-input` (Rust); o `.exe` já
-compilado está em `desktop/native/` e entra no instalador.
+`cd desktop && npm install && npm run dist`.
 
-Release automática (`.github/workflows/desktop-release.yml`): a cada envio para a `main` que mexe em `desktop/` (ou pelo
-botão *Run workflow*), uma máquina Windows do GitHub escolhe a versão (a do `desktop/package.json` se for maior que a
-última release; senão, a última + 1 no último número), confere os arquivos do app (`scripts/desktop-files-check.mjs`),
-monta o instalador e o portátil, assina o instalador (`scripts/update-sign.mjs`, segredo `DESKTOP_UPDATE_KEY`; sem ele a
+Programas nativos em Rust: `native/lc-input` (controle remoto e push-to-talk), `native/lc-stream` (transmissão a 60/120
+FPS) e `native/lc-audio` (áudio só do jogo). Os `.exe` **não ficam no repositório**: o `desktop/build-native.mjs` (chamado
+pelo `npm run dist`) compila os três para `desktop/native/` antes do electron-builder:
+- no Windows com Rust: `cargo build --release --locked` em cada um (é o que a release do GitHub faz);
+- no Linux com Rust e o alvo `x86_64-pc-windows-gnu` (`rustup target add x86_64-pc-windows-gnu` + mingw-w64): compila cruzado;
+- sem Rust: usa o `.exe` que já estiver em `desktop/native` (copiado à mão), se houver; senão, para com erro.
+
+`NATIVE_REQUIRE_BUILD=1` (usado no GitHub) faz falhar se não conseguir compilar, em vez de usar um `.exe` velho da pasta.
+
+Release automática (`.github/workflows/desktop-release.yml`): a cada envio para a `main` que mexe em `desktop/` ou em
+`native/lc-input`, `native/lc-stream`, `native/lc-audio` (ou pelo botão *Run workflow*), uma máquina Windows do GitHub
+escolhe a versão (a do `desktop/package.json` se for maior que a última release; senão, a última + 1 no último número),
+confere os arquivos do app (`scripts/desktop-files-check.mjs`), compila os programas nativos (`build-native.mjs` com
+`NATIVE_REQUIRE_BUILD=1`, com cache do Rust entre execuções), monta o instalador e o portátil, assina o instalador (`scripts/update-sign.mjs`, segredo `DESKTOP_UPDATE_KEY`; sem ele a
 release não sai) e publica a release com as últimas mensagens de commit de `desktop/`. Segurança das atualizações:
 [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md).
 
 ## Testes
-**Verificação automática (GitHub Actions, `.github/workflows/testes.yml`):** a cada envio, em qualquer branch, roda a verificação de sintaxe de todo o JS (~1 min). Ao enviar para a `main`, em todo pull request, com `[testes]` na mensagem do commit ou pelo botão *Run workflow* (aba Actions → Testes), roda **todos os testes de ponta a ponta**, divididos em 3 máquinas ao mesmo tempo (~15 min). O resultado aparece no commit (✅/❌) e na página da execução, com uma tabela de cada teste e o fim da saída dos que falharam. Teste que falha roda de novo uma vez; se passar na 2ª, aparece como *instável*, mas não reprova. Cada execução completa leva ~12 min e gasta cerca de 40 minutos da cota do GitHub Actions (3 máquinas) (no plano gratuito de repositório privado são 2.000 min/mês); um envio novo na mesma branch cancela a verificação anterior.
+**Verificação automática (GitHub Actions, `.github/workflows/testes.yml`):** a cada envio, em qualquer branch, e em todo pull request roda a **verificação rápida** (~2 min): sintaxe de todo o JS (`node scripts/check.mjs`), lint (`npx eslint . --max-warnings=-1`: só erro reprova, aviso só aparece) e os testes sem navegador (`node scripts/run-tests.mjs --no-retry unit-test smoke-test`). Ao enviar para a `main`, em todo pull request, com `[testes]` na mensagem do commit ou pelo botão *Run workflow* (aba Actions → Testes), roda **todos os testes de ponta a ponta**, divididos em 3 máquinas ao mesmo tempo (~15 min). O resultado aparece no commit (✅/❌) e na página da execução, com uma tabela de cada teste e o fim da saída dos que falharam. Teste que falha roda de novo uma vez; se passar na 2ª, aparece como *instável*, mas não reprova. Cada execução completa leva ~12 min e gasta cerca de 40 minutos da cota do GitHub Actions (3 máquinas) (no plano gratuito de repositório privado são 2.000 min/mês); um envio novo na mesma branch cancela a verificação anterior.
 
-Como cada máquina é preparada (`testes.yml`): Node 22, `ffmpeg` e `xvfb` pelo apt, `yt-dlp` pelo pipx, `npm ci` na raiz e em `desktop/` (com o binário do Electron garantido), o Chrome da própria máquina (`BROWSER=/usr/bin/google-chrome`) e cache do Rust (`~/.cargo`, `native/lc-stream/target` e `native/lc-audio/target`). Cada máquina tem até 45 min.
+Os testes de ponta a ponta só começam se a verificação rápida passar. Como cada máquina é preparada (`testes.yml`): Node 22, `ffmpeg` e `xvfb` pelo apt, `yt-dlp` pelo pipx, `npm ci` na raiz e em `desktop/` (com o binário do Electron garantido), o Chrome da própria máquina (`BROWSER=/usr/bin/google-chrome`) e cache do Rust (`~/.cargo`, `native/lc-stream/target` e `native/lc-audio/target`). Cada máquina tem até 45 min.
 
 **Na sua máquina:**
 

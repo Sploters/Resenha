@@ -71,15 +71,16 @@ GitHub). O `deploy/umbrel.sh` baixa o yt-dlp mais novo a cada dia de deploy — 
 deploy. Requer o SFU de voz ativo. Variáveis em [CONFIGURACAO.md](CONFIGURACAO.md#bot-de-música).
 
 ## App desktop (Windows)
-- **Baixar:** cada mudança em `desktop/` na `main` gera uma release no GitHub com `Resenha-Setup-<versão>.exe`
+- **Baixar:** cada mudança em `desktop/` (ou nos programas nativos em `native/`) na `main` gera uma release no GitHub com `Resenha-Setup-<versão>.exe`
   (instalador) e `Resenha-Portable-<versão>.exe`. O servidor também entrega o instalador em `/desktop/download/<instalador>`.
 - **Primeiro uso:** o app pede o endereço do servidor (IP da VPN).
 - **Atualizar:** os apps procuram a versão nova ao abrir e de hora em hora e mostram "Atualizar agora / Depois"; só
   instalam o que tem a assinatura certa. Com o repositório privado, o servidor precisa de uma chave somente leitura
   (`github-token.txt` na pasta de dados ou `GITHUB_TOKEN`). Detalhes, versão mínima para entrar nas calls e relatório de
   problema: [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md).
-- **Montar à mão:** `cd desktop && npm install && npm run dist` (instaladores em `desktop/dist/`). O controle remoto usa
-  o programa nativo `native/lc-input` (Rust); o `.exe` já compilado está em `desktop/native/` e entra no instalador.
+- **Montar à mão:** `cd desktop && npm install && npm run dist` (instaladores em `desktop/dist/`). Os programas nativos
+  em Rust (`lc-input`, `lc-stream`, `lc-audio`) não ficam no repositório: o `desktop/build-native.mjs` os compila (ver
+  [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md#app-desktop)).
 
 ## Dados e cópia de segurança
 Tudo fica na pasta de dados (`DATA_DIR`; Docker: `/data`, no Umbrel `~/resenha-data`). Faça cópia dela: tem o banco e os arquivos.

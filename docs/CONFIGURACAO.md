@@ -14,6 +14,8 @@ Tudo é opcional: sem nada, o servidor sobe com os padrões. No Docker, passe co
 | `TLS_KEY` / `TLS_CERT` | Certificado próprio (sem eles, o servidor gera um autoassinado na pasta de dados). |
 | `TLS_SAN=IP:<ip-vpn>` | Acrescenta o IP da VPN ao certificado gerado (vários separados por vírgula). |
 | `TURN_URL` / `TURN_USER` / `TURN_PASS` | Servidor TURN para a voz. |
+| `CSP` | Content-Security-Policy da página (`server/security.js`), a defesa de reserva contra XSS: ligada por padrão; `CSP=report` só avisa no console do navegador (não bloqueia); `CSP=off` desliga. |
+| `CSP_EXTRA` | Origens a mais (`"http://host:porta ..."`, separadas por espaço) somadas a script, imagem, mídia, conexão e iframe da CSP (os testes usam para os servidores falsos locais). |
 
 ## Contas e sessões
 `server/accounts.js`: o banco guarda só o hash (SHA-256) dos tokens de login (bancos antigos são convertidos na primeira
