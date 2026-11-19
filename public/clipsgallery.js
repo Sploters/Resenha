@@ -3,6 +3,7 @@
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
 import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
 import { openTrimmer } from './cliptrim.js';
+import { trackWatch } from './clipwatch.js';
 import { postClip } from './clips.js';
 import { stagger, pulse } from './motion.js';
 import { S, api, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
@@ -20,6 +21,22 @@ const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1,
 const canEdit = (c) => c.author.id === S.me.id || can(c.guild_id, PERM.MANAGE_MESSAGES);
 const who = (u) => (u ? nameOf(u.id, st.gid) || u.display_name : 'alguém');
 const fileName = (c) => c.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + (c.url.includes('.mp4') ? '.mp4' : '.webm');
+
+// engajamento (server/clipstats.js): visualizações qualificadas, curtidas, compartilhamentos e retenção
+const num = (n) => n >= 1e4 ? Math.round(n / 1e3) + ' mil' : n >= 1e3 ? (Math.round(n / 100) / 10).toString().replace('.', ',') + ' mil' : String(n);
+export function clipStatsRow(st, { retention = false, cls = 'cstats' } = {}) {
+  if (!st) return null;
+  const it = (ic, n, sg, pl) => h('span', { title: `${n} ${n === 1 ? sg : pl}` }, icon(ic, 13), num(n));
+  return h('div.' + cls, it('eye', st.views, 'visualização', 'visualizações'), it('heart', st.likes, 'curtida', 'curtidas'), it('clipshare', st.shares, 'compartilhamento', 'compartilhamentos'),
+    retention && st.retention != null && h('span', { title: `Em média, quem assiste vê ${st.retention}% do clipe` }, icon('clock', 13), st.retention + '% assistido'));
+}
+// curtir/descurtir (o autor não curte o próprio clipe: o botão nem aparece)
+export async function toggleLike(c) {
+  const r = await tryApi(c.liked ? 'DELETE' : 'PUT', `/clips/${c.id}/like`);
+  if (r) { Object.assign(c, { liked: r.liked, stats: r.stats }); upsert({ ...r, fav: c.fav }); }
+  return r;
+}
+const mineClip = (c) => (c.author?.id || c.author_id) === S.me.id;
 
 // a prévia (primeiro quadro) só é baixada quando o cartão entra na tela
 // miniatura (imagem pequena do servidor) no lugar do vídeo; o vídeo só começa a baixar quando o mouse passa por cima (prévia)
@@ -61,11 +78,13 @@ function card(c, i) {
   const thumb = h('div.cthumb', { title: 'Assistir', onclick: () => player(i), onmouseenter: () => { if (!v.src) v.src = c.url; v.currentTime = 0; v.play().catch(() => { }); }, onmouseleave: () => { v.pause(); try { v.currentTime = 0; } catch { } } },
     v, h('span.cdur', `${c.secs}s`), !c.has_audio && h('span.cmute', { title: 'Sem áudio' }, icon('micoff', 14)), h('span.cplay', icon('play', 28)));
   const fav = h('button.ibtn' + (c.fav ? '.on' : ''), { title: c.fav ? 'Tirar dos favoritos' : 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(c); } }, icon('star', 18));
+  const like = !mineClip(c) && h('button.ibtn.clike' + (c.liked ? '.on' : ''), { title: c.liked ? 'Descurtir' : 'Curtir', 'aria-pressed': String(!!c.liked), onclick: async (e) => { e.stopPropagation(); const r = await toggleLike(c); if (r?.liked) pulse(st.root?.querySelector(`.clipcard[data-id="${CSS.escape(String(c.id))}"] .clike`)); } }, icon('heart', 18));
   return h('div.clipcard', { 'data-id': c.id, oncontextmenu: (e) => moreMenu(e, c) }, thumb,
     h('div.cinfo',
       h('div.ctitle', { title: c.title }, c.title),
       h('div.cmeta', c.streamer && h('span', 'de ', h('b', who(c.streamer))), h('span', 'clipado por ', h('b', who(c.author))), h('span', ago(c.created_at))),
-      h('div.cbtns', fav,
+      clipStatsRow(c.stats),
+      h('div.cbtns', fav, like,
         h('a.ibtn', { title: `Baixar (${mb(c.size)})`, href: clipVideoLink(c) + '?download=1', download: fileName(c), onclick: (e) => e.stopPropagation() }, icon('clipdl', 18)),
         h('button.ibtn', { title: 'Mais opções', onclick: (e) => { e.stopPropagation(); moreMenu(e, c); } }, icon('more', 18)))));
 }
@@ -137,16 +156,21 @@ function player(i, list = st.clips, opts = {}) {
   const trow = h('div.ptrow', title, pen);
   const dl = h('a.btn.grey', { download: '' }, icon('clipdl', 16), 'Baixar');
   const shareBtn = h('button.btn', { type: 'button', onclick: () => ctx.share?.(list[cur]) }, icon('clipshare', 16), 'Compartilhar');
+  const likeBtn = h('button.btn.grey.plike', { type: 'button', onclick: async () => { const c = list[cur]; const r = await toggleLike(c); if (r && list[cur] === c) { paintLike(c); if (r.liked) pulse(likeBtn); } } });
+  const stats = h('div.pstats');
+  const paintLike = (c) => { likeBtn.hidden = mineClip(c); likeBtn.classList.toggle('on', !!c.liked); likeBtn.setAttribute('aria-pressed', String(!!c.liked)); likeBtn.replaceChildren(icon('heart', 16), c.liked ? 'Curtido' : 'Curtir'); stats.replaceChildren(clipStatsRow(c.stats, { retention: true, cls: 'pstatrow' }) || ''); };
+  let stopWatch = null; // sessão de exibição do clipe que está tocando (clipwatch.js)
   // fora da galeria: atalho para a galeria do servidor (e para a mensagem no chat)
   const member = (c) => !!c && S.guilds.has(c.guild_id); // recebeu por link e não é do servidor: sem atalhos para a galeria/mensagem
   const extra = opts.standalone && member(list[cur]) && [h('button.btn.grey', { onclick: () => { dlg.close(); galleryFocus(list[cur].id); ctx.go(list[cur].guild_id, 'clips'); } }, icon('clip', 16), 'Ver na galeria'),
     list[cur].message_id && h('button.btn.grey', { onclick: () => { const c = list[cur]; dlg.close(); ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } }, icon('dm', 16), 'Ir para a mensagem')];
-  const box = h('div.clipplayer', h('div.pstage', prev, vbox, next), h('div.pbar', h('div.ptxt', trow, meta), h('div.pbtns', extra, dl, shareBtn)));
+  const box = h('div.clipplayer', h('div.pstage', prev, vbox, next), h('div.pbar', h('div.ptxt', trow, meta, stats), h('div.pbtns', extra, likeBtn, dl, shareBtn)));
   const show = (k) => {
     if (k < 0 || k >= list.length) return; cur = k; const c = list[k];
     if (trow.querySelector('input')) trow.replaceChildren(title, pen);
     v.poster = thumbUrl(c.url) || ''; v.src = c.url; v.play().catch(() => { });
-    if (!viewed.has(c.id)) { viewed.add(c.id); api('POST', `/clips/${c.id}/view`).catch(() => { }); } // visualização única (Clipes da semana)
+    stopWatch?.(); stopWatch = trackWatch(v, c.id); // só vira visualização se a pessoa assistir de verdade (server/clipstats.js)
+    paintLike(c);
     title.textContent = c.title; title.title = c.title; pen.hidden = !canEdit(c);
     meta.textContent = `${c.streamer ? 'de ' + who(c.streamer) + ' · ' : ''}clipado por ${who(c.author)} · ${ago(c.created_at)} · ${c.secs}s${c.has_audio ? '' : ' · sem áudio'}`;
     dl.href = clipVideoLink(c) + '?download=1'; dl.download = fileName(c);
@@ -171,7 +195,7 @@ function player(i, list = st.clips, opts = {}) {
     trow.replaceChildren(inp); inp.focus(); inp.select();
   };
   const keys = (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowLeft') show(cur - 1); if (e.key === 'ArrowRight') show(cur + 1); };
-  addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => removeEventListener('keydown', keys)));
+  addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => { removeEventListener('keydown', keys); stopWatch?.(); }));
   const dlg = modal('Clipe', null, box, [], { width: 'min(1100px, 94vw)' });
   const md = dlg.el.querySelector('.modal');
   md?.classList.add('clipmodal');
@@ -181,7 +205,6 @@ function player(i, list = st.clips, opts = {}) {
 }
 
 // abre um clipe pelo id, em popup, de qualquer lugar (ex.: destaque "salvou um clipe" no painel "Ativo agora")
-const viewed = new Set(); // já avisou o servidor nesta sessão
 export async function openClip(id) {
   const c = await tryApi('GET', `/clips/${encodeURIComponent(id)}`);
   if (!c) return; // apagado ou sem acesso: tryApi já avisou

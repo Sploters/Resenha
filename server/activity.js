@@ -14,7 +14,7 @@ import { isLauncher } from './launchers.js';
 const LOCAL_STALE_MS = 90000; // o app desktop informa o jogo a cada ~20 s
 const MIN_SECS = 30, MAX_BACKOFF_MS = 15 * 60 * 1000, KEEP_DAYS = 30, KEEP_PER_USER = 200, STALE_X = 3;
 
-export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, canSeeClip = () => true, now = () => Date.now(), log = () => { } }) {
+export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, clipsWeek = null, now = () => Date.now(), log = () => { } }) {
   const intervalMs = () => +process.env.ACTIVITY_POLL_MS || Math.max(MIN_SECS, +process.env.STEAM_POLL_SECS || 60) * 1000; // ACTIVITY_POLL_MS: só para testes
   const current = new Map();   // `${uid}:${platform}` -> { uid, platform, game:{id,title}, since, state, at }  (só o que está PUBLICADO)
   const cache = new Map();     // `${platform}:${external_id}` -> { snap, at }  (último snapshot, evita reconsultar)
@@ -193,12 +193,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const runOf = (flags) => { let best = 0, cur = 0; for (const f of flags) { cur = f ? cur + 1 : 0; if (cur > best) best = cur; } return best; };
   const parse = (s) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
   const gameOf = (id, title, d) => ({ id, title, ...(d?.icon ? { icon: d.icon } : {}), ...(d?.steam ? { steam: d.steam } : {}) });
-  //   clipes: engajamento de quem NÃO é o autor (visualizações únicas, reações, respostas, favoritos e compartilhamentos)
-  //   bruto = 1 × visto + 2 × reagiu + 2 × respondeu + 3 × favoritou + 4 × compartilhou
-  // Só entra com bruto ≥ CLIP_MIN (3 visualizações, ou 1 favorito, ou 1 compartilhamento…): sem engajamento não é destaque.
-  // A ordem é personalizada: × idade (perde metade em 7 dias), × 1,5 se você aparece no clipe, × 1,25 se é de amigo,
-  // × 1,25 se é de um jogo que você jogou na semana, × 0,85 se você já assistiu (mostra o que você ainda não viu).
-  const CLIP_W = { views: 1, reacts: 2, replies: 2, favs: 3, shares: 4 }, CLIP_MIN = +process.env.CLIP_MIN_SCORE || 3;
+  // clipes da semana: ranking ponderado, categorias e recomendações vêm de server/clipstats.js (clipsWeek)
   const WEEK_DAYS = 7;
   function weekFor(viewer, { top = 3 } = {}) {
     const t0 = now(), since = t0 - WEEK_DAYS * 864e5, fr = friendsOf(viewer), ids = [viewer, ...fr], frSet = new Set(fr);
@@ -240,43 +235,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const played = all7.flatMap(x => x.players.map(p => ({ ...p, platform: x.platform, game: x.game })));
     // ---- clipes da semana ----
     const myGames = new Set(all7.filter(x => x.players.some(p => p.user_id === viewer)).flatMap(x => ggKeys(x.platform, x.game.id, x.game.title, x.game)));
-    const clipRows = all(`SELECT c.* FROM clips c WHERE c.created_at>? AND c.guild_id IN (SELECT guild_id FROM members WHERE user_id=?) ORDER BY c.created_at DESC LIMIT 300`, since, viewer)
-      .filter(c => canSeeClip(viewer, c));
-    const count = (sql, ...a) => get(sql, ...a)?.n || 0;
-    const clips = clipRows.map(c => {
-      const m = {
-        views: count('SELECT COUNT(*) n FROM clip_views WHERE clip_id=? AND user_id<>?', c.id, c.author_id),
-        favs: count('SELECT COUNT(*) n FROM clip_favs WHERE clip_id=? AND user_id<>?', c.id, c.author_id),
-        shares: count('SELECT COUNT(*) n FROM clip_shares WHERE clip_id=?', c.id),
-        reacts: c.message_id ? count('SELECT COUNT(DISTINCT user_id) n FROM reactions WHERE message_id=? AND user_id<>?', c.message_id, c.author_id) : 0,
-        replies: c.message_id ? count('SELECT COUNT(DISTINCT author_id) n FROM messages WHERE reply_to=? AND author_id<>?', c.message_id, c.author_id) : 0,
-      };
-      const recent = count('SELECT COUNT(*) n FROM clip_views WHERE clip_id=? AND user_id<>? AND at>?', c.id, c.author_id, t0 - 864e5);
-      const raw = Object.entries(CLIP_W).reduce((s, [k, w]) => s + w * m[k], 0);
-      const game = clipGame(c, viewer);
-      const you = c.streamer_id === viewer, friend = frSet.has(c.author_id) || frSet.has(c.streamer_id);
-      const mine = !!game && ggKeys(game.platform, game.game.id, game.game.title, game.game).some(k => myGames.has(k));
-      const seen = !!get('SELECT 1 x FROM clip_views WHERE clip_id=? AND user_id=?', c.id, viewer);
-      const age = (t0 - c.created_at) / 864e5;
-      const score = raw * Math.pow(0.5, age / 7) * (you ? 1.5 : 1) * (friend ? 1.25 : 1) * (mine ? 1.25 : 1) * (seen ? 0.85 : 1);
-      return { c, m, recent, raw, score, game, you, mine, seen };
-    }).filter(x => x.raw >= CLIP_MIN).sort((a, b) => b.score - a.score || b.c.created_at - a.c.created_at);
-    // categorias especiais: cada uma vai para UM clipe (o que mais se destaca nela), sem repetir clipe
-    const tagged = new Map(), give = (kind, pick) => { const x = pick(); if (x && !tagged.has(x.c.id)) tagged.set(x.c.id, kind); };
-    const best = (k, min) => clips.filter(x => x.m[k] >= min).sort((a, b) => b.m[k] - a.m[k])[0];
-    give('you', () => clips.find(x => x.you));
-    give('hot', () => clips.filter(x => x.recent >= 3).sort((a, b) => b.recent - a.recent)[0]);
-    give('fav', () => best('favs', 2)); give('shared', () => best('shares', 2)); give('talk', () => best('replies', 2) || best('reacts', 3)); give('views', () => best('views', 3));
-    give('foryou', () => clips.find(x => x.mine && !x.seen));
-    // recomendação personalizada: se nenhum dos primeiros é "você aparece" ou "do seu jogo", o último lugar vai para o melhor deles
-    const pick = clips.slice(0, top), personal = (x) => x.you || (x.mine && !x.seen);
-    if (pick.length === top && !pick.some(personal)) { const r = clips.slice(top).find(personal); if (r) pick[top - 1] = r; }
-    const outClips = pick.map((x) => ({
-      id: x.c.id, title: x.c.title, url: x.c.url, secs: x.c.secs, guild_id: x.c.guild_id, channel_id: x.c.channel_id, at: x.c.created_at,
-      author_id: x.c.author_id, streamer_id: x.c.streamer_id, ...(x.game ? { platform: x.game.platform, game: x.game.game } : {}),
-      metrics: x.m, score: Math.round(x.score * 10) / 10, seen: x.seen, tag: tagged.get(x.c.id) || (x.mine && !x.seen ? 'foryou' : null),
-    }));
-    return { days, games: ranked, played, clips: outClips };
+    const cw = clipsWeek ? clipsWeek(viewer, { played: myGames }) : { clips: [], categories: [], recs: [] };
+    return { days, games: ranked, played, clips: cw.clips, clip_categories: cw.categories, clip_recs: cw.recs, clip_quiet: !!cw.quiet };
   }
   // jogo do clipe: o que o dono da transmissão (ou quem clipou) estava jogando naquela hora, se você pode ver
   function clipGame(c, viewer) {
@@ -300,7 +260,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   return {
     start() { stopped = false; setTimeout(() => tick().catch(() => { }), 3000).unref?.(); schedule(); },
     stop() { stopped = true; clearTimeout(timer); },
-    tick, poke, readyFor, feedFor, weekFor, guildGames, canSee, audience,
+    tick, poke, readyFor, feedFor, weekFor, guildGames, canSee, audience, clipGame,
+    gameKeys: (g) => ggKeys(g.platform, g.game.id, g.game.title, g.game),
     _ggClear() { ggCache.clear(); },
     onLinked() { poke(); },
     // desvinculou: encerra a publicação (avisando o público ANTES de apagar a conta) e limpa o cache da conta

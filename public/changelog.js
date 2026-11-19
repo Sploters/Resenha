@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-19-5', title: 'Curtidas, ranking da semana e clipes recomendados',
+    items: [
+      { i: 'heart', t: 'Curta clipes', d: 'No player e na galeria tem o coração para curtir. Cada clipe mostra quantas pessoas assistiram, curtiram e compartilharam, e quanto do clipe a galera costuma ver.' },
+      { i: 'trophy', t: 'Ranking mais justo', d: 'Os Clipes da semana agora pesam o quanto prende quem assiste, as curtidas e os compartilhamentos, não só quantas vezes foi aberto. Um clipe bom de quem tem pouca audiência disputa de igual. Top 3, com o top 5 a um clique.' },
+      { i: 'sparkle', t: 'Destaques e recomendados', d: 'Mais popular, Favorito da galera, Surpresa da semana e Descoberta. E, no fim do Ativo agora, clipes recomendados pra você, sempre com o motivo: o jogo que você curte, o que seus amigos curtiram e mais.' },
+      { i: 'eye', t: 'Visualização de verdade', d: 'Só conta quem assistiu de fato: abrir e fechar, deixar em loop ou abrir várias vezes não inflam os números.' },
+    ],
+  },
+  {
     id: '2026-11-19-4', title: 'A semana da galera e os Clipes da semana',
     items: [
       { i: 'trophy', t: 'A semana da galera', d: 'No Ativo agora, os destaques viraram uma retrospectiva: o jogo que mais juntou a galera na semana aparece num cartão com a capa, as horas, quantas pessoas jogaram, os dias seguidos e a semana em barrinhas. Logo abaixo, o 2º e o 3º lugar. Jogo aberto uma vez só não entra mais.' },

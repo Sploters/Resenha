@@ -336,29 +336,61 @@ function gameRow(x, rank, days) {
     weekBars(x, days, false));
 }
 // ---- clipes
+// Ranking ponderado da semana (server/clipstats.js): Top 3 (expande para Top 5), categorias especiais e recomendados.
 const CLIP_TAG = {
   you: ['sparkle', 'Você aparece', 'green', 'Clipe da sua transmissão'], foryou: ['gamepad', 'Pra você', 'green', 'De um jogo que você jogou esta semana e ainda não assistiu'],
   hot: ['fire', 'Em alta', 'fire', 'Muita gente assistiu nas últimas 24 horas'], fav: ['star', 'Favorito da galera', 'gold', 'O clipe mais favoritado da semana'],
   shared: ['clipshare', 'Mais compartilhado', 'blue', 'O clipe mais compartilhado da semana'], talk: ['smile', 'Deu o que falar', 'pink', 'O clipe com mais reações e respostas'],
   views: ['eye', 'Mais visto', 'blue', 'O clipe com mais visualizações da semana'],
+  popular: ['eye', 'Mais popular', 'blue', 'O clipe com mais visualizações qualificadas da semana'], crowd: ['heart', 'Favorito da galera', 'pink', 'O clipe com mais curtidas da semana'],
+  surprise: ['bolt', 'Surpresa da semana', 'fire', 'Cresceu rápido: muito acima do normal de quem postou, nas últimas 48 h'], discovery: ['compass', 'Descoberta', 'green', 'Pouca gente viu, e quem viu adorou'],
 };
 const clipTag = (t) => { const d = CLIP_TAG[t]; return d && h('span.wk-chip.' + d[2], { title: d[3] }, icon(d[0], 12), d[1]); };
-const METRIC = [['views', 'eye', 'visualizações', 'visualização'], ['reacts', 'smile', 'pessoas reagiram', 'pessoa reagiu'], ['replies', 'reply', 'respostas', 'resposta'], ['favs', 'star', 'favoritos', 'favorito'], ['shares', 'clipshare', 'compartilhamentos', 'compartilhamento']];
-const clipMetrics = (m) => h('div.wk-met', ...METRIC.filter(([k]) => m[k] > 0).map(([k, ic, pl, sg]) => h('span', { title: `${m[k]} ${m[k] === 1 ? sg : pl}` }, icon(ic, 13), String(m[k]))));
+const nfmt = (n) => n >= 1000 ? (Math.round(n / 100) / 10).toString().replace('.', ',') + ' mil' : String(n || 0);
+const METRIC = [['views', 'eye', 'visualizações', 'visualização'], ['likes', 'heart', 'curtidas', 'curtida'], ['shares', 'clipshare', 'compartilhamentos', 'compartilhamento']];
+const clipMetrics = (m, ret) => h('div.wk-met', ...METRIC.map(([k, ic, pl, sg]) => h('span', { title: `${m[k] || 0} ${m[k] === 1 ? sg : pl}` }, icon(ic, 13), nfmt(m[k]))),
+  ret && m.retention != null && h('span.wk-ret', { title: `Quem assiste vê, em média, ${m.retention}% do clipe` }, icon('clock', 13), m.retention + '%'));
 const clipBy = (c) => { const u = uOf(c.author_id); return [h('b.wk-who', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, c.author_id); } }, c.author_id === S.me.id ? 'Você' : u.display_name), c.game && h('span', ' · ', titleEl({ platform: c.platform, game: c.game }))]; };
-function clipThumb(c, big) {
+function clipThumb(c, big, rank) {
   const src = thumbUrl(c.url);
-  return h('div.wk-thumb', src ? h('img', { src, alt: '', loading: 'lazy', onerror: (e) => e.target.remove() }) : '', h('span.wk-play', icon('play', big ? 22 : 14)), h('span.wk-dur', `${c.secs || 0}s`), big && h('span.wk-chip.gold.wk-ribbon', icon('trophy', 12), 'Clipe da semana'));
+  return h('div.wk-thumb', src ? h('img', { src, alt: '', loading: 'lazy', onerror: (e) => e.target.remove() }) : '', h('span.wk-play', icon('play', big ? 22 : 14)), h('span.wk-dur', `${c.secs || 0}s`),
+    big && h('span.wk-chip.gold.wk-ribbon', icon('trophy', 12), 'Clipe da semana'), rank && h('span.wk-rk', String(rank)));
 }
+const clipAttrs = (c) => { const open = () => openClip(c.id); return { role: 'button', tabindex: 0, title: 'Assistir ao clipe', 'data-clip': c.id, onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); }, oncontextmenu: (e) => ctx.userMenu(e, c.author_id) }; };
 function clipCard(c, i) {
-  const open = () => openClip(c.id), u = uOf(c.author_id);
-  if (i === 0) return h('div.wk-clip.big', { role: 'button', tabindex: 0, title: 'Assistir ao clipe', onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); }, oncontextmenu: (e) => ctx.userMenu(e, c.author_id) },
+  const u = uOf(c.author_id);
+  if (!c.tag && c.you) c = { ...c, tag: 'you' }; // clipe da sua transmissão no ranking: "Você aparece"
+  if (i === 0) return h('div.wk-clip.big', clipAttrs(c),
     clipThumb(c, true),
     h('div.wk-cinfo', avatar(u, 28, { status: false }), h('div.wk-ctxt', h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c))), c.tag && clipTag(c.tag)),
-    clipMetrics(c.metrics));
-  return h('div.wk-clip.row', { role: 'button', tabindex: 0, title: 'Assistir ao clipe', onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); }, oncontextmenu: (e) => ctx.userMenu(e, c.author_id) },
-    clipThumb(c, false),
+    clipMetrics(c.metrics, true));
+  return h('div.wk-clip.row', clipAttrs(c),
+    clipThumb(c, false, i + 1),
     h('div.wk-ctxt', c.tag && clipTag(c.tag), h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c)), clipMetrics(c.metrics)));
+}
+// categoria especial / recomendado: linha compacta com o selo (ou o motivo) em cima
+const REC_IC = { you: 'sparkle', game: 'gamepad', creator: 'user', friends: 'users', buddy: 'users', quality: 'fire' };
+function miniClip(c, top) {
+  return h('div.wk-clip.row.mini', clipAttrs(c), clipThumb(c, false),
+    h('div.wk-ctxt', top, h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c)), clipMetrics(c.metrics)));
+}
+let topOpen = false; // Top 3 → Top 5 (fica aberto enquanto o app está aberto)
+function clipSections(w) {
+  const list = w.clips || [], cats = w.clip_categories || [], recs = w.clip_recs || [];
+  const shown = topOpen ? list : list.slice(0, 3);
+  const more = list.length > 3 && h('button.wk-more', { type: 'button', 'aria-expanded': String(topOpen), onclick: () => { topOpen = !topOpen; S.redrawFeed?.(); } },
+    topOpen ? 'Ver só o top 3' : `Ver top ${list.length}`, icon('chevdown', 14));
+  const top = h('section.wk.wk-clips', h('div.wk-h', h('h4', 'Clipes da semana'), list.length > 0 && h('small', topOpen ? `top ${list.length}` : 'top 3')),
+    list.length ? [...shown.map(clipCard), more, w.clip_quiet && h('p.wk-note', icon('info', 13), 'Semana devagar: poucos clipes com visualizações suficientes para o ranking.')]
+      : h('p.wk-empty', icon('clip', 18), h('span', 'Nenhum clipe se destacou ainda. Entram no ranking os clipes com pelo menos 3 pessoas que assistiram de verdade.')));
+  const out = [top];
+  // categoria cujo clipe já está à vista no ranking: só o selo no cartão; as outras ganham a seção própria
+  const seenIds = new Set(shown.map(c => c.id)), extra = cats.filter(x => !seenIds.has(x.clip.id));
+  if (extra.length) out.push(h('section.wk.wk-cats', h('div.wk-h', h('h4', 'Destaques especiais')),
+    ...extra.map(x => miniClip(x.clip, h('span.wk-cattop', clipTag(x.kind), x.why && h('small.wk-why', x.why))))));
+  if (recs.length) out.push(h('section.wk.wk-recs', h('div.wk-h', h('h4', 'Recomendados pra você')),
+    ...recs.map(c => miniClip(c, c.reason && h('span.wk-reason', { title: 'Por que este clipe' }, icon(REC_IC[c.reason.kind] || 'sparkle', 12), c.reason.text)))));
+  return out;
 }
 function weekSections() {
   if (!feed) return [h('section.wk', h('div.wk-h', h('h4', 'A semana da galera')), skeleton('rows', 3))];
@@ -367,10 +399,7 @@ function weekSections() {
   const games = h('section.wk.wk-games', h('div.wk-h', h('h4', 'A semana da galera'), range && h('small', range)),
     first ? [gameHero(first, w.days), rest.length > 0 && h('div.wk-rows', ...rest.map((x, i) => gameRow(x, i + 2, w.days)))]
       : h('p.wk-empty', icon('gamepad', 18), h('span', 'Semana tranquila até agora. Os jogos que tomarem o tempo da galera aparecem aqui.')));
-  const clips = h('section.wk.wk-clips', h('div.wk-h', h('h4', 'Clipes da semana')),
-    w.clips.length ? w.clips.map(clipCard)
-      : h('p.wk-empty', icon('clip', 18), h('span', 'Nenhum clipe se destacou ainda. Os mais assistidos, favoritados e compartilhados aparecem aqui.')));
-  return [games, clips];
+  return [games, ...clipSections(w)];
 }
 
 // ---------------------------------------------------------------- pedidos de amizade e convites para a chamada

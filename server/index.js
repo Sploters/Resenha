@@ -15,6 +15,7 @@ import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfu
 import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
+import { createClipStats } from './clipstats.js';
 import { createCallInvites } from './callinvites.js';
 import { createPrivacy, cleanPrivacy } from './privacy.js';
 import { createRemote } from './remote.js';
@@ -1376,8 +1377,14 @@ app.post('/api/polls/:id/close', auth, wrap((req, res) => {
 }));
 // ---------- Galeria de clipes ----------
 const CLIP_URL = /^\/files\/[a-f0-9]{24}\.(webm|mp4)\/[^/]{1,300}$/; // devolvido pelo /api/upload
-const clipObj = (c, uid) => ({ id: c.id, guild_id: c.guild_id, channel_id: c.channel_id, message_id: c.message_id, title: c.title, url: c.url, size: c.size, secs: c.secs, has_audio: !!c.has_audio, created_at: c.created_at,
-  author: userPub(c.author_id), streamer: c.streamer_id ? userPub(c.streamer_id) : null, fav: !!get('SELECT 1 x FROM clip_favs WHERE user_id=? AND clip_id=?', uid, c.id) });
+// engajamento (visualizações qualificadas, curtidas, compartilhamentos, retenção), ranking semanal e recomendações: server/clipstats.js
+const clipStats = createClipStats({ db, all, get, run, newId, canSeeClip: (u, c) => clipAccess(u, c),
+  friendsOf: (uid) => all(`SELECT r1.other_id id FROM relationships r1 JOIN relationships r2 ON r2.user_id=r1.other_id AND r2.other_id=r1.user_id WHERE r1.user_id=? AND r1.type=1 AND r2.type=1`, uid).map(r => r.id),
+  clipGame: (c, v) => activity.clipGame(c, v), gameKeys: (g) => activity.gameKeys(g) });
+// stats: passe o resultado de clipStats.statsFor quando montar vários de uma vez (a galeria); sozinho, calcula o do clipe
+const clipObj = (c, uid, st = clipStats.statsFor([c.id], uid).get(c.id)) => ({ id: c.id, guild_id: c.guild_id, channel_id: c.channel_id, message_id: c.message_id, title: c.title, url: c.url, size: c.size, secs: c.secs, has_audio: !!c.has_audio, created_at: c.created_at,
+  author: userPub(c.author_id), streamer: c.streamer_id ? userPub(c.streamer_id) : null, fav: !!get('SELECT 1 x FROM clip_favs WHERE user_id=? AND clip_id=?', uid, c.id),
+  stats: st?.stats || null, liked: !!st?.liked });
 const canEditClip = (c, uid) => c.author_id === uid || (c.guild_id && can(c.guild_id, uid, P.MANAGE_MESSAGES));
 const clipAudience = (c) => { const ch = get('SELECT * FROM channels WHERE id=?', c.channel_id); return ch ? channelAudience(ch) : []; };
 const clipShareAudience = (c) => [...new Set([...clipAudience(c), ...all('SELECT DISTINCT channel_id FROM clip_shares WHERE clip_id=?', c.id).flatMap(r => { const ch = get('SELECT * FROM channels WHERE id=?', r.channel_id); return ch ? channelAudience(ch) : []; })])];
@@ -1453,7 +1460,8 @@ app.get('/api/guilds/:id/clips', auth, wrap((req, res) => {
   if (q) { const like = '%' + q.replace(/[%_\\]/g, '\\$&') + '%'; where.push("(c.title LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM users u WHERE u.id IN (c.author_id, c.streamer_id) AND (u.display_name LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\')))"); args.push(like, like, like); }
   if (req.query.before) { where.push('c.id < ?'); args.push(String(req.query.before)); }
   const list = all(`SELECT c.* FROM clips c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 30`, ...args);
-  res.json({ clips: list.map(c => clipObj(c, req.uid)), total: get('SELECT COUNT(*) n FROM clips WHERE guild_id=?', gid).n });
+  const sts = clipStats.statsFor(list.map(c => c.id), req.uid);
+  res.json({ clips: list.map(c => clipObj(c, req.uid, sts.get(c.id))), total: get('SELECT COUNT(*) n FROM clips WHERE guild_id=?', gid).n });
 }));
 // pode ver o clipe quem vê o canal de origem ou alguma mensagem onde ele foi compartilhado por link
 const clipAccess = (uid, c) => canAccessChannel(uid, get('SELECT * FROM channels WHERE id=?', c.channel_id))
@@ -1472,7 +1480,22 @@ app.patch('/api/clips/:id', auth, wrap((req, res) => {
   res.json(clipObj(n, req.uid));
 }));
 // assistiu (o player abriu o clipe): visualização única por pessoa, conta para os Clipes da semana
-app.post('/api/clips/:id/view', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('INSERT INTO clip_views(clip_id,user_id,at) VALUES(?,?,?) ON CONFLICT(clip_id,user_id) DO UPDATE SET at=excluded.at', c.id, req.uid, Date.now()); res.json({}); }));
+// abriu o player: marca como visto e abre uma sessão de exibição. Só vira visualização (qualificada) quando o player
+// manda batidas mostrando que a pessoa assistiu de verdade (POST /watch). Sem sessão (limite atingido) o vídeo toca e não conta.
+app.post('/api/clips/:id/view', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; res.json({ session: clipStats.startWatch(req.uid, c) }); }));
+app.post('/api/clips/:id/watch', auth, wrap((req, res) => {
+  const c = clipFor(req, res); if (!c) return;
+  const r = clipStats.beat(req.uid, c, req.body?.session, { watched_ms: req.body?.watched_ms, covered_ms: req.body?.covered_ms });
+  res.json(r);
+}));
+// curtir: uma por pessoa; o autor não curte o próprio clipe
+const likeRoute = (on) => wrap((req, res) => {
+  const c = clipFor(req, res); if (!c) return;
+  const err = clipStats.setLike(req.uid, c, on); if (err) return bad(res, err, err.startsWith('Calma') ? 429 : 400);
+  res.json(clipObj(c, req.uid));
+});
+app.put('/api/clips/:id/like', auth, likeRoute(true));
+app.delete('/api/clips/:id/like', auth, likeRoute(false));
 app.put('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('INSERT OR IGNORE INTO clip_favs VALUES(?,?)', req.uid, c.id); res.json(clipObj(c, req.uid)); }));
 app.delete('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('DELETE FROM clip_favs WHERE user_id=? AND clip_id=?', req.uid, c.id); res.json(clipObj(c, req.uid)); }));
 // apagar o clipe: some da galeria, a mensagem sai do chat e o arquivo é removido se nada mais usa
@@ -1851,7 +1874,24 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
 });
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
-const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), canSeeClip: (u, c) => clipAccess(u, c), log: console.log });
+const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), clipsWeek: (v, o) => clipsWeekFor(v, o), log: console.log });
+// clipes da semana no painel "Ativo agora": Top 5 (o app mostra 3 e expande), categorias especiais e recomendados
+function clipsWeekFor(viewer, { played }) {
+  const w = clipStats.week(viewer), seen = new Set(all('SELECT clip_id FROM clip_views WHERE user_id=?', viewer).map(r => r.clip_id));
+  const liked = new Set(all('SELECT clip_id FROM clip_likes WHERE user_id=?', viewer).map(r => r.clip_id));
+  const catOf = new Map(w.categories.map(x => [x.id, x.kind]));
+  const out = (c, m, extra) => { const g = activity.clipGame(c, viewer);
+    return { id: c.id, title: c.title, url: c.url, secs: c.secs, guild_id: c.guild_id, channel_id: c.channel_id, at: c.created_at, author_id: c.author_id, streamer_id: c.streamer_id,
+      ...(g ? { platform: g.platform, game: g.game } : {}), metrics: { ...clipStats.pubStats(m), reacts: m.reacts, replies: m.replies }, seen: seen.has(c.id), liked: liked.has(c.id), you: c.streamer_id === viewer, ...extra }; };
+  const clips = w.top.map(t => out(w.rows.get(t.id), w.metrics.get(t.id), { score: t.score, parts: t.parts, tag: catOf.get(t.id) || null }));
+  const categories = w.categories.map(x => ({ kind: x.kind, why: x.why, clip: out(w.rows.get(x.id), w.metrics.get(x.id), {}) }));
+  // recomendados: de fora do ranking e das categorias (o painel não repete clipe); a qualidade da semana entra como sinal
+  const shown = new Set([...w.top.map(t => t.id), ...w.categories.map(x => x.id)]);
+  const recs = clipStats.recsFor(viewer, { exclude: shown, played, quality: new Map(w.top.map(t => [t.id, t.score / 100])) });
+  const recRows = recs.length ? all('SELECT * FROM clips WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify(recs.map(r => r.id))) : [], rm = clipStats.metrics(recs.map(r => r.id));
+  const byId = new Map(recRows.map(c => [c.id, c]));
+  return { clips, categories, quiet: w.quiet, recs: recs.filter(r => byId.has(r.id)).map(r => out(byId.get(r.id), rm.get(r.id), { reason: r.reason })) };
+}
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
@@ -1941,7 +1981,7 @@ app.delete('/api/integrations/:platform', auth, wrap((req, res) => {
 }));
 app.get('/api/activity/feed', auth, wrap((req, res) => { // amigos (e você), o que estão jogando e eventos recentes — tudo filtrado por activity.canSee
   const f = activity.feedFor(req.uid), week = activity.weekFor(req.uid);
-  const ids = [...new Set([...f.friends.map(x => x.user_id), ...week.played.map(x => x.user_id), ...week.clips.flatMap(c => [c.author_id, c.streamer_id]).filter(Boolean)])];
+  const ids = [...new Set([...f.friends.map(x => x.user_id), ...week.played.map(x => x.user_id), ...[...week.clips, ...week.clip_categories.map(x => x.clip), ...week.clip_recs].flatMap(c => [c.author_id, c.streamer_id]).filter(Boolean)])];
   res.json({ ...f, week, users: ids.map(id => userPub(id)).filter(Boolean) });
 }));
 app.put('/api/activity/games/:platform/:gameId', auth, wrap((req, res) => { // esconder/mostrar um jogo (nunca vira atividade)

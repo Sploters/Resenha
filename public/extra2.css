@@ -806,3 +806,28 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 #active-now .wk-clip.row .wk-met { margin-top: 2px; gap: 8px; font-size: 11.5px; }
 :is(#active-now .wk-hero, #active-now .wk-row, #active-now .wk-clip):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { #active-now :is(.wk-art img, .wk-thumb img, .wk-play) { transition: none; } }
+
+/* clipes da semana (server/clipstats.js): posição no ranking, top 3 → top 5, categorias especiais e recomendados */
+#active-now .wk-rk { position: absolute; left: 4px; top: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 6px; background: rgba(0,0,0,.72); color: #fff;
+  font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+#active-now .wk-met .wk-ret { color: var(--text-normal, var(--text)); }
+#active-now .wk-more { align-self: center; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--divider);
+  background: none; color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+#active-now .wk-more:hover { color: var(--interactive-hover); background: var(--bg-mod-hover); }
+#active-now .wk-more .icon { fill: currentColor; transition: transform .15s; } #active-now .wk-more[aria-expanded="true"] .icon { transform: rotate(180deg); }
+#active-now .wk-note { display: flex; align-items: center; gap: 6px; margin: 0 4px; color: var(--text-muted); font-size: 11.5px; } #active-now .wk-note .icon { fill: currentColor; flex: none; opacity: .7; }
+#active-now .wk-cats, #active-now .wk-recs { gap: 2px; }
+#active-now .wk-clip.mini .wk-thumb { width: 92px; }
+#active-now .wk-cattop { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 1px; }
+#active-now .wk-cattop .wk-chip { margin: 0; }
+#active-now .wk-why { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .wk-reason { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--brand-text, #949cf7); font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#active-now .wk-reason .icon { fill: currentColor; flex: none; }
+:root[data-theme="light"] #active-now .wk-reason { color: #4752c4; }
+/* galeria e player: visualizações, curtidas, compartilhamentos e retenção */
+.clipcard .cstats, .clipplayer .pstatrow { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-muted); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.clipcard .cstats span, .clipplayer .pstatrow span { display: inline-flex; align-items: center; gap: 4px; }
+.clipcard .cstats .icon, .clipplayer .pstatrow .icon { fill: currentColor; opacity: .85; }
+.clipplayer .pstats { margin-top: 4px; } .clipplayer .pstats:empty { display: none; }
+.clipcard .cbtns .ibtn.clike.on, .clipplayer .plike.on { color: #f0478f; }
+.clipplayer .plike.on .icon { fill: #f0478f; }

@@ -1,5 +1,5 @@
 // Painel "Ativo agora" (lado direito dos Amigos): o que os amigos fazem AGORA no topo e, embaixo, a retrospectiva da semana
-// ("A semana da galera": jogo da semana + 2º e 3º; "Clipes da semana": os 3 com mais engajamento).
+// ("A semana da galera": jogo da semana + 2º e 3º; "Clipes da semana": ranking ponderado de server/clipstats.js).
 // O histórico é gravado direto no banco (dias anteriores) com o servidor parado; depois o servidor sobe e o painel é conferido.
 // Uso: BROWSER=/caminho/do/chrome node scripts/activepanel-test.mjs   (SHOTS=1 salva capturas em .testshots/)
 import puppeteer from 'puppeteer-core';
@@ -42,9 +42,11 @@ session(U.zeca.id, 'dota2', 'Dota 2', day(1, 20), 9 * 3600);                    
 const ch = db.prepare('SELECT id FROM channels WHERE guild_id=? AND type=0').get(g.id);
 const clip = (id, author, streamer, title, at) => db.prepare('INSERT INTO clips(id,guild_id,channel_id,message_id,author_id,streamer_id,title,url,size,secs,has_audio,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
   .run(id, g.id, ch.id, null, author, streamer, title, '/files/aaaaaaaaaaaaaaaaaaaaaaaa.webm/x.webm', 1000, 30, 1, at);
-const view = (cid, uid, at = now - H) => db.prepare('INSERT INTO clip_views(clip_id,user_id,at) VALUES(?,?,?)').run(cid, uid, at);
-clip('clip1', U.ana.id, U.beto.id, 'Ace no último round', day(1, 23)); for (const u of ['beto', 'caio', 'zeca']) view('clip1', U[u].id); db.prepare('INSERT INTO clip_favs VALUES(?,?)').run(U.beto.id, 'clip1'); db.prepare('INSERT INTO clip_favs VALUES(?,?)').run(U.caio.id, 'clip1');
-clip('clip2', U.beto.id, U.eu.id, 'Clutch do eu', day(2, 21)); for (const u of ['ana', 'caio', 'zeca']) view('clip2', U[u].id, now - 3 * D);  // você aparece
+// visualização qualificada (assistiu de verdade: server/clipstats.js), com o % do clipe que a pessoa viu
+const view = (cid, uid, at = now - H, comp = 0.9) => db.prepare('INSERT INTO clip_views(clip_id,user_id,at,watch_ms,completion,qualified_at) VALUES(?,?,?,?,?,?)').run(cid, uid, at, Math.round(comp * 30000), comp, at);
+clip('clip1', U.ana.id, U.beto.id, 'Ace no último round', day(1, 23)); for (const u of ['beto', 'caio', 'zeca']) view('clip1', U[u].id);
+for (const u of ['beto', 'caio']) db.prepare('INSERT INTO clip_likes(user_id,clip_id,at) VALUES(?,?,?)').run(U[u].id, 'clip1', now - H); db.prepare('INSERT INTO clip_favs VALUES(?,?)').run(U.beto.id, 'clip1');
+clip('clip2', U.beto.id, U.eu.id, 'Clutch do eu', day(2, 21)); for (const u of ['ana', 'caio', 'zeca']) view('clip2', U[u].id, now - 3 * D, 0.6);  // você aparece
 clip('clip3', U.caio.id, null, 'Ninguém viu', day(1, 10)); view('clip3', U.ana.id);                                                // sem engajamento: fora
 clip('clip4', U.zeca.id, null, 'Clipe antigo', now - 9 * D); for (const u of ['ana', 'beto', 'caio']) view('clip4', U[u].id);   // fora da semana
 db.close();
@@ -67,30 +69,31 @@ try {
     const b = document.querySelector('#active-now'), t = (e) => e?.innerText.replace(/\s+/g, ' ').trim();
     return { title: b?.querySelector('h3')?.textContent, caps: [...b.querySelectorAll('.an-cap')].map(e => e.textContent), play: [...b.querySelectorAll('.an-now .an-card.an-play')].map(t),
       heads: [...b.querySelectorAll('.wk-h h4')].map(e => e.textContent), hero: t(b.querySelector('.wk-hero')), bars: b.querySelectorAll('.wk-hero .wk-bar').length, barsOn: b.querySelectorAll('.wk-hero .wk-bar.on').length,
-      rows: [...b.querySelectorAll('.wk-row')].map(t), clips: [...b.querySelectorAll('.wk-clip')].map(t), big: !!b.querySelector('.wk-clip.big .wk-thumb'), old: !!b.querySelector('.hl-item') };
+      rows: [...b.querySelectorAll('.wk-row')].map(t), clips: [...b.querySelectorAll('.wk-clips .wk-clip')].map(t), recs: [...b.querySelectorAll('.wk-recs .wk-clip')].map(t), big: !!b.querySelector('.wk-clip.big .wk-thumb'), old: !!b.querySelector('.hl-item') };
   });
   ok(P.title === 'Ativo agora', 'título em português: "Ativo agora"', P.title);
   ok(P.caps[0] === 'Jogando — 1' && /ana/.test(P.play[0] || '') && /VALORANT/.test(P.play[0] || ''), 'no topo, em destaque: quem está jogando agora', P.play);
-  ok(P.heads.join('|') === 'A semana da galera|Clipes da semana' && !P.old, 'duas seções: "A semana da galera" e "Clipes da semana" (sem o feed de eventos)', P.heads);
+  ok(P.heads.join('|') === 'A semana da galera|Clipes da semana|Recomendados pra você' && !P.old, 'seções: "A semana da galera", "Clipes da semana" e "Recomendados pra você" (sem o feed de eventos)', P.heads);
+  ok(P.recs.some(r => /Ninguém viu/.test(r) && /amigo/.test(r)) && !P.recs.some(r => /Ace no último|Clutch do eu/.test(r)), 'recomendados: o que não está no ranking, com o motivo (sem repetir clipe)', P.recs);
   ok(/Jogo da semana/.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
   ok(P.bars === 7 && P.barsOn === 5, 'a semana em 7 barrinhas (dias com partida acesos)', { bars: P.bars, on: P.barsOn });
   ok(P.rows.length === 2 && /^2 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[0]) && /^3 Hades 4,3h · 1 pessoa/.test(P.rows[1]), '2º e 3º em linhas compactas (jogar junto pesa mais que horas sozinho)', P.rows);
   ok(!P.rows.concat(P.hero).some(x => /PEAK|ELDEN|Dota|VALORANT/.test(x)), 'fora: insignificante (PEAK 10 min), escondido (caio), não amigo (zeca) e o que só começou agora', P.rows);
   ok(P.clips.length === 2 && /Ace no último round/.test(P.clips[0]) && /Clutch do eu/.test(P.clips[1]) && !P.clips.some(c => /Ninguém viu|antigo/.test(c)) && P.big, 'clipes da semana: só os com engajamento, o 1º grande com miniatura', P.clips);
-  ok(/Clipe da semana/.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 favoritos)', P.clips[0]);
+  ok(/Clipe da semana/.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2 0 90%$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 curtidas, 0 compartilhamentos, 90% assistido)', P.clips[0]);
   ok(/Você aparece/.test(P.clips[1]), 'categoria personalizada: "Você aparece" (clipe da sua transmissão)', P.clips[1]);
   if (process.env.SHOTS) { await me.screenshot({ path: '.testshots/activepanel-wide.png' }); const el = await me.$('#active-now'); await el.screenshot({ path: '.testshots/activepanel-panel.png' }); await me.evaluate(() => { const b = document.querySelector('#active-now'); b.scrollTop = b.scrollHeight; }); await sleep(300); await el.screenshot({ path: '.testshots/activepanel-clips.png' }); await me.evaluate(() => { document.querySelector('#active-now').scrollTop = 0; }); }
   // ana parou de jogar: sai do topo na hora
   await ana.close(); await sleep(1200);
   ok(await me.evaluate(() => !document.querySelector('#active-now .an-play')), 'parou de jogar: some do "agora" na hora');
-  // clicar no clipe abre o player em popup, sem sair do painel, e conta a visualização
+  // clicar no clipe abre o player em popup, sem sair do painel (abrir e fechar não conta visualização; marca como visto)
   await me.evaluate(() => document.querySelector('#active-now .wk-clip.big').click()); await sleep(900);
   const clipPop = await me.evaluate(() => { const m = document.querySelector('.modal.clipmodal'); return m && { title: m.querySelector('.pttl')?.textContent, src: m.querySelector('video')?.getAttribute('src'), btns: [...m.querySelectorAll('.pbtns .btn')].map(b => b.textContent.trim()), view: window.__lc.S.view.kind }; });
   ok(clipPop?.title === 'Ace no último round' && /aaaaaaaa/.test(clipPop.src || '') && clipPop.view !== 'clips', 'clicar no clipe abre o player em popup (continua no painel)', clipPop);
   ok(clipPop?.btns.includes('Ver na galeria') && clipPop.btns.includes('Baixar'), 'popup do clipe: Ver na galeria e Baixar', clipPop?.btns);
   await me.evaluate(() => document.querySelector('.modal.clipmodal .inv-x').click()); await sleep(300);
   const wk = await call(U.eu.tok, 'GET', '/activity/feed');
-  ok(wk.week.clips.find(c => c.id === 'clip1')?.metrics.views === 4 && wk.week.clips.find(c => c.id === 'clip1')?.seen, 'assistir conta uma visualização (e marca como visto)', wk.week.clips.map(c => [c.id, c.metrics.views]));
+  ok(wk.week.clips.find(c => c.id === 'clip1')?.metrics.views === 3 && wk.week.clips.find(c => c.id === 'clip1')?.seen, 'abrir e fechar não conta visualização (só assistir de verdade), mas marca como visto', wk.week.clips.map(c => [c.id, c.metrics.views]));
   // clicar no jogo da semana abre o popup do jogo (Steam: botão para a loja; amigos que jogaram)
   await me.evaluate(() => document.querySelector('#active-now .wk-hero').click()); await sleep(900);
   const gp = await me.evaluate(() => { const m = document.querySelector('.modal.gamemodal'); return m && { title: m.querySelector('h2')?.textContent, steam: m.querySelector('a.gm-steam')?.getAttribute('href'), people: [...m.querySelectorAll('.gm-person')].map(p => p.innerText.replace(/\s+/g, ' ')) }; });
