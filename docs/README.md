@@ -2,6 +2,8 @@
 
 Comece pelo [README](../README.md) da raiz. Aqui está o resto, por assunto.
 
+- [AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md): pedido da auditoria de consumo de recursos, estado atual e métricas de referência (comece por aqui).
+
 ## Instalação e uso
 - [INSTALACAO.md](INSTALACAO.md): requisitos, Node, Docker, `deploy/umbrel.sh`, atualizar sem derrubar a chamada, VPN, app desktop, dados e cópia de segurança.
 - [CONFIGURACAO.md](CONFIGURACAO.md): variáveis de ambiente (voz, limites, tradução, Steam, música, GIFs, alertas).
