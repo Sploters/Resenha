@@ -5,7 +5,7 @@ import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink
 import { openTrimmer } from './cliptrim.js';
 import { postClip } from './clips.js';
 import { stagger, pulse } from './motion.js';
-import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
+import { S, api, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
 
 let ctx = {}; // injetado por app.js: go(gid, cid), jumpTo(mid)
 export const initClipsGallery = (c) => { ctx = c; };
@@ -146,6 +146,7 @@ function player(i, list = st.clips, opts = {}) {
     if (k < 0 || k >= list.length) return; cur = k; const c = list[k];
     if (trow.querySelector('input')) trow.replaceChildren(title, pen);
     v.poster = thumbUrl(c.url) || ''; v.src = c.url; v.play().catch(() => { });
+    if (!viewed.has(c.id)) { viewed.add(c.id); api('POST', `/clips/${c.id}/view`).catch(() => { }); } // visualização única (Clipes da semana)
     title.textContent = c.title; title.title = c.title; pen.hidden = !canEdit(c);
     meta.textContent = `${c.streamer ? 'de ' + who(c.streamer) + ' · ' : ''}clipado por ${who(c.author)} · ${ago(c.created_at)} · ${c.secs}s${c.has_audio ? '' : ' · sem áudio'}`;
     dl.href = clipVideoLink(c) + '?download=1'; dl.download = fileName(c);
@@ -180,6 +181,7 @@ function player(i, list = st.clips, opts = {}) {
 }
 
 // abre um clipe pelo id, em popup, de qualquer lugar (ex.: destaque "salvou um clipe" no painel "Ativo agora")
+const viewed = new Set(); // já avisou o servidor nesta sessão
 export async function openClip(id) {
   const c = await tryApi('GET', `/clips/${encodeURIComponent(id)}`);
   if (!c) return; // apagado ou sem acesso: tryApi já avisou

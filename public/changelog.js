@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-19-4', title: 'A semana da galera e os Clipes da semana',
+    items: [
+      { i: 'trophy', t: 'A semana da galera', d: 'No Ativo agora, os destaques viraram uma retrospectiva: o jogo que mais juntou a galera na semana aparece num cartão com a capa, as horas, quantas pessoas jogaram, os dias seguidos e a semana em barrinhas. Logo abaixo, o 2º e o 3º lugar. Jogo aberto uma vez só não entra mais.' },
+      { i: 'clip', t: 'Clipes da semana', d: 'Os 3 clipes que a galera mais assistiu, favoritou, comentou e compartilhou, com miniatura e números. Selos como Em alta, Favorito da galera e Você aparece, e um lugar para um clipe do jogo que você jogou e ainda não viu.' },
+    ],
+  },
+  {
     id: '2026-11-19-3', title: 'Mover arrastando e atalhos do Soundboard do seu jeito',
     items: [
       { i: 'voice', t: 'Mover alguém de sala arrastando', d: 'Quem pode Moderar voz (e o dono do servidor) agora arrasta a pessoa da lista da sala e solta em outra sala de voz. Quem foi movido ouve um toque e vê quem o moveu; se estava mutado, aparece o botão "Desmutar" ali mesmo. Bom para chamar quem esqueceu o microfone desligado.' },

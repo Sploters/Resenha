@@ -14,7 +14,7 @@ import { isLauncher } from './launchers.js';
 const LOCAL_STALE_MS = 90000; // o app desktop informa o jogo a cada ~20 s
 const MIN_SECS = 30, MAX_BACKOFF_MS = 15 * 60 * 1000, KEEP_DAYS = 30, KEEP_PER_USER = 200, STALE_X = 3;
 
-export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, now = () => Date.now(), log = () => { } }) {
+export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, canSeeClip = () => true, now = () => Date.now(), log = () => { } }) {
   const intervalMs = () => +process.env.ACTIVITY_POLL_MS || Math.max(MIN_SECS, +process.env.STEAM_POLL_SECS || 60) * 1000; // ACTIVITY_POLL_MS: só para testes
   const current = new Map();   // `${uid}:${platform}` -> { uid, platform, game:{id,title}, since, state, at }  (só o que está PUBLICADO)
   const cache = new Map();     // `${platform}:${external_id}` -> { snap, at }  (último snapshot, evita reconsultar)
@@ -145,43 +145,6 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     return { friends, events };
   }
 
-  // ---- destaques: o que os amigos fizeram de marcante (não cada "começou a jogar") ----
-  //   session  = jogou por 30 min ou mais        marathon = 3 h ou mais
-  //   new_game = primeiro registro daquele jogo (só para quem já tem histórico há mais de 3 dias: conta nova não vira "tudo novo")
-  //   streak   = o mesmo jogo em 3 dias diferentes ou mais na semana (um item por pessoa e jogo)
-  //   clip     = clipe salvo num servidor em que você também está
-  // Mesma regra de privacidade de tudo (canSee + jogos escondidos).
-  const TZ = process.env.TZ || 'America/Sao_Paulo';
-  const dayKey = (t) => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: TZ }); } catch { return new Date(t).toISOString().slice(0, 10); } };
-  function highlightsFor(viewer, { days = 7, limit = 40 } = {}) {
-    const fr = friendsOf(viewer); if (!fr.length) return [];
-    const since = now() - days * 864e5, ph = fr.map(() => '?').join(',');
-    const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, canSee(viewer, uid, platform)); return seeMemo.get(k); };
-    const rows = all(`SELECT * FROM activities WHERE user_id IN (${ph}) AND created_at>? ORDER BY created_at DESC`, ...fr, since)
-      .filter(ev => see(ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })); // launchers registrados antes
-    const data = (ev) => { try { return ev.data ? JSON.parse(ev.data) : {}; } catch { return {}; } };
-    const game = (ev, d) => ({ id: ev.game_id, title: ev.title, ...(d.icon ? { icon: d.icon } : {}), ...(d.steam ? { steam: d.steam } : {}) });
-    const out = [];
-    for (const ev of rows) {
-      const d = data(ev);
-      if (ev.kind === 'game_stop' && d.seconds >= 1800) out.push({ id: ev.id, kind: d.seconds >= 10800 ? 'marathon' : 'session', user_id: ev.user_id, platform: ev.platform, game: game(ev, d), seconds: d.seconds, at: ev.created_at });
-      if (ev.kind === 'game_start') {
-        const first = get('SELECT MIN(created_at) t FROM activities WHERE user_id=?', ev.user_id)?.t;
-        const before = get('SELECT 1 x FROM activities WHERE user_id=? AND game_id=? AND created_at<? LIMIT 1', ev.user_id, ev.game_id, ev.created_at);
-        if (first && first < ev.created_at - 3 * 864e5 && !before) out.push({ id: ev.id, kind: 'new_game', user_id: ev.user_id, platform: ev.platform, game: game(ev, d), at: ev.created_at });
-      }
-    }
-    const streaks = new Map(); // pessoa+jogo -> { dias, último evento }
-    for (const ev of rows) {
-      const k = ev.user_id + ':' + ev.game_id, s = streaks.get(k) || { days: new Set(), last: ev };
-      s.days.add(dayKey(ev.created_at)); if (ev.created_at > s.last.created_at) s.last = ev; streaks.set(k, s);
-    }
-    for (const s of streaks.values()) if (s.days.size >= 3) { const ev = s.last; out.push({ id: 'st' + ev.id, kind: 'streak', user_id: ev.user_id, platform: ev.platform, game: game(ev, data(ev)), days: s.days.size, at: ev.created_at }); }
-    for (const c of all(`SELECT c.* FROM clips c WHERE c.author_id IN (${ph}) AND c.created_at>? AND c.guild_id IN (SELECT guild_id FROM members WHERE user_id=?) ORDER BY c.created_at DESC LIMIT 20`, ...fr, since, viewer))
-      out.push({ id: 'cl' + c.id, kind: 'clip', user_id: c.author_id, clip: { id: c.id, title: c.title, guild_id: c.guild_id, channel_id: c.channel_id, streamer_id: c.streamer_id, secs: c.secs }, at: c.created_at });
-    return out.sort((a, b) => b.at - a.at).slice(0, limit);
-  }
-
   // ---- jogos que a galera mais joga num servidor (como o cartão do servidor no Discord) ----
   // Conta, para cada jogo, quantos membros jogaram nos últimos `days` dias (o histórico guarda 30) e quantos estão jogando
   // agora. Só entram contas que compartilham a atividade (PC fora de "off", conta vinculada fora de "off"), sem jogos
@@ -220,6 +183,112 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     return list;
   }
 
+  // ---- a semana da galera: retrospectiva dos últimos 7 dias (você + amigos), por JOGO e não por evento ----
+  // Cada jogo soma as horas de todo mundo, quantas pessoas diferentes jogaram e em que dias; entra no ranking pela nota
+  //   nota = √horas + 1,5 × (pessoas − 1) + 0,5 × maior sequência de dias seguidos
+  // (raiz das horas: 30 h sozinho não passa por cima de 9 h com 3 amigos). Jogo com atividade insignificante fica de fora:
+  // precisa de 1 h no total, ou de 2 pessoas e 20 min. Mesma regra de privacidade de tudo (canSee + jogos escondidos).
+  const TZ = process.env.TZ || 'America/Sao_Paulo';
+  const dayKey = (t) => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: TZ }); } catch { return new Date(t).toISOString().slice(0, 10); } };
+  const runOf = (flags) => { let best = 0, cur = 0; for (const f of flags) { cur = f ? cur + 1 : 0; if (cur > best) best = cur; } return best; };
+  const parse = (s) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
+  const gameOf = (id, title, d) => ({ id, title, ...(d?.icon ? { icon: d.icon } : {}), ...(d?.steam ? { steam: d.steam } : {}) });
+  //   clipes: engajamento de quem NÃO é o autor (visualizações únicas, reações, respostas, favoritos e compartilhamentos)
+  //   bruto = 1 × visto + 2 × reagiu + 2 × respondeu + 3 × favoritou + 4 × compartilhou
+  // Só entra com bruto ≥ CLIP_MIN (3 visualizações, ou 1 favorito, ou 1 compartilhamento…): sem engajamento não é destaque.
+  // A ordem é personalizada: × idade (perde metade em 7 dias), × 1,5 se você aparece no clipe, × 1,25 se é de amigo,
+  // × 1,25 se é de um jogo que você jogou na semana, × 0,85 se você já assistiu (mostra o que você ainda não viu).
+  const CLIP_W = { views: 1, reacts: 2, replies: 2, favs: 3, shares: 4 }, CLIP_MIN = +process.env.CLIP_MIN_SCORE || 3;
+  const WEEK_DAYS = 7;
+  function weekFor(viewer, { top = 3 } = {}) {
+    const t0 = now(), since = t0 - WEEK_DAYS * 864e5, fr = friendsOf(viewer), ids = [viewer, ...fr], frSet = new Set(fr);
+    const days = []; for (let i = WEEK_DAYS - 1; i >= 0; i--) days.push(dayKey(t0 - i * 864e5));
+    const dayIdx = new Map(days.map((k, i) => [k, i]));
+    const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, canSee(viewer, uid, platform)); return seeMemo.get(k); };
+    const ok = (uid, platform, gid, title) => see(uid, platform) && !hiddenGame(uid, platform, gid) && !isLauncher({ id: gid, title });
+    const games = new Map(), people = new Map(); // chave do jogo -> agregado; 'uid|jogo' -> { secs, days }
+    const add = (uid, platform, gid, title, d, t, secs, live) => {
+      const di = dayIdx.get(dayKey(t)); if (di === undefined) return;
+      const ks = ggKeys(platform, gid, title, d);
+      let x = ks.map(k => games.get(k)).find(Boolean);
+      if (!x) x = { platform, game: gameOf(gid, title, d), at: 0, secs: 0, players: new Map(), day: Array(WEEK_DAYS).fill(0), active: Array(WEEK_DAYS).fill(false), live: new Set() };
+      for (const k of ks) games.set(k, x);
+      if (t >= x.at) { x.at = t; x.platform = platform; x.game = { ...x.game, ...gameOf(gid, title, d), ...(x.game.icon && !d?.icon ? { icon: x.game.icon } : {}), ...(x.game.steam && !d?.steam ? { steam: x.game.steam } : {}) }; }
+      x.secs += secs; x.day[di] += secs; x.active[di] = true; if (live) x.live.add(uid);
+      const p = x.players.get(uid) || { secs: 0, days: Array(WEEK_DAYS).fill(false) }; p.secs += secs; p.days[di] = true; x.players.set(uid, p);
+    };
+    for (const ev of all(`SELECT * FROM activities WHERE user_id IN (${ids.map(() => '?').join(',')}) AND created_at>? AND kind IN ('game_start','game_stop')`, ...ids, since)) {
+      if (!ok(ev.user_id, ev.platform, ev.game_id, ev.title)) continue;
+      const d = parse(ev.data);
+      if (ev.kind === 'game_stop') {
+        // a partida conta no dia em que terminou; a que começou antes da semana só conta a parte dentro dela
+        const secs = Math.max(0, Math.min(+d.seconds || 0, (ev.created_at - since) / 1000));
+        add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, secs, false);
+      } else add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, 0, false); // abriu: o dia conta, as horas vêm no fim da partida
+    }
+    // quem está jogando agora: a partida em andamento já conta (ainda não tem game_stop)
+    for (const e of current.values()) if (ids.includes(e.uid) && fresh(e) && ok(e.uid, e.platform, e.game.id, e.game.title))
+      add(e.uid, e.platform, e.game.id, e.game.title, e.game, t0, Math.max(0, (t0 - Math.max(e.since || t0, since)) / 1000), true);
+    const all7 = [...new Set(games.values())].map(x => {
+      const players = [...x.players.entries()].sort((a, b) => b[1].secs - a[1].secs).map(([uid, p]) => ({ user_id: uid, secs: Math.round(p.secs), days: p.days.filter(Boolean).length, streak: runOf(p.days) }));
+      const streak = runOf(x.active), hours = x.secs / 3600, n = players.length;
+      return { platform: x.platform, game: x.game, secs: Math.round(x.secs), players, playing: [...x.live], day: x.day.map(Math.round), streak,
+        score: Math.round((Math.sqrt(hours) + 1.5 * (n - 1) + 0.5 * streak) * 100) / 100, worth: x.secs >= 3600 || (n >= 2 && x.secs >= 1200) };
+    });
+    const ranked = all7.filter(x => x.worth).sort((a, b) => b.score - a.score || b.secs - a.secs).slice(0, top).map(({ worth, ...x }) => x);
+    // por pessoa e jogo (popup do jogo: "Amigos que jogaram"), inclusive jogos fora do ranking
+    const played = all7.flatMap(x => x.players.map(p => ({ ...p, platform: x.platform, game: x.game })));
+    // ---- clipes da semana ----
+    const myGames = new Set(all7.filter(x => x.players.some(p => p.user_id === viewer)).flatMap(x => ggKeys(x.platform, x.game.id, x.game.title, x.game)));
+    const clipRows = all(`SELECT c.* FROM clips c WHERE c.created_at>? AND c.guild_id IN (SELECT guild_id FROM members WHERE user_id=?) ORDER BY c.created_at DESC LIMIT 300`, since, viewer)
+      .filter(c => canSeeClip(viewer, c));
+    const count = (sql, ...a) => get(sql, ...a)?.n || 0;
+    const clips = clipRows.map(c => {
+      const m = {
+        views: count('SELECT COUNT(*) n FROM clip_views WHERE clip_id=? AND user_id<>?', c.id, c.author_id),
+        favs: count('SELECT COUNT(*) n FROM clip_favs WHERE clip_id=? AND user_id<>?', c.id, c.author_id),
+        shares: count('SELECT COUNT(*) n FROM clip_shares WHERE clip_id=?', c.id),
+        reacts: c.message_id ? count('SELECT COUNT(DISTINCT user_id) n FROM reactions WHERE message_id=? AND user_id<>?', c.message_id, c.author_id) : 0,
+        replies: c.message_id ? count('SELECT COUNT(DISTINCT author_id) n FROM messages WHERE reply_to=? AND author_id<>?', c.message_id, c.author_id) : 0,
+      };
+      const recent = count('SELECT COUNT(*) n FROM clip_views WHERE clip_id=? AND user_id<>? AND at>?', c.id, c.author_id, t0 - 864e5);
+      const raw = Object.entries(CLIP_W).reduce((s, [k, w]) => s + w * m[k], 0);
+      const game = clipGame(c, viewer);
+      const you = c.streamer_id === viewer, friend = frSet.has(c.author_id) || frSet.has(c.streamer_id);
+      const mine = !!game && ggKeys(game.platform, game.game.id, game.game.title, game.game).some(k => myGames.has(k));
+      const seen = !!get('SELECT 1 x FROM clip_views WHERE clip_id=? AND user_id=?', c.id, viewer);
+      const age = (t0 - c.created_at) / 864e5;
+      const score = raw * Math.pow(0.5, age / 7) * (you ? 1.5 : 1) * (friend ? 1.25 : 1) * (mine ? 1.25 : 1) * (seen ? 0.85 : 1);
+      return { c, m, recent, raw, score, game, you, mine, seen };
+    }).filter(x => x.raw >= CLIP_MIN).sort((a, b) => b.score - a.score || b.c.created_at - a.c.created_at);
+    // categorias especiais: cada uma vai para UM clipe (o que mais se destaca nela), sem repetir clipe
+    const tagged = new Map(), give = (kind, pick) => { const x = pick(); if (x && !tagged.has(x.c.id)) tagged.set(x.c.id, kind); };
+    const best = (k, min) => clips.filter(x => x.m[k] >= min).sort((a, b) => b.m[k] - a.m[k])[0];
+    give('you', () => clips.find(x => x.you));
+    give('hot', () => clips.filter(x => x.recent >= 3).sort((a, b) => b.recent - a.recent)[0]);
+    give('fav', () => best('favs', 2)); give('shared', () => best('shares', 2)); give('talk', () => best('replies', 2) || best('reacts', 3)); give('views', () => best('views', 3));
+    give('foryou', () => clips.find(x => x.mine && !x.seen));
+    // recomendação personalizada: se nenhum dos primeiros é "você aparece" ou "do seu jogo", o último lugar vai para o melhor deles
+    const pick = clips.slice(0, top), personal = (x) => x.you || (x.mine && !x.seen);
+    if (pick.length === top && !pick.some(personal)) { const r = clips.slice(top).find(personal); if (r) pick[top - 1] = r; }
+    const outClips = pick.map((x) => ({
+      id: x.c.id, title: x.c.title, url: x.c.url, secs: x.c.secs, guild_id: x.c.guild_id, channel_id: x.c.channel_id, at: x.c.created_at,
+      author_id: x.c.author_id, streamer_id: x.c.streamer_id, ...(x.game ? { platform: x.game.platform, game: x.game.game } : {}),
+      metrics: x.m, score: Math.round(x.score * 10) / 10, seen: x.seen, tag: tagged.get(x.c.id) || (x.mine && !x.seen ? 'foryou' : null),
+    }));
+    return { days, games: ranked, played, clips: outClips };
+  }
+  // jogo do clipe: o que o dono da transmissão (ou quem clipou) estava jogando naquela hora, se você pode ver
+  function clipGame(c, viewer) {
+    const uid = c.streamer_id || c.author_id;
+    const st = get(`SELECT * FROM activities WHERE user_id=? AND kind='game_start' AND created_at<=? AND created_at>? ORDER BY created_at DESC LIMIT 1`, uid, c.created_at + 60e3, c.created_at - 12 * 3600e3);
+    if (!st) { const e = [...current.values()].find(e => e.uid === uid && e.since <= c.created_at); return e && canSee(viewer, uid, e.platform) && !hiddenGame(uid, e.platform, e.game.id) ? { platform: e.platform, game: e.game } : null; }
+    const end = get(`SELECT created_at t FROM activities WHERE user_id=? AND platform=? AND game_id=? AND kind='game_stop' AND created_at>=? ORDER BY created_at LIMIT 1`, uid, st.platform, st.game_id, st.created_at);
+    if (end && end.t < c.created_at - 60e3) return null; // a partida já tinha acabado
+    if (!canSee(viewer, uid, st.platform) || hiddenGame(uid, st.platform, st.game_id) || isLauncher({ id: st.game_id, title: st.title })) return null;
+    return { platform: st.platform, game: gameOf(st.game_id, st.title, parse(st.data)) };
+  }
+
   // ---- ganchos chamados pelas rotas ----
   // consulta logo (vinculou, ligou a visibilidade): vários pedidos juntos viram UMA consulta. Antes cada um agendava a sua
   // para 200 ms depois (todos passavam pela checagem antes da primeira rodar) e a Steam recebia o mesmo lote várias vezes
@@ -231,7 +300,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   return {
     start() { stopped = false; setTimeout(() => tick().catch(() => { }), 3000).unref?.(); schedule(); },
     stop() { stopped = true; clearTimeout(timer); },
-    tick, poke, readyFor, feedFor, highlightsFor, guildGames, canSee, audience,
+    tick, poke, readyFor, feedFor, weekFor, guildGames, canSee, audience,
     _ggClear() { ggCache.clear(); },
     onLinked() { poke(); },
     // desvinculou: encerra a publicação (avisando o público ANTES de apagar a conta) e limpa o cache da conta

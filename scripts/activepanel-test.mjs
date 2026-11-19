@@ -1,4 +1,5 @@
-// Painel "Ativo agora" (lado direito dos Amigos): o que os amigos fazem AGORA no topo e os destaques da semana embaixo.
+// Painel "Ativo agora" (lado direito dos Amigos): o que os amigos fazem AGORA no topo e, embaixo, a retrospectiva da semana
+// ("A semana da galera": jogo da semana + 2º e 3º; "Clipes da semana": os 3 com mais engajamento).
 // O histórico é gravado direto no banco (dias anteriores) com o servidor parado; depois o servidor sobe e o painel é conferido.
 // Uso: BROWSER=/caminho/do/chrome node scripts/activepanel-test.mjs   (SHOTS=1 salva capturas em .testshots/)
 import puppeteer from 'puppeteer-core';
@@ -30,14 +31,22 @@ const day = (n, hour = 21) => { const d = new Date(now - n * D); d.setHours(hour
 let nid = 1; const ins = (uid, kind, game, title, at, data, platform = 'pc') => db.prepare('INSERT INTO activities(id,user_id,platform,kind,game_id,title,data,created_at) VALUES(?,?,?,?,?,?,?,?)').run('t' + nid++, uid, platform, kind, game, title, data ? JSON.stringify(data) : null, at);
 const session = (uid, game, title, at, secs, platform, extra = null) => { ins(uid, 'game_start', game, title, at - secs * 1000, extra, platform); ins(uid, 'game_stop', game, title, at, { seconds: secs, ...extra }, platform); };
 session(U.ana.id, 'peak', 'PEAK', now - 20 * D, 3600);                       // histórico antigo (fora da semana)
-session(U.ana.id, 'hades', 'Hades', day(2, 23), 4 * 3600 + 20 * 60);          // jogo novo + maratona
-for (const n of [1, 3, 4, 6]) session(U.beto.id, 'cs2', 'Counter-Strike 2', day(n, 22), 45 * 60, 'pc', { steam: '730' }); // sequência + partidas (jogo da Steam)
-session(U.beto.id, 'peak', 'PEAK', day(1, 15), 10 * 60);                       // curtinha: não é destaque
-session(U.caio.id, 'eldenring', 'ELDEN RING', day(1, 20), 5 * 3600);            // caio escondeu: não aparece
-session(U.zeca.id, 'dota2', 'Dota 2', day(1, 20), 6 * 3600);                    // não é amigo: não aparece
+session(U.ana.id, 'hades', 'Hades', day(2, 23), 4 * 3600 + 20 * 60);          // maratona de uma pessoa só
+for (const n of [1, 3, 4, 6]) session(U.beto.id, 'cs2', 'Counter-Strike 2', day(n, 22), 45 * 60, 'pc', { steam: '730' }); // vários dias (jogo da Steam)
+for (const n of [2, 3]) session(U.ana.id, 'cs2', 'Counter-Strike 2', day(n, 20), 60 * 60, 'pc', { steam: '730' }); // ana também: CS2 é da galera
+session(U.beto.id, 'peak', 'PEAK', day(1, 15), 10 * 60);                       // curtinha: insignificante, fica de fora
+session(U.ana.id, 'stardew', 'Stardew Valley', day(1, 18), 70 * 60);            // 4º lugar: fora do top 3
+session(U.beto.id, 'stardew', 'Stardew Valley', day(1, 19), 20 * 60);
+session(U.caio.id, 'eldenring', 'ELDEN RING', day(1, 20), 9 * 3600);            // caio escondeu: não aparece
+session(U.zeca.id, 'dota2', 'Dota 2', day(1, 20), 9 * 3600);                    // não é amigo: não aparece
 const ch = db.prepare('SELECT id FROM channels WHERE guild_id=? AND type=0').get(g.id);
-db.prepare('INSERT INTO clips(id,guild_id,channel_id,message_id,author_id,streamer_id,title,url,size,secs,has_audio,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-  .run('clip1', g.id, ch.id, null, U.ana.id, U.beto.id, 'Ace no último round', '/files/aaaaaaaaaaaaaaaaaaaaaaaa.webm/x.webm', 1000, 30, 1, day(0, Math.max(0, new Date().getHours() - 1)));
+const clip = (id, author, streamer, title, at) => db.prepare('INSERT INTO clips(id,guild_id,channel_id,message_id,author_id,streamer_id,title,url,size,secs,has_audio,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+  .run(id, g.id, ch.id, null, author, streamer, title, '/files/aaaaaaaaaaaaaaaaaaaaaaaa.webm/x.webm', 1000, 30, 1, at);
+const view = (cid, uid, at = now - H) => db.prepare('INSERT INTO clip_views(clip_id,user_id,at) VALUES(?,?,?)').run(cid, uid, at);
+clip('clip1', U.ana.id, U.beto.id, 'Ace no último round', day(1, 23)); for (const u of ['beto', 'caio', 'zeca']) view('clip1', U[u].id); db.prepare('INSERT INTO clip_favs VALUES(?,?)').run(U.beto.id, 'clip1'); db.prepare('INSERT INTO clip_favs VALUES(?,?)').run(U.caio.id, 'clip1');
+clip('clip2', U.beto.id, U.eu.id, 'Clutch do eu', day(2, 21)); for (const u of ['ana', 'caio', 'zeca']) view('clip2', U[u].id, now - 3 * D);  // você aparece
+clip('clip3', U.caio.id, null, 'Ninguém viu', day(1, 10)); view('clip3', U.ana.id);                                                // sem engajamento: fora
+clip('clip4', U.zeca.id, null, 'Clipe antigo', now - 9 * D); for (const u of ['ana', 'beto', 'caio']) view('clip4', U[u].id);   // fora da semana
 db.close();
 await start();
 
@@ -55,47 +64,47 @@ try {
   const tabs = await me.evaluate(() => [...document.querySelectorAll('#home #topbar .tab')].map(t => t.textContent.trim()));
   ok(!tabs.includes('Atividade'), 'a aba "Atividade" saiu', tabs);
   const P = await me.evaluate(() => {
-    const b = document.querySelector('#active-now');
-    return { title: b?.querySelector('h3')?.textContent, caps: [...b.querySelectorAll('.an-cap')].map(e => e.textContent), play: [...b.querySelectorAll('.an-now .an-card.an-play')].map(e => e.innerText.replace(/\s+/g, ' ')),
-      days: [...b.querySelectorAll('.hl-dayh')].map(e => e.textContent), items: [...b.querySelectorAll('.hl-item')].map(e => ({ k: e.className.replace('hl-item hl-', ''), t: e.querySelector('.hl-txt > span:not(.hl-tag)').textContent })) };
+    const b = document.querySelector('#active-now'), t = (e) => e?.innerText.replace(/\s+/g, ' ').trim();
+    return { title: b?.querySelector('h3')?.textContent, caps: [...b.querySelectorAll('.an-cap')].map(e => e.textContent), play: [...b.querySelectorAll('.an-now .an-card.an-play')].map(t),
+      heads: [...b.querySelectorAll('.wk-h h4')].map(e => e.textContent), hero: t(b.querySelector('.wk-hero')), bars: b.querySelectorAll('.wk-hero .wk-bar').length, barsOn: b.querySelectorAll('.wk-hero .wk-bar.on').length,
+      rows: [...b.querySelectorAll('.wk-row')].map(t), clips: [...b.querySelectorAll('.wk-clip')].map(t), big: !!b.querySelector('.wk-clip.big .wk-thumb'), old: !!b.querySelector('.hl-item') };
   });
   ok(P.title === 'Ativo agora', 'título em português: "Ativo agora"', P.title);
   ok(P.caps[0] === 'Jogando — 1' && /ana/.test(P.play[0] || '') && /VALORANT/.test(P.play[0] || ''), 'no topo, em destaque: quem está jogando agora', P.play);
-  ok(P.caps.includes('Destaques da semana'), 'seção "Destaques da semana" embaixo', P.caps);
-  const has = (k, re) => P.items.some(i => i.k === k && re.test(i.t));
-  ok(has('marathon', /ana jogou Hades por 4h 20min/), 'maratona (3 h ou mais)', P.items);
-  ok(has('new_game', /ana começou a jogar Hades/), 'jogo novo (primeira vez)');
-  ok(has('streak', /beto jogou Counter-Strike 2 em 4 dias diferentes/), 'sequência (mesmo jogo em vários dias)');
-  ok(P.items.filter(i => i.k === 'session' && /beto jogou Counter-Strike 2 por 45 min/.test(i.t)).length === 4, 'partidas de 30 min ou mais');
-  ok(has('clip', /ana salvou um clipe da transmissão de beto: “Ace no último round”/), 'clipe salvo (com de quem era a transmissão)');
-  ok(!P.items.some(i => /PEAK por 10 min/.test(i.t)), 'partida curtinha (10 min) não vira destaque');
-  ok(!P.items.some(i => /caio|zeca/.test(i.t)), 'quem escondeu o jogo (caio) e quem não é amigo (zeca) não aparecem');
-  ok(!P.items.some(i => /PEAK por 1h/.test(i.t)), 'nada de fora da semana');
-  ok(P.days.length >= 3 && P.days[0] === 'Hoje' && P.days.includes('Ontem'), 'agrupado por dia (Hoje, Ontem, …)', P.days);
-  if (process.env.SHOTS) await me.screenshot({ path: '.testshots/activepanel-wide.png' });
+  ok(P.heads.join('|') === 'A semana da galera|Clipes da semana' && !P.old, 'duas seções: "A semana da galera" e "Clipes da semana" (sem o feed de eventos)', P.heads);
+  ok(/Jogo da semana/.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
+  ok(P.bars === 7 && P.barsOn === 5, 'a semana em 7 barrinhas (dias com partida acesos)', { bars: P.bars, on: P.barsOn });
+  ok(P.rows.length === 2 && /^2 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[0]) && /^3 Hades 4,3h · 1 pessoa/.test(P.rows[1]), '2º e 3º em linhas compactas (jogar junto pesa mais que horas sozinho)', P.rows);
+  ok(!P.rows.concat(P.hero).some(x => /PEAK|ELDEN|Dota|VALORANT/.test(x)), 'fora: insignificante (PEAK 10 min), escondido (caio), não amigo (zeca) e o que só começou agora', P.rows);
+  ok(P.clips.length === 2 && /Ace no último round/.test(P.clips[0]) && /Clutch do eu/.test(P.clips[1]) && !P.clips.some(c => /Ninguém viu|antigo/.test(c)) && P.big, 'clipes da semana: só os com engajamento, o 1º grande com miniatura', P.clips);
+  ok(/Clipe da semana/.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 favoritos)', P.clips[0]);
+  ok(/Você aparece/.test(P.clips[1]), 'categoria personalizada: "Você aparece" (clipe da sua transmissão)', P.clips[1]);
+  if (process.env.SHOTS) { await me.screenshot({ path: '.testshots/activepanel-wide.png' }); const el = await me.$('#active-now'); await el.screenshot({ path: '.testshots/activepanel-panel.png' }); await me.evaluate(() => { const b = document.querySelector('#active-now'); b.scrollTop = b.scrollHeight; }); await sleep(300); await el.screenshot({ path: '.testshots/activepanel-clips.png' }); await me.evaluate(() => { document.querySelector('#active-now').scrollTop = 0; }); }
   // ana parou de jogar: sai do topo na hora
   await ana.close(); await sleep(1200);
   ok(await me.evaluate(() => !document.querySelector('#active-now .an-play')), 'parou de jogar: some do "agora" na hora');
-  // clicar no destaque do clipe (o cartão todo) abre o player em popup, sem sair do painel
-  await me.evaluate(() => document.querySelector('#active-now .hl-item.hl-clip').click()); await sleep(900);
+  // clicar no clipe abre o player em popup, sem sair do painel, e conta a visualização
+  await me.evaluate(() => document.querySelector('#active-now .wk-clip.big').click()); await sleep(900);
   const clipPop = await me.evaluate(() => { const m = document.querySelector('.modal.clipmodal'); return m && { title: m.querySelector('.pttl')?.textContent, src: m.querySelector('video')?.getAttribute('src'), btns: [...m.querySelectorAll('.pbtns .btn')].map(b => b.textContent.trim()), view: window.__lc.S.view.kind }; });
   ok(clipPop?.title === 'Ace no último round' && /aaaaaaaa/.test(clipPop.src || '') && clipPop.view !== 'clips', 'clicar no clipe abre o player em popup (continua no painel)', clipPop);
   ok(clipPop?.btns.includes('Ver na galeria') && clipPop.btns.includes('Baixar'), 'popup do clipe: Ver na galeria e Baixar', clipPop?.btns);
   await me.evaluate(() => document.querySelector('.modal.clipmodal .inv-x').click()); await sleep(300);
-  // clicar num destaque de jogo abre o popup do jogo (Steam: botão para a loja; amigos que jogaram)
-  await me.evaluate(() => document.querySelector('#active-now .hl-item.hl-streak').click()); await sleep(900);
+  const wk = await call(U.eu.tok, 'GET', '/activity/feed');
+  ok(wk.week.clips.find(c => c.id === 'clip1')?.metrics.views === 4 && wk.week.clips.find(c => c.id === 'clip1')?.seen, 'assistir conta uma visualização (e marca como visto)', wk.week.clips.map(c => [c.id, c.metrics.views]));
+  // clicar no jogo da semana abre o popup do jogo (Steam: botão para a loja; amigos que jogaram)
+  await me.evaluate(() => document.querySelector('#active-now .wk-hero').click()); await sleep(900);
   const gp = await me.evaluate(() => { const m = document.querySelector('.modal.gamemodal'); return m && { title: m.querySelector('h2')?.textContent, steam: m.querySelector('a.gm-steam')?.getAttribute('href'), people: [...m.querySelectorAll('.gm-person')].map(p => p.innerText.replace(/\s+/g, ' ')) }; });
   ok(gp?.title === 'Counter-Strike 2' && gp.steam === 'https://store.steampowered.com/app/730/', 'jogo da Steam: popup com o nome e "Ver na Steam" (loja do jogo)', gp);
-  ok(gp?.people.some(t => /beto/.test(t) && /3h esta semana/.test(t) && /em 4 dias/.test(t)), 'popup do jogo: quais amigos jogaram e quanto na semana', gp?.people);
+  ok(gp?.people.some(t => /beto/.test(t) && /3h esta semana/.test(t) && /2 dias seguidos/.test(t)), 'popup do jogo: quais amigos jogaram e quanto na semana', gp?.people);
   if (process.env.SHOTS) await me.screenshot({ path: '.testshots/activepanel-gamepop.png' });
   await me.evaluate(() => document.querySelector('.modal.gamemodal .gm-x').click()); await sleep(300);
-  await me.evaluate(() => document.querySelector('#active-now .hl-item.hl-marathon').click()); await sleep(700);
+  await me.evaluate(() => [...document.querySelectorAll('#active-now .wk-row')].find(r => /Hades/.test(r.textContent)).click()); await sleep(700);
   const gp2 = await me.evaluate(() => { const m = document.querySelector('.modal.gamemodal'); return m && { title: m.querySelector('h2')?.textContent, steam: !!m.querySelector('a.gm-steam'), ph: !!m.querySelector('.gm-ph') }; });
   ok(gp2?.title === 'Hades' && !gp2.steam && gp2.ph, 'jogo fora da Steam: popup sem botão da loja, com o ícone', gp2);
   await me.evaluate(() => document.querySelector('.modal.gamemodal .gm-x').click()); await sleep(300);
-  // o nome da pessoa no destaque abre o perfil (não o popup do jogo)
-  await me.evaluate(() => document.querySelector('#active-now .hl-item.hl-marathon .hl-who').click()); await sleep(600);
-  ok(await me.evaluate(() => !!document.querySelector('.pcard') && !document.querySelector('.modal.gamemodal')), 'clicar no nome abre o perfil');
+  // o autor do clipe abre o perfil (não o player)
+  await me.evaluate(() => document.querySelector('#active-now .wk-clip .wk-who').click()); await sleep(600);
+  ok(await me.evaluate(() => !!document.querySelector('.pcard') && !document.querySelector('.modal.clipmodal')), 'clicar no autor abre o perfil');
   await me.keyboard.press('Escape'); await sleep(300);
   // janela estreita: o painel vira gaveta
   const narrow = await page(U.eu, null, 980); await narrow.evaluate(() => window.__lc.go('@me')); await sleep(1500);

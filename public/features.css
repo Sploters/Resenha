@@ -1370,9 +1370,9 @@ html.anim .backdrop.leaving > .modal { animation: mv-out calc(var(--t-modal) * .
 html.anim #toast.leaving { animation: mv-toast-out .16s var(--ease-in) forwards !important; }
 
 /* apertar: 97% na hora (sem tweening enquanto segura) e volta com ease-out ao soltar */
-html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .hl-item, .gc-btn, .auth-qrnew, .dm-find) {
+html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .wk-row, .wk-clip, .gc-btn, .auth-qrnew, .dm-find) {
   transition: background .12s, color .12s, border-color .12s, opacity .12s, transform .18s var(--ease-out); }
-html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .hl-item, .gc-btn, .auth-qrnew, .dm-find):active:not(:disabled) { transform: scale(.97); transition-duration: 0s; }
+html.anim :is(.btn, .ibtn, .roundbtn, .ct-tab, #home .tab, .meitem, .an-card, .wk-row, .wk-clip, .gc-btn, .auth-qrnew, .dm-find):active:not(:disabled) { transform: scale(.97); transition-duration: 0s; }
 html.anim .rail-item:active { transform: scale(.97); transition-duration: 0s; }
 
 /* interruptor: a bolinha anda com ease-in-out e estica 12% enquanto aperta (de olho no lado para onde vai) */

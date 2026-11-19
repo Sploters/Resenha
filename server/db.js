@@ -150,6 +150,10 @@ CREATE TABLE IF NOT EXISTS clip_favs(user_id TEXT NOT NULL, clip_id TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS clip_shares(message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
   channel_id TEXT NOT NULL, PRIMARY KEY(message_id, clip_id));
 CREATE INDEX IF NOT EXISTS idx_clip_shares_clip ON clip_shares(clip_id);`);
+// quem assistiu cada clipe (uma linha por pessoa; at = a última vez): visualizações únicas e "em alta" dos Clipes da semana
+db.exec(`CREATE TABLE IF NOT EXISTS clip_views(clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE, user_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(clip_id, user_id));
+CREATE INDEX IF NOT EXISTS idx_clip_views_user ON clip_views(user_id);
+CREATE INDEX IF NOT EXISTS idx_msg_reply ON messages(reply_to) WHERE reply_to IS NOT NULL;`); // respostas à mensagem do clipe
 
 // Enquetes: uma mensagem do chat com pergunta, opções e votos (visíveis: cada opção mostra quem votou)
 db.exec(`CREATE TABLE IF NOT EXISTS polls(

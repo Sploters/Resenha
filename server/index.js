@@ -1471,6 +1471,8 @@ app.patch('/api/clips/:id', auth, wrap((req, res) => {
   if (om && och) dispatch(channelAudience(och), 'MESSAGE_UPDATE', { ...messageObj(om), guild_id: och.guild_id }); // cartão do clipe no chat com o nome novo, sem recarregar
   res.json(clipObj(n, req.uid));
 }));
+// assistiu (o player abriu o clipe): visualização única por pessoa, conta para os Clipes da semana
+app.post('/api/clips/:id/view', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('INSERT INTO clip_views(clip_id,user_id,at) VALUES(?,?,?) ON CONFLICT(clip_id,user_id) DO UPDATE SET at=excluded.at', c.id, req.uid, Date.now()); res.json({}); }));
 app.put('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('INSERT OR IGNORE INTO clip_favs VALUES(?,?)', req.uid, c.id); res.json(clipObj(c, req.uid)); }));
 app.delete('/api/clips/:id/fav', auth, wrap((req, res) => { const c = clipFor(req, res); if (!c) return; run('DELETE FROM clip_favs WHERE user_id=? AND clip_id=?', req.uid, c.id); res.json(clipObj(c, req.uid)); }));
 // apagar o clipe: some da galeria, a mensagem sai do chat e o arquivo é removido se nada mais usa
@@ -1849,7 +1851,7 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
 });
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
-const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), log: console.log });
+const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), canSeeClip: (u, c) => clipAccess(u, c), log: console.log });
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
@@ -1938,9 +1940,9 @@ app.delete('/api/integrations/:platform', auth, wrap((req, res) => {
   res.json({});
 }));
 app.get('/api/activity/feed', auth, wrap((req, res) => { // amigos (e você), o que estão jogando e eventos recentes — tudo filtrado por activity.canSee
-  const f = activity.feedFor(req.uid), highlights = activity.highlightsFor(req.uid);
-  const ids = [...new Set([...f.friends.map(x => x.user_id), ...highlights.flatMap(x => [x.user_id, x.clip?.streamer_id]).filter(Boolean)])];
-  res.json({ ...f, highlights, users: ids.map(id => userPub(id)).filter(Boolean) });
+  const f = activity.feedFor(req.uid), week = activity.weekFor(req.uid);
+  const ids = [...new Set([...f.friends.map(x => x.user_id), ...week.played.map(x => x.user_id), ...week.clips.flatMap(c => [c.author_id, c.streamer_id]).filter(Boolean)])];
+  res.json({ ...f, week, users: ids.map(id => userPub(id)).filter(Boolean) });
 }));
 app.put('/api/activity/games/:platform/:gameId', auth, wrap((req, res) => { // esconder/mostrar um jogo (nunca vira atividade)
   const platform = req.params.platform, gid = clean(req.params.gameId, 40);

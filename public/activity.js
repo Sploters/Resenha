@@ -1,8 +1,8 @@
-// Atividade social: estado em tempo real, painel "Ativo agora" (o que os amigos fazem AGORA, em destaque, e os destaques
-// marcantes da semana) e página de contas vinculadas.
+// Atividade social: estado em tempo real, painel "Ativo agora" (o que os amigos fazem AGORA, em destaque, e a retrospectiva
+// da semana: os jogos e os clipes que marcaram) e página de contas vinculadas.
 // A decisão de QUEM pode ver cada atividade é do servidor; aqui só se exibe o que ele enviou.
 import { canCallInvite, sendCallInvite, pendingInvites, acceptInvite, declineInvite } from './callinvite.js';
-import { h, icon, avatar, clock, skeleton } from './util.js';
+import { h, icon, avatar, skeleton, thumbUrl } from './util.js';
 import { knownGame } from './gamecatalog.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
@@ -102,15 +102,14 @@ const sameGame = (x, a) => !!x && (x.id === a.game.id || norm(x.title) === norm(
 // mesmo jogo em duas atividades (por id, nome ou appid da Steam): agrupa a sala de voz por jogo
 export const sameGameAs = (a, b) => sameGame({ ...a.game, platform: a.platform }, b);
 function gamePeople(a) {
-  const by = new Map(), get = (uid) => { if (!by.has(uid)) by.set(uid, { uid, now: null, secs: 0, days: 0, fresh: false }); return by.get(uid); };
+  const by = new Map(), get = (uid) => { if (!by.has(uid)) by.set(uid, { uid, now: null, secs: 0, days: 0, streak: 0 }); return by.get(uid); };
   for (const x of S.activities.values()) if (sameGame({ ...x.game, platform: x.platform }, a)) get(x.user_id).now = x;
-  for (const x of feed?.highlights || []) {
-    if (!x.game || !sameGame({ ...x.game, platform: x.platform }, a)) continue;
-    const p = get(x.user_id);
-    if (x.kind === 'session' || x.kind === 'marathon') p.secs += x.seconds; else if (x.kind === 'streak') p.days = Math.max(p.days, x.days); else if (x.kind === 'new_game') p.fresh = true;
+  for (const x of feed?.week?.played || []) {
+    if (!sameGame({ ...x.game, platform: x.platform }, a)) continue;
+    const p = get(x.user_id); p.secs += x.secs; p.days = Math.max(p.days, x.days); p.streak = Math.max(p.streak, x.streak);
   }
   return [...by.values()].sort((x, y) => (y.now ? 1 : 0) - (x.now ? 1 : 0) || y.secs - x.secs).map(p => {
-    const u = uOf(p.uid), bits = [p.now && `jogando agora · ${since(p.now.since)}`, p.secs && `${durShort(p.secs)} esta semana`, p.days >= 3 && `em ${p.days} dias`, p.fresh && 'jogo novo'].filter(Boolean);
+    const u = uOf(p.uid), bits = [p.now && `jogando agora · ${since(p.now.since)}`, p.secs >= 60 && `${durShort(p.secs)} esta semana`, p.streak >= 2 ? `${p.streak} dias seguidos` : p.days >= 2 && `em ${p.days} dias`].filter(Boolean);
     return h('div.gm-person', { onclick: (e) => ctx.profile(e.currentTarget, p.uid) }, avatar(u, 32, { ring: 'var(--bg-float)' }), h('div.an-who', h('b', p.uid === S.me.id ? 'Você' : u.display_name), h('small', bits.join(' · ') || 'jogou esta semana')));
   });
 }
@@ -284,73 +283,94 @@ function voiceGroupCard(g, list) {
     ...roomBlocks(list.map(x => x.u.id), { showGuild: false }));
 }
 
-// ---------------------------------------------------------------- destaques da semana
+// ---------------------------------------------------------------- a semana da galera e os clipes da semana
+// Retrospectiva dos últimos 7 dias, montada pelo servidor (activity.weekFor): o jogo que marcou a semana num cartão com a
+// capa, mais dois em linhas, e os clipes que a galera mais assistiu, favoritou e compartilhou. Nada de lista cronológica.
 const durShort = (s) => { const m = Math.round(s / 60), hh = Math.floor(m / 60), mm = m % 60; return hh ? `${hh}h${mm ? ' ' + String(mm).padStart(2, '0') + 'min' : ''}` : `${m} min`; };
-const dayHead = (t) => {
-  const d = new Date(t), today = new Date(); const k = (x) => x.toDateString();
-  if (k(d) === k(today)) return 'Hoje';
-  if (k(d) === k(new Date(Date.now() - 864e5))) return 'Ontem';
-  return d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'short' }).replace(/^./, c => c.toUpperCase());
+const hrs = (s) => { const x = s / 3600; return x >= 10 ? Math.round(x) + 'h' : x >= 1 ? String(Math.round(x * 10) / 10).replace('.', ',') + 'h' : Math.max(1, Math.round(s / 60)) + ' min'; };
+const WD = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], WDN = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const dayOf = (k) => new Date(k + 'T12:00:00');
+const weekRange = (days) => { const a = dayOf(days[0]), b = dayOf(days[days.length - 1]), m = (d) => d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  return a.getMonth() === b.getMonth() ? `${a.getDate()} – ${b.getDate()} ${m(b)}` : `${a.getDate()} ${m(a)} – ${b.getDate()} ${m(b)}`; };
+const people = (n) => n === 1 ? '1 pessoa' : `${n} pessoas`;
+// a semana em 7 barrinhas (altura = horas do dia); com rótulos no cartão principal
+function weekBars(x, days, labels) {
+  const max = Math.max(...x.day, 1), today = days.length - 1;
+  return h('div.wk-bars' + (labels ? '.lab' : ''), { 'aria-hidden': 'true' }, x.day.map((s, i) => {
+    const d = dayOf(days[i]).getDay();
+    return h('span.wk-bar' + (s > 0 ? '.on' : '') + (i === today ? '.today' : ''), { title: `${WDN[d]}: ${s > 0 ? hrs(s) : 'ninguém jogou'}` },
+      h('i', { style: { height: (s > 0 ? Math.max(14, Math.round(s / max * 100)) : 0) + '%' } }), labels && h('small', WD[d]));
+  }));
+}
+function avatarStack(list, n = 4) {
+  const shown = list.slice(0, n), rest = list.length - shown.length;
+  return h('div.wk-stack', ...shown.map(p => { const u = uOf(p.user_id); return h('span.wk-av', { title: `${p.user_id === S.me.id ? 'Você' : u.display_name} · ${hrs(p.secs)}`, onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, p.user_id); } }, avatar(u, 24, { status: false })); }),
+    rest > 0 && h('span.wk-av.more', `+${rest}`));
+}
+function heroArt(a) {
+  const box = h('div.wk-art'), kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam;
+  const set = (src) => box.replaceChildren(h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => { box.replaceChildren(fallback()); box.classList.add('ph'); } }));
+  const fallback = () => h('span.wk-artic', gameIcon(a, 120)); // sem capa: o ícone grande e desfocado vira o fundo
+  if (kg?.banner) set(kg.banner);
+  else { box.classList.add('ph'); box.append(fallback()); if (sid) steamArt(sid).then(x => { if (x?.image) { box.classList.remove('ph'); set(x.image); } }); }
+  return box;
+}
+function gameHero(x, days) {
+  const a = { platform: x.platform, game: x.game };
+  return h('div.wk-hero', { role: 'button', tabindex: 0, title: `Sobre ${x.game.title}`, onclick: openGame(a), onkeydown: (e) => { if (e.key === 'Enter') openGame(a)(e); } },
+    heroArt(a), h('div.wk-shade'),
+    h('div.wk-hin',
+      h('div.wk-htop', h('span.wk-chip.gold', icon('trophy', 12), 'Jogo da semana'), x.playing.length > 0 && h('span.wk-live', h('i'), `${x.playing.length} jogando agora`)),
+      titleEl(a, 'b.wk-title'),
+      h('div.wk-stats',
+        h('div', h('b', hrs(x.secs)), h('small', 'de jogo')),
+        h('div', h('b', String(x.players.length)), h('small', x.players.length === 1 ? 'pessoa' : 'pessoas')),
+        x.streak >= 2 && h('div', h('b', String(x.streak)), h('small', 'dias seguidos'))),
+      h('div.wk-hfoot', avatarStack(x.players), weekBars(x, days, true))));
+}
+function gameRow(x, rank, days) {
+  const a = { platform: x.platform, game: x.game };
+  return h('div.wk-row', { role: 'button', tabindex: 0, title: `Sobre ${x.game.title}`, onclick: openGame(a), onkeydown: (e) => { if (e.key === 'Enter') openGame(a)(e); } },
+    h('span.wk-rank', String(rank)), gameIcon(a, 36),
+    h('div.wk-rtxt', titleEl(a, 'b'), h('small', [hrs(x.secs), people(x.players.length), x.streak >= 2 && `${x.streak} dias seguidos`].filter(Boolean).join(' · '))),
+    weekBars(x, days, false));
+}
+// ---- clipes
+const CLIP_TAG = {
+  you: ['sparkle', 'Você aparece', 'green', 'Clipe da sua transmissão'], foryou: ['gamepad', 'Pra você', 'green', 'De um jogo que você jogou esta semana e ainda não assistiu'],
+  hot: ['fire', 'Em alta', 'fire', 'Muita gente assistiu nas últimas 24 horas'], fav: ['star', 'Favorito da galera', 'gold', 'O clipe mais favoritado da semana'],
+  shared: ['clipshare', 'Mais compartilhado', 'blue', 'O clipe mais compartilhado da semana'], talk: ['smile', 'Deu o que falar', 'pink', 'O clipe com mais reações e respostas'],
+  views: ['eye', 'Mais visto', 'blue', 'O clipe com mais visualizações da semana'],
 };
-function hlItem(x) {
-  const u = uOf(x.user_id), a = x.game && { platform: x.platform, game: x.game };
-  const who = h('b.hl-who', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, x.user_id); } }, x.user_id === S.me.id ? 'Você' : u.display_name);
-  const game = a && titleEl(a, 'b');
-  let ic = a ? gameIcon(a, 18) : null, tag = null, text = [], open = a ? openGame(a) : (e) => ctx.profile(e.currentTarget, x.user_id), hint = a ? `Sobre ${x.game.title}` : '';
-  if (x.kind === 'marathon') { tag = h('span.hl-tag.gold', icon('trophy', 12), 'Maratona'); text = [who, ' jogou ', game, ' por ', h('b', durShort(x.seconds))]; }
-  else if (x.kind === 'session') text = [who, ' jogou ', game, ' por ', durShort(x.seconds)];
-  else if (x.kind === 'new_game') { tag = h('span.hl-tag.new', icon('sparkle', 12), 'Jogo novo'); text = [who, ' começou a jogar ', game]; }
-  else if (x.kind === 'streak') { tag = h('span.hl-tag.fire', icon('fire', 12), `${x.days} dias`); text = [who, ' jogou ', game, ` em ${x.days} dias diferentes esta semana`]; }
-  else if (x.kind === 'clip') {
-    const c = x.clip, st = c.streamer_id && c.streamer_id !== x.user_id ? uOf(c.streamer_id) : null;
-    ic = h('span.gicon.hl-clipic', { style: { width: '18px', height: '18px' } }, icon('clip', 13)); tag = h('span.hl-tag.clip', icon('clip', 12), 'Clipe');
-    text = [who, ' salvou um clipe', st ? [' da transmissão de ', h('b', st.display_name)] : '', ': ', h('i.hl-cliptitle', icon('play', 12), `“${c.title}”`)];
-    open = () => openClip(c.id); hint = 'Assistir ao clipe';
-  }
-  return h('div.hl-item.hl-' + x.kind, { title: hint, onclick: open, oncontextmenu: (e) => ctx.userMenu(e, x.user_id) },
-    h('div.hl-ic', avatar(u, 32, { status: false }), ic && h('span.hl-badge', ic)),
-    h('div.hl-txt', tag, h('span', text.flat()), h('small', clock(x.at))));
+const clipTag = (t) => { const d = CLIP_TAG[t]; return d && h('span.wk-chip.' + d[2], { title: d[3] }, icon(d[0], 12), d[1]); };
+const METRIC = [['views', 'eye', 'visualizações', 'visualização'], ['reacts', 'smile', 'pessoas reagiram', 'pessoa reagiu'], ['replies', 'reply', 'respostas', 'resposta'], ['favs', 'star', 'favoritos', 'favorito'], ['shares', 'clipshare', 'compartilhamentos', 'compartilhamento']];
+const clipMetrics = (m) => h('div.wk-met', ...METRIC.filter(([k]) => m[k] > 0).map(([k, ic, pl, sg]) => h('span', { title: `${m[k]} ${m[k] === 1 ? sg : pl}` }, icon(ic, 13), String(m[k]))));
+const clipBy = (c) => { const u = uOf(c.author_id); return [h('b.wk-who', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, c.author_id); } }, c.author_id === S.me.id ? 'Você' : u.display_name), c.game && h('span', ' · ', titleEl({ platform: c.platform, game: c.game }))]; };
+function clipThumb(c, big) {
+  const src = thumbUrl(c.url);
+  return h('div.wk-thumb', src ? h('img', { src, alt: '', loading: 'lazy', onerror: (e) => e.target.remove() }) : '', h('span.wk-play', icon('play', big ? 22 : 14)), h('span.wk-dur', `${c.secs || 0}s`), big && h('span.wk-chip.gold.wk-ribbon', icon('trophy', 12), 'Clipe da semana'));
 }
-// vários destaques iguais no mesmo dia (10 clipes da mesma pessoa, 4 partidas do mesmo jogo) viram uma linha só:
-// "João salvou 10 clipes" (abre a lista) / "João jogou CS2 por 5h 10min em 4 partidas"
-const hlKey = (x) => x.kind === 'clip' ? `clip|${x.user_id}` : `${x.kind === 'marathon' ? 'session' : x.kind}|${x.user_id}|${x.platform || ''}|${x.game?.id || ''}`;
-function groupDay(items) {
-  const out = [], by = new Map();
-  for (const x of items) { const k = hlKey(x); let g = by.get(k); if (!g) { by.set(k, g = { k, list: [] }); out.push(g); } g.list.push(x); }
-  return out;
+function clipCard(c, i) {
+  const open = () => openClip(c.id), u = uOf(c.author_id);
+  if (i === 0) return h('div.wk-clip.big', { role: 'button', tabindex: 0, title: 'Assistir ao clipe', onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); }, oncontextmenu: (e) => ctx.userMenu(e, c.author_id) },
+    clipThumb(c, true),
+    h('div.wk-cinfo', avatar(u, 28, { status: false }), h('div.wk-ctxt', h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c))), c.tag && clipTag(c.tag)),
+    clipMetrics(c.metrics));
+  return h('div.wk-clip.row', { role: 'button', tabindex: 0, title: 'Assistir ao clipe', onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); }, oncontextmenu: (e) => ctx.userMenu(e, c.author_id) },
+    clipThumb(c, false),
+    h('div.wk-ctxt', c.tag && clipTag(c.tag), h('b.wk-ctitle', c.title || 'Clipe'), h('small', clipBy(c)), clipMetrics(c.metrics)));
 }
-const hlOpen = new Set(), dayOpen = new Set(); // o que a pessoa abriu continua aberto quando o painel redesenha (a cada 30 s)
-const timeRange = (list) => { const a = clock(list[list.length - 1].at), b = clock(list[0].at); return a === b ? b : `${a} – ${b}`; };
-function hlGroup(g, day, redraw) {
-  const list = g.list, x = list[0];
-  if (list.length === 1) return hlItem(x);
-  const u = uOf(x.user_id), me = x.user_id === S.me.id;
-  const who = h('b.hl-who', { title: 'Ver perfil', onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, x.user_id); } }, me ? 'Você' : u.display_name);
-  const key = day + '|' + g.k;
-  if (x.kind === 'clip') {
-    const open = hlOpen.has(key);
-    const head = h('div.hl-item.hl-clip.hl-multi', { title: open ? 'Esconder os clipes' : 'Ver os clipes', 'aria-expanded': String(open), onclick: () => { open ? hlOpen.delete(key) : hlOpen.add(key); redraw(); }, oncontextmenu: (e) => ctx.userMenu(e, x.user_id) },
-      h('div.hl-ic', avatar(u, 32, { status: false }), h('span.hl-badge', h('span.gicon.hl-clipic', { style: { width: '18px', height: '18px' } }, icon('clip', 13)))),
-      h('div.hl-txt', h('span.hl-tag.clip', icon('clip', 12), 'Clipes'), h('span', who, ` salvou ${list.length} clipes`), h('small', timeRange(list))),
-      h('span.hl-chev', icon('chevdown', 16)));
-    if (!open) return head;
-    return h('div.hl-group', head, h('div.hl-sub', ...list.map(c => h('button.hl-subitem', { title: 'Assistir ao clipe', onclick: () => openClip(c.clip.id) },
-      icon('play', 12), h('span', c.clip.title || 'Clipe'), h('small', clock(c.at))))));
-  }
-  if (x.kind === 'session' || x.kind === 'marathon') {
-    const a = { platform: x.platform, game: x.game }, secs = list.reduce((t, y) => t + (y.seconds || 0), 0), long = list.some(y => y.kind === 'marathon');
-    return h('div.hl-item.hl-' + (long ? 'marathon' : 'session'), { title: `Sobre ${x.game.title}`, onclick: openGame(a), oncontextmenu: (e) => ctx.userMenu(e, x.user_id) },
-      h('div.hl-ic', avatar(u, 32, { status: false }), h('span.hl-badge', gameIcon(a, 18))),
-      h('div.hl-txt', long && h('span.hl-tag.gold', icon('trophy', 12), 'Maratona'), h('span', who, ' jogou ', titleEl(a, 'b'), ' por ', h('b', durShort(secs)), ` em ${list.length} partidas`), h('small', timeRange(list))));
-  }
-  return hlItem(x); // jogo novo e sequência não se repetem no mesmo dia; se vier repetido, mostra o mais recente
-}
-const DAY_MAX = 4; // linhas por dia antes do "Mostrar mais"
-function hlDay(k, items, redraw) {
-  const groups = groupDay(items), open = dayOpen.has(k), shown = open ? groups : groups.slice(0, DAY_MAX), rest = groups.length - shown.length;
-  return h('div.hl-day', h('div.hl-dayh', k), ...shown.map(g => hlGroup(g, k, redraw)),
-    rest > 0 && h('button.hl-more', { onclick: () => { dayOpen.add(k); redraw(); } }, icon('chevdown', 14), `Mostrar mais ${rest}`),
-    open && groups.length > DAY_MAX && h('button.hl-more', { onclick: () => { dayOpen.delete(k); redraw(); } }, h('span.hl-up', icon('chevdown', 14)), 'Mostrar menos'));
+function weekSections() {
+  if (!feed) return [h('section.wk', h('div.wk-h', h('h4', 'A semana da galera')), skeleton('rows', 3))];
+  const w = feed.week || { days: [], games: [], clips: [] }, range = w.days?.length ? weekRange(w.days) : '';
+  const [first, ...rest] = w.games;
+  const games = h('section.wk.wk-games', h('div.wk-h', h('h4', 'A semana da galera'), range && h('small', range)),
+    first ? [gameHero(first, w.days), rest.length > 0 && h('div.wk-rows', ...rest.map((x, i) => gameRow(x, i + 2, w.days)))]
+      : h('p.wk-empty', icon('gamepad', 18), h('span', 'Semana tranquila até agora. Os jogos que tomarem o tempo da galera aparecem aqui.')));
+  const clips = h('section.wk.wk-clips', h('div.wk-h', h('h4', 'Clipes da semana')),
+    w.clips.length ? w.clips.map(clipCard)
+      : h('p.wk-empty', icon('clip', 18), h('span', 'Nenhum clipe se destacou ainda. Os mais assistidos, favoritados e compartilhados aparecem aqui.')));
+  return [games, clips];
 }
 
 // ---------------------------------------------------------------- pedidos de amizade e convites para a chamada
@@ -488,14 +508,8 @@ export function activityPanel(box) {
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
       h('button.btn.link.sm', { title: 'Este jogo nunca aparece como atividade', onclick: async () => { if (await tryApi('PUT', `/activity/games/${mine.platform}/${encodeURIComponent(mine.game.id)}`, { hidden: true })) toast('Jogo escondido. Você pode reexibi-lo em Contas vinculadas.'); } }, 'Esconder jogo')));
     now.push(...srv);
-    // destaques agrupados por dia
-    const hl = feed?.highlights || [], groups = [];
-    for (const x of hl) { const k = dayHead(x.at); let g = groups.find(y => y.k === k); if (!g) groups.push(g = { k, items: [] }); g.items.push(x); }
-    const hist = !feed ? [skeleton('rows', 4)]
-      : hl.length ? groups.map(g => hlDay(g.k, g.items, draw))
-        : [h('div.an-empty.small', h('p', 'Nada marcante ainda esta semana. Partidas longas, jogos novos, sequências e clipes dos seus amigos aparecem aqui.'))];
-    // "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho, no topo
-    body.replaceChildren(intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), h('section.an-hist', h('div.an-cap', 'Destaques da semana'), ...hist));
+    // "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho, no topo; embaixo a retrospectiva da semana
+    body.replaceChildren(intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
   };
   S.redrawFeed = draw; draw();
   stagger(body.querySelector('.an-now')); // cartões entram em cascata ao montar o painel (não nos redesenhos)

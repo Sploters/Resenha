@@ -309,7 +309,7 @@ html.boot #boot { display: flex; }
 #boot s { height: 44px; margin: 0 16px 24px; border-radius: 8px; }
 @media (max-width: 640px) { #boot .bt-side, #boot .bt-rail { display: none; } }
 /* listas longas: o navegador não desenha as linhas fora da tela (efeito de virtualização, sem mudar a lista) */
-.mem, .frow, .clipcard, #active-now .hl-item, .lfgcard, .dcard { content-visibility: auto; contain-intrinsic-size: auto 48px; }
+.mem, .frow, .clipcard, .lfgcard, .dcard { content-visibility: auto; contain-intrinsic-size: auto 48px; }
 /* lateral com muitos canais/conversas (1.000 canais, 500 DMs): o que está fora da tela não entra no layout de cada redesenho */
 #side-list .cat-lazy, #side-list .dm-lazy { pointer-events: none; } /* categoria ainda não montada (app.js catReady): espaço do tamanho dela */
 #side-list .dmrow { content-visibility: auto; contain-intrinsic-size: auto 44px; }
