@@ -974,7 +974,9 @@ function keysPage() {
         } }, `Remover atalhos do soundboard (${sbN})`)),
         hint('O botão ↺ ao lado de um atalho volta só ele ao padrão; o × deixa ele sem tecla.')),
       section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
-      hint('Atalhos para tocar sons do soundboard: clique direito no som → "Definir atalho".'));
+      section('Soundboard'),
+      card(row('Alt + teclado numérico 1–9', (desktop ? 'Funciona com o jogo em foco enquanto você está numa chamada. ' : 'Com o app em foco. ') + 'Toca os 9 primeiros sons: favoritos, depois os seus sons, depois os do servidor da chamada. O Num Lock precisa estar ligado.', toggle(S.prefs.sbNumpad !== false, (v) => { S.prefs.sbNumpad = v; save(); document.dispatchEvent(new Event('sb-changed')); }))),
+      hint('Atalho para um som específico: clique direito no som → "Definir atalho"' + (desktop ? ' (com Ctrl, Alt ou Shift ele funciona também com o jogo em foco).' : '.')));
   };
   draw();
   return root;

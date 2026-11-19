@@ -852,7 +852,12 @@ export class Voice {
       // onRtpReceiver funciona sempre (scripts/clip-tap-test.mjs). Até um buffer de clipe pedir, só deixa passar (screenTap)
       let tap = null;
       const wantTap = source === 'screen' && !this.e2ee && this.prefs?.clipsOn !== false;
-      const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters, ...(wantTap ? { onRtpReceiver: (rx) => { tap = attachTap(rx, r.rtpParameters?.codecs?.[0]?.mimeType); } } : {}) });
+      // sincronia áudio/vídeo: o Chromium só alinha um vídeo com o áudio do mesmo "stream". Sem dizer qual, todos os
+      // envios de uma pessoa (microfone, câmera, tela e áudio da tela) caíam no mesmo grupo e o vídeo da tela era
+      // alinhado com o MICROFONE; o áudio do jogo ficava solto e cada um via um atraso diferente (para um o áudio
+      // atrasado, para outro o vídeo). Agora: tela + áudio da tela juntos; câmera + microfone juntos.
+      const streamId = `${user_id}-${source === 'screen' || source === 'screenaudio' ? 'screen' : 'cam'}`;
+      const c = await s.recv.consume({ id: r.id, producerId: r.producer_id, kind: r.kind, rtpParameters: r.rtpParameters, streamId, ...(wantTap ? { onRtpReceiver: (rx) => { tap = attachTap(rx, r.rtpParameters?.codecs?.[0]?.mimeType); } } : {}) });
       if (this.sfu !== s) { tap?.close(); return c.close(); }
       this.e2eeAttach(c.rtpReceiver, 'dec');
       if (s.closedEarly?.delete(r.id)) { c.close(); tap?.close(); s.seen.delete(producer_id); return; } // a transmissão acabou enquanto preparava

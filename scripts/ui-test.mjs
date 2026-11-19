@@ -126,6 +126,11 @@ try {
   await A.screenshot({ path: `${SHOTS}/07-soundboard.png` });
   await A.evaluate(() => document.querySelector('.sb-pop [data-sec="me"] .sbsnd:not(.sbadd)')?.click()); await sleep(1200);
   ok((await B.evaluate(() => window.__plays)).includes(wav), 'som do soundboard tocou para a outra pessoa na sala');
+  ok(await A.evaluate(() => document.querySelector('.sb-pop [data-sec="me"] .sbsnd .sbkey')?.textContent === 'Alt+1'), 'primeiro som mostra o atalho Alt + NumPad 1');
+  await A.keyboard.press('Escape'); await A.evaluate(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+  await B.evaluate(() => { window.__plays = []; });
+  await A.keyboard.down('Alt'); await A.keyboard.press('Numpad1'); await A.keyboard.up('Alt'); await sleep(1200);
+  ok((await B.evaluate(() => window.__plays)).includes(wav), 'Alt + NumPad 1 toca o primeiro som para a sala');
   await A.keyboard.press('Escape'); await A.evaluate(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
   await api(tokA, 'POST', `/guilds/${gid}/sounds`, { name: 'Do servidor', emoji: '📣', url: wav, volume: 120 }); await sleep(500);
   ok(await B.evaluate((gid) => window.__lc.S.guilds.get(gid).sounds.length === 1, gid), 'som do servidor chegou aos membros');

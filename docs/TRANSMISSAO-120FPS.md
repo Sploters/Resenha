@@ -43,3 +43,22 @@ Quem assiste não muda nada: recebe um producer de tela H.264 comum.
   compiladas aqui (`cargo build --target x86_64-pc-windows-gnu`), não exercitadas: falta medir num PC com Windows.
 - `node scripts/native-test.mjs`: teste manual (código) e SRTP — sem a chave o servidor descarta os pacotes.
 - `cargo test` em `native/lc-stream`: empacotamento RTP e SRTP (vetores do RFC 3711).
+
+## Áudio e vídeo da transmissão fora de sincronia (2026-11-19)
+Relato: Valorant 1080p60 no Windows 10, app 1.0.52. Para um espectador o áudio vinha atrasado em relação ao vídeo, para
+outro o vídeo vinha atrasado. Atraso em sentidos opostos para pessoas diferentes = quem assiste não estava alinhando
+os dois. Três causas, corrigidas:
+1. **Quem assiste não agrupava tela + áudio do jogo** (`onSfuProducer` em `public/voice.js`). O Chromium só alinha um
+   vídeo com o áudio do mesmo "stream" (msid). Todos os envios de uma pessoa saíam no mesmo stream (o padrão do
+   mediasoup-client), então microfone, câmera, tela e áudio da tela caíam num grupo só e o vídeo da tela era alinhado
+   com o microfone; o áudio do jogo ficava solto, com o atraso de cada rede. Agora o `consume()` passa
+   `streamId = <uid>-screen` para tela e áudio da tela e `<uid>-cam` para câmera e microfone.
+2. **Fila do áudio do jogo variando de 30 a 250 ms** (`public/appaudio-worklet.js`). O relógio do Windows e o do
+   Chromium não andam igual; a fila crescia devagar até 250 ms antes de ser cortada para 60 ms, e o áudio saía com esse
+   atraso a mais (que mudava com o tempo). Agora a leitura acelera ou freia até 0,5% (reamostragem linear, inaudível) e
+   a fila fica em ~40 ms; corte só acima de 120 ms. Teste: `scripts/appaudio-worklet-test.mjs` (relógio ±0,3% e +0,45%).
+3. **Relatório do remetente do vídeo nativo** (`maybe_sr` em `native/lc-stream/src/rtp.rs`): ligava a hora de AGORA ao
+   ts do último quadro enviado, que foi capturado antes (tempo do codificador). O servidor (mediasoup) usa esse relatório
+   para saber quando cada quadro foi capturado, e achava o vídeo mais novo do que era. Agora o ts do relatório é calculado
+   para o instante do relatório pela origem do relógio dos ts (`Session::clock0`). Vale a partir do `lc-stream.exe` novo
+   (próxima versão do app); as correções 1 e 2 valem ao recarregar a página.

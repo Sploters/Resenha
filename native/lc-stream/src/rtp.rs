@@ -28,7 +28,11 @@ pub struct Stream {
 /// Um socket UDP (o PlainTransport aprende o endereço do primeiro pacote: todas as camadas saem dele) e N fluxos.
 pub struct Session { sock: UdpSocket, out: Pacer, rx: Option<crate::srtp::Rx>, key: Option<String>, pub streams: Vec<Stream>, pub rtcp_bad: u64,
     /// clipes da própria transmissão (replay.rs): recebe os quadros da camada cheia (a última) já comprimidos
-    pub replay: Option<std::sync::Arc<std::sync::Mutex<crate::replay::Replay>>> }
+    pub replay: Option<std::sync::Arc<std::sync::Mutex<crate::replay::Replay>>>,
+    /// origem do relógio dos ts (ts = segundos desde ela × 90 kHz): o relatório do remetente diz o ts de AGORA, não o do
+    /// último quadro enviado (que foi capturado antes, pelo tempo do codificador). Sem isso o servidor achava o vídeo
+    /// capturado mais tarde do que foi, e quem assiste via o vídeo atrasado em relação ao áudio do jogo.
+    pub clock0: Option<Instant> }
 
 /// Envio no ritmo (como o "pacer" do WebRTC). Antes cada quadro saía de uma vez: um quadro-chave de 1080p (100-300 KB,
 /// centenas de pacotes) em rajada enchia a fila do roteador/VPN de quem transmite e do servidor, e quem assistia via
@@ -106,7 +110,7 @@ impl Session {
         sock.connect((host, port))?;
         sock.set_nonblocking(true)?;
         let out = Pacer::new(sock.try_clone()?);
-        Ok(Self { sock, out, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0, replay: None })
+        Ok(Self { sock, out, rx: None, key: None, streams: Vec::new(), rtcp_bad: 0, replay: None, clock0: None })
     }
     /// ritmo do envio: 2,5x a soma das taxas das camadas (kbps), como o WebRTC
     pub fn set_pace_kbps(&mut self, kbps: u64) { self.out.rate(kbps * 1000 * 5 / 2); }
@@ -183,6 +187,7 @@ impl Session {
 
     /// Relatório do remetente a cada 1 s por fluxo: o mediasoup usa para alinhar as camadas ao trocar de uma para outra.
     fn maybe_sr(&mut self, i: usize, ts: u32) {
+        let ts = match self.clock0 { Some(c) => (c.elapsed().as_secs_f64() * 90000.0) as u64 as u32, None => ts };
         let st = &mut self.streams[i];
         if st.last_sr.elapsed() < Duration::from_secs(1) { return; }
         st.last_sr = Instant::now();

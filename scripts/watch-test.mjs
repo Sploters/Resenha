@@ -86,10 +86,9 @@ try {
   await A.waitForSelector('#wt:not(.hidden) .wt-empty'); await sleep(400);
   let w = await W(A);
   ok(w.joined && w.sess.host === (await A.evaluate(() => window.__lc.S.me.id)) && w.sess.mode === 'hosting', 'Watch Together aberto: Ana é a anfitriã, modo Hosting');
-  ok(await A.$eval('#stage', s => s.classList.contains('wt-cover')) && await A.$eval('#stage > .bar', b => getComputedStyle(b).visibility === 'visible'), 'cobre o palco e mantém a barra da chamada visível');
-  // os botões que flutuam acima da barra (participantes, layout) não ficam por cima do player, e ele termina acima da barra
-  ok(await A.evaluate(() => { const wt = document.querySelector('#wt').getBoundingClientRect(), st = document.querySelector('#stage'), bar = st.querySelector(':scope > .bar');
-    return wt.bottom <= st.getBoundingClientRect().top + bar.offsetTop && [...bar.querySelectorAll('.partbtn, .layoutbtn, .bar-ctl')].every(e => getComputedStyle(e).display === 'none'); }), 'player termina acima da barra da chamada e nada da barra fica por cima dele');
+  // expandido: a barra da chamada (Transmitir tela, Atividades, Sair da chamada) sai e o player ocupa o palco todo
+  ok(await A.$eval('#stage', s => s.classList.contains('wt-cover')) && await A.$eval('#stage > .bar', b => getComputedStyle(b).display === 'none'), 'cobre o palco e esconde a barra da chamada');
+  ok(await A.evaluate(() => { const wt = document.querySelector('#wt').getBoundingClientRect(), st = document.querySelector('#stage').getBoundingClientRect(); return Math.abs(wt.bottom - (st.bottom - 4)) < 3; }), 'player ocupa a altura toda do palco');
   await shot(A, '02-vazio');
   // Beto vê o quadro da atividade no palco e entra
   await B.waitForSelector('.tile.wttile button', { timeout: 8000 });
@@ -143,6 +142,15 @@ try {
   ok((await cmd(C, 'add', { url: `https://www.youtube.com/watch?v=${IDS.two}` })).code === 'duplicate', 'duplicado recusado');
   ok((await cmd(C, 'add', { url: `https://www.youtube.com/watch?v=BLOCKEDvid9` })).code === 'embed_blocked', 'vídeo que proíbe incorporação recusado na hora de adicionar');
   ok(!(await cmd(C, 'add', { url: `https://youtu.be/${IDS.four}` })).error, 'Caio adiciona outro');
+  // pular: botão com o título do próximo; rodinha do mouse em cima do vídeo muda o volume
+  ok(await until(() => A.evaluate(() => { const b = document.querySelector('.wt-skipbtn'); return b && /Próximo/.test(b.textContent) && /Pular para:/.test(b.title); }), 3000), 'botão de pular mostra o próximo da fila', await A.evaluate(() => document.querySelector('.wt-skipbtn')?.title));
+  const v0 = (await W(A)).vol;
+  // (rodinha de verdade: no Chromium sem janela do teste a rodinha do Playwright não chega à página; o evento é o mesmo)
+  const wheel = (dy) => A.evaluate((dy) => document.querySelector('.wt-catch').dispatchEvent(new WheelEvent('wheel', { deltaY: dy, bubbles: true, cancelable: true })), dy);
+  await wheel(100); await sleep(100); await wheel(100); await sleep(100);
+  ok((await W(A)).vol === Math.max(0, v0 - 10) && await A.$eval('.wt-volosd', e => e.classList.contains('on')), 'rodinha do mouse em cima do vídeo baixa o volume (5% por passo) e mostra o valor', { antes: v0, depois: (await W(A)).vol });
+  await wheel(-100); await sleep(100); await wheel(-100); await sleep(100);
+  ok((await W(A)).vol === v0, 'rodinha para cima volta o volume');
   await sleep(1500);
   // sincronia entre navegadores
   // diferença de cada um para a posição da sala, medida dentro da própria página (no mesmo instante do relógio comum)

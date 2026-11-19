@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   flashFrame: () => ipcRenderer.send('flash-frame'), // ícone piscando na barra de tarefas (desde a 1.0.40)
   clipFlash: (o) => ipcRenderer.send('clip-flash', o), // aviso de clipe por cima do jogo (desde a 1.0.24)
   onHotkey: (cb) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
+  // atalhos do soundboard no Windows (com o jogo em foco), só enquanto está numa chamada: [{ combo (e.code), id }]; o
+  // atalho chega pelo onHotkey como 'sb:<id>' (desde a 1.0.53)
+  setSoundKeys: (list) => ipcRenderer.send('sound-keys', list),
   // push-to-talk global (apps com esta função; a página testa se pttSet existe): code = e.code da tecla ou Mouse3/4/5; null desliga. Devolve { ok, reason?, global }
   pttSet: (code) => ipcRenderer.invoke('ptt-set', code),
   onPtt: (cb) => ipcRenderer.on('ptt', (_e, down) => cb(!!down)),

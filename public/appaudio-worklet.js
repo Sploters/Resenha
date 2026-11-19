@@ -1,7 +1,11 @@
 // AudioWorklet do áudio "só do jogo" (app desktop): recebe o PCM do programa nativo lc-audio (float32, 48 kHz, estéreo,
-// intercalado, em pedaços de tamanho qualquer) e toca como uma trilha normal. Fila curta (~60 ms): se o relógio do Windows
-// e o do Chromium se afastarem, descarta o excesso; se faltar áudio (jogo em silêncio, o Windows não manda nada), sai silêncio.
-const RATE = 48000, TARGET = Math.round(RATE * 0.06), MAX = Math.round(RATE * 0.25), PRIME = Math.round(RATE * 0.03);
+// intercalado, em pedaços de tamanho qualquer) e toca como uma trilha normal. Se faltar áudio (jogo em silêncio, o Windows
+// não manda nada), sai silêncio.
+// Fila curta e CONSTANTE (~40 ms): o relógio do Windows e o do Chromium nunca andam igual, e antes a fila ia crescendo
+// devagar até 250 ms antes de ser cortada — o áudio do jogo chegava a sair até 1/4 de segundo atrasado em relação ao
+// vídeo da transmissão, e o atraso mudava com o tempo. Agora a leitura acelera ou freia até 0,5% (reamostragem linear,
+// inaudível) para manter a fila no alvo; acima de 120 ms (o programa travou e mandou tudo de uma vez) corta na hora.
+const RATE = 48000, TARGET = Math.round(RATE * 0.04), MAX = Math.round(RATE * 0.12), PRIME = Math.round(RATE * 0.03), MAX_SKEW = 0.005;
 class LcPcm extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -22,17 +26,24 @@ class LcPcm extends AudioWorkletProcessor {
       this.buf[w] = f[i * 2]; this.buf[w + 1] = f[i * 2 + 1];
       if (this.n < cap) this.n++; else this.r = (this.r + 1) % cap;
     }
-    if (this.n > MAX) { const drop = this.n - TARGET; this.r = (this.r + drop) % cap; this.n -= drop; } // atraso acumulado: volta para ~60 ms
+    if (this.n > MAX) { const drop = this.n - TARGET; this.r = (this.r + drop) % cap; this.n -= drop; } // atraso acumulado: volta para ~40 ms
     if (!this.primed && this.n >= PRIME) this.primed = true;
   }
   process(_in, outputs) {
     const out = outputs[0], L = out[0], R = out[1] || out[0], cap = this.buf.length / 2;
     if (!this.primed) { L.fill(0); R.fill(0); return true; }
+    // fila média (suavizada) → velocidade de leitura: acima do alvo lê um pouco mais rápido, abaixo um pouco mais devagar
+    this.avg = this.avg === undefined ? this.n : this.avg + (this.n - this.avg) * 0.02;
+    const step = 1 + Math.max(-MAX_SKEW, Math.min(MAX_SKEW, (this.avg - TARGET) / RATE));
+    let f = this.frac || 0;
     for (let i = 0; i < L.length; i++) {
-      if (!this.n) { L.fill(0, i); R.fill(0, i); this.primed = false; break; } // acabou: espera juntar um pouco antes de voltar (sem estalos)
-      L[i] = this.buf[this.r * 2]; R[i] = this.buf[this.r * 2 + 1];
-      this.r = (this.r + 1) % cap; this.n--;
+      if (this.n < 2) { L.fill(0, i); R.fill(0, i); this.primed = false; this.avg = undefined; f = 0; break; } // acabou: espera juntar um pouco antes de voltar (sem estalos)
+      const a = this.r * 2, b = ((this.r + 1) % cap) * 2;
+      L[i] = this.buf[a] + (this.buf[b] - this.buf[a]) * f; R[i] = this.buf[a + 1] + (this.buf[b + 1] - this.buf[a + 1]) * f;
+      f += step; const adv = f | 0; f -= adv;
+      this.r = (this.r + adv) % cap; this.n -= adv;
     }
+    this.frac = f;
     return true;
   }
 }

@@ -272,7 +272,22 @@ function registerHotkeys() {
   const fix = (acc) => String(acc || '').split('+').map(p => KEYS[p] || p).join('+');
   const reg = (acc, k) => { acc = fix(acc); try { if (acc && !globalShortcut.register(acc, () => send(k))) log('atalho em uso por outro app:', acc); } catch (e) { log('atalho inválido', acc, e.message); } };
   reg(cfg.hotkeyMute, 'mute'); reg(cfg.hotkeyDeafen, 'deafen'); reg(cfg.hotkeyClip, 'clip'); reg(cfg.hotkeyShare, 'share');
+  const used = new Set([cfg.hotkeyMute, cfg.hotkeyDeafen, cfg.hotkeyClip, cfg.hotkeyShare].map(a => fix(a).toLowerCase()));
+  for (const { acc, id } of soundKeys) if (!used.has(acc.toLowerCase())) { used.add(acc.toLowerCase()); reg(acc, 'sb:' + id); }
 }
+// soundboard: a página manda os atalhos dos sons (só enquanto está numa chamada) com o nome da tecla do navegador
+// (e.code: Alt+Numpad1, Ctrl+Shift+KeyQ…); aqui vira o formato do Electron (Alt+num1, CommandOrControl+Shift+Q…)
+let soundKeys = [];
+const SB_KEYS = { Backslash: '\\', Slash: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`',
+  NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult', NumpadDivide: 'numdiv', NumpadDecimal: 'numdec' };
+const sbAccel = (c) => String(c || '').split('+').map(p => p === 'Ctrl' ? 'CommandOrControl' : SB_KEYS[p] || p.replace(/^Numpad(\d)$/, 'num$1').replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '')).join('+');
+ipcMain.on('sound-keys', (_e, list) => {
+  const next = (Array.isArray(list) ? list : []).slice(0, 60)
+    .map(x => ({ acc: sbAccel(x?.combo), id: String(x?.id || '').slice(0, 64) }))
+    .filter(x => x.id && /^[\w-]+$/.test(x.id) && x.acc && !/^Mouse/.test(x.acc) && x.acc.includes('+')); // sem modificador roubaria a tecla do jogo
+  if (JSON.stringify(next) === JSON.stringify(soundKeys)) return;
+  soundKeys = next; registerHotkeys();
+});
 // n > 0: menções (número); -1: só mensagens não lidas (ponto, sem número); 0: nada
 function setBadge(n) {
   badge = n | 0;

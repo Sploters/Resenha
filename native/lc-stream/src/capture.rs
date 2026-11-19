@@ -481,6 +481,7 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
     let mut cand: Option<(Box<dyn Src>, Probe, f64)> = None; // (fonte, sonda, quando a decisão foi tomada)
     let mut probe = Probe::new(&p.g, (w0, h0))?;
     let mut tx = sender(o)?;
+    tx.clock0 = Some(clock); // ts = segundos desde `clock` × 90 kHz
     let top_i = o.layers.len() - 1;
     for (i, l) in &p.layers { if let Some(hh) = l.enc.seq_header() { tx.set_params(*i, &hh); } }
     let (mut ow, mut oh) = (p.layers.last().unwrap().1.ow, p.layers.last().unwrap().1.oh);

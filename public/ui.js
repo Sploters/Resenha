@@ -115,7 +115,7 @@ export function comboFromEvent(e) {
   return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.code].filter(Boolean).join('+');
 }
 const MOUSE_LABEL = { Mouse3: 'Botão do meio do mouse', Mouse4: 'Mouse 4 (lateral)', Mouse5: 'Mouse 5 (lateral)' };
-export const comboLabel = (c) => !c ? '—' : MOUSE_LABEL[c] || c.split('+').map(p => p.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, 'Seta ').replace('Backquote', '`').replace('Space', 'Espaço')).join(' + ');
+export const comboLabel = (c) => !c ? '—' : MOUSE_LABEL[c] || c.split('+').map(p => p.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad(\d)$/, 'NumPad $1').replace(/^Arrow/, 'Seta ').replace('Backquote', '`').replace('Space', 'Espaço')).join(' + ');
 // nome da tecla (e.code) -> nome que o Electron aceita nos atalhos globais (pontuação vira o próprio caractere;
 // "Backslash" e companhia davam "atalho inválido" e o atalho nunca funcionava)
 const ACCEL_KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',

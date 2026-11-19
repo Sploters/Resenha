@@ -50,13 +50,43 @@ export function trigger(sound, voice, { preview = false } = {}) {
   if (!preview && voice?.active) voice.send('SOUNDBOARD', { url: sound.url, volume: vol(sound), name: sound.name, emoji: sound.emoji });
   else { if (!preview && !voice?.active) toast('Entre em uma sala de voz para tocar para os outros. Tocando prévia.'); playLocal(sound.url, vol(sound)); }
 }
-export function handleKey(e, voice) { // atalho por som (enquanto o app está em foco)
-  const keys = S.prefs.sbKeys; if (!keys) return false;
-  const c = comboFromEvent(e); if (!c) return false;
-  const id = Object.keys(keys).find(k => keys[k] === c); if (!id) return false;
-  const s = findSound(id); if (!s) return false;
-  e.preventDefault(); trigger(s, voice); return true;
+// Atalhos: os que a pessoa definiu em cada som (clique direito → "Definir atalho") + os padrão Alt + teclado numérico
+// 1–9, que tocam os 9 primeiros sons na ordem: favoritos, meus sons, sons do servidor da chamada (os que já têm atalho
+// próprio ficam de fora). No app desktop valem com o jogo em foco enquanto você está numa chamada (syncSoundKeys).
+export const NUMPAD_SLOTS = 9;
+export function numpadSounds(gid = null) {
+  if (S.prefs.sbNumpad === false) return [];
+  const own = S.prefs.sbKeys || {}, seen = new Set(), out = [];
+  const g = gid && S.guilds.get(gid);
+  const pool = [...favs().map(findSound), ...mySounds(), ...(g && !(S.prefs.sbOffGuilds || {})[g.id] ? g.sounds || [] : [])];
+  for (const x of pool) { if (!x || seen.has(x.id) || own[x.id]) continue; seen.add(x.id); out.push(x); if (out.length >= NUMPAD_SLOTS) break; }
+  return out;
 }
+// combinação -> id do som (os atalhos próprios ganham de um padrão com a mesma tecla)
+export function soundKeys(gid = null) {
+  const map = new Map();
+  numpadSounds(gid).forEach((x, i) => map.set(`Alt+Numpad${i + 1}`, x.id));
+  for (const [id, c] of Object.entries(S.prefs.sbKeys || {})) if (c) map.set(c, id);
+  return map;
+}
+const voiceGid = (voice) => (voice?.channelId && [...S.guilds.values()].find(g => (g.channels || []).some(c => c.id === voice.channelId))?.id) || null;
+export const keyOfSound = (id, voice) => { for (const [c, x] of soundKeys(voiceGid(voice))) if (x === id) return c; return null; };
+export function handleKey(e, voice) { // atalho por som (enquanto o app está em foco)
+  const c = comboFromEvent(e); if (!c) return false;
+  const id = soundKeys(voiceGid(voice)).get(c); if (!id) return false;
+  const s = findSound(id); if (!s) return false;
+  e.preventDefault(); if (!e.repeat) trigger(s, voice); return true;
+}
+// app desktop: registra os atalhos dos sons no Windows (funcionam com o jogo em foco) só enquanto você está numa
+// chamada, para não roubar Alt + teclado numérico dos outros programas fora dela. Só reenvia quando muda.
+let sentKeys = '';
+export function syncSoundKeys(voice) {
+  const d = window.lcDesktop; if (!d?.setSoundKeys) return;
+  const list = voice?.active ? [...soundKeys(voiceGid(voice))].map(([combo, id]) => ({ combo, id })) : [];
+  const k = JSON.stringify(list); if (k === sentKeys) return; sentKeys = k;
+  d.setSoundKeys(list);
+}
+export const playSoundById = (id, voice) => { const s = findSound(id); if (s) trigger(s, voice); };
 
 // ---- adicionar/editar ----
 async function pickAudio() {
@@ -143,11 +173,11 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
       })].filter(Boolean);
   };
   const tile = ({ src, s }) => {
-    const fav = favs().includes(s.id), key = (S.prefs.sbKeys || {})[s.id];
+    const fav = favs().includes(s.id), key = keyOfSound(s.id, voice);
     return h('div.sbsnd', { title: s.name + (key ? ` — atalho: ${comboLabel(key)}` : ''), onclick: () => trigger(s, voice),
       oncontextmenu: (e) => menu(e, [{ label: 'Tocar só para mim (prévia)', fn: () => trigger(s, voice, { preview: true }) }, { label: fav ? 'Remover dos favoritos' : 'Favoritar', fn: () => { toggleFav(s.id); draw(); } },
         { label: 'Definir atalho…', fn: () => keyDialog(s) }, (src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD))) && { label: 'Editar / excluir…', fn: () => { closeFloating(); editSound(src, s); } }]) },
-      h('span.e', soundEmoji(s.emoji)), h('span.n', s.name),
+      h('span.e', soundEmoji(s.emoji)), h('span.n', s.name), key && h('span.sbkey', comboLabel(key).replace('Alt + NumPad ', 'Alt+')),
       // ao passar o mouse: prévia (só você ouve) e favoritar; clicar no resto do botão toca para a sala
       h('div.sbov', h('button', { title: 'Prévia (só você ouve)', onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } }, icon('voice', 16)),
         h('button' + (fav ? '.on' : ''), { title: fav ? 'Remover dos favoritos' : 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 16))));
@@ -227,6 +257,6 @@ function quickSounds(anchor, voice, openFull) {
 function keyDialog(s) {
   const btn = h('button.btn.grey');
   captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { (S.prefs.sbKeys ||= {})[s.id] = c; savePrefs(); toast('Atalho definido'); });
-  modal('Atalho do som', `"${s.name}" — funciona com o app em foco.`, h('div', btn), [{ label: 'Remover atalho', cls: 'grey', fn: () => { delete (S.prefs.sbKeys || {})[s.id]; savePrefs(); } }, { label: 'Concluir' }]);
+  modal('Atalho do som', `"${s.name}" — ${window.lcDesktop?.setSoundKeys ? 'no app desktop funciona também com o jogo em foco, enquanto você está numa chamada' : 'funciona com o app em foco'}. Alt + teclado numérico 1–9 já tocam os 9 primeiros sons (favoritos primeiro).`, h('div', btn), [{ label: 'Remover atalho', cls: 'grey', fn: () => { delete (S.prefs.sbKeys || {})[s.id]; savePrefs(); } }, { label: 'Concluir' }]);
 }
 export { vol as soundVol };

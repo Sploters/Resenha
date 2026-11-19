@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-19-2', title: 'Transmissão com áudio e vídeo juntos e atalhos no Soundboard',
+    items: [
+      { i: 'screen', t: 'Áudio e vídeo da transmissão sincronizados', d: 'O áudio do jogo podia chegar atrasado ou adiantado em relação ao vídeo, cada espectador de um jeito. Agora quem assiste alinha o vídeo da tela com o áudio dela, e o áudio do jogo sai com atraso pequeno e constante.' },
+      { i: 'soundboard', t: 'Atalhos do Soundboard', d: 'Alt + teclado numérico 1 a 9 tocam os 9 primeiros sons (favoritos primeiro). No app para computador funcionam também com o jogo em foco, enquanto você está numa chamada. Dá para desligar em Configurações → Atalhos.', try: 'keys' },
+      { i: 'tv', t: 'Watch Together com mais espaço', d: 'Expandido, a barra da chamada sai e o vídeo ocupa o palco todo. Os botões continuam no painel de voz à esquerda.' },
+      { i: 'skip', t: 'Pular mais fácil', d: 'O botão "Próximo" mostra o título do que vem depois, e Shift + N pula. Quem não controla vê como pedir o controle.' },
+      { i: 'vol', t: 'Volume pela rodinha do mouse', d: 'Com o mouse em cima do vídeo do Watch Together, role para aumentar ou diminuir o volume (só para você). As setas ↑ ↓ também funcionam.' },
+    ],
+  },
+  {
     id: '2026-11-19-1', title: 'Watch Together em Full HD e sem legenda sozinha',
     items: [
       { i: 'tv', t: 'Vídeos em Full HD', d: 'O Watch Together pede 1080p para os vídeos do YouTube (ou a maior qualidade que o vídeo tiver, se não chegar a isso).' },

@@ -14,6 +14,11 @@
    que está escondido: saem, senão ficavam por cima do player */
 #vcall #stage.wt-cover > .bar, body:has(#stage.wt-cover) #vcall > #topbar { opacity: 1 !important; transform: none !important; pointer-events: auto !important; transition: none; }
 #stage.wt-cover > .bar > .partbtn, #stage.wt-cover > .bar > .layoutbtn, #stage.wt-cover > .bar > .bar-ctl, body:has(#stage.wt-cover) #vc-layout-slot { display: none !important; }
+/* Watch Together expandido: a barra da chamada (Transmitir tela, Atividades, Sair da chamada) sai e o vídeo ganha a
+   altura toda. Esses botões continuam no painel de voz da esquerda; em tela estreita (sem o painel) ficam só os de
+   microfone, fone e câmera (.solo-narrow) */
+#stage.wt-cover > .bar > :not(.solo-narrow) { display: none !important; }
+@media (min-width: 641px) { #vcall #stage.wt-cover > .bar { display: none !important; } }
 /* app desktop: o iframe do YouTube desenhado pela página, sempre pelo mesmo caminho (igual ao filtro dos <video> em ux.css) */
 html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 
@@ -304,3 +309,19 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 .wt-livedot { padding: 1px 5px; border-radius: 4px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
 .wt-livel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 #wt.mini .wt-live, #wt.stack .wt-livel { display: none; }
+
+/* ---------- pular para o próximo (com o título do próximo à vista) ---------- */
+.wt-skipbtn { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 8px; border-radius: 17px; color: var(--wt-ctl-fg); background: rgba(255,255,255,.06); flex: 0 1 auto; min-width: 0; max-width: 260px; font-size: 13px; font-weight: 600; }
+.wt-skipbtn:hover:not(:disabled) { background: rgba(255,255,255,.14); color: #fff; }
+.wt-skipbtn:disabled { opacity: .35; cursor: not-allowed; }
+.wt-skipbtn .icon { flex: none; }
+.wt-skipl { flex: none; }
+.wt-skipt { font-weight: 400; color: var(--wt-ctl-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#wt.narrow .wt-skipt, #wt.mini .wt-skipt { display: none; }
+#wt.mini .wt-skipbtn { height: 30px; padding: 0 10px 0 6px; }
+/* volume pela rodinha: aparece no meio do vídeo e some sozinho */
+.wt-volosd { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; font-size: 14px; font-weight: 600; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 3; }
+.wt-volosd.on { opacity: 1; }
+.wt-volosd span { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.wt-volosd i { display: block; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); overflow: hidden; }
+.wt-volosd i b { display: block; height: 100%; background: #fff; }

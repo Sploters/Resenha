@@ -70,6 +70,7 @@
 .sbrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .sbsnd { position: relative; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; background: var(--bg-tert); cursor: pointer; overflow: hidden; transition: transform .08s; }
 .sbsnd:active { transform: scale(.96); }
+.sbsnd .sbkey { flex: none; font-size: 10px; font-weight: 600; color: var(--text-muted); background: var(--bg-mod-sel, rgba(127,127,127,.18)); border-radius: 4px; padding: 1px 4px; font-variant-numeric: tabular-nums; }
 .sbsnd .e { font-size: 18px; line-height: 1; flex: none; } .sbsnd .n { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .12s; pointer-events: none; }
 .sbsnd:hover .sbov { opacity: 1; } .sbsnd:hover .sbov button { pointer-events: auto; }

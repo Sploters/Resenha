@@ -56,6 +56,7 @@ pub struct Meter { start: Instant, sec: u64, cap: u32, sent: u32, bytes: u64, ls
 impl Meter {
     pub fn new(o: &Opts) -> Self { replay::set_clock_origin(); Self { start: Instant::now(), sec: 0, cap: 0, sent: 0, bytes: 0, lsent: vec![0; o.layers.len()], last_layers: vec![0; o.layers.len()], hist_cap: vec![], hist_sent: vec![], hist_bytes: vec![], enc_ms: vec![], skipped_busy: 0, repeats: 0, secs: o.secs, app: o.app, stop: o.stop.clone(), size: (0, 0), extra: serde_json::Value::Null } }
     pub fn elapsed(&self) -> f64 { self.start.elapsed().as_secs_f64() }
+    pub fn start(&self) -> Instant { self.start }
     pub fn captured(&mut self) { self.cap += 1; }
     /// quadro enviado na camada `layer` (a última é a cheia: é ela que conta como "fps enviados")
     pub fn sent(&mut self, layer: usize, bytes: usize) { if layer + 1 == self.lsent.len() { self.sent += 1; } if let Some(x) = self.lsent.get_mut(layer) { *x += 1; } self.bytes += bytes as u64; }
@@ -219,7 +220,7 @@ fn run(o: &Opts) -> Result<(), String> {
     if o.app { emit(started); }
     if let Some(s) = &mut sim { sim_out(s); }
     replay::set_clock_origin(); // os carimbos da simulação contam a partir daqui
-    let t0 = Instant::now(); let mut next: Vec<f64> = vec![0.0; o.layers.len()]; let mut k: Vec<u64> = vec![0; o.layers.len()];
+    let t0 = Instant::now(); tx.clock0 = Some(t0); let mut next: Vec<f64> = vec![0.0; o.layers.len()]; let mut k: Vec<u64> = vec![0; o.layers.len()];
     while !m.done() {
         // próxima camada a vencer
         let (i, due) = next.iter().cloned().enumerate().fold((0, f64::MAX), |a, (i, d)| if d < a.1 { (i, d) } else { a });

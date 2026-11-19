@@ -23,7 +23,7 @@ import { Voice, SCREEN_PRESETS, VOICE_BITRATES, prewarmVoice, CAPTURE_METHODS, c
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, openMusic, musicState, musicCmd } from './music.js';
 const musicOn = () => !!(musicState()?.active && musicState()?.current && !musicState()?.paused); // bot tocando nesta sala: botão aceso
-import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover } from './soundboard.js';
+import { openSoundboard, onIncoming as sbIncoming, handleKey as sbKey, quickSoundsHover, syncSoundKeys, playSoundById } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel, volumeControl } from './quick.js';
 import { previewHooks, hidePreview, paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -1538,6 +1538,7 @@ const newsActions = {
   extras: () => openSettings('extras', ctxSettings()),
   stream: () => openSettings('stream', ctxSettings()),
   voice: () => openSettings('voice', ctxSettings()),
+  keys: () => openSettings('keys', ctxSettings()),
   poll: () => { const ch = channelById(S.view.cid); if (ch && $('#composer')) pollModal(ch); else toast('Abra um chat e use o + do campo de mensagem → "Criar enquete".'); },
   settings: () => openSettings('news', ctxSettings()),
   ping: () => { const b = $('#vp-ping'); if (b) b.click(); else toast('Entre numa sala de voz e clique no ícone de sinal do painel de voz.'); },
@@ -4392,7 +4393,9 @@ function setupDesktop() {
   });
   setupPtt(() => voice);
   desktop?.setSettings?.(desktopHotkeys());
-  desktop?.onHotkey?.((k) => { if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); if (k === 'share') shareHotkey(); });
+  // soundboard no Windows: atalhos registrados só enquanto está numa chamada (confere a cada 2 s; só reenvia se mudar)
+  setInterval(() => syncSoundKeys(voice), 2000); document.addEventListener('sb-changed', () => syncSoundKeys(voice));
+  desktop?.onHotkey?.((k) => { if (typeof k === 'string' && k.startsWith('sb:')) return playSoundById(k.slice(3), voice); if (k === 'mute') voiceToggle('mute'); if (k === 'deafen') voiceToggle('deaf'); if (k === 'clip') clipHotkey(); if (k === 'share') shareHotkey(); });
 }
 
 // gancho de depuração/testes automatizados

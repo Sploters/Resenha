@@ -404,6 +404,7 @@ pub fn run(o: &Opts) -> R<()> {
     for (i, l) in &layers { if let Some(h) = l.enc.seq_header() { tx.set_params(*i, &h); } }
 
     let mut m = Meter::new(o); m.size = (ow, oh);
+    tx.clock0 = Some(m.start()); // ts = m.elapsed() × 90 kHz
     let mut last_grow = -10.0f64;
     let (mut blt_err, mut in_err) = (None::<String>, None::<String>);
     let ivd = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC { FourCC: 0, ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D, Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: 0 } } };

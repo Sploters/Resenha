@@ -372,6 +372,7 @@ function build() {
   const catcher = h('div.wt-catch', { onclick: () => togglePlay(), ondblclick: () => fullscreen() });
   const overlay = h('div.wt-ov');
   const stagebox = h('div.wt-stagebox', playerHost, catcher, overlay);
+  stagebox.addEventListener('wheel', volWheel, { passive: false }); // rodinha em cima do vídeo: volume (só para você)
   const head = h('div.wt-head'), controls = h('div.wt-ctl'), side = h('aside.wt-side'), people = h('div.wt-people');
   const search = h('input.wt-search', { type: 'search', maxLength: 500, autocomplete: 'off', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(search.value); } } });
   const main = h('div.wt-main', { onpointermove: () => fsWake(), onpointerdown: () => fsWake() }, stagebox, controls);
@@ -395,6 +396,9 @@ function keys(e) {
   if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo((W.player?.time() || 0) - 5); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo((W.player?.time() || 0) + 5); }
+  else if ((e.key === 'N' || e.key === 'n') && e.shiftKey) { e.preventDefault(); skipNow(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setVol(Math.min(100, (W.muted ? 0 : W.vol) + 5), false); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); const v = Math.max(0, (W.muted ? 0 : W.vol) - 5); setVol(v, v === 0); }
   else if (e.key === 'm') setVol(W.vol, !W.muted);
   else if (e.key === 'c') setCc(!W.cc);
   else if (e.key === 'f') fullscreen();
@@ -511,8 +515,8 @@ function paintControls() {
     h('div.wt-btnrow',
       h('button.wt-cb.wt-prev', { title: 'Anterior' + title, 'aria-label': 'Anterior', disabled: dis, onclick: () => act('prev') }, icon('skip', 18)),
       h('button.wt-cb.wt-pp', { title: (playing ? 'Pausar (espaço)' : 'Reproduzir (espaço)') + title, 'aria-label': playing ? 'Pausar' : 'Reproduzir', disabled: !it, onclick: togglePlay }, icon(playing ? 'pause' : 'play', 22)),
-      h('button.wt-cb', { title: 'Próximo' + title, 'aria-label': 'Próximo', disabled: dis, onclick: () => act('skip', { item_id: it?.id }) }, icon('skip', 18)),
-      h('div.wt-volbox', { title: 'Volume só para você' },
+      skipBtn(it, ctl),
+      h('div.wt-volbox', { title: 'Volume só para você (ou role o mouse em cima do vídeo)', onwheel: volWheel },
         h('button.wt-cb', { title: W.muted ? 'Ativar som (m)' : 'Silenciar (m)', 'aria-label': W.muted ? 'Ativar som' : 'Silenciar', onclick: () => setVol(W.vol || 60, !W.muted) }, icon(volIco, 18)),
         h('div.wt-volslide', vol)),
       h('span.wt-clock', h('span.wt-time', '0:00'), h('span.wt-dur', ' / ' + (it?.duration ? fmtTime(it.duration) : '--:--'))),
@@ -523,6 +527,37 @@ function paintControls() {
       h('button.wt-cb', { title: 'Ressincronizar com a sala', 'aria-label': 'Ressincronizar', onclick: resync }, icon('refresh', 16)),
       h('button.wt-cb', { title: 'Tela cheia (f)', 'aria-label': 'Tela cheia', onclick: fullscreen }, icon('expand', 16))));
   paintTime(); paintSyncBadge();
+}
+// pular: botão com texto e o título do próximo à vista (antes era só um ícone igual ao "Anterior", sem dizer o que
+// vinha). Quem não controla também pode clicar: aparece o aviso com "Pedir controle" em vez de um botão morto
+function skipBtn(it, ctl) {
+  const next = W.sess?.queue?.[0];
+  const tip = !it ? 'Nada tocando' : next ? `Pular para: ${next.title} (Shift+N)` : 'Pular (a fila está vazia: o vídeo termina) (Shift+N)';
+  return h('button.wt-skipbtn', { title: tip + (ctl ? '' : ` — só ${nm(W.sess.host)} controla`), 'aria-label': 'Pular para o próximo', disabled: !it, onclick: skipNow },
+    icon('skip', 18), h('span.wt-skipl', next ? 'Próximo' : 'Pular'), next && h('span.wt-skipt', next.title));
+}
+let skipping = 0;
+async function skipNow() {
+  const it = W.sess?.current; if (!it) return;
+  if (!canCtl()) return lockedHint();
+  if (performance.now() - skipping < 800) return; // clique duplo não pula dois vídeos
+  skipping = performance.now();
+  const next = W.sess.queue?.[0];
+  const r = await act('skip', { item_id: it.id });
+  if (r && !r.stale) toast(next ? `Pulando para: ${next.title}` : 'Vídeo pulado (a fila acabou)');
+}
+// volume pela rodinha do mouse em cima do vídeo (ou do alto-falante): 5% por passo, com o valor aparecendo no vídeo
+function volWheel(e) {
+  if (!W.sess?.current || e.ctrlKey) return; // Ctrl+rodinha continua sendo zoom
+  e.preventDefault();
+  const step = (e.deltaY < 0 ? 5 : e.deltaY > 0 ? -5 : 0) * (e.shiftKey ? 2 : 1); if (!step) return;
+  const cur = W.muted ? 0 : W.vol, v = Math.max(0, Math.min(100, Math.round((cur + step) / 5) * 5));
+  setVol(v, v === 0);
+  if (!ui) return;
+  let osd = ui.stagebox.querySelector('.wt-volosd');
+  if (!osd) { osd = h('div.wt-volosd'); ui.stagebox.append(osd); }
+  osd.replaceChildren(icon(v === 0 ? 'volmute' : v < 50 ? 'vollow' : 'vol', 20), h('span', v + '%'), h('i', h('b', { style: { width: v + '%' } })));
+  osd.classList.add('on'); clearTimeout(osd.t); osd.t = setTimeout(() => osd.classList.remove('on'), 900);
 }
 function paintTime() {
   if (!ui || !W.sess?.current || ui.root.classList.contains('hidden')) return;
