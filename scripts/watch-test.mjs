@@ -41,7 +41,7 @@ const media = http.createServer((req, res) => {
 });
 await new Promise(r => media.listen(0, '127.0.0.1', r));
 const MB = `http://127.0.0.1:${media.address().port}`;
-const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC_PORT: '41095', RTC_IPS: '127.0.0.1', YOUTUBE_API_KEY: 'teste', WATCH_YT_API: MB + '/yt', WATCH_HOST_GRACE_MS: '4000', WATCH_EMPTY_GRACE_MS: '30000' }, stdio: ['ignore', 'ignore', 'pipe'] });
+const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, RTC_PORT: '41095', RTC_IPS: '127.0.0.1', YOUTUBE_API_KEY: 'teste', WATCH_YT_API: MB + '/yt', CSP_EXTRA: MB, WATCH_HOST_GRACE_MS: '4000', WATCH_EMPTY_GRACE_MS: '30000' }, stdio: ['ignore', 'ignore', 'pipe'] });
 let srvErr = ''; srv.stderr.on('data', d => (srvErr += d));
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());

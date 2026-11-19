@@ -20,6 +20,7 @@ import { createCallInvites } from './callinvites.js';
 import { createPrivacy, cleanPrivacy } from './privacy.js';
 import { createRemote } from './remote.js';
 import { mountStatic } from './static.js';
+import { mountSecurity } from './security.js';
 import { createThumbs, VIDEO_KINDS } from './thumbs.js';
 import { mountStorage } from './storage.js';
 import { mountMyMessages } from './mymessages.js';
@@ -384,6 +385,7 @@ function createGuild(owner, name) {
 // ---------- HTTP ----------
 const app = express();
 app.disable('x-powered-by');
+mountSecurity(app, { publicDir: path.join(__dirname, '..', 'public') }); // CSP da página e cabeçalhos de segurança (server/security.js)
 app.use(express.json({ limit: '1mb' }));
 
 const auth = (req, res, next) => {
