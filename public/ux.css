@@ -1136,6 +1136,7 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 
 /* ================= Seção Jogos — lista lateral vira navegação (gamestabs.js gamesNav) ================= */
 #side-list.gnav-list { display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 16px; }
+.gnav-acts { display: flex; flex-direction: column; gap: 2px; } .gnav-acts[hidden] { display: none; }
 .gnav-cap { margin: 14px 8px 6px; font-size: 12px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); }
 .gnav-cap:first-child { margin-top: 6px; }
 #side-list .ch.gnav { display: flex; align-items: center; gap: 12px; width: 100%; height: auto; min-height: 52px; padding: 8px 10px; margin: 0; border: 0; border-radius: 8px; background: none; text-align: left; font: inherit; cursor: pointer; }

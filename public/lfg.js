@@ -98,8 +98,7 @@ function draw() {
       (g || links.length > 0) && h('div.lfgbar',
         g && h('label.lfgalert', toggle(!!alerts[g.id], (v) => { (S.prefs.lfgAlerts ||= {})[g.id] = v; if (!v) delete S.prefs.lfgAlerts[g.id]; savePrefs(); toast(v ? `Você será avisado de novos anúncios de ${g.name}` : 'Aviso desligado'); }), h('span', `Avisar quando alguém anunciar ${g.name}`)),
         links.length > 0 && h('div.lfglinks', h('span', 'Procurar também em'), links.map(l => h('a.lfglink', { href: l.url, target: '_blank', rel: 'noopener noreferrer', title: `${l.name} — ${l.game}` }, l.name, icon('external', 12))))),
-      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 36)), h('b', `Ninguém procurando ${st.game ? g?.name : 'grupo'}${gsel ? ' em ' + gsel.name : ''} agora`), h('p', g ? `Escolha "Avisar" acima para saber quando alguém anunciar ${g.name}, ou seja o primeiro.` : 'Crie um anúncio: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.'),
-        h('div.lfgempty-a', h('button.btn.green', { onclick: () => createModal() }, icon('plus', 16), 'Criar anúncio'), h('button.btn.grey', { onclick: () => ctx.intent?.({ game: st.game && st.game !== 'other' ? { lfg: st.game, name: G(st.game)?.name } : null }) }, icon('gamepad', 16), 'A fim de jogar'))),
+      open.length ? h('div.lfggrid', open.map(card)) : h('div.lfgempty', h('div.ceart', icon('users', 36)), h('b', `Ninguém procurando ${st.game ? g?.name : 'grupo'}${gsel ? ' em ' + gsel.name : ''} agora`), h('p', g ? `Escolha "Avisar" acima para saber quando alguém anunciar ${g.name}, ou seja o primeiro.` : 'Use "Criar anúncio" acima: quem divide servidor com você ou é seu amigo vê na hora e pode pedir para entrar.')), // os botões ficam só no topo (antes se repetiam aqui)
       done.length > 0 && [h('h4.lfgsec', 'Seus anúncios encerrados (últimas 12 h)'), h('div.lfggrid.done', done.map(card))])));
 }
 

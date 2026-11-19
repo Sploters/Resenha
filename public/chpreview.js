@@ -20,7 +20,9 @@ export function previewHooks(c) {
     onmouseenter: (e) => {
       hovered = { el: e.currentTarget, c }; clearTimeout(hideT);
       if (cur?.c.id === c.id) { cur.el = e.currentTarget; return; } // a lista foi redesenhada sob o mouse: mantém a prévia aberta
-      if (trigger() === 'hover' || (trigger() === 'shift' && e.shiftKey)) schedule(e.currentTarget, c);
+      // sala de voz: só com Shift ou clique do meio. Ao passar o mouse a prévia abria por cima do palco da chamada, e quem
+      // está na sala já aparece listado embaixo dela
+      if ((trigger() === 'hover' && c.type !== 2) || (trigger() === 'shift' && e.shiftKey)) schedule(e.currentTarget, c);
     },
     onmouseleave: () => { hovered = null; cancel(); hideSoon(); },
     onmousedown: (e) => {

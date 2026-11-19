@@ -410,9 +410,10 @@ export const menuHooks = []; // telemetria (public/ux.js): menu aberto / fechado
 export function menu(e, items, opts = {}) {
   e.preventDefault(); if (opts.keepFloat) layer().querySelectorAll('.menu:not(.leaving)').forEach(m => leave(m, 120)); else closeFloating();
   let picked = false;
-  // item: { label, fn, danger, icon (nome do ícone, à esquerda), checked (caixa marcável), sub: [itens] (submenu ao passar o mouse) }
+  // item: '-' (divisória), { head } (rótulo de grupo) ou { label, fn, danger, icon (nome do ícone, à esquerda), checked (caixa marcável), sub: [itens] (submenu ao passar o mouse) }
   const build = (list, depth) => h('div.menu', { 'data-depth': depth }, list.filter(Boolean).map(i => {
     if (i === '-') return h('div.sp');
+    if (i.head) return h('div.mhd', i.head); // rótulo de grupo (não clicável)
     // controle dentro do menu (ex.: volume): mexer nele conta como usar o menu, não como "fechou sem escolher"
     if (i.node) return h('div.mnode', { oninput: () => { picked = true; }, onchange: () => { picked = true; } }, i.node);
     const cbx = i.checked !== undefined ? h('span.cbx' + (i.checked ? '.on' : ''), i.checked && icon('check', 16)) : null;

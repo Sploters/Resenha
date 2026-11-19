@@ -75,6 +75,9 @@ const upCard = (u) => link(u.url, img(u.image),
     u.tags?.length && h('div.dtags', u.tags.map(t => h('span', t)))));
 
 const grid = (items, card) => h('div.dgrid', items.map(card));
+// no Início, uma fonte que respondeu sem nada some em vez de mostrar uma seção vazia (antes eram até cinco seguidas:
+// "Sem dados da Steam agora", "Nenhuma promoção…"). Carregando e erro continuam aparecendo
+const quiet = (kind, empty) => empty && !(st.loading[kind] && !st.data[kind]) && !(st.error[kind] && !st.data[kind]);
 function state(kind, items, empty) {
   if (st.loading[kind] && !st.data[kind]) return h('div.dgrid', Array.from({ length: 6 }, () => h('div.dcard.skel', h('div.dimg'), h('div.dbody', h('i'), h('i'), h('i')))));
   if (st.error[kind] && !st.data[kind]) return h('div.dempty', h('b', st.error[kind]), h('button.btn.grey', { onclick: () => load(kind, true) }, 'Tentar de novo'));
@@ -204,6 +207,7 @@ const SECS = {
   // Steam: mais jogados e mais vendidos lado a lado (5 de cada; "Ver tudo" mostra 15)
   charts() {
     const { ch } = homeData(), open = st.open.charts;
+    if (quiet('charts', !ch)) return null;
     const body = state('charts', ch ? [1] : [], 'Sem dados da Steam agora.') || h('div.dpanels',
       panel('users', 'Mais jogados agora', 'jogadores agora · pico de hoje', ch.playing, (g) => [h('b', full(g.now)), h('small', 'pico ' + big(g.peak))], open ? 15 : 5),
       panel('tag', 'Mais vendidos da semana', ch.country === 'BR' ? 'no Brasil' : '', ch.sellers, (g) => [trend(g.last, g.rank), h('div.dstack', priceTag(g), g.weeks > 1 && h('small', `${g.weeks} semanas na lista`))], open ? 15 : 5));
@@ -212,6 +216,7 @@ const SECS = {
   // Promoções: grátis primeiro; aberto separa Grátis / Em promoção
   deals() {
     const { deals } = homeData(), open = st.open.deals, free = deals.filter(d => d.free), paid = deals.filter(d => !d.free);
+    if (quiet('deals', !deals.length)) return null;
     const body = state('deals', deals, 'Nenhuma promoção encontrada agora.') || (open
       ? [free.length && h('h4.dsub', icon('gift', 16), 'Grátis'), free.length && grid(free, dealCard), paid.length && h('h4.dsub', icon('tag', 16), 'Em promoção'), paid.length && grid(paid, dealCard)]
       : rail('deals', deals, dealCard));
@@ -219,20 +224,29 @@ const SECS = {
   },
   upcoming() {
     const { ups } = homeData();
+    if (quiet('upcoming', !ups.length)) return null;
     return section('upcoming', 'calendar', 'Lançamentos', 'em breve na Steam', ups.length, state('upcoming', ups, 'Nenhum lançamento na lista agora.') || railOr('upcoming', ups, upCard));
   },
   tournaments() {
     const { tours } = homeData();
+    if (quiet('tournaments', !tours.length)) return null;
     return section('tournaments', 'trophy', 'Torneios', region() === 'br' ? 'no Brasil' : region() === 'latam' ? 'Brasil e América Latina' : null, tours.length,
       state('tournaments', tours, 'Nenhum torneio aberto na sua região agora.') || rail('tournaments', tours, tourCard), { tab: 'tournaments', tabLabel: `Ver todos (${tours.length})` });
   },
   news() {
     const { news } = homeData();
+    if (quiet('news', !news.length)) return null;
     return section('news', 'news', 'Últimas notícias', null, news.length, state('news', news, 'Nenhuma notícia por aqui.') || rail('news', news, newsCard), { tab: 'news', tabLabel: 'Ver todas' });
   },
 };
 const ORDER = ['foryou', 'charts', 'deals', 'upcoming', 'tournaments', 'news'];
-function homeTab() { return [interestsBox(), ...ORDER.map(k => SECS[k]())]; }
+function homeTab() {
+  const secs = ORDER.map(k => SECS[k]()).filter(Boolean);
+  // nenhuma fonte trouxe nada (e nada está carregando): um aviso só, com o botão de tentar de novo
+  const none = !secs.length && h('div.dempty.dhome-empty', h('b', 'Nada novo por aqui agora'), h('p', 'As novidades de jogos não chegaram. Tente de novo em alguns minutos.'),
+    h('button.btn.grey', { onclick: () => ALL.forEach(k => load(k, true)) }, 'Tentar de novo'));
+  return [interestsBox(), ...secs, none];
+}
 
 // O que chega da rede (6 fontes, uma de cada vez) redesenha no máximo uma vez por quadro e, no Início, só as seções
 // daquela fonte (e o "Para você", que junta todas): o resto da página — cartões, imagens, rolagem dos carrosséis — fica
@@ -255,7 +269,9 @@ function flush() {
   }
   const secs = kinds.filter(k => SECS[k]); // a resposta de uma fonte também muda o "Para você"
   if (kinds.some(k => ALL.includes(k))) secs.unshift('foryou');
+  if (wrap.querySelector(':scope > .dhome-empty')) return draw(); // chegou algo depois do aviso de "nada novo"
   if (secs.length) patchSecs(wrap, [...new Set(secs)]);
+  if (!wrap.querySelector(':scope > section')) draw(); // a última seção sumiu: redesenha para mostrar o aviso único
 }
 function patchSecs(wrap, keys) {
   for (const k of keys) {

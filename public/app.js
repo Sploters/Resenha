@@ -1036,19 +1036,24 @@ function friendsInServer(g) {
 const closeModals = () => document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
 function guildMenu(e, g) {
   const owner = g.owner_id === S.me.id, fr = friendsIn(g);
+  // em grupos: ações do servidor no topo, depois o que é só seu, depois administração (só aparece para quem pode) e,
+  // por último, a ação perigosa separada
+  const admin = [
+    can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
+    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar canal', fn: () => channelModal(g, 0) },
+    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar categoria', fn: () => channelModal(g, 4) },
+    isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
+  ].filter(Boolean);
   menu(e, [
     { label: 'Convidar pessoas', fn: () => inviteModal(g) },
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Procurar jogadores neste servidor', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
-    { label: 'Configurações de notificação…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
-    { label: 'Apagar minhas mensagens neste servidor…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
-    { label: 'Alterar apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
-    '-',
-    can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
-    isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar canal', fn: () => channelModal(g, 0) },
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar categoria', fn: () => channelModal(g, 4) },
+    '-', { head: 'Você' },
+    { label: 'Notificações…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
+    { label: 'Apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
+    { label: 'Apagar minhas mensagens…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
+    ...(admin.length ? ['-', { head: 'Administração' }, ...admin] : []),
     '-',
     S.prefs.devMode && { label: 'Copiar ID do servidor', fn: () => navigator.clipboard?.writeText(g.id) },
     owner ? { label: 'Excluir servidor', danger: true, fn: async () => { if (await confirmBox(`Excluir ${g.name}`, 'Essa ação é permanente e apaga todas as mensagens.', 'Excluir servidor')) tryApi('DELETE', `/guilds/${g.id}`); } }
@@ -1169,12 +1174,12 @@ function renderSide() {
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
-    // galeria de clipes do servidor: primeira linha da lista
+    // atalhos do servidor (clipes, arquivos, wishlist, eventos): bloco próprio no topo, separado dos canais por uma linha
     const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
     const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
     const wishRow = h('div.ch.clipsrow.wishrow' + (S.view.kind === 'wishlist' ? '.active' : ''), { onclick: () => go(g.id, 'wishlist'), title: 'Jogos que o pessoal deste servidor quer, com preço e promoção' }, icon('gift', 20), h('span.name', 'Wishlist'));
     const evRow = h('div.ch.clipsrow.evrow' + (S.view.kind === 'events' ? '.active' : ''), { onclick: () => go(g.id, 'events'), title: 'Jogatinas marcadas: dia, hora, sala e quem vai' }, icon('calendar', 20), h('span.name', 'Eventos'));
-    list = h('div#side-list', clipsRow, filesRow, wishRow, evRow, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    list = h('div#side-list', h('div.side-tools', clipsRow, filesRow, wishRow, evRow), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
@@ -2185,7 +2190,9 @@ async function loadChannel(cid) {
 function welcomeBlock(ch) {
   if (ch.type === 11) return postHead(ch); // post de fórum: o post inteiro no topo dos comentários
   if (ch.type === 1) { const p = user(dmPeer(ch).id); return h('div.welcome', avatar(p, 80, { status: false }), h('h1', p.display_name), h('p', `Este é o início do seu histórico de mensagens diretas com ${p.display_name}.`)); }
-  return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `Bem-vindo(a) a #${chName(ch)}!`), h('p', 'Este é o começo do canal.'));
+  // texto próprio do Resenha (antes era a frase do Discord traduzida); sala de voz não leva '#'
+  if (ch.type === 2) return h('div.welcome', h('div.big', icon('voice', 40)), h('h1', `Chat da sala ${chName(ch)}`), h('p', 'Links e recados para quem está na call.'));
+  return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `#${chName(ch)}`), h('p', 'Primeira mensagem do canal. Manda aí.'));
 }
 // linha fina que liga as mensagens seguidas do mesmo autor: marca com classe quem tem uma .cont logo depois (.tnext) em
 // vez de .msg.first:has(+ .msg.cont) no CSS, que o navegador reavaliava a cada recálculo de estilo do chat (~26 ms
@@ -3711,7 +3718,8 @@ function renderVoiceUI(speakOnly) {
   const abtn = (ic, title, on, fn) => h('button.roundbtn' + (on ? '.active' : ''), { title, onclick: fn }, icon(ic, 24));
   const btn = (ic, title, on, fn, cls = '') => swapIcon(h('button.roundbtn' + (on ? '.off' : '') + cls, { title, onclick: fn, oncontextmenu: cls.startsWith('.mic') ? noiseMenu : null }, icon(ic, 24)), 'bar-' + ic.replace(/(off|set)$/, ''), !!on); // ícone novo entra com fade + desfoque
   syncLive();
-  const bar = h('div.bar', inRoom ? [
+  // fora da sala o botão Entrar não some com o mouse fora do palco (.joinbar, features.css): era o único jeito de entrar
+  const bar = h('div.bar' + (inRoom ? '' : '.joinbar'), inRoom ? [
     // centro = sala e transmissão; microfone, fone, câmera, efeitos, soundboard e música ficam no painel da esquerda
     // (em tela estreita o painel some: aí eles voltam a aparecer aqui, .solo-narrow)
     btn(voice.muted ? 'micoff' : 'mic', voice.muted ? 'Ativar microfone (clique direito: redução de ruído)' : 'Silenciar (clique direito: redução de ruído)', voice.muted, () => voiceToggle('mute'), '.mic.solo-narrow'),

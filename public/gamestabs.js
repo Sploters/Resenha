@@ -19,7 +19,10 @@ const pick = (k) => {
   try { localStorage.setItem(PENDING, k); } catch { }
   location.hash = '#/@me/discover';
 };
-const syncNav = () => { for (const el of document.querySelectorAll('#side-list .gnav')) { const on = el.dataset.k === cur.active; el.classList.toggle('active', on); el.setAttribute('aria-current', on ? 'page' : 'false'); } };
+const syncNav = () => {
+  for (const el of document.querySelectorAll('#side-list .gnav')) { const on = el.dataset.k === cur.active; el.classList.toggle('active', on); el.setAttribute('aria-current', on ? 'page' : 'false'); }
+  const acts = document.querySelector('#side-list .gnav-acts'); if (acts) acts.hidden = cur.active === 'lfg';
+};
 // active: 'lfg' ou a aba do Descobrir; onDiscover(k): troca de aba quando já está no Descobrir
 export function gamesTabs(active, onDiscover) {
   Object.assign(cur, { active, onDiscover }); syncNav();
@@ -35,9 +38,11 @@ export function gamesNav(acts = {}) {
     h('div.gnav-cap', 'Explorar'),
     GAME_TABS.map(([k, l, ic]) => h('button.ch.gnav.gnav-' + k + (cur.active === k ? '.active' : ''), { type: 'button', 'data-k': k, 'aria-current': cur.active === k ? 'page' : 'false', onclick: () => pick(k) },
       h('span.gnav-ic', icon(ic, 20)), h('span.gnav-t', h('span.name', l), h('small', SUB[k])))),
-    h('div.gnav-cap', 'Atalhos'),
-    act('plus', 'Criar anúncio', () => { if (cur.active !== 'lfg') location.hash = '#/@me/lfg'; setTimeout(() => acts.create?.(), cur.active === 'lfg' ? 0 : 120); }, '.green'),
-    act('gamepad', 'A fim de jogar', () => acts.intent?.()),
-    act('edit', 'Meu perfil de jogador', () => acts.profile?.()));
+    // atalhos: escondidos em Procurar jogadores, que já tem os mesmos três botões no topo (syncNav)
+    h('div.gnav-acts', { hidden: cur.active === 'lfg' },
+      h('div.gnav-cap', 'Atalhos'),
+      act('plus', 'Criar anúncio', () => { if (cur.active !== 'lfg') location.hash = '#/@me/lfg'; setTimeout(() => acts.create?.(), cur.active === 'lfg' ? 0 : 120); }, '.green'),
+      act('gamepad', 'A fim de jogar', () => acts.intent?.()),
+      act('edit', 'Meu perfil de jogador', () => acts.profile?.())));
   return el;
 }

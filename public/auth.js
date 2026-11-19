@@ -97,8 +97,8 @@ export function renderAuth(root, mode, o) {
   };
   const swap = (e) => { e.preventDefault(); renderAuth(root, login ? 'register' : 'login', o); };
   const form = h('form.auth-form', { onsubmit: submit, novalidate: true },
-    h('h1', login ? 'Boas-vindas de volta!' : 'Criar uma conta'),
-    h('p.sub', login ? 'Estamos muito animados em te ver novamente!' : 'Junte-se ao servidor dos seus amigos.'),
+    h('h1', login ? 'Entrar no Resenha' : 'Criar uma conta'),
+    h('p.sub', login ? 'Sua turma está te esperando.' : 'Junte-se ao servidor dos seus amigos.'),
     o.invited && h('p.sub.invited', icon('invite', 18), 'Você foi convidado! Entre para aceitar o convite.'),
     o.qrPending && h('p.sub.invited.qr', icon('phone', 18), 'Entre aqui para aprovar o login no outro aparelho.'),
     req('Nome de usuário', u),
