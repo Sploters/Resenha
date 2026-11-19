@@ -35,6 +35,9 @@ tar czf - Dockerfile README.md PRIVACIDADE.md SECURITY.md package.json package-l
   [ -n \"\$DB\" ] && tar czf ~/resenha-backups/data-\$(date +%Y%m%d-%H%M%S).tgz -C ~/resenha-data \$DB
   # cookies do YouTube (opcional): coloque ~/resenha-data/cookies.txt no servidor
   COOKIES=; [ -f \$HOME/resenha-data/cookies.txt ] && COOKIES='-e YTDLP_COOKIES=/data/cookies.txt'
+  # chave da Steam (opcional, para biblioteca e conquistas): arquivo ~/resenha-steam.env no servidor, fora do
+  # repositório e da pasta de dados, com a linha STEAM_API_KEY=suachave (crie em steamcommunity.com/dev/apikey)
+  STEAM=; [ -f \$HOME/resenha-steam.env ] && STEAM=\"--env-file \$HOME/resenha-steam.env\"
   # espera ninguém estar em chamada. O servidor grava ~/resenha-data/em-chamada.json a cada 10 s (só contagens);
   # arquivo velho (servidor antigo ou parado) = não sabe, segue. A imagem nova já está montada: a troca leva segundos.
   if [ \"$FORCAR\" != 1 ]; then
@@ -58,7 +61,7 @@ tar czf - Dockerfile README.md PRIVACIDADE.md SECURITY.md package.json package-l
   docker rm -f resenha >/dev/null 2>&1 || true
   docker run -d --name resenha --restart=always \\
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \\
-    -v \$HOME/resenha-data:/data -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP \$COOKIES resenha >/dev/null
+    -v \$HOME/resenha-data:/data -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP \$COOKIES \$STEAM resenha >/dev/null
   sleep 4
   docker logs resenha 2>&1 | head -3
 "
