@@ -8,6 +8,9 @@
     "start": "node server/index.js",
     "build:vendor": "esbuild scripts/msc-entry.mjs --bundle --format=esm --minify --platform=browser --outfile=public/vendor/msc/mediasoup-client.js && esbuild node_modules/qrcode-generator/dist/qrcode.mjs --bundle --format=esm --minify --outfile=public/vendor/qr/qrcode.js \"--banner:js=/*! QR Code Generator for JavaScript — Copyright (c) 2009 Kazuhiko Arase — MIT license (https://github.com/kazuhikoarase/qrcode-generator). Gerado por npm run build:vendor. */\" && node scripts/vendor-mediabunny.mjs && node scripts/vendor-rnnoise-vad.mjs",
     "check": "node scripts/check.mjs",
+    "lint": "eslint .",
+    "test:fast": "node scripts/run-tests.mjs --no-retry unit-test smoke-test",
+    "test": "node scripts/run-tests.mjs",
     "perf:budget": "node scripts/perf-budget.mjs"
   },
   "engines": {
@@ -21,6 +24,8 @@
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
     "mediabunny": "1.62.1",
     "mediasoup-client": "^3.25.3",
     "puppeteer-core": "^25.16.0",
