@@ -128,7 +128,6 @@ const I = {
   // paleta de pintor com quatro tintas vazadas
   palette: { parts: ['M12 2.4c-5.4 0-9.6 4.3-9.6 9.6 0 5.2 4 9.6 8.7 9.6 1.6 0 2.6-1 2.6-2.4 0-.9-.5-1.5-.5-2.4 0-1.8 1.6-3.2 3.4-3.2h1.7c2.3 0 3.7-1.6 3.7-3.7 0-4.2-4.4-7.5-10-7.5Z' +
     'M5.4 9.6a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0ZM8.6 6.4a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0ZM13.6 6.9a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0ZM5.2 14.6a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0Z'] },
-  sparkle: 'M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z',
   x: 'M18.4 4L12 10.4 5.6 4 4 5.6l6.4 6.4L4 18.4 5.6 20l6.4-6.4 6.4 6.4 1.6-1.6-6.4-6.4L20 5.6z',
   caret: 'M7 10l5 5 5-5z',
   reply: 'M10 8.26V4.46a.5.5 0 0 0-.82-.38L2.2 9.8a.5.5 0 0 0 0 .77l6.98 5.72a.5.5 0 0 0 .82-.38v-3.86c6 0 9.39 1.73 11.5 5.67.15.27.5-.1.5-.25C22 11.62 17.5 8.26 10 8.26Z',
@@ -164,7 +163,6 @@ const I = {
   screen: 'M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 2v9h16V6Z',
   phoneoff: 'M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 0 0-2.67-1.85.996.996 0 0 1-.56-.9v-3.1A15.07 15.07 0 0 0 12 9Z',
   users: 'M14 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM2 20a8 8 0 0 1 16 0v1H2Zm16.5-8.5a3 3 0 1 0 0-6 4 4 0 0 1 0 6Zm1.2 1.7c2.6.7 4.3 3 4.3 5.8v1h-3v-1c0-2.1-.5-4-1.3-5.8Z',
-  inbox: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v8h4a3 3 0 0 0 6 0h4V5Z', // bandeja de entrada
   chevdown: 'M6.3 8.3 12 14l5.7-5.7 1.4 1.4-7.1 7.1-7.1-7.1Z',
   invite: 'M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0v1H2Zm17-12h2v3h3v2h-3v3h-2v-3h-3v-2h3Z', // pessoa com +
   bell: 'M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2Zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1Z',
@@ -186,7 +184,6 @@ const I = {
   expand: 'M4 4h6v2H6v4H4Zm10 0h6v6h-2V6h-4ZM4 14h2v4h4v2H4Zm14 0h2v6h-6v-2h4Z',
   sliders: 'M4 6h9v2H4Zm11 0h5v2h-5ZM13 4h2v6h-2ZM4 16h3v2H4Zm5 0h11v2H9ZM7 14h2v6H7Z',
   image: 'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm2 12h12l-3.5-5-3 4-2-2.5ZM8 7.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z',
-  music: 'M12 3v10.55A4 4 0 1 0 14 17V7h4V3Z',
   waves: 'M3 10.5a1 1 0 0 1 2 0v3a1 1 0 0 1-2 0ZM7 7.5a1 1 0 0 1 2 0v9a1 1 0 0 1-2 0ZM11 4a1 1 0 0 1 2 0v16a1 1 0 0 1-2 0ZM15 7.5a1 1 0 0 1 2 0v9a1 1 0 0 1-2 0ZM19 10.5a1 1 0 0 1 2 0v3a1 1 0 0 1-2 0Z',
   wifi: 'M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 0 0-6 0zm-4-4l2 2a7.07 7.07 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z',
   music: 'M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z',
@@ -398,12 +395,14 @@ export function md(src, ctx = {}) {
   s = esc(s);
   // <t:1731350000:R> etc.: horário que cada um vê no próprio fuso e formato (relativo se atualiza sozinho)
   s = s.replace(/&lt;t:(-?\d{1,12})(?::([tTdDfFR]))?&gt;/g, (_, sec, f = 'f') => keep(tsHtml(+sec, f)));
-  s = s.replace(/&lt;@&amp;(\d+)&gt;/g, (_, id) => { const r = ctx.roleOf?.(id); if (!r) return '<span class="mention">@cargo-apagado</span>'; const c = /^#[0-9a-f]{3,8}$/i.test(r.color || '') && r.color.toLowerCase() !== '#99aab5' ? r.color : ''; return `<span class="mention role-mention"${c ? ` style="--rc:${c}"` : ''}>@${esc(r.name)}</span>`; });
-  s = s.replace(/&lt;@(\d+)&gt;/g, (_, id) => { const n = ctx.userName?.(id); return n ? `<span class="mention" data-uid="${id}">@${esc(n)}</span>` : '<span class="mention">@desconhecido</span>'; });
-  s = s.replace(/&lt;:(\w+):(\d+)&gt;/g, (_, name, id) => { const u = ctx.emojiUrl?.(id); return u ? `<img class="cemoji" src="${esc(u)}" alt=":${name}:" title=":${name}:">` : `:${name}:`; });
+  s = s.replace(/&lt;@&amp;(\d+)&gt;/g, (_, id) => { const r = ctx.roleOf?.(id); if (!r) return keep('<span class="mention">@cargo-apagado</span>'); const c = /^#[0-9a-f]{3,8}$/i.test(r.color || '') && r.color.toLowerCase() !== '#99aab5' ? r.color : ''; return keep(`<span class="mention role-mention"${c ? ` style="--rc:${c}"` : ''}>@${esc(r.name)}</span>`); });
+  s = s.replace(/&lt;@(\d+)&gt;/g, (_, id) => { const n = ctx.userName?.(id); return keep(n ? `<span class="mention" data-uid="${id}">@${esc(n)}</span>` : '<span class="mention">@desconhecido</span>'); });
+  s = s.replace(/&lt;:(\w+):(\d+)&gt;/g, (_, name, id) => { const u = ctx.emojiUrl?.(id); return u ? keep(`<img class="cemoji" src="${esc(u)}" alt=":${name}:" title=":${name}:">`) : `:${name}:`; });
   s = s.replace(/:([a-z0-9_+-]+):/g, (m, n) => SHORT[n] || m);
   s = s.replace(/(^|\s)(@everyone|@here)\b/g, '$1<span class="mention">$2</span>');
-  s = s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  // links, menções e emojis vão prontos para o guarda (keep): o negrito/itálico/spoiler de depois não mexe dentro do
+  // href nem dos atributos (ex.: https://site.com/_x_ ou ||x|| num link quebravam o HTML)
+  s = s.replace(/(https?:\/\/[^\s<\u0000]+[^\s<\u0000.,;:!?)\]'"*|~])/g, (u) => keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`));
   s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<b><i>$1</i></b>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
     .replace(/__([^_\n]+)__/g, '<u>$1</u>').replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<i>$2</i>').replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, '$1<i>$2</i>')
     .replace(/~~([^~\n]+)~~/g, '<s>$1</s>').replace(/\|\|([^|\n]+)\|\|/g, '<span class="spoiler">$1</span>');
