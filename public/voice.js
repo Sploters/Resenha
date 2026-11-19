@@ -62,7 +62,7 @@ const opusHi = (sdp) => {
   return sdp.replace(new RegExp(`a=fmtp:${pt} (.*)`), (_, f) => `a=fmtp:${pt} ${f.replace(/;?(maxaveragebitrate|stereo|sprop-stereo)=\d+/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=${OPUS_MAX * 1000}`);
 };
 // fps pedido à captura de tela do Chromium. O capturador do Windows entrega quadros numa grade irregular de ~16 ms (até
-// ~48 fps, docs/PASSO0-DIAGNOSTICO-FPS.md). Com "max" igual ao pedido, o Chromium descartava todo quadro que chegava um
+// ~48 fps, docs/historico/PASSO0-DIAGNOSTICO-FPS.md). Com "max" igual ao pedido, o Chromium descartava todo quadro que chegava um
 // nada antes do intervalo (16,1 ms < 16,7 ms; 32,2 ms < 33,3 ms): pedindo 60 saíam ~32 fps e pedindo 30, ~21 (medido).
 // Com 25% de folga no teto passam os quadros da grade, e o limite exato fica com o codificador (maxFramerate, sfuTuneScreen).
 // motivo (código curto) do "não" do app desktop para o programa nativo; o app novo manda `code`, os antigos só o texto
@@ -1503,7 +1503,7 @@ export class Voice {
 
   // ---------- 60/120 FPS: vídeo pelo programa nativo do app desktop (captura sem o limite de ~48 fps do Chromium) ----------
   // O Chromium continua capturando a mesma fonte, mas só para o áudio do sistema e a prévia local (leve: 10 fps, 360p).
-  // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
+  // Desde 60 FPS: pedindo 60, o capturador do Chromium entrega ~48 (docs/historico/PASSO0-DIAGNOSTICO-FPS.md); o programa entrega 60
   // e comprime na placa de vídeo. Chamada protegida (VP8 cifrado) e PC sem codificador de hardware seguem pelo Chromium.
   // mode: o método escolhido ('auto' | 'wgc' | 'dxgi'); 'classic'/'chromium' perguntam sem método (caminho clássico)
   async nativeCapable(mode = captureMode(this.prefs)) {

@@ -2,7 +2,7 @@
 // relé escuta) perde, atrasa e embaralha pacotes nos dois sentidos. Duas pessoas na sala (microfone falso do Chromium:
 // um bipe contínuo); mede no bruno o áudio que chega da alice em cada cenário: pacotes perdidos, pedaços inventados para
 // tapar buraco (concealed), buffer de oscilação (jitter buffer) e pacotes de correção (FEC) recebidos.
-// (Usado para medir o NACK de áudio — o SFU reenviando a voz perdida —, que foi descartado: ver docs/PLANO-DESEMPENHO.md.)
+// (Usado para medir o NACK de áudio — o SFU reenviando a voz perdida —, que foi descartado: ver docs/historico/PLANO-DESEMPENHO.md.)
 // Uso: node scripts/voice-network-test.mjs     (SECS=8 por cenário)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';

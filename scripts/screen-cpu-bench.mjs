@@ -6,7 +6,7 @@
 //   OFF=1    desliga as camadas leves 3 s depois de começar (active:false), como o controle faz
 //   FIX=1.5,60,maintain-resolution   desliga o controle e fixa escala, fps e preferência de degradação
 //   LOWPREF=1  quem assiste pede a camada "Baixa"
-// Resultados de 2026-11-15 em docs/FASE2-CAPTURA.md.
+// Resultados de 2026-11-15 em docs/historico/FASE2-CAPTURA.md.
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

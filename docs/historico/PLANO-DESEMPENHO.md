@@ -1,6 +1,6 @@
 # Plano de desempenho (checklist)
 
-O que ainda dá para melhorar ou testar depois da auditoria de 2026-11-11 (`docs/AUDITORIA-DESEMPENHO.md`).
+O que ainda dá para melhorar ou testar depois da auditoria de 2026-11-11 (`docs/historico/AUDITORIA-DESEMPENHO.md`).
 Marque `[x]` ao concluir e anote o resultado medido. Ordem sugerida: os marcados com ★ primeiro.
 
 ## Desenho da interface

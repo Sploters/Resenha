@@ -24,7 +24,7 @@ Nada disto altera o mecanismo de captura.
 ## 5. Carga do worker único do mediasoup
 - `server/sfu.js`: amostra a cada 15 s `worker.getResourceUsage()` (CPU em % de um núcleo entre amostras, RSS) + contagem de salas/peers/transports/producers/consumers; guarda 240 amostras e o pico.
 - `GET /api/sfu/load` (autenticado; só donos de servidor). Teste local: worker 1, RSS ~16 MB ocioso, CPU 0 % ocioso.
-- Medição com várias salas, até 80 pessoas e transmissões: `scripts/load/sfu-load.mjs` (2026-11-13; resultados em `docs/PLANO-DESEMPENHO.md`, "Teste de carga do SFU com várias salas"). ~1,2% de um núcleo a cada mil pacotes/s de voz repassados; o pico de CPU em `peakCpuPercent` continua sendo o sinal para criar mais workers.
+- Medição com várias salas, até 80 pessoas e transmissões: `scripts/load/sfu-load.mjs` (2026-11-13; resultados em `docs/historico/PLANO-DESEMPENHO.md`, "Teste de carga do SFU com várias salas"). ~1,2% de um núcleo a cada mil pacotes/s de voz repassados; o pico de CPU em `peakCpuPercent` continua sendo o sinal para criar mais workers.
 
 ## 6. Simulcast de 3 camadas com VP8
 Reexecutado com **verificação de conteúdo** (animação visível, id de quadro lido nos pixels):
@@ -51,4 +51,4 @@ Carga do worker (`scripts/fase2-load.mjs`: 2 transmissores 1920×1080@30 VP8 3 c
 | ocioso | 0 % | 10 MB | 0 | 0 | 0 | 0 |
 | 8 pessoas só com voz | 8,1 % | 14 MB | 8 | 16 | 8 | 56 |
 | + 2 transmissões 1080p, 6 espectadores | média 9,5 %, pico 10 % | 16 MB | 8 | 16 | 10 | 70 |
-Limites do teste: todos os clientes rodaram no mesmo PC (Edge headless) e a fonte é um canvas, não um jogo; uma sala só; Umbrel com 12 núcleos e 14,5 GB. **Isso mostra folga para esta carga, mas não prova que um worker basta** para várias salas ao mesmo tempo ou transmissões 1440p/4K a 120 FPS; falta medir mais salas e bitrates maiores. **Medido em 2026-11-14** (`scripts/load/sfu-video-load.mjs`, resultados em `docs/PLANO-DESEMPENHO.md`): um worker aguenta ~4 salas com 1440p120 e 5 espectadores cada (~450–500 Mb/s); acima disso, `SFU_WORKERS`. A correção de unidade do CPU (o mediasoup devolve ms) foi feita após a primeira rodada, em que o campo aparecia como 0 %.
+Limites do teste: todos os clientes rodaram no mesmo PC (Edge headless) e a fonte é um canvas, não um jogo; uma sala só; Umbrel com 12 núcleos e 14,5 GB. **Isso mostra folga para esta carga, mas não prova que um worker basta** para várias salas ao mesmo tempo ou transmissões 1440p/4K a 120 FPS; falta medir mais salas e bitrates maiores. **Medido em 2026-11-14** (`scripts/load/sfu-video-load.mjs`, resultados em `docs/historico/PLANO-DESEMPENHO.md`): um worker aguenta ~4 salas com 1440p120 e 5 espectadores cada (~450–500 Mb/s); acima disso, `SFU_WORKERS`. A correção de unidade do CPU (o mediasoup devolve ms) foi feita após a primeira rodada, em que o campo aparecia como 0 %.

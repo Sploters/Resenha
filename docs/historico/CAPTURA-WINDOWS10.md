@@ -167,7 +167,7 @@ Fora do produto, como os Spikes A e B:
 ## Atualização (Fase 2, 2026-11-15)
 - A medida combinada (opção B) existe: `scombo:` no cartão "Transmissões por combinação".
 - O modo normal não encolhe mais para 540p: controle da transmissão (M2/M3).
-- Kit de testes para Windows 10 e 11: `native/pacote-captura/` (`docs/FASE2-CAPTURA.md`, seção 8).
+- Kit de testes para Windows 10 e 11: `native/pacote-captura/` (`docs/historico/FASE2-CAPTURA.md`, seção 8).
 
 ## O que precisa de quem tem Windows 10
 
