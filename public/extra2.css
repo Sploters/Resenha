@@ -699,6 +699,7 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .ss .ss-aud .qinfo { margin: 6px 0 0; font-size: 12.5px; }
 .ss-clip { display: flex; align-items: center; gap: 12px; } .ss-clipt { flex: 1; display: flex; flex-direction: column; gap: 3px; } .ss-clipt b { font-size: 15px; } .ss-clipt small { color: var(--text-muted); font-size: 12.5px; } .ss-clipt b { display: flex; align-items: center; gap: 10px; }
 .vuser .vu-watch { display: inline-flex; color: var(--text-muted); }
+.vuser .vu-wt { display: inline-flex; color: #e5484d; } /* assistindo no Watch Together (mesma cor do card da atividade) */
 .ss-clipt .ss-key { font: 700 13px/1 var(--font-code, ui-monospace, monospace); padding: 5px 9px; border-radius: 6px; color: #fff; background: var(--brand, #5865f2); box-shadow: 0 2px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.2); letter-spacing: .03em; }
 .ss-pick .seg { margin: 4px 0 12px; } .ss-pick .sources { max-height: 380px; }
 .ss-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; margin: 18px -24px 0; padding: 14px 24px; background: var(--bg-sec); }

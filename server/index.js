@@ -228,7 +228,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, watching: !!s.watching, ...(s.wt ? { wt: true } : {}), fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -2076,6 +2076,18 @@ function syncWatchFlags(cid) {
     dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, id, st), guild_id: ch.guild_id });
   }
 }
+// Watch Together: quem está assistindo na sala (ícone de TV ao lado do nome na lista da sala, para o servidor todo)
+function syncWtFlags(cid) {
+  const m = voice.get(cid); if (!m) return;
+  const on = new Set(watch.summary(cid)?.members || []);
+  let ch = null;
+  for (const [id, st] of m) {
+    if (st.bot || !!st.wt === on.has(id)) continue;
+    st.wt = on.has(id);
+    ch = ch || get('SELECT * FROM channels WHERE id=?', cid); if (!ch) return;
+    dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, id, st), guild_id: ch.guild_id });
+  }
+}
 function dropWatching(uid, cid) { // tira uid das transmissões que assistia e encerra a dele
   for (const [k, set] of [...watchers]) {
     if (!k.startsWith(cid + ':')) continue;
@@ -2157,6 +2169,7 @@ const watch = createWatch({
   remember: (gid, it) => { if (gid) run('INSERT OR REPLACE INTO watch_history(guild_id,service,ref,url,title,channel,thumb,duration,by_id,at) VALUES(?,?,?,?,?,?,?,?,?,?)', gid, it.service, it.ref, it.url, it.title, it.channel || '', it.thumb || null, it.duration || 0, it.by, Date.now()); },
   recent: (gid) => gid ? all('SELECT service, ref, url, title, channel, thumb, duration FROM watch_history WHERE guild_id=? ORDER BY at DESC LIMIT 30', gid) : [],
   log: (...a) => console.log(...a),
+  onChange: (cid) => syncWtFlags(cid),
 });
 // Controle remoto (server/remote.js). Pedido, resposta e comandos só valem da conexão que está na chamada.
 const remote = createRemote({

@@ -217,3 +217,19 @@ ao Watch Together** (046fd81) neste ambiente: não são regressão desta funcion
   volta ao modo antigo. Navegadores sem `'remote-only'` leem o texto como `true`.
   Limite: vozes com volume acima de 100% ou com efeito de voz passam pelo WebAudio e não entram nessa referência; quem
   usa caixa de som e aumenta alguém acima de 100% pode precisar ligar "Cancelar também o som do app".
+
+## Qualidade por pessoa, legendas presas em desligado e indicador na sala (2026-11-19)
+- **Qualidade:** o YouTube pede Full HD (`vq=hd1080`, `suggestedQuality`, `setPlaybackQualityRange` +
+  `setPlaybackQuality`); se o vídeo não tem 1080p, a mais alta que ele tiver. Reaplicado a cada play/carregamento,
+  porque o YouTube volta a escolher sozinho. Limite: essas funções são antigas e a API oficial não garante a troca —
+  o YouTube pode ignorar o pedido (principalmente no mini player, que é pequeno). Vídeo direto (arquivo) tem uma só
+  resolução; Netflix/Prime/Crunchyroll ficam com a qualidade do próprio serviço.
+- **Resolução adaptativa por pessoa** (`adaptQuality` em `public/watch.js`): cada um desce só a própria resolução
+  quando trava — carregando por mais de 1,2 s com a sala tocando, ou 2 travadas em 30 s — e sobe um degrau depois de
+  45 s sem travar (se travar logo depois de subir, espera o dobro, até 4 min). Começo do vídeo, play e pulos da sala
+  não contam como travada (`qGrace`). A qualidade de cada um aparece em Pessoas ("1080p", "720p (reduzida)").
+- **Legendas:** começam sempre desligadas (a escolha não é mais lembrada entre sessões). Desligadas, são desligadas
+  de novo a cada play/carregamento (agora, +0,6 s e +2,5 s), quando o player muda de tamanho (minimizar/voltar) ou a
+  janela volta ao foco, e conferidas a cada 1 s (`guardCaptions`: se o YouTube mostrou uma faixa, descarrega o módulo).
+- **Indicador na sala:** ícone de TV vermelho ao lado do nome, na lista da sala de voz, para quem está no Watch
+  Together (`wt` no estado de voz; `syncWtFlags` em `server/index.js`, disparado pelo `onChange` de `server/watch.js`).

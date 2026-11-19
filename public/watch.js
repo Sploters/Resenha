@@ -9,7 +9,7 @@ import { h, icon, avatar } from './util.js';
 import { S, toast, user, nameOf, menu, confirmBox, closeFloating } from './state.js';
 import { SERVICES, SERVICE_IDS, LEVELS, ERRORS, effectiveLevel, parseLink } from './watchsvc.js';
 import { expectedPos, createClock, decide, syncState, fmtTime, waitingStart, parseTime } from './watchsync.js';
-import { makePlayer } from './watchplayers.js';
+import { makePlayer, QUALITY_LABEL } from './watchplayers.js';
 import { vrrSource, vrrPoke } from './vrrfix.js';
 
 let ctx = { send: () => { }, voice: () => null, channelById: () => null, inviteCandidates: () => [], invite: async () => false, streams: () => [], watchStream: () => { } };
@@ -24,7 +24,8 @@ const W = {
   player: null, itemId: null, ready: false, error: null, strikes: 0, lastFix: 0, seekLat: 0.25, drift: 0, fixes: 0, residualCheck: 0, rate: 1, nudges: 0, dHist: [], settleUntil: 0, startSeq: -1, startT: 0,
   reports: {}, tab: 'queue', results: null, suggest: null, searching: false, svc: 'youtube', pendingJoin: null,
   autoplayBlocked: false, bufSince: 0, lastReport: 0, lastRepKey: '', ready_ext: false, myPos: null,
-  vol: store.get('vol', 80), muted: store.get('muted', false), cc: store.get('cc', false), env: { desktopWindow: false, widevine: false },
+  vol: store.get('vol', 80), muted: store.get('muted', false), cc: false, // legendas sempre começam desligadas (ligar vale só até sair)
+  qDown: 0, stalls: [], qChangedAt: 0, qOkSince: 0, qProbe: 45_000, qGrace: 0, env: { desktopWindow: false, widevine: false },
 };
 export const watchState = () => ({ sess: W.sess, joined: W.joined, open: W.open, mini: W.mini, itemId: W.itemId, error: W.error, drift: W.drift, fixes: W.fixes, rate: W.rate, nudges: W.nudges, syncErr: W.player && W.sess?.current ? W.player.time() - expectedPos(W.sess.pb, W.clock.now(), W.sess.current.duration || W.player.duration() || 0) : null, playerTime: W.player?.time?.() ?? null, playerState: W.player?.state?.() ?? null, clockOffset: W.clock.offset, vol: W.vol, muted: W.muted, lastSeq: W.lastSeq, autoplayBlocked: W.autoplayBlocked, reports: W.reports });
 // ---------- app desktop: janela do serviço com a conta de cada um (desktop/watchwin.js) ----------
@@ -93,7 +94,7 @@ export function onWatchEvent(t, d) {
   if (t === 'WATCH_STATE') return onState(d);
   if (t === 'WATCH_SYNC') {
     if (!W.sess || d.id !== W.sess.id || d.pb.seq <= W.lastSeq) return; // atrasado: já aplicamos um mais novo
-    W.sess.pb = d.pb; W.lastSeq = d.pb.seq; W.strikes = 0; W.dHist = [];
+    W.sess.pb = d.pb; W.lastSeq = d.pb.seq; W.strikes = 0; W.dHist = []; W.qGrace = performance.now() + 3000; // play/pulo da sala carrega: não é travada da conexão
     applyNow(); paint(); return;
   }
   if (t === 'WATCH_ASK') { if (W.sess && d.id === W.sess.id && isHost() && W.sess.mode === 'hosting' && !W.sess.controllers.includes(d.uid)) { W.asks = [...(W.asks || []).filter(u => u !== d.uid), d.uid]; paintAsk(); if (W.mini || !W.open) toast(`${nm(d.uid)} pediu para controlar o vídeo`); } return; }
@@ -135,14 +136,15 @@ function loadCurrent() {
   if (!W.player) {
     W.player = makePlayer(it, host, {
       onReady: () => { W.ready = true; applyNow(); paint(); },
-      onState: () => { const st = W.player?.state(); if (st === 'playing' && W.autoplayBlocked && navigator.userActivation?.hasBeenActive) tryUnmute(); if (st === 'playing') W.player?.applyCaptions?.(W.cc); vrrPoke(); report(); paintControls(); },
+      onState: () => { const st = W.player?.state(); if (st === 'playing' && W.autoplayBlocked && navigator.userActivation?.hasBeenActive) tryUnmute(); if (st === 'playing') W.player?.applyCaptions?.(W.cc); if (st === 'buffering') noteStall(); vrrPoke(); report(); paintControls(); },
       onError: (code) => { if (code === 'embed_blocked' && W.sess?.current?.embed_ok) code = 'yt_refused'; if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
       onEnded: () => { const c = W.sess?.current; if (c) fire('ended', { item_id: c.id }); },
       onDuration: (s) => { const c = W.sess?.current; if (c && !(c.duration > 0) && s > 0) { c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
     }, W.env);
-    W.player.setVolume(W.vol); W.player.setMuted(W.muted); W.player.ccPref = W.cc;
+    W.player.setVolume(W.vol); W.player.setMuted(W.muted); W.player.ccPref = W.cc; W.player.qDown = W.qDown;
     if (external(it) && desk) W.player.attachBridge?.(bridgeFor(it.service)); // app desktop: janela do serviço (desktop/watchwin.js)
   }
+  W.qGrace = performance.now() + 4000; W.stalls = []; // começo do vídeo carrega: não conta como travada
   W.player.load(it, { pos, play });
   paintOverlay();
 }
@@ -191,7 +193,7 @@ function tick(force) {
   W.strikes = r.strikes; W.drift = med;
   if (r.action === 'seek') {
     if (W.rate !== 1) { W.rate = 1; p.setRate(1); }
-    p.seek(r.target); W.lastFix = t; W.fixes++; W.dHist = []; W.settleUntil = t + 450;
+    p.seek(r.target); W.lastFix = t; W.fixes++; W.dHist = []; W.settleUntil = t + 450; W.qGrace = t + 2500;
     if (playing) W.residualCheck = t + 1500;
   } else if (r.action === 'rate' || (r.action === 'wait' && W.rate !== 1)) {
     const nr = r.action === 'rate' ? r.rate : 1;
@@ -218,11 +220,46 @@ function tryUnmute() {
   paintOverlay();
 }
 if (typeof window !== 'undefined') window.addEventListener('pointerdown', () => setTimeout(tryUnmute, 0), true);
+// ---------- qualidade por pessoa ----------
+// Cada um ajusta só a própria resolução: quem tem a conexão mais fraca desce de degrau em vez de ficar travando e
+// atrasar (o que obrigaria pulos de correção). Começa em Full HD (ou a maior que o vídeo tiver abaixo disso).
+//  - desce 1 degrau: carregando por mais de 1,2 s com a sala tocando, ou 2 travadas em 30 s
+//  - sobe 1 degrau: 45 s seguidos sem travar; se travar logo depois de subir, desce e espera o dobro (até 4 min)
+const STALL_LONG = 1200, STALL_WIN = 30_000, Q_STEP_GAP = 6000, Q_PROBE_MAX = 240_000;
+function noteStall() {
+  const t = performance.now();
+  if (t < W.qGrace || W.sess?.pb.status !== 'playing' || waitingStart(W.sess.pb, W.clock.now())) return;
+  W.stalls = W.stalls.filter(x => t - x < STALL_WIN); W.stalls.push(t);
+}
+function setQDown(n, why) {
+  const p = W.player; if (!p) return;
+  n = Math.max(0, Math.min(p.qualityFloor(), n)); if (n === W.qDown) return;
+  const up = n < W.qDown, t = performance.now();
+  if (!up && t - W.qChangedAt < STALL_WIN && W.qUpAt && t - W.qUpAt < 20_000) W.qProbe = Math.min(Q_PROBE_MAX, W.qProbe * 2); // subiu e travou: espera mais
+  if (up) W.qUpAt = t;
+  W.qDown = n; W.qChangedAt = t; W.qOkSince = t; W.stalls = []; W.qGrace = t + 3000;
+  p.setQualityDown(n); report(true); paintControls();
+  if (why) console.debug('[watch] qualidade', n ? `−${n}` : 'máxima', why);
+}
+function adaptQuality() {
+  const s = W.sess, p = W.player; if (!s?.current || !p || !W.ready || W.error || s.current.service !== 'youtube') return;
+  const t = performance.now();
+  if (s.pb.status !== 'playing' || waitingStart(s.pb, W.clock.now())) { W.qOkSince = t; return; }
+  if (p.state() === 'buffering') {
+    W.qOkSince = t;
+    if (t > W.qGrace && W.bufSince && t - W.bufSince > STALL_LONG && t - W.qChangedAt > Q_STEP_GAP) setQDown(W.qDown + 1, 'carregando há muito tempo');
+    return;
+  }
+  W.stalls = W.stalls.filter(x => t - x < STALL_WIN);
+  if (W.stalls.length >= 2 && t - W.qChangedAt > Q_STEP_GAP) return setQDown(W.qDown + 1, 'travadas seguidas');
+  if (W.qDown > 0 && p.state() === 'playing' && t - W.qOkSince > W.qProbe && t - W.qChangedAt > W.qProbe) setQDown(W.qDown - 1, 'conexão estável');
+  if (W.qDown === 0 && t - W.qChangedAt > Q_PROBE_MAX) W.qProbe = 45_000; // estável faz tempo: volta a ser rápido para subir
+}
 function report(now) {
   const s = W.sess, p = W.player; if (!W.joined || !s) return;
   const it = s.current, ext = external(it) && !p?.controllable;
-  const r = { state: p?.state() || 'idle', pos: ext ? (W.myPos ?? p?.time() ?? 0) : (p?.time() || 0), buffering: !!p?.buffering() && !ext, error: W.error, item_id: it?.id || null, external: ext, ready: W.ready_ext, level: levelOf(it) };
-  const key = [r.state, r.buffering, r.error, r.item_id, r.ready, W.myPos].join('|');
+  const r = { state: p?.state() || 'idle', pos: ext ? (W.myPos ?? p?.time() ?? 0) : (p?.time() || 0), buffering: !!p?.buffering() && !ext, error: W.error, item_id: it?.id || null, external: ext, ready: W.ready_ext, level: levelOf(it), q: p?.quality?.() || null, qd: W.qDown };
+  const key = [r.state, r.buffering, r.error, r.item_id, r.ready, W.myPos, r.q, r.qd].join('|');
   const t = performance.now();
   if (!now && key === W.lastRepKey && t - W.lastReport < 2000) return;
   W.lastRepKey = key; W.lastReport = t;
@@ -232,12 +269,12 @@ let loops = null;
 function startLoops() {
   if (loops) return;
   // conferência a cada 200 ms; o relógio da sala é reamostrado a cada 10 s (fica a amostra de menor ida e volta)
-  loops = [setInterval(() => { tick(); report(); paintTime(); }, 200), setInterval(() => { if (W.joined) syncClock(2); }, 10_000), setInterval(place, 250)];
+  loops = [setInterval(() => { tick(); adaptQuality(); report(); paintTime(); }, 200), setInterval(() => W.player?.guardCaptions?.(), 1000), setInterval(() => { if (W.joined) syncClock(2); }, 10_000), setInterval(place, 250)];
 }
 function stopLoops() { (loops || []).forEach(clearInterval); loops = null; }
 function teardown(keepUi) {
   destroyPlayer(); stopLoops();
-  W.sess = null; W.joined = false; W.lastSeq = -1; W.reports = {}; W.results = null; W.suggest = null;
+  W.sess = null; W.joined = false; W.lastSeq = -1; W.qDown = 0; W.stalls = []; W.cc = false; W.reports = {}; W.results = null; W.suggest = null;
   if (!keepUi) { W.open = false; W.mini = false; }
   place();
 }
@@ -295,7 +332,7 @@ function setVol(v, muted = W.muted) {
   if (ui?.overlay.querySelector('.wt-unmute') && !W.autoplayBlocked) paintOverlay();
 }
 const setCc = (on) => {
-  W.cc = on; store.set('cc', on); W.player?.applyCaptions?.(on, true); paintControls();
+  W.cc = on; W.player?.applyCaptions?.(on, true); paintControls();
   if (on) setTimeout(() => { if (W.cc && W.player?.captionTracks?.() === 0) toast('Este vídeo não tem legendas'); }, 2500);
 };
 function resync() { W.lastFix = 0; W.strikes = 1; syncClock(3).then(() => tick(true)); if (W.error && !ERRORS[W.error]?.fatal) { const it = W.sess?.current; W.error = null; W.itemId = null; destroyPlayer(); if (it) loadCurrent(); } toast('Ressincronizando com a sala'); }
@@ -382,6 +419,7 @@ function place() {
   const stage = document.getElementById('stage'), voice = ctx.voice();
   const onCall = stage && voice?.channelId === W.cid && stage.getClientRects().length && stage.offsetWidth > 300;
   const mini = W.mini || !onCall;
+  if (ui.root.classList.contains('hidden') || ui.root.classList.contains('mini') !== mini) ccRecheck(); // mudou de tamanho: o YouTube costuma religar a legenda
   ui.root.classList.remove('hidden'); ui.root.classList.toggle('mini', mini);
   stage?.classList.toggle('wt-cover', !mini && !!onCall);
   if (mini) { if (lastRect !== 'mini') { lastRect = 'mini'; Object.assign(ui.root.style, { left: '', top: '', width: '', height: '' }); applyMiniPos(); } return; }
@@ -405,6 +443,8 @@ function applyMiniPos() {
     return;
   }
   W.miniPos = p; ui.root.style.right = Math.max(4, Math.min(innerWidth - 120, p.right)) + 'px'; ui.root.style.bottom = Math.max(4, Math.min(innerHeight - 80, p.bottom)) + 'px'; }
+function ccRecheck() { if (!W.cc) setTimeout(() => W.player?.captionsOff?.(), 50); }
+if (typeof document !== 'undefined') { document.addEventListener('visibilitychange', () => { if (!document.hidden) ccRecheck(); }); window.addEventListener('focus', ccRecheck); }
 export const placeWatch = () => { if (W.open) place(); };
 
 function paint() { if (!W.joined) return place(); build(); paintHead(); paintAsk(); paintControls(); paintSide(); paintOverlay(); place(); }
@@ -639,7 +679,7 @@ function paintPeople() {
   const rows = [...s.members].sort((a, b) => (b.online - a.online) || (a.joined_at - b.joined_at)).map(m => {
     const rep = W.reports[m.id], st = !m.online ? 'offline' : syncState(rep && { ...rep, at: rep.at }, s.pb, now, s.current?.duration || 0);
     const label = { ok: 'Sincronizado', ahead: 'Adiantado', behind: 'Atrasado', buffering: 'Carregando', error: rep?.error ? (ERRORS[rep.error]?.title || 'Erro') : 'Erro', offline: 'Reconectando…', external: 'Assistindo fora', ready: 'Pronto', unknown: 'Entrando…' }[st] || st;
-    const extra = rep?.external && rep.pos ? ' · ' + fmtTime(rep.pos) : '';
+    const extra = (rep?.external && rep.pos ? ' · ' + fmtTime(rep.pos) : '') + (m.online && rep?.q && QUALITY_LABEL[rep.q] ? ' · ' + QUALITY_LABEL[rep.q] + (rep.qd ? ' (reduzida)' : '') : '');
     const other = isHost() && m.id !== me();
     const hostMenu = other && m.online ? (e) => menu(e, [{ label: 'Passar o anfitrião', icon: 'crown', fn: () => act('host', { uid: m.id }) }]) : null;
     const lets = s.controllers.includes(m.id);

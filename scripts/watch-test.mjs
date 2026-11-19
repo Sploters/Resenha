@@ -123,6 +123,21 @@ try {
   ok(await B.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 'legendas são só para quem ligou');
   await tap(A, '.wt-ccbtn');
   ok(await until(() => A.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 3000), 'botão CC desliga as legendas');
+  // o YouTube religa a legenda sozinho (ao minimizar e voltar, ao dar play): com a legenda desligada, desliga de novo
+  await B.evaluate(() => { const c = window.__ytmock.players.at(-1).cc; c.on = true; c.track = 'en'; });
+  ok(await until(() => B.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 3000), 'legenda que o YouTube religou sozinho volta a ser desligada');
+  await B.evaluate(async () => { const m = await window.__lc.import('watch.js'); m.minimizeWatch(); });
+  await B.evaluate(() => { const c = window.__ytmock.players.at(-1).cc; c.on = true; });
+  await B.evaluate(async () => { const m = await window.__lc.import('watch.js'); m.openWatch(); });
+  ok(await until(() => B.evaluate(() => window.__ytmock.players.at(-1).cc.on === false), 3000), 'minimizar e voltar não deixa a legenda ligada');
+  // qualidade: Full HD forçado mesmo com 4K disponível
+  ok(await until(() => A.evaluate(() => window.__ytmock.players.at(-1).q === 'hd1080'), 3000), 'qualidade forçada em Full HD (1080p)', await A.evaluate(() => window.__ytmock.players.at(-1).q));
+  // conexão fraca só do Caio: travadas seguidas descem a resolução dele, e só a dele
+  await C.evaluate(() => { const p = window.__ytmock.players.at(-1); for (let i = 0; i < 2; i++) { p.ev.onStateChange({ data: 3 }); p.ev.onStateChange({ data: 1 }); } });
+  ok(await until(() => C.evaluate(() => window.__ytmock.players.at(-1).q === 'hd720'), 3000), 'travadas seguidas: a resolução do Caio desce um degrau (720p)', await C.evaluate(() => window.__ytmock.players.at(-1).q));
+  ok(await A.evaluate(() => window.__ytmock.players.at(-1).q === 'hd1080'), 'a resolução dos outros continua em 1080p');
+  // indicador na lista da sala: ícone de TV em quem está no Watch Together
+  ok(await until(() => A.evaluate(() => document.querySelectorAll('.vuser .vu-wt').length === 3), 4000), 'lista da sala mostra quem está assistindo no Watch Together', await A.evaluate(() => document.querySelectorAll('.vuser .vu-wt').length));
   // adicionar por link (Beto) e link duplicado
   ok(!(await cmd(B, 'add', { url: `https://youtu.be/${IDS.two}` })).error, 'Beto adiciona por link (todos podem adicionar no Hosting)');
   ok((await cmd(C, 'add', { url: `https://www.youtube.com/watch?v=${IDS.two}` })).code === 'duplicate', 'duplicado recusado');

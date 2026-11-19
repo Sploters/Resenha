@@ -25,7 +25,7 @@ export function createWatch({
   inRoom, roomMembers, sendTo, userPub = (id) => ({ id }), guildOf = () => null, now = () => Date.now(),
   search = async () => [], meta = async () => ({}), remember = () => { }, recent = () => [], origin = null,
   hostGraceMs = +process.env.WATCH_HOST_GRACE_MS || 30_000, emptyGraceMs = +process.env.WATCH_EMPTY_GRACE_MS || 120_000,
-  fatalSkipMs = 2500, log = () => { },
+  fatalSkipMs = 2500, log = () => { }, onChange = () => { },
 }) {
   const sessions = new Map(); // cid -> sessão
   const fail = (msg, code) => { const e = new Error(msg); if (code) e.code = code; throw e; };
@@ -39,7 +39,9 @@ export function createWatch({
   });
   const toRoom = (s, type, d) => { for (const uid of roomMembers(s.cid)) sendTo(uid, type, d); };
   const toMembers = (s, type, d) => { for (const [uid, m] of s.members) if (m.online) sendTo(uid, type, d); };
-  const broadcast = (s, extra) => toRoom(s, 'WATCH_STATE', pub(s, extra));
+  // onChange(cid): quem está assistindo mudou (ou pode ter mudado) — o servidor atualiza o indicador na lista da sala
+  const changed = (cid) => { try { onChange(cid); } catch { } };
+  const broadcast = (s, extra) => { toRoom(s, 'WATCH_STATE', pub(s, extra)); changed(s.cid); };
   const syncOut = (s) => toMembers(s, 'WATCH_SYNC', { cid: s.cid, id: s.id, pb: { ...s.pb }, current_id: s.current?.id || null, now: now() });
   let repTimer = new Map();
   const reportsOut = (s) => { // relatórios de cada participante: no máx. 1 envio a cada 700 ms por sessão
@@ -98,6 +100,7 @@ export function createWatch({
     if (sessions.get(s.cid) !== s) return;
     sessions.delete(s.cid);
     toRoom(s, 'WATCH_END', { cid: s.cid, id: s.id, reason });
+    changed(s.cid);
     for (const [uid, m] of s.members) if (!roomMembers(s.cid).includes(uid) && m.online) sendTo(uid, 'WATCH_END', { cid: s.cid, id: s.id, reason });
   }
   const online = (s) => [...s.members].filter(([, m]) => m.online);
@@ -270,7 +273,7 @@ export function createWatch({
       case 'service': if (SERVICES[d.id]) { s.service = d.id; broadcast(s); } return {};
       case 'report': { // estado do player desta pessoa (nunca vira comando)
         const r = { state: ['playing', 'paused', 'ended', 'idle', 'loading'].includes(d.state) ? d.state : 'unknown', pos: Math.max(0, +d.pos || 0), at: now(),
-          buffering: !!d.buffering, error: ERRORS[d.error] ? d.error : null, item_id: d.item_id ? String(d.item_id) : null, ready: !!d.ready, external: !!d.external, level: cleanStr(d.level, 16) || null };
+          buffering: !!d.buffering, error: ERRORS[d.error] ? d.error : null, item_id: d.item_id ? String(d.item_id) : null, ready: !!d.ready, external: !!d.external, level: cleanStr(d.level, 16) || null, q: /^[a-z0-9]{2,8}$/.test(String(d.q || '')) ? String(d.q) : null, qd: Math.max(0, Math.min(9, d.qd | 0)) };
         me.report = r; reportsOut(s);
         if (r.error && cur && r.item_id === cur.id) maybeFatal(s);
         return null; // sem resposta (relatório frequente)

@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-19-1', title: 'Watch Together em Full HD e sem legenda sozinha',
+    items: [
+      { i: 'tv', t: 'Vídeos em Full HD', d: 'O Watch Together pede 1080p para os vídeos do YouTube (ou a maior qualidade que o vídeo tiver, se não chegar a isso).' },
+      { i: 'bolt', t: 'Sem travar quando a internet aperta', d: 'Se o vídeo trava para você, só a sua resolução baixa um pouco, e volta a subir quando a conexão firma. Assim ninguém fica para trás nem precisa pular. Em Pessoas aparece a qualidade de cada um.' },
+      { i: 'chat', t: 'Legendas ficam desligadas', d: 'Começam sempre desligadas e não voltam mais sozinhas ao dar play ou ao minimizar e voltar. Ligue no botão CC (ou tecla C).' },
+      { i: 'voice', t: 'Quem está assistindo, na lista da sala', d: 'Um ícone de TV aparece ao lado do nome de quem está no Watch Together, na lista da sala de voz.' },
+    ],
+  },
+  {
     id: '2026-11-18-5', title: 'Voz sem cortes e Watch Together junto com as transmissões',
     items: [
       { i: 'screen', t: 'Assistir uma transmissão com o Watch Together aberto', d: 'Quando alguém da sala transmite, aparece "AO VIVO" no topo do Watch Together. Um clique abre a transmissão e o vídeo continua tocando no mini player. Abrir uma transmissão por qualquer outro lugar também minimiza o player.' },

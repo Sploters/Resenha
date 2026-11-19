@@ -56,7 +56,12 @@
   Player.prototype.getPlaybackRate = function () { return this.v.playbackRate; };
   Player.prototype.loadModule = function (m) { if (m === 'captions') this.cc.on = true; };
   Player.prototype.unloadModule = function (m) { if (m === 'captions' || m === 'cc') this.cc.on = false; };
-  Player.prototype.getOption = function (m, k) { return m === 'captions' && k === 'tracklist' ? [{ languageCode: 'en' }, { languageCode: 'pt' }] : undefined; };
+  Player.prototype.getOption = function (m, k) { if (m !== 'captions') return undefined; if (k === 'tracklist') return [{ languageCode: 'en' }, { languageCode: 'pt' }]; if (k === 'track') return this.cc.on ? { languageCode: this.cc.track || 'en' } : {}; return undefined; };
+  // qualidade: o vídeo simulado "tem" até 4K; guarda o que foi pedido (o YouTube real pode ignorar, aqui obedece)
+  Player.prototype.getAvailableQualityLevels = function () { return ['hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'auto']; };
+  Player.prototype.setPlaybackQuality = function (q) { this.q = q; (this.qAsked = this.qAsked || []).push(q); };
+  Player.prototype.setPlaybackQualityRange = function (a) { this.q = a; };
+  Player.prototype.getPlaybackQuality = function () { return this.q || 'hd2160'; };
   Player.prototype.setOption = function (m, k, v) { if (m === 'captions' && k === 'track') { this.cc.on = true; this.cc.track = v?.languageCode || null; } };
   Player.prototype.destroy = function () { this.v.pause(); this.v.remove(); };
   window.YT = { Player, PlayerState: S };

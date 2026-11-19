@@ -17,6 +17,11 @@ class Base {
   get canRate() { return false; }
   setRate() { }
   get seekTol() { return 0.25; }
+  // qualidade por pessoa (só o YouTube tem degraus; vídeo direto e serviços externos ficam como estão)
+  quality() { return null; }
+  qualityFloor() { return 0; }
+  setQualityDown() { }
+  guardCaptions() { }
 }
 
 // ---------- YouTube (IFrame Player API oficial) ----------
@@ -36,6 +41,9 @@ export function loadYouTubeApi(timeout = 12000) {
   });
   return ytApi;
 }
+// qualidades do YouTube, da maior para a menor
+export const QUALITIES = ['highres', 'hd2880', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
+export const QUALITY_LABEL = { highres: '4K+', hd2880: '5K', hd2160: '4K', hd1440: '1440p', hd1080: '1080p', hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p' };
 const YT_ERR = { 2: 'not_found', 5: 'html5', 100: 'not_found', 101: 'embed_blocked', 150: 'embed_blocked', 152: 'embed_blocked', 153: 'api_blocked' };
 export class YouTubePlayer extends Base {
   async load(item, { pos = 0, play = false } = {}) {
@@ -45,7 +53,9 @@ export class YouTubePlayer extends Base {
     const startAt = Math.floor(pos);
     if (this.p && this.ready) { // mesmo iframe para o próximo vídeo (troca mais rápida, sem recriar)
       this.lastDur = 0;
-      play ? this.p.loadVideoById({ videoId: item.ref, startSeconds: pos }) : this.p.cueVideoById({ videoId: item.ref, startSeconds: pos });
+      const q = this.wantQuality();
+      play ? this.p.loadVideoById({ videoId: item.ref, startSeconds: pos, suggestedQuality: q }) : this.p.cueVideoById({ videoId: item.ref, startSeconds: pos, suggestedQuality: q });
+      this.qKey = '';
       this.cb.onReady(); // a API já está pronta; o motor volta a sincronizar este vídeo novo
       return;
     }
@@ -54,13 +64,15 @@ export class YouTubePlayer extends Base {
     this.p = new YT.Player(div, {
       videoId: item.ref, width: '100%', height: '100%',
       host: window.__wtYtHost || 'https://www.youtube.com',
-      playerVars: { autoplay: play ? 1 : 0, cc_load_policy: this.ccPref ? 1 : 0, hl: (navigator.language || 'pt-BR').split('-')[0], cc_lang_pref: (navigator.language || 'pt-BR').split('-')[0], controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1, start: startAt, enablejsapi: 1, origin: location.origin },
+      playerVars: { autoplay: play ? 1 : 0, cc_load_policy: this.ccPref ? 1 : 0, vq: this.wantQuality(), hl: (navigator.language || 'pt-BR').split('-')[0], cc_lang_pref: (navigator.language || 'pt-BR').split('-')[0], controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1, start: startAt, enablejsapi: 1, origin: location.origin },
       events: {
-        onReady: () => { this.ready = true; this.applyVol(); if (Math.abs(pos - startAt) > .3) this.p.seekTo(pos, true); if (play) this.p.playVideo(); this.cb.onReady(); this.dur(); },
+        onReady: () => { this.ready = true; this.applyVol(); this.applyQuality(); this.applyCaptions(this.ccPref, true); if (Math.abs(pos - startAt) > .3) this.p.seekTo(pos, true); if (play) this.p.playVideo(); this.cb.onReady(); this.dur(); },
         onStateChange: (e) => {
           const m = { '-1': 'loading', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'paused' }[e.data];
           if (m) this.set(m);
           if (e.data === 1) this.dur();
+          // o YouTube escolhe a qualidade e liga legendas de novo a cada play/carregamento: reaplica as escolhas da sala
+          if (e.data === 1 || e.data === 3 || e.data === -1 || e.data === 5) { this.applyQuality(); if (!this.ccPref) this.captionsOff(); }
           if (e.data === 0) this.cb.onEnded();
         },
         onError: (e) => this.cb.onError(YT_ERR[e.data] || 'html5'),
@@ -68,22 +80,60 @@ export class YouTubePlayer extends Base {
       },
     });
   }
-  // legendas: o YouTube liga sozinho conforme a conta/idioma, mesmo com cc_load_policy=0. Ligadas: carrega o módulo e
-  // escolhe a faixa no idioma do aparelho (ou a primeira); desligadas: descarrega o módulo. Reaplicado quando cada
-  // vídeo começa (o módulo é carregado depois do play) e mais uma vez logo depois, porque às vezes ele volta
+  // legendas: começam desligadas. O YouTube liga sozinho conforme a conta/idioma (mesmo com cc_load_policy=0) e volta
+  // a ligar ao dar play, ao trocar de vídeo e quando a janela/o player muda de tamanho (minimizar e voltar). Por isso,
+  // desligadas, são desligadas de novo a cada play/carregamento e conferidas periodicamente (guardCaptions, chamado
+  // pelo laço do motor). Ligadas: carrega o módulo e escolhe a faixa em português (ou no idioma do aparelho, ou a primeira)
   applyCaptions(on = this.ccPref, force) {
     this.ccPref = !!on; if (!this.ready || !this.p) return;
     const key = this.item?.ref + '|' + this.ccPref; if (!force && this.ccKey === key) return; this.ccKey = key;
+    clearTimeout(this.ccT);
+    if (!this.ccPref) return this.captionsOff();
     const go = () => { try {
-      if (!this.ccPref) { this.p.unloadModule?.('captions'); this.p.unloadModule?.('cc'); return; }
       this.p.loadModule?.('captions');
       const lang = (navigator.language || 'pt').split('-')[0].toLowerCase();
       const list = this.p.getOption?.('captions', 'tracklist') || [];
       const t = list.find(x => /^pt/i.test(x.languageCode || '')) || list.find(x => x.languageCode?.toLowerCase().startsWith(lang)) || list[0]; // o app é em português
       if (t) this.p.setOption?.('captions', 'track', { languageCode: t.languageCode });
     } catch { } };
-    go(); clearTimeout(this.ccT); this.ccT = setTimeout(go, 1500);
+    go(); this.ccT = setTimeout(go, 1500);
   }
+  // desliga agora e de novo logo depois (o módulo de legendas costuma ser carregado só depois que o vídeo começa)
+  captionsOff() {
+    if (this.ccPref || !this.ready || !this.p) return;
+    const off = () => { if (this.ccPref || this.dead || !this.p) return; try { this.p.unloadModule?.('captions'); this.p.unloadModule?.('cc'); } catch { } };
+    off(); clearTimeout(this.ccOffT); clearTimeout(this.ccOffT2);
+    this.ccOffT = setTimeout(off, 600); this.ccOffT2 = setTimeout(off, 2500);
+  }
+  // conferência periódica: com a legenda desligada na sala, se o YouTube mostrou uma faixa, desliga de novo
+  guardCaptions() {
+    if (this.ccPref || !this.ready || !this.p) return;
+    let tr = null; try { tr = this.p.getOption?.('captions', 'track'); } catch { }
+    if (tr && tr.languageCode) { try { this.p.unloadModule?.('captions'); this.p.unloadModule?.('cc'); } catch { } }
+  }
+  // ---------- qualidade ----------
+  // Full HD (1080p) forçado; se o vídeo não tem 1080p, a mais alta que ele tiver. `qDown` (motor da sala, por pessoa)
+  // desce degraus a partir daí quando a conexão desta pessoa não aguenta, para o vídeo dela não travar nem dessincronizar.
+  // A API não garante a troca (o YouTube pode decidir sozinho): o pedido é refeito a cada play/carregamento.
+  wantQuality() { return this.qPick ? this.qPick : 'hd1080'; }
+  setQualityDown(n) { n = Math.max(0, Math.min(QUALITIES.length, n | 0)); if (n === this.qDown) return; this.qDown = n; this.qKey = ''; this.applyQuality(); }
+  applyQuality() {
+    if (!this.ready || !this.p) return;
+    let avail = []; try { avail = (this.p.getAvailableQualityLevels?.() || []).filter(q => QUALITIES.includes(q)); } catch { }
+    if (!avail.length) avail = QUALITIES.slice(QUALITIES.indexOf('hd1080'));
+    avail.sort((a, b) => QUALITIES.indexOf(a) - QUALITIES.indexOf(b)); // da maior para a menor
+    const base = avail.findIndex(q => QUALITIES.indexOf(q) >= QUALITIES.indexOf('hd1080')); // 1080p ou a mais alta abaixo
+    const ladder = avail.slice(base < 0 ? 0 : base);
+    const q = ladder[Math.min(ladder.length - 1, this.qDown || 0)] || 'hd1080';
+    this.qPick = q;
+    const key = this.item?.ref + '|' + q + '|' + avail.join(',');
+    if (this.qKey === key && this.quality() === q) return; this.qKey = key;
+    try { this.p.setPlaybackQualityRange?.(q, q); } catch { }
+    try { this.p.setPlaybackQuality?.(q); } catch { }
+  }
+  // degraus que ainda dá para descer a partir da qualidade atual
+  qualityFloor() { let avail = []; try { avail = (this.p?.getAvailableQualityLevels?.() || []).filter(q => QUALITIES.includes(q)); } catch { } return avail.length ? Math.max(0, avail.filter(q => QUALITIES.indexOf(q) >= QUALITIES.indexOf('hd1080')).length - 1) : 4; }
+  quality() { try { return this.ready ? this.p.getPlaybackQuality?.() || null : null; } catch { return null; } }
   captionTracks() { try { return (this.p.getOption('captions', 'tracklist') || []).length; } catch { return -1; } }
   dur() { const d = this.duration(); if (d > 0 && d !== this.lastDur) { this.lastDur = d; this.cb.onDuration(d); } }
   play() { this.ready && this.p.playVideo(); }
@@ -101,7 +151,7 @@ export class YouTubePlayer extends Base {
   applyVol() { if (!this.ready) return; this.p.setVolume(this.vol); this.muted ? this.p.mute() : this.p.unMute(); }
   setVolume(v) { this.vol = Math.max(0, Math.min(100, v)); this.applyVol(); }
   setMuted(m) { this.muted = !!m; this.applyVol(); }
-  destroy() { this.dead = true; try { this.p?.destroy(); } catch { } this.host.replaceChildren(); }
+  destroy() { this.dead = true; clearTimeout(this.ccT); clearTimeout(this.ccOffT); clearTimeout(this.ccOffT2); try { this.p?.destroy(); } catch { } this.host.replaceChildren(); }
 }
 
 // ---------- vídeo direto (link .mp4/.webm ou vídeo enviado no chat) ----------
