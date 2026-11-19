@@ -1,6 +1,6 @@
 # Checklist: ideias dos concorrentes
 
-Ordem de trabalho das ideias aprovadas em `docs/CONCORRENTES.md` (seção "Decisões"). Marque `[x]` ao terminar cada item, com o commit ou a observação ao lado.
+Ordem de trabalho das ideias aprovadas em `docs/historico/CONCORRENTES.md` (seção "Decisões"). Marque `[x]` ao terminar cada item, com o commit ou a observação ao lado.
 
 ## 1. Hierarquia de cargos (segurança, prioridade máxima) — feito
 - [x] Posição dos cargos em ordem de verdade: posições 1..n, cargo novo entra no fim (posição 1); as posições aleatórias antigas são renumeradas uma vez sem mudar a ordem (`meta` `roles-position-1`); apagar um cargo fecha o buraco.

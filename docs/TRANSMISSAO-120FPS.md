@@ -1,7 +1,7 @@
 # Transmissão a 60/120 FPS pela placa de vídeo (app desktop, Windows)
 
 O capturador de tela do Chromium usa o Windows Graphics Capture com o intervalo mínimo padrão (~20,8 ms) e fica em
-~48 fps (ver `PASSO0-DIAGNOSTICO-FPS.md`), inclusive pedindo 60. **A partir de 60 FPS** (até 2026-11-13: só acima de 60) o
+~48 fps (ver `docs/historico/PASSO0-DIAGNOSTICO-FPS.md`), inclusive pedindo 60. **A partir de 60 FPS** (até 2026-11-13: só acima de 60) o
 app desktop passa o **vídeo** para um programa próprio
 (`native/lc-stream`, empacotado como `lc-stream.exe`), que captura sem esse limite e comprime na placa de vídeo.
 Medido no PC de 143 Hz (RTX 3080): 1080p a 120 fps de ponta a ponta, 0 perdas.
@@ -23,7 +23,7 @@ Quem assiste não muda nada: recebe um producer de tela H.264 comum.
 ## Ao vivo
 - Mudar para menos de 60 fps: o programa para e o vídeo volta para o Chromium (mesma transmissão, sem parar).
 - Voltar para 60/120 fps, ou mudar resolução/fps/taxa no modo nativo: reinicia o programa (1-2 s).
-- O programa falhou ou fechou: reinicia sozinho (até 3 vezes em 30 s, 1 s depois da falha; quem assiste perde a imagem por ~1-2 s). Na 4ª falha, ou com janela fechada/sem codificador, aviso e a transmissão continua pelo modo normal (`docs/FASE2-CAPTURA.md`, M4).
+- O programa falhou ou fechou: reinicia sozinho (até 3 vezes em 30 s, 1 s depois da falha; quem assiste perde a imagem por ~1-2 s). Na 4ª falha, ou com janela fechada/sem codificador, aviso e a transmissão continua pelo modo normal (`docs/historico/FASE2-CAPTURA.md`, M4).
 - O servidor encerrou a sessão (reconexão): tenta de novo até 2 vezes, depois volta ao modo normal.
 - Painel "Transmissão ao vivo": mostra os fps enviados pelo programa e o codificador.
 

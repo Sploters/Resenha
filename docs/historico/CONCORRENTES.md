@@ -254,7 +254,7 @@ Fórum open-source com tópicos em tempo real e salas de chat. Dos EUA, usado po
 
 **Erros a evitar**
 - **Mostrar IP para moderadores**: na Resenha, IP só para o administrador da instalação, se tanto.
-- Peso de RAM: continuar medindo (`docs/AUDITORIA-DESEMPENHO.md`) para rodar em máquina modesta.
+- Peso de RAM: continuar medindo (`docs/historico/AUDITORIA-DESEMPENHO.md`) para rodar em máquina modesta.
 - Padrões que travam conversa rápida: limites só para quem é novo, nunca para todos.
 - Esconder recursos de quem chega: a primeira tela deve mostrar o que existe.
 

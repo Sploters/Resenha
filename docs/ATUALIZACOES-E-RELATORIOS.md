@@ -1,7 +1,8 @@
 # App desktop: atualizações, versões na call e relatórios de problema
 
 ## Atualizações (repositório pode ser privado)
-- A cada mudança em `desktop/` na `main`, o GitHub Actions (`.github/workflows/desktop-release.yml`) monta o instalador
+- A cada mudança em `desktop/` (ou em `native/lc-input`, `native/lc-stream`, `native/lc-audio`) na `main`, o GitHub
+  Actions (`.github/workflows/desktop-release.yml`) compila os programas nativos, monta o instalador
   e publica a release (número da versão escolhido sozinho).
 - O servidor consulta a release com uma chave **somente leitura** e entrega aos apps (`/api/desktop/update`,
   `/desktop/download/<instalador>`). Chave: arquivo `github-token.txt` na pasta de dados (Umbrel: `~/resenha-data`)

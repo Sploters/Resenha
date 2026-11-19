@@ -52,7 +52,7 @@ quem assiste (navegador/app)      servidor (gateway WS)              dono (app d
 - O cursor de quem controla é o do vídeo (o cursor do dono aparece na transmissão).
 
 ## Build
-- O `desktop/native/lc-input.exe` está no repositório, compilado no Linux com `cargo build --release --target x86_64-pc-windows-gnu` em `native/lc-input` (só usa DLLs do Windows). `npm run dist` (desktop) chama `build-native.mjs`: com Rust no Windows, recompila; sem Rust, usa o incluído. O electron-builder copia para `resources/lc-input.exe`.
+- O `lc-input.exe` não fica mais no repositório: `npm run dist` (desktop) chama `build-native.mjs`, que compila `native/lc-input` no Windows com Rust (como faz a release do GitHub) ou cruzado no Linux com o alvo `x86_64-pc-windows-gnu` (só usa DLLs do Windows); sem Rust, usa o `.exe` que já estiver em `desktop/native`. O electron-builder copia para `resources/lc-input.exe`.
 - Desktop **1.0.15**.
 
 ## Testes

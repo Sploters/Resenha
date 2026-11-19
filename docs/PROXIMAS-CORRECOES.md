@@ -40,7 +40,7 @@ Relato: mesmo trocando a qualidade, com o modo leve desligado em quem transmite 
 corrigidas sem medição no Windows (falta conferir na próxima jogatina):
 1. **Caminho do Chromium** (Windows 10, sem codificador na placa, conversa protegida ou volta do nativo): o teto `max` do
    fps igual ao pedido descartava os quadros da grade irregular do capturador. Pedindo 60 saíam ~32 fps; pedindo 30,
-   ~21 (bate com `PASSO0-DIAGNOSTICO-FPS.md`). Agora o teto tem 25% de folga (`capFps`) e o limite exato fica no
+   ~21 (bate com `docs/historico/PASSO0-DIAGNOSTICO-FPS.md`). Agora o teto tem 25% de folga (`capFps`) e o limite exato fica no
    codificador (`maxFramerate`).
 2. **Servidor** (`server/sfu.js`): o piso de 6 Mbps por espectador valia para sempre e impedia a estimativa de banda de
    baixar quando a fila crescia sem perda (oscilação alta, quadros atrasados). Agora vale só nos 15 s de subida do vídeo
@@ -55,7 +55,7 @@ com o nativo e sem perda, olhar os fps enviados pelo programa no painel de quem 
 ## Transmissão a ~48 FPS e 960x540 (2026-11-15)
 
 Relato: depois da correção acima, quem assiste vê 48-52 FPS (nunca 60) e 960x540 em vez de 1080p.
-- **FPS:** 48 é o teto do capturador do Chromium (`PASSO0-DIAGNOSTICO-FPS.md`), ou seja, a transmissão saiu pelo modo
+- **FPS:** 48 é o teto do capturador do Chromium (`docs/historico/PASSO0-DIAGNOSTICO-FPS.md`), ou seja, a transmissão saiu pelo modo
   normal e não pelo programa nativo.
 - **960x540:** reproduzido aqui (VP8 pelo processador, 1080p60 pedido): o servidor manda a camada Alta, mas o
   codificador de quem transmite encolhe a imagem (1080p -> 720p -> 540p, limite "cpu") para segurar os fps. Com mais
@@ -63,7 +63,7 @@ Relato: depois da correção acima, quem assiste vê 48-52 FPS (nunca 60) e 960x
 - **Medição nova** (cartão "Qualidade técnica das chamadas"): por onde a transmissão saiu, por que não foi pelo nativo
   (Windows 10, sem codificador na placa, portas UDP, chamada protegida, menos de 60 FPS…), quem comprimiu (placa ou
   processador), a resolução enviada e se ficou abaixo da pedida. Se dominar "Windows 10" + "Processador", a saída é
-  investigar a captura nativa sem borda. Plano, critérios e riscos em `CAPTURA-WINDOWS10.md` (nada da captura muda
+  investigar a captura nativa sem borda. Plano, critérios e riscos em `docs/historico/CAPTURA-WINDOWS10.md` (nada da captura muda
   antes dos dados).
 
 ## O que olhar no painel depois da próxima jogatina

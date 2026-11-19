@@ -479,7 +479,7 @@ Bugs que os testes pegaram e já estão corrigidos:
 - Branch `claude/jolly-galileo-cin4x4`. O servidor precisa rodar esta branch (página nova).
 - App: `Resenha-Teste-Captura-1.0.40.exe` (portátil, roda sem instalar e sem mexer na Resenha instalada).
   Montar de novo: `cd desktop && npx electron-builder --win portable --publish never -c.win.signExecutable=false
-  -c.portable.artifactName='Resenha-Teste-Captura-${version}.${ext}'` (o `lc-stream.exe` já está em `desktop/native`).
+  -c.portable.artifactName='Resenha-Teste-Captura-${version}.${ext}'` (antes, `node build-native.mjs` em `desktop/` compila o `lc-stream.exe` para `desktop/native`; os .exe não ficam no repositório).
 - O instalador oficial só sai quando isto chegar na `main` (workflow `desktop-release.yml`).
 
 ## Problemas conhecidos e limitações (não escondidas)

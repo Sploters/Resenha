@@ -236,6 +236,6 @@ configurações e não toca no jogo. Gera `resultado-captura-<PC>.json`.
 - **Gancho/injeção em jogos.** É o que o Discord usa para tela cheia exclusiva, mas depende de DLL assinada e da
   tolerância dos anti-cheats. Não entra.
 - **Captura nativa sem borda no Windows 10 (DXGI, M10)** e **opção "aceitar a borda" (M11).** Esperam os dados do kit
-  e da telemetria (`docs/CAPTURA-WINDOWS10.md`).
+  e da telemetria (`docs/historico/CAPTURA-WINDOWS10.md`).
 - **Melhorias só no Windows** (placa certa em PC com duas placas, taxa ajustável no nativo, perfil High, laço por
   evento: M5-M9). Etapa seguinte, depois do kit.
