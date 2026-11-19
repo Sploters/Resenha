@@ -172,8 +172,9 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     if (!get('SELECT 1 x FROM users WHERE id=?', uid)) return bad(res, 'Usuário não encontrado', 404);
     if (!canSee(req.uid, uid)) return bad(res, 'Essa pessoa não compartilha os jogos com você', 403);
     const s = syncRow(uid);
-    // abriu a aba e os dados estão velhos (ou nunca vieram): atualiza em segundo plano; a tela recebe ACHIEVEMENTS_UPDATE
-    if (steamAcct(uid) && (!s?.synced_at || now() - s.synced_at > FRESH)) setTimeout(() => syncSteam(uid).catch(e => log('[conquistas] ' + e.message)), 0);
+    // abriu a aba e os dados estão velhos (ou nunca vieram), ou a última tentativa foi sem chave e agora a chave existe:
+    // atualiza em segundo plano; a tela recebe ACHIEVEMENTS_UPDATE
+    if (steamAcct(uid) && (!s?.synced_at || now() - s.synced_at > FRESH || (s.state === 'nokey' && getAdapter('steam')?.configured?.()))) setTimeout(() => syncSteam(uid).catch(e => log('[conquistas] ' + e.message)), 0);
     res.json(view(uid, req.uid));
   }));
   app.post('/api/achievements/sync', auth, wrap(async (req, res) => {

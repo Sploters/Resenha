@@ -67,7 +67,9 @@ export function achievementsView(uid, { compact = false } = {}) {
     if (!d.me) return null;
     if (!s.linked) return h('div.ach-note', icon('link', 16), h('span', 'Vincule a Steam para trazer as conquistas e os jogos 100% automaticamente.'), h('button.btn.sm', { onclick: () => openSettings('connections') }, 'Vincular a Steam'));
     if (s.state === 'private') return h('div.ach-note.warn', icon('lock', 16), h('span', 'Seu perfil da Steam está privado. Na Steam, em Privacidade, deixe "Detalhes do jogo" como Público e sincronize de novo.'));
-    if (s.state === 'nokey' || !s.configured) return h('div.ach-note.warn', icon('info', 16), h('span', 'Este servidor da Resenha não tem a chave da Steam configurada (STEAM_API_KEY); as conquistas da Steam não podem ser lidas.'));
+    if (!s.configured) return h('div.ach-note.warn', icon('info', 16), h('span', 'Este servidor da Resenha não tem a chave da Steam configurada (STEAM_API_KEY); as conquistas da Steam não podem ser lidas.'));
+    if (s.state === 'nokey') return h('div.ach-note.warn', icon('info', 16), h('span', 'A Steam recusou a chave deste servidor (STEAM_API_KEY) na última tentativa.'),
+      h('button.btn.grey.sm', { onclick: (e) => syncNow(e.currentTarget) }, icon('refresh', 14), 'Tentar de novo'));
     return h('div.ach-note.ok', icon('check', 16), h('span', s.synced_at ? `Steam sincronizada ${fmtDate(s.synced_at)}` + (s.state === 'error' ? ' (alguns jogos não responderam)' : '') : 'Steam vinculada'),
       h('button.btn.grey.sm', { onclick: (e) => syncNow(e.currentTarget) }, icon('refresh', 14), 'Sincronizar agora'));
   }
