@@ -57,12 +57,11 @@ const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobri
 // com 30 <video>), os Arquivos (st.root), a tela de Amigos (S.redrawHome) e a de atividade (S.redrawFeed) pelos redesenhos
 // guardados, e o palco de chamada antigo pelo ResizeObserver (observedStage, que segurava junto o chat e o compositor).
 function releaseOldScreens() {
-  if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
-  if (memVirt && !memVirt.list.isConnected) memVirt = null; // lista virtual: guarda a .mem-list e os itens (cada um com o redesenho em que nasceu)
+  releaseMembers();
   discoverMod?.release(); releaseClips(); releaseFiles();
   if (S.redrawHome && !document.getElementById('home')) S.redrawHome = null;
   if (!document.getElementById('actfeed')) { S.redrawFeed = null; clearInterval(S.feedClock); S.feedClock = null; } // o relógio de 30 s do "Ativo agora" segurava o painel até o próximo tique
-  if (observedStage && !observedStage.isConnected) { stageObs.unobserve(observedStage); observedStage = null; }
+  releaseStage();
 }
 import { initFiles, renderFiles, filesPreset, onFilesMessage, releaseFiles, onFilesClip } from './files.js';
 import { initForum, renderForum, rememberPost, loadPost, onForumEvent, onPostReply, postHead, paintLocked, forumOfPost } from './forum.js';
@@ -95,6 +94,7 @@ import { initAppUpdate, installAppUpdate, myDesktopVersion, refreshDesktopVersio
 applyTheme();
 
 let ws, voice, retry = 0, ready = false, pendingInvite = null, offlineSince = 0, restarting = false; // restarting: o servidor avisou que vai reiniciar (atualização)
+const setPendingInvite = (code) => { pendingInvite = code; }; // link /invite/<código> aberto sem estar logado (boot)
 const $ = (s) => document.querySelector(s);
 const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
 // qual servidor esta tela mostra (null: nenhum, ou janela escondida): o servidor só manda a presença dos membros dele
@@ -423,7 +423,7 @@ function onEvent(t, d) {
       if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
       if (d.user_id === S.me.id && d.channel_id !== before) resetPresenceSounds(); // saí ou troquei de sala: sons pendentes da sala antiga não tocam mais
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
-      if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) { callDropped = d.reason === 'drop'; voice.leave(); }
+      if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) { setCallDropped(d.reason === 'drop'); voice.leave(); }
       if (d.user_id !== S.me.id && !d.bot && !prevVs?.bot) { // o bot entrando/saindo não toca o som de pessoa
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
         if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
@@ -1585,7 +1585,7 @@ const newsActions = {
   messages: () => openMessages(),
   notifications: () => openSettings('notifications', ctxSettings()),
   accessibility: () => openSettings('accessibility', ctxSettings()),
-  requests: () => { inboxTab = 'requests'; showInbox(); },
+  requests: () => { setInboxTab('requests'); showInbox(); },
   servers: () => { const g = [...S.guilds.values()][0]; if (g) friendsInServer(g); else toast('Entre num servidor para ver quais amigos estão nele.'); },
   privacy: () => openSettings('privacy', ctxSettings()),
   mymessages: () => openMyMessages(),
@@ -1634,6 +1634,7 @@ function watchFriend(uid, ch) {
 // Sair pelo botão, trocar de sala ou entrar por outro aparelho apaga a lembrança: aí não há o que oferecer.
 const LASTCALL = 'lc_lastcall', REJOIN_MS = 5 * 60 * 1000;
 let lastCallCid = null, callDropped = false, lastCallBeat = 0, rejoinT = 0;
+const setCallDropped = (on) => { callDropped = on; }; // a chamada caiu (o servidor avisa no VOICE_STATE): oferece voltar
 const saveLastCall = () => { if (!voice?.channelId) return; try { localStorage.setItem(LASTCALL, JSON.stringify({ cid: voice.channelId, at: Date.now(), muted: !!voice.muted, deaf: !!voice.deafened })); } catch { } };
 const forgetLastCall = () => { try { localStorage.removeItem(LASTCALL); } catch { } };
 function trackLastCall() {
@@ -1979,6 +1980,7 @@ function renderCallBar() { // mostra/oculta o palco de chamada nas DMs
 }
 const renderHomeIfHome = () => { if (S.view.kind === 'home') renderMain(); };
 let openedPost = null, postTop = null; // post de fórum aberto agora: a primeira vez rola para o topo (o post)
+const freePostTop = () => { postTop = null; };
 function renderMain() {
   const main = $('#main'); if (!main) return;
   const v = S.view;
@@ -2828,6 +2830,7 @@ const inboxBadge = () => { const n = inboxCount(); return n ? h('span.ibadge', n
 const KIND_TXT = { mention: 'mencionou você', reply: 'respondeu você', everyone: 'mencionou @everyone' };
 // popup "Caixa de entrada" no canto superior direito: não lidas por canal e menções/respostas
 let inboxTab = 'unread';
+const setInboxTab = (tab) => { inboxTab = tab; };
 const unreadCh = () => Object.entries(S.unread).map(([cid, u]) => ({ ch: channelById(cid), u })).filter(x => x.ch).sort((a, b) => (b.u.last_id > a.u.last_id ? 1 : -1));
 const jumpMsg = (m) => { const ch = channelById(m.channel_id); closeFloating(); if (S.view.cid !== m.channel_id) { go(ch?.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } else jumpTo(m.id); };
 // mensagens com separador de dia e o botão "Ir" ao passar o mouse
@@ -3135,7 +3138,7 @@ function optimistic(cid, body) {
     attachments: body.attachments || [], reactions: [], reply_to: body.reply_to || null };
   const el = msgEl(m, prev && prev.author_id === S.me.id && sameDay(prev.created_at, m.created_at) ? prev : null);
   el.classList.add('sending'); el.removeAttribute('data-mid'); el.querySelector('.toolbar')?.remove();
-  postTop = null; // comentou: segue o fim, como num chat
+  freePostTop(); // comentou: segue o fim, como num chat
   box.append(el); box.stick = true; box.scrollTop = box.scrollHeight;
   const g = { cid, content: body.content, el }; ghosts.push(g); return g;
 }
@@ -3302,6 +3305,11 @@ const memRows = new Map();
 const MEM_VIRT = 150, MEM_OVER = 12; // folga de linhas acima e abaixo da tela
 const memH = { row: 42, head: 38, ok: false }; // alturas medidas na primeira pintura (mudam com o zoom)
 let memVirt = null, memJump = null;
+// tela trocada: a linha guardada e a lista virtual seguravam o #members antigo (ver releaseOldScreens)
+function releaseMembers() {
+  if (memRows.box && !memRows.box.isConnected) { memRows.clear(); memRows.box = null; memRows.gid = null; }
+  if (memVirt && !memVirt.list.isConnected) memVirt = null; // lista virtual: guarda a .mem-list e os itens (cada um com o redesenho em que nasceu)
+}
 function memOffsets(v) {
   if (v.off && v.offFor === memH.row + ',' + memH.head) return v.off;
   const off = new Float64Array(v.items.length + 1);
@@ -3597,6 +3605,7 @@ let lastTw = null; // tamanho calculado na última vez: a grade redesenhada já 
 function markNarrow() { const st = document.getElementById('stage'); if (st) st.classList.toggle('narrow', st.clientWidth < 1000); }
 const stageObs = new ResizeObserver(() => { markNarrow(); fitStage(); });
 let observedStage = null;
+function releaseStage() { if (observedStage && !observedStage.isConnected) { stageObs.unobserve(observedStage); observedStage = null; } } // palco antigo (ver releaseOldScreens)
 function watchStage() {
   const st = document.getElementById('stage');
   if (st !== observedStage) { if (observedStage) stageObs.unobserve(observedStage); if (st) stageObs.observe(st); observedStage = st; }
@@ -4482,7 +4491,7 @@ initWatch({ send: gwSend, voice: () => voice, channelById, goCall: (ch) => go(ch
   watchStream: (uid) => { watchOnly(uid); renderVoiceUI(); } });
 initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onWatchInvite: (cid) => pendingWatch(cid), onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
-initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { inboxTab = tab; showInbox(); } });
+initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { setInboxTab(tab); showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
 // testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
 const VQ = new URL(import.meta.url).search;
@@ -4491,6 +4500,6 @@ window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) 
 // =============== Boot ===============
 (async function boot() {
   const m = location.pathname.match(/^\/invite\/([\w-]+)/);
-  if (m) pendingInvite = m[1];
+  if (m) setPendingInvite(m[1]);
   if (S.token) connect(); else showAuth(pendingInvite ? 'register' : 'login');
 })();
