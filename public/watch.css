@@ -74,7 +74,7 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 .wt-empty { text-align: center; max-width: 460px; padding: 24px; color: #dbdee1; }
 .wt-empty-ic { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; color: #b5bac1; background: #2b2d31; }
 .wt-empty h2 { margin: 0 0 6px; color: #f2f3f5; font-size: 20px; font-weight: 600; }
-.wt-empty p { margin: 0 0 18px; color: #949ba4; font-size: 14px; line-height: 1.45; }
+.wt-empty p { margin: 0 0 18px; color: var(--text-muted); font-size: 14px; line-height: 1.45; }
 .wt-empty .wt-acts .btn { min-height: 34px; padding: 2px 14px; }
 .wt-svcline { margin-top: 14px; font-size: 12px; color: #949ba4; }
 .wt-svcline button { color: #b5bac1; font-size: 12px; padding: 0; } .wt-svcline button:hover { color: #f2f3f5; text-decoration: underline; }

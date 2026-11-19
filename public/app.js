@@ -444,7 +444,7 @@ function onEvent(t, d) {
     case 'CALL_INVITE': onCallInvite(d); break;
     case 'INTENT_INVITE': case 'INTENT_UPDATE': case 'INTENT_RESPONSE': case 'INTENT_FORMED': case 'INTENT_EXPIRED': onIntentEvent(t, d); break;
     case 'ADMIN_DIGEST': { // resumo da semana (só o administrador recebe, server/ux.js)
-      toast('📊 Resumo da semana: ' + d.titulo + ' Veja em Configurações → Estatísticas de uso.');
+      toast('Resumo da semana: ' + d.titulo + ' Veja em Configurações → Estatísticas de uso.');
       notify('Resenha: resumo da semana', d.titulo, () => openSettings('uxstats', { voice, logout, go, gid: S.view.gid })); break;
     }
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)

@@ -39,8 +39,8 @@ export function showCallRating(grade = null) {
   const box = h('div#callrate', { role: 'dialog', 'aria-label': 'Avaliar a chamada', onmouseenter: () => clearTimeout(timer), onmouseleave: () => !answered && arm(8e3) },
     h('div.cr-head', h('b', 'Teve algum problema na chamada?'), h('button.cr-x', { type: 'button', 'aria-label': 'Fechar', onclick: () => close('ignored') }, icon('x', 16))),
     h('div.cr-row',
-      h('button.cr-btn.bad', { type: 'button', onclick: () => pick(false) }, '👎', h('span', 'Tive problema')),
-      h('button.cr-btn', { type: 'button', onclick: () => pick(true) }, '👍', h('span', 'Foi tudo bem'))),
+      h('button.cr-btn.bad', { type: 'button', onclick: () => pick(false) }, icon('thumbdown', 18), h('span', 'Tive problema')),
+      h('button.cr-btn', { type: 'button', onclick: () => pick(true) }, icon('thumbup', 18), h('span', 'Foi tudo bem'))),
     h('small.cr-hint', 'Sem problema? Pode só fechar.'));
   document.body.append(box); arm(15e3);
   return box;

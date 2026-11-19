@@ -22,7 +22,7 @@ a { color: var(--link); text-decoration: none; } a:hover { text-decoration: unde
 
 /* ---------- Auth ---------- */
 /* tela de entrar (public/auth.js): fundo próprio do Resenha, logo no canto e cartão no centro (duas colunas ao entrar) */
-#auth { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px 16px; overflow: auto; background: #15161a; }
+#auth { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px 16px; overflow: auto; background: var(--bg-tert); }
 #auth h1 { margin: 0 0 8px; text-align: center; color: var(--header); font-size: 24px; }
 #auth p.sub { text-align: center; color: var(--text-muted); margin: 0 0 20px; }
 label.f { display: block; margin-bottom: 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--interactive); letter-spacing: .02em; }

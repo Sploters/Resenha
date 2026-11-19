@@ -109,7 +109,6 @@ export function renderAuth(root, mode, o) {
     h('p.auth-switch', login ? 'Precisa de uma conta? ' : 'Já tem uma conta? ', h('a.auth-link', { href: '#', onclick: swap }, login ? 'Registre-se' : 'Entrar')));
   const card = h('div.auth-card' + (login ? '.two' : ''), form, login && !o.qrPending && [h('div.auth-sep'), qrPanel(o.onToken)]);
   root.replaceChildren(
-    h('div.auth-bg', { 'aria-hidden': 'true' }, h('i.b1'), h('i.b2'), h('i.b3'), h('i.grid')),
     h('div.auth-brand', h('img', { src: '/icons/icon-192.png', alt: '' }), h('span', 'Resenha')),
     card);
   u.focus();

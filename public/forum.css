@@ -37,7 +37,7 @@
 .fo-ptags { margin: 6px 0 2px; } .fo-ptags .fo-tag { height: 22px; font-size: 12px; padding: 0 8px; }
 
 /* cartão */
-.fo-card { background: var(--bg-sec); border: 1px solid var(--fo-line); border-radius: 12px; }
+.fo-card { background: var(--bg-sec); border: 1px solid var(--fo-line); border-radius: 8px; }
 .fo-feed { display: flex; flex-direction: column; gap: 10px; }
 .fo-post { display: flex; gap: 0; cursor: pointer; transition: border-color .12s, background .12s; overflow: hidden; }
 .fo-post:hover { border-color: color-mix(in srgb, var(--text-muted) 55%, transparent); }
@@ -85,7 +85,7 @@ button.fo-act { cursor: pointer; } button.fo-act:hover { background: var(--bg-mo
 /* lateral "Sobre" */
 .fo-side { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 12px; }
 .fo-about { padding: 14px; overflow: hidden; }
-.fo-about::before { content: ''; display: block; height: 34px; margin: -14px -14px 12px; background: linear-gradient(120deg, var(--brand), color-mix(in srgb, var(--fo-up) 70%, var(--brand))); }
+.fo-about::before { content: ''; display: block; height: 34px; margin: -14px -14px 12px; background: var(--brand); }
 .fo-about-h { display: flex; align-items: center; gap: 10px; }
 .fo-about-h b { display: block; color: var(--header); font-size: 16px; } .fo-about-h small { color: var(--text-muted); }
 .fo-ficon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: #fff; flex: none; margin-top: -26px; box-shadow: 0 0 0 4px var(--bg-sec); }
