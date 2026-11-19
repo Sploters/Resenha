@@ -1892,7 +1892,7 @@ app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga d
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
 });
 // ---- integrações com plataformas de jogos (Fase 1): vincular/desvincular/privacidade. A API da plataforma fica isolada em server/integrations/* ----
-const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), clipsWeek: (v, o) => clipsWeekFor(v, o), log: console.log });
+const activity = createActivityService({ all, get, run, newId, dispatch, presenceOk: (viewer, owner) => privacy.presenceVisible(viewer, owner), isInvisible: (u) => getUser(u)?.status === 'invisible', inVoice: (u) => !!currentVoice(u), isOnline: (u) => conns.has(u), getAdapter, listAdapters, notifyAccount: (u, p) => dispatch([u], 'INTEGRATION_UPDATE', { platform: p, account: accountPub(accountOf(u, p)) }), clipsWeek: (v, o) => clipsWeekFor(v, o), log: console.log });
 // clipes da semana no painel "Ativo agora": Top 5 (o app mostra 3 e expande), categorias especiais e recomendados
 function clipsWeekFor(viewer, { played }) {
   const w = clipStats.week(viewer), seen = new Set(all('SELECT clip_id FROM clip_views WHERE user_id=?', viewer).map(r => r.clip_id));
@@ -2168,6 +2168,7 @@ function leaveVoice(uid, cid, reason) {
   for (const [, s] of m) send(s.ws, 'VOICE_PEER_LEFT', { channel_id: cid, user_id: uid });
   musicOnLeave(cid);
   watch.onVoiceLeave(uid, cid, reason);
+  activity.onVoice(uid); // horas de jogo só contam em call
   socialVoice(cid);
 }
 // Bot de música: participante sem conexão WebSocket (ws "morto" faz send() ser ignorado)
@@ -2376,6 +2377,7 @@ wss.on('connection', (ws) => {
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(ch.id, uid, st), guild_id: ch.guild_id });
           uxFirst(uid, 'voice');
           intents.onVoiceJoin(uid, ch.id); socialVoice(ch.id, uid);
+          activity.onVoice(uid); // horas de jogo só contam em call
           musicOnJoin(ch.id, ws);
           watch.onVoiceJoin(uid, ch.id);
           if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));

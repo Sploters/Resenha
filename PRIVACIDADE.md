@@ -13,7 +13,7 @@ A Resenha roda no servidor de quem montou o grupo (um PC, um Umbrel, uma VPS). N
 | DMs protegidas (E2EE) | Só o texto e os arquivos **cifrados**; a chave privada fica trancada com a sua frase. | Só os dois da conversa |
 | Servidores | Membros, cargos, canais, convites, banimentos, registro de auditoria. | Membros (auditoria: quem gerencia o servidor) |
 | Contas vinculadas | Steam: ID, nome, biblioteca (jogos e horas) e wishlist. | Amigos e quem divide servidor (padrão), só amigos ou ninguém — você escolhe |
-| "Jogando…" e histórico | Jogo aberto detectado pelo app desktop e o histórico da semana. Desliga no modo invisível ou em Privacidade. | Conforme a sua configuração de presença |
+| "Jogando…" e histórico | Jogo aberto detectado pelo app desktop e o histórico da semana. As horas só contam enquanto você está numa call. No modo invisível ou com "Ninguém" em Contas vinculadas, só você vê o jogo ao vivo, mas as horas em call continuam somando, **sem o seu nome**, em "A semana da galera" dos seus amigos. Para um jogo não contar, esconda o jogo. | Ao vivo: conforme a sua configuração de presença. Na semana: só o total, sem identificar quem está em "Ninguém"/invisível |
 | Estatísticas de uso | Contagens por dia, **sem identificar ninguém**, apagadas em 60 dias. Inclui o formato (codec) dos vídeos enviados e se os vídeos do chat tocaram no seu aparelho, nunca o conteúdo. Desliga em Privacidade e segurança. | Só o administrador da instalação |
 | Qualidade das chamadas | Faixas (ex.: "atraso 100–200 ms") e a nota, sem conteúdo. | Só o administrador da instalação |
 

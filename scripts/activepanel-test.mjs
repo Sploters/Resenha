@@ -22,7 +22,7 @@ const U = {}; for (const n of ['eu', 'ana', 'beto', 'caio', 'zeca']) U[n] = awai
 for (const n of ['ana', 'beto', 'caio']) { await call(U.eu.tok, 'POST', '/relationships', { username: n }); await call(U[n].tok, 'PUT', '/relationships/' + U.eu.id, {}); }
 const g = await call(U.eu.tok, 'POST', '/guilds', { name: 'Turma' }); const code = (await call(U.eu.tok, 'POST', `/guilds/${g.id}/invites`)).code;
 for (const n of ['ana', 'beto', 'caio', 'zeca']) await call(U[n].tok, 'POST', '/invites/' + code);
-await call(U.caio.tok, 'PATCH', '/activity/pc', { visibility: 'off' }); // caio esconde o que joga
+await call(U.caio.tok, 'PATCH', '/activity/pc', { visibility: 'off' }); // caio: "Ninguém" — ninguém vê ao vivo, mas conta (sem nome) na semana
 await stop();
 
 // ---- histórico (dias anteriores) ----
@@ -37,7 +37,7 @@ for (const n of [2, 3]) session(U.ana.id, 'cs2', 'Counter-Strike 2', day(n, 20),
 session(U.beto.id, 'peak', 'PEAK', day(1, 15), 10 * 60);                       // curtinha: insignificante, fica de fora
 session(U.ana.id, 'stardew', 'Stardew Valley', day(1, 18), 70 * 60);            // 4º lugar: fora do top 3
 session(U.beto.id, 'stardew', 'Stardew Valley', day(1, 19), 20 * 60);
-session(U.caio.id, 'eldenring', 'ELDEN RING', day(1, 20), 9 * 3600);            // caio escondeu: não aparece
+session(U.caio.id, 'eldenring', 'ELDEN RING', day(1, 20), 9 * 3600, 'pc', { priv: 1 }); // caio em "Ninguém": conta, sem nome
 session(U.zeca.id, 'dota2', 'Dota 2', day(1, 20), 9 * 3600);                    // não é amigo: não aparece
 const ch = db.prepare('SELECT id FROM channels WHERE guild_id=? AND type=0').get(g.id);
 const clip = (id, author, streamer, title, at) => db.prepare('INSERT INTO clips(id,guild_id,channel_id,message_id,author_id,streamer_id,title,url,size,secs,has_audio,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -77,8 +77,11 @@ try {
   ok(P.recs.some(r => /Ninguém viu/.test(r) && /amigo/.test(r)) && !P.recs.some(r => /Ace no último|Clutch do eu/.test(r)), 'recomendados: o que não está no ranking, com o motivo (sem repetir clipe)', P.recs);
   ok(/Jogo da semana/i.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
   ok(P.bars === 7 && P.barsOn === 5, 'a semana em 7 barrinhas (dias com partida acesos)', { bars: P.bars, on: P.barsOn });
-  ok(P.rows.length === 2 && /^2 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[0]) && /^3 Hades 4,3h · 1 pessoa/.test(P.rows[1]), '2º e 3º em linhas compactas (jogar junto pesa mais que horas sozinho)', P.rows);
-  ok(!P.rows.concat(P.hero).some(x => /PEAK|ELDEN|Dota|VALORANT/.test(x)), 'fora: insignificante (PEAK 10 min), escondido (caio), não amigo (zeca) e o que só começou agora', P.rows);
+  ok(P.rows.length === 2 && /^2 ELDEN RING 9h · 1 pessoa/.test(P.rows[0]) && /^3 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[1]), '2º e 3º em linhas compactas (o jogo do caio em "Ninguém" conta, sem nome)', P.rows);
+  ok(!P.rows.concat(P.hero).some(x => /PEAK|Dota|VALORANT|Hades/.test(x)), 'fora: insignificante (PEAK 10 min), não amigo (zeca), o que só começou agora (sem horas em call) e o 4º (Hades)', P.rows);
+  { const w = (await call(U.eu.tok, 'GET', '/activity/feed')).week, er = w.games.find(x => x.game.id === 'eldenring');
+    ok(er && er.players.length === 0 && er.anon === 1 && !w.played.some(p => p.user_id === U.caio.id) && !(await call(U.eu.tok, 'GET', '/activity/feed')).events.some(e => e.user_id === U.caio.id),
+      '"Ninguém": as horas entram na semana, mas o caio não aparece (nem avatar, nem "amigos que jogaram", nem feed)', er); }
   ok(P.clips.length === 2 && /Ace no último round/.test(P.clips[0]) && /Clutch do eu/.test(P.clips[1]) && !P.clips.some(c => /Ninguém viu|antigo/.test(c)) && P.big, 'clipes da semana: só os com engajamento, o 1º grande com miniatura', P.clips);
   ok(/Clipe da semana/i.test(P.clips[0]) && /ana/.test(P.clips[0]) && / 3 2 0 90%$/.test(P.clips[0]), 'clipe da semana: autor e métricas (3 visualizações, 2 curtidas, 0 compartilhamentos, 90% assistido)', P.clips[0]);
   ok(/Você aparece/i.test(P.clips[1]), 'categoria personalizada: "Você aparece" (clipe da sua transmissão)', P.clips[1]);
@@ -101,9 +104,9 @@ try {
   ok(gp?.people.some(t => /beto/.test(t) && /3h esta semana/.test(t) && /2 dias seguidos/.test(t)), 'popup do jogo: quais amigos jogaram e quanto na semana', gp?.people);
   if (process.env.SHOTS) await me.screenshot({ path: '.testshots/activepanel-gamepop.png' });
   await me.evaluate(() => document.querySelector('.modal.gamemodal .gm-x').click()); await sleep(300);
-  await me.evaluate(() => [...document.querySelectorAll('#active-now .wk-row')].find(r => /Hades/.test(r.textContent)).click()); await sleep(700);
+  await me.evaluate(() => [...document.querySelectorAll('#active-now .wk-row')].find(r => /Stardew/.test(r.textContent)).click()); await sleep(700);
   const gp2 = await me.evaluate(() => { const m = document.querySelector('.modal.gamemodal'); return m && { title: m.querySelector('h2')?.textContent, steam: !!m.querySelector('a.gm-steam'), ph: !!m.querySelector('.gm-ph') }; });
-  ok(gp2?.title === 'Hades' && !gp2.steam && gp2.ph, 'jogo fora da Steam: popup sem botão da loja, com o ícone', gp2);
+  ok(gp2?.title === 'Stardew Valley' && !gp2.steam && gp2.ph, 'jogo fora da Steam: popup sem botão da loja, com o ícone', gp2);
   await me.evaluate(() => document.querySelector('.modal.gamemodal .gm-x').click()); await sleep(300);
   // o autor do clipe abre o perfil (não o player)
   await me.evaluate(() => document.querySelector('#active-now .wk-clip .wk-who').click()); await sleep(600);

@@ -71,11 +71,11 @@ export function mountIntents(app, d) {
     const fr = isFriend(author, uid), u = userPub(uid);
     const s = { uid, name: u?.display_name || '', friend: fr, playingNow: false, playedDaysAgo: null, ownsMinutes: null, wishlist: false, lfgProfile: false };
     for (const e of activity._state.current.values()) {
-      if (e.uid !== uid || !activity.canSee(author, uid, e.platform)) continue;
+      if (e.uid !== uid || e.priv || !activity.canSee(author, uid, e.platform)) continue; // partida em "Ninguém"/invisível não entrega
       if (sameGame(g, titles, { title: e.game.title, steam: e.platform === 'steam' ? e.game.id : e.game.steam })) s.playingNow = true;
     }
     if (!s.playingNow) {
-      for (const r of all('SELECT platform, game_id, title, data, MAX(created_at) at FROM activities WHERE user_id=? AND created_at>? GROUP BY platform, game_id', uid, t - RECENT_DAYS * 864e5)) {
+      for (const r of all('SELECT platform, game_id, title, data, MAX(created_at) at FROM activities WHERE user_id=? AND created_at>? AND (data IS NULL OR data NOT LIKE ?) GROUP BY platform, game_id', uid, t - RECENT_DAYS * 864e5, '%"priv":1%')) {
         if (!activity.canSee(author, uid, r.platform)) continue;
         let steam = r.platform === 'steam' ? r.game_id : null; try { steam ||= JSON.parse(r.data || '{}').steam || null; } catch { }
         if (sameGame(g, titles, { title: r.title, steam })) { const days = Math.floor((t - r.at) / 864e5); if (s.playedDaysAgo == null || days < s.playedDaysAgo) s.playedDaysAgo = days; }

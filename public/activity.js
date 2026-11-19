@@ -293,6 +293,7 @@ const dayOf = (k) => new Date(k + 'T12:00:00');
 const weekRange = (days) => { const a = dayOf(days[0]), b = dayOf(days[days.length - 1]), m = (d) => d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
   return a.getMonth() === b.getMonth() ? `${a.getDate()} – ${b.getDate()} ${m(b)}` : `${a.getDate()} ${m(a)} – ${b.getDate()} ${m(b)}`; };
 const people = (n) => n === 1 ? '1 pessoa' : `${n} pessoas`;
+const nPeople = (x) => x.players.length + (x.anon || 0); // identificados + quem conta sem aparecer
 // a semana em 7 barrinhas (altura = horas do dia); com rótulos no cartão principal
 function weekBars(x, days, labels) {
   const max = Math.max(...x.day, 1), today = days.length - 1;
@@ -302,8 +303,9 @@ function weekBars(x, days, labels) {
       h('i', { style: { height: (s > 0 ? Math.max(14, Math.round(s / max * 100)) : 0) + '%' } }), labels && h('small', WD[d]));
   }));
 }
-function avatarStack(list, n = 4) {
-  const shown = list.slice(0, n), rest = list.length - shown.length;
+// anon: quem jogou mas não dá para identificar (jogo do PC em "Ninguém", invisível): entra só no "+N"
+function avatarStack(list, n = 4, anon = 0) {
+  const shown = list.slice(0, n), rest = list.length - shown.length + (anon || 0);
   return h('div.wk-stack', ...shown.map(p => { const u = uOf(p.user_id); return h('span.wk-av', { title: `${p.user_id === S.me.id ? 'Você' : u.display_name} · ${hrs(p.secs)}`, onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, p.user_id); } }, avatar(u, 24, { status: false })); }),
     rest > 0 && h('span.wk-av.more', `+${rest}`));
 }
@@ -324,15 +326,15 @@ function gameHero(x, days) {
       titleEl(a, 'b.wk-title'),
       h('div.wk-stats',
         h('div', h('b', hrs(x.secs)), h('small', 'de jogo')),
-        h('div', h('b', String(x.players.length)), h('small', x.players.length === 1 ? 'pessoa' : 'pessoas')),
+        h('div', h('b', String(nPeople(x))), h('small', nPeople(x) === 1 ? 'pessoa' : 'pessoas')),
         x.streak >= 2 && h('div', h('b', String(x.streak)), h('small', 'dias seguidos'))),
-      h('div.wk-hfoot', avatarStack(x.players), weekBars(x, days, true))));
+      h('div.wk-hfoot', avatarStack(x.players, 4, x.anon), weekBars(x, days, true))));
 }
 function gameRow(x, rank, days) {
   const a = { platform: x.platform, game: x.game };
   return h('div.wk-row', { role: 'button', tabindex: 0, title: `Sobre ${x.game.title}`, onclick: openGame(a), onkeydown: (e) => { if (e.key === 'Enter') openGame(a)(e); } },
     h('span.wk-rank', String(rank)), gameIcon(a, 36),
-    h('div.wk-rtxt', titleEl(a, 'b'), h('small', [hrs(x.secs), people(x.players.length), x.streak >= 2 && `${x.streak} dias seguidos`].filter(Boolean).join(' · '))),
+    h('div.wk-rtxt', titleEl(a, 'b'), h('small', [hrs(x.secs), people(nPeople(x)), x.streak >= 2 && `${x.streak} dias seguidos`].filter(Boolean).join(' · '))),
     weekBars(x, days, false));
 }
 // ---- clipes
@@ -617,11 +619,12 @@ export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigo
 function pcActivityBlock() {
   const on = !!window.lcDesktop?.detectGame;
   const ctl = h('div.lk-ctl', h('div.lk-ctlh', 'Quem pode ver meu jogo do PC'), h('div.lk-seg', skeleton('rows', 1)));
-  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seu jogo não aparece mais para ninguém.' : 'Pronto.'); } }));
+  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Só você vê o que está jogando. Suas horas em call continuam contando na semana da galera, sem seu nome.' : 'Pronto.'); } }));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
   return h('div.lk-card',
     h('div.lk-top', logo('pc', 'screen'), h('div.lk-name', h('b', 'Jogo aberto no PC'), h('small', 'App desktop do Resenha')), on ? pill('ok', 'Ativo neste PC') : pill('off', 'Só no app desktop')),
     feats([['gamepad', 'Reconhece qualquer jogo aberto, não só os da Steam'], ['link', 'Não precisa vincular nenhuma conta'], ['lock', 'Só o nome do jogo é enviado']]),
     !on && h('p.lk-note', icon('info', 14), 'Funciona no app desktop para Windows (1.0.24 ou mais novo).'),
-    ctl);
+    ctl,
+    h('p.lk-note', icon('clock', 14), 'As horas só contam enquanto você está numa call (servidor ou DM, mesmo mutado). Em "Ninguém" ou no modo invisível, só você vê o jogo, mas as horas entram na semana da galera sem seu nome.'));
 }

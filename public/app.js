@@ -4396,7 +4396,7 @@ function startGameDetect() {
   if (!desktop?.detectGame || gameTimer) return;
   api('GET', '/activity/pc').then(r => { S.pcActivity = r.visibility; }).catch(() => { });
   const tick = gameTick = async () => {
-    const share = S.pcActivity !== 'off' && ws?.readyState === 1;
+    const share = ws?.readyState === 1; // em "Ninguém" também: o servidor só mostra para a própria pessoa, mas as horas em call contam na semana
     if (!share && !liteAutoOn() && !voice?.active) return;
     const g = await desktop.detectGame().catch(() => null), id = g?.id || null;
     gameChanged(g, voice); // modo leve automático enquanto o jogo está aberto (lite.js)

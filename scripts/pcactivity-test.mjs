@@ -86,7 +86,7 @@ try {
   ok((await seen(B, alice.id)) === null && (await seen(D, alice.id)) === 'pc:VALORANT', '"Só amigos": quem só divide servidor deixa de ver na hora; a amiga continua', [await seen(B, alice.id), await seen(D, alice.id)]);
   // ninguém
   await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'off' }); await sleep(400);
-  ok((await seen(D, alice.id)) === null && (await seen(A, alice.id)) === null, '"Ninguém": some para todos (e o app para de informar)');
+  ok((await seen(D, alice.id)) === null && (await seen(A, alice.id)) === 'pc:VALORANT', '"Ninguém": some para os outros; a própria alice continua vendo (e o app segue informando: as horas contam na semana)', [await seen(D, alice.id), await seen(A, alice.id)]);
   await A.evaluate(() => { window.__lc.S.pcActivity = 'off'; }); await sleep(3500);
   ok((await seen(D, alice.id)) === null, 'desligado continua desligado');
   // volta para o padrão: reaparece na próxima detecção

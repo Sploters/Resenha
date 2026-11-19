@@ -2,19 +2,27 @@
 //
 // PRIVACIDADE — uma única regra decide quem vê a atividade de alguém (usada no tempo real, no READY e no feed, para não divergirem):
 //   canSee(viewer, owner) = viewer === owner  OU  (linked_accounts.visibility === 'friends' E os dois são amigos aceitos).
+// (Exceção: "A semana da galera" soma, sem identificar, o que canSee esconde. Ver weekFor.)
 // 'visibility' é a visibilidade da ATIVIDADE; 'link_visibility' é a visibilidade do fato de ter a conta vinculada (são independentes).
 // Com visibility = 'off' nada é consultado nem guardado para aquela conta.
 //
 // Plataforma 'pc' (sem conta vinculada): o app desktop detecta o jogo aberto no PC (a mesma detecção da transmissão: pasta de
 // loja/jogos, executável conhecido ou janela em tela cheia) e informa. Regra própria, em users.pc_activity:
-//   'servers' (padrão, como o Discord) = amigos aceitos + quem divide um servidor com a pessoa; 'friends' = só amigos; 'off' = nada.
+//   'servers' (padrão, como o Discord) = amigos aceitos + quem divide um servidor com a pessoa; 'friends' = só amigos;
+//   'off' = ninguém vê ao vivo (só a própria pessoa), mas a partida é gravada e conta, sem identificar, em "A semana da galera".
+// Modo invisível: igual ao 'off' (ninguém vê ao vivo; conta, sem identificar, na semana). Partida gravada nessas condições
+// leva data.priv = 1 e nunca aparece com nome (feed, "jogou por 2 h", jogo do clipe, avatares da semana).
+//
+// HORAS: só contam enquanto a pessoa está numa sala de voz (servidor ou ligação na DM; mutada, ensurdecida ou na sala de
+// espera também vale). Jogo aberto sem call aparece ao vivo, mas não soma horas. game_stop.data.seconds = segundos em call;
+// data.open = tempo total com o jogo aberto (só informativo).
 import { PollError } from './integrations/errors.js';
 import { isLauncher } from './launchers.js';
 
 const LOCAL_STALE_MS = 90000; // o app desktop informa o jogo a cada ~20 s
 const MIN_SECS = 30, MAX_BACKOFF_MS = 15 * 60 * 1000, KEEP_DAYS = 30, KEEP_PER_USER = 200, STALE_X = 3;
 
-export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, clipsWeek = null, now = () => Date.now(), log = () => { } }) {
+export function createActivityService({ all, get, run, newId, dispatch, presenceOk = () => true, isInvisible = () => false, inVoice = () => false, isOnline, getAdapter, listAdapters, notifyAccount = () => { }, clipsWeek = null, now = () => Date.now(), log = () => { } }) {
   const intervalMs = () => +process.env.ACTIVITY_POLL_MS || Math.max(MIN_SECS, +process.env.STEAM_POLL_SECS || 60) * 1000; // ACTIVITY_POLL_MS: só para testes
   const current = new Map();   // `${uid}:${platform}` -> { uid, platform, game:{id,title}, since, state, at }  (só o que está PUBLICADO)
   const cache = new Map();     // `${platform}:${external_id}` -> { snap, at }  (último snapshot, evita reconsultar)
@@ -50,6 +58,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     dispatch(audience(uid, platform), 'ACTIVITY_UPDATE', { user_id: uid, platform, activity: pub(entry) });
   };
   const record = (uid, platform, kind, game, data) => {
+    if (data && !Object.keys(data).length) data = null;
     run('INSERT INTO activities(id,user_id,platform,kind,game_id,title,data,created_at) VALUES(?,?,?,?,?,?,?,?)', newId(), uid, platform, kind, game.id, game.title, data ? JSON.stringify(data) : null, now());
     run('DELETE FROM activities WHERE user_id=? AND created_at<?', uid, now() - KEEP_DAYS * 864e5);
     run('DELETE FROM activities WHERE user_id=? AND id NOT IN (SELECT id FROM activities WHERE user_id=? ORDER BY created_at DESC LIMIT ?)', uid, uid, KEEP_PER_USER);
@@ -58,11 +67,34 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const artOf = (game, platform) => { const o = {}; if (game.icon) o.icon = game.icon; const st = platform === 'steam' ? game.id : game.steam; if (st) o.steam = String(st); return Object.keys(o).length ? o : null; };
   const hiddenGame = (uid, platform, gameId) => !!get('SELECT 1 x FROM game_prefs WHERE user_id=? AND platform=? AND game_id=? AND hidden=1', uid, platform, gameId);
 
+  // horas em call: vAcc = ms já contados; vSince = desde quando está em voz (null fora de voz). Atualizado nos ganchos de
+  // voz (onVoice) e, por garantia, a cada informe do app / rodada do agendador
+  const touchVoice = (e) => {
+    const v = !!inVoice(e.uid), t = now();
+    if (v && e.vSince == null) e.vSince = t;
+    else if (!v && e.vSince != null) { e.vAcc += t - e.vSince; e.vSince = null; }
+  };
+  const counted = (e) => e.vAcc + (e.vSince != null ? now() - e.vSince : 0);
+  // ninguém além da pessoa vê esta partida ao vivo? (invisível, ou jogo do PC em "Ninguém") — fica marcada para sempre
+  const isPriv = (uid, platform) => isInvisible(uid) || (platform === 'pc' && pcVis(uid) === 'off');
+  const newEntry = (uid, platform, game, state) => {
+    const t = now(), e = { uid, platform, game, since: t, state, at: t, priv: isPriv(uid, platform), vAcc: 0, vSince: inVoice(uid) ? t : null };
+    current.set(uid + ':' + platform, e);
+    record(uid, platform, 'game_start', game, { ...artOf(game, platform), ...(e.priv ? { priv: 1 } : {}) });
+    return e;
+  };
+  // a privacidade mudou no meio da partida (Ninguém ⇄ visível, invisível ⇄ online): fecha o trecho atual e abre outro com a
+  // regra nova, para cada trecho respeitar a escolha daquele momento (o "jogando há" continua contando do começo)
+  const resegment = (uid, platform) => {
+    const e = current.get(uid + ':' + platform); if (!e || !!e.priv === isPriv(uid, platform)) return e;
+    clear(uid, platform, { notify: false });
+    const n = newEntry(uid, platform, e.game, e.state); n.since = e.since; return n;
+  };
   // encerra o que está publicado (jogo parou, conta desvinculada, privacidade desligada…)
   const clear = (uid, platform, { notify = true, why = 'stop', audienceOverride = null } = {}) => {
     const k = uid + ':' + platform, cur = current.get(k); if (!cur) return;
     current.delete(k);
-    if (why === 'stop' && !cur.quiet) record(uid, platform, 'game_stop', cur.game, { seconds: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform) });
+    if (why === 'stop') record(uid, platform, 'game_stop', cur.game, { seconds: Math.max(0, Math.round(counted(cur) / 1000)), open: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform), ...(cur.priv ? { priv: 1 } : {}) });
     if (notify) dispatch(audienceOverride || audience(uid, platform), 'ACTIVITY_UPDATE', { user_id: uid, platform, activity: null });
   };
 
@@ -75,11 +107,9 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     if (a.sync_state !== newState || (snap.name && a.display_name !== snap.name) || (snap.avatar && a.avatar !== snap.avatar)) notifyAccount(a.user_id, a.platform); // a página Contas vinculadas atualiza sozinha
     const game = snap.game && !hiddenGame(a.user_id, a.platform, snap.game.id) ? snap.game : null;
     if (!game) return clear(a.user_id, a.platform);
-    if (prev && prev.game.id === game.id) { prev.at = now(); prev.state = snap.state; if (prev.game.title !== game.title) prev.game = game; return; }
+    if (prev && prev.game.id === game.id) { prev.at = now(); prev.state = snap.state; touchVoice(prev); const cur = resegment(a.user_id, a.platform); if (cur.game.title !== game.title) cur.game = game; return; }
     if (prev) clear(a.user_id, a.platform); // trocou de jogo: fecha o anterior
-    const entry = { uid: a.user_id, platform: a.platform, game, since: now(), state: snap.state, at: now(), quiet: isInvisible(a.user_id) };
-    current.set(k, entry); if (!entry.quiet) record(a.user_id, a.platform, 'game_start', game, artOf(game, a.platform));
-    publish(a.user_id, a.platform, entry);
+    publish(a.user_id, a.platform, newEntry(a.user_id, a.platform, game, snap.state));
   }
 
   // vale consultar esta conta? (sem ninguém para ver, não gasta chamada)
@@ -116,7 +146,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       for (const ad of listAdapters()) { if (!ad.configured()) continue; await pollPlatform(ad).catch(e => log('[atividade] erro: ' + e.message)); }
       const stale = now() - STALE_X * intervalMs();
       for (const [k, e] of current) if (e.at < stale && !isOnline(e.uid) && !friendsOf(e.uid).some(isOnline)) current.delete(k); // ninguém vendo e dado velho
-      for (const e of [...current.values()]) if (e.platform === 'pc' && now() - e.at > LOCAL_STALE_MS) clear(e.uid, 'pc'); // o app parou de informar (fechou, travou)
+      for (const e of [...current.values()]) if (e.platform === 'pc' && now() - e.at > LOCAL_STALE_MS) clear(e.uid, 'pc');
+      for (const e of current.values()) touchVoice(e); // o app parou de informar (fechou, travou)
     } finally { running = false; }
   }
   const schedule = () => { if (stopped) return; timer = setTimeout(async () => { await tick(); schedule(); }, intervalMs()); timer.unref?.(); };
@@ -140,7 +171,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     });
     const events = all(`SELECT a.* FROM activities a LEFT JOIN linked_accounts la ON la.user_id=a.user_id AND la.platform=a.platform
       WHERE a.user_id IN (${ids.map(() => '?').join(',')}) AND (la.visibility='friends' OR a.user_id=? OR a.platform='pc') AND a.created_at>? ORDER BY a.created_at DESC LIMIT ?`, ...ids, viewer, now0 - 7 * 864e5, limit * 3)
-      .filter(ev => canSee(viewer, ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })).slice(0, limit)
+      .filter(ev => (ev.user_id === viewer || !parse(ev.data).priv) && canSee(viewer, ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })).slice(0, limit)
       .map(ev => ({ id: ev.id, user_id: ev.user_id, platform: ev.platform, kind: ev.kind, game: { id: ev.game_id, title: ev.title }, seconds: ev.data ? JSON.parse(ev.data).seconds : null, at: ev.created_at }));
     return { friends, events };
   }
@@ -171,10 +202,11 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     for (const ev of all(`SELECT a.user_id, a.platform, a.game_id, a.title, a.data, a.created_at FROM activities a JOIN members m ON m.user_id=a.user_id AND m.guild_id=?
       WHERE a.created_at>? AND a.kind IN ('game_start','game_stop')`, gid, since)) {
       let d = null; try { d = ev.data ? JSON.parse(ev.data) : null; } catch { }
+      if (d?.priv) continue; // partida que ninguém via ao vivo (invisível / "Ninguém") não entra no cartão do servidor
       add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, false);
     }
     const members = new Set(all('SELECT user_id FROM members WHERE guild_id=?', gid).map(r => r.user_id));
-    for (const e of current.values()) if (!e.quiet && members.has(e.uid) && !isInvisible(e.uid)) add(e.uid, e.platform, e.game.id, e.game.title, e.game, now(), true);
+    for (const e of current.values()) if (!e.priv && members.has(e.uid) && !isInvisible(e.uid)) add(e.uid, e.platform, e.game.id, e.game.title, e.game, now(), true);
     const list = [...new Set(games.values())].filter(x => x.players.size >= minPlayers)
       .sort((a, b) => b.players.size - a.players.size || b.week.size - a.week.size || b.secs - a.secs || b.at - a.at).slice(0, limit)
       .map(x => ({ platform: x.platform, game: x.game, players: x.players.size, week: x.week.size, playing: x.now.size, hours: Math.round(x.secs / 360) / 10, hot: x.week.size >= 3 || x.now.size >= 3 }));
@@ -187,7 +219,10 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   // Cada jogo soma as horas de todo mundo, quantas pessoas diferentes jogaram e em que dias; entra no ranking pela nota
   //   nota = √horas + 1,5 × (pessoas − 1) + 0,5 × maior sequência de dias seguidos
   // (raiz das horas: 30 h sozinho não passa por cima de 9 h com 3 amigos). Jogo com atividade insignificante fica de fora:
-  // precisa de 1 h no total, ou de 2 pessoas e 20 min. Mesma regra de privacidade de tudo (canSee + jogos escondidos).
+  // precisa de 1 h no total, ou de 2 pessoas e 20 min. Só contam horas em call (ver o cabeçalho) e o dia só conta com horas.
+// Privacidade: jogos escondidos ficam de fora. Amigo que você não pode ver (jogo do PC em "Ninguém", invisível, privacidade
+// da presença) ou partida marcada priv CONTA nas horas, pessoas e dias, mas sem identificar: vai em `anon` (número), nunca
+// em players/played/playing.
   const TZ = process.env.TZ || 'America/Sao_Paulo';
   const dayKey = (t) => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: TZ }); } catch { return new Date(t).toISOString().slice(0, 10); } };
   const runOf = (flags) => { let best = 0, cur = 0; for (const f of flags) { cur = f ? cur + 1 : 0; if (cur > best) best = cur; } return best; };
@@ -200,38 +235,41 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const days = []; for (let i = WEEK_DAYS - 1; i >= 0; i--) days.push(dayKey(t0 - i * 864e5));
     const dayIdx = new Map(days.map((k, i) => [k, i]));
     const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, canSee(viewer, uid, platform)); return seeMemo.get(k); };
-    const ok = (uid, platform, gid, title) => see(uid, platform) && !hiddenGame(uid, platform, gid) && !isLauncher({ id: gid, title });
-    const games = new Map(), people = new Map(); // chave do jogo -> agregado; 'uid|jogo' -> { secs, days }
-    const add = (uid, platform, gid, title, d, t, secs, live) => {
+    const ok = (uid, platform, gid, title) => !hiddenGame(uid, platform, gid) && !isLauncher({ id: gid, title });
+    const games = new Map(); // chave do jogo -> agregado
+    // pub: dá para dizer QUEM jogou (o viewer pode ver a pessoa e a partida não é privada)
+    const add = (uid, platform, gid, title, d, t, secs, live, pub) => {
       const di = dayIdx.get(dayKey(t)); if (di === undefined) return;
       const ks = ggKeys(platform, gid, title, d);
       let x = ks.map(k => games.get(k)).find(Boolean);
       if (!x) x = { platform, game: gameOf(gid, title, d), at: 0, secs: 0, players: new Map(), day: Array(WEEK_DAYS).fill(0), active: Array(WEEK_DAYS).fill(false), live: new Set() };
       for (const k of ks) games.set(k, x);
+      if (pub && live) x.live.add(uid);
+      if (!(secs > 0)) return; // sem horas em call não conta (nem o dia)
       if (t >= x.at) { x.at = t; x.platform = platform; x.game = { ...x.game, ...gameOf(gid, title, d), ...(x.game.icon && !d?.icon ? { icon: x.game.icon } : {}), ...(x.game.steam && !d?.steam ? { steam: x.game.steam } : {}) }; }
-      x.secs += secs; x.day[di] += secs; x.active[di] = true; if (live) x.live.add(uid);
-      const p = x.players.get(uid) || { secs: 0, days: Array(WEEK_DAYS).fill(false) }; p.secs += secs; p.days[di] = true; x.players.set(uid, p);
+      x.secs += secs; x.day[di] += secs; x.active[di] = true;
+      const p = x.players.get(uid) || { secs: 0, days: Array(WEEK_DAYS).fill(false), pub: false, psecs: 0, pdays: Array(WEEK_DAYS).fill(false) };
+      p.secs += secs; p.days[di] = true; if (pub) { p.pub = true; p.psecs += secs; p.pdays[di] = true; } x.players.set(uid, p);
     };
-    for (const ev of all(`SELECT * FROM activities WHERE user_id IN (${ids.map(() => '?').join(',')}) AND created_at>? AND kind IN ('game_start','game_stop')`, ...ids, since)) {
+    for (const ev of all(`SELECT * FROM activities WHERE user_id IN (${ids.map(() => '?').join(',')}) AND created_at>? AND kind='game_stop'`, ...ids, since)) {
       if (!ok(ev.user_id, ev.platform, ev.game_id, ev.title)) continue;
       const d = parse(ev.data);
-      if (ev.kind === 'game_stop') {
-        // a partida conta no dia em que terminou; a que começou antes da semana só conta a parte dentro dela
-        const secs = Math.max(0, Math.min(+d.seconds || 0, (ev.created_at - since) / 1000));
-        add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, secs, false);
-      } else add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, 0, false); // abriu: o dia conta, as horas vêm no fim da partida
+      // a partida conta no dia em que terminou; a que começou antes da semana só conta a parte dentro dela
+      const secs = Math.max(0, Math.min(+d.seconds || 0, (ev.created_at - since) / 1000));
+      add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, secs, false, ev.user_id === viewer || (!d.priv && see(ev.user_id, ev.platform)));
     }
     // quem está jogando agora: a partida em andamento já conta (ainda não tem game_stop)
     for (const e of current.values()) if (ids.includes(e.uid) && fresh(e) && ok(e.uid, e.platform, e.game.id, e.game.title))
-      add(e.uid, e.platform, e.game.id, e.game.title, e.game, t0, Math.max(0, (t0 - Math.max(e.since || t0, since)) / 1000), true);
-    const all7 = [...new Set(games.values())].map(x => {
-      const players = [...x.players.entries()].sort((a, b) => b[1].secs - a[1].secs).map(([uid, p]) => ({ user_id: uid, secs: Math.round(p.secs), days: p.days.filter(Boolean).length, streak: runOf(p.days) }));
-      const streak = runOf(x.active), hours = x.secs / 3600, n = players.length;
-      return { platform: x.platform, game: x.game, secs: Math.round(x.secs), players, playing: [...x.live], day: x.day.map(Math.round), streak,
+      add(e.uid, e.platform, e.game.id, e.game.title, e.game, t0, Math.min(counted(e), t0 - since) / 1000, true, e.uid === viewer || (!e.priv && see(e.uid, e.platform)));
+    const all7 = [...new Set(games.values())].filter(x => x.players.size).map(x => {
+      const ps = [...x.players.entries()], n = ps.length;
+      const players = ps.filter(([, p]) => p.pub).sort((a, b) => b[1].psecs - a[1].psecs).map(([uid, p]) => ({ user_id: uid, secs: Math.round(p.psecs), days: p.pdays.filter(Boolean).length, streak: runOf(p.pdays) }));
+      const streak = runOf(x.active), hours = x.secs / 3600;
+      return { platform: x.platform, game: x.game, secs: Math.round(x.secs), players, anon: n - players.length, playing: [...x.live], day: x.day.map(Math.round), streak,
         score: Math.round((Math.sqrt(hours) + 1.5 * (n - 1) + 0.5 * streak) * 100) / 100, worth: x.secs >= 3600 || (n >= 2 && x.secs >= 1200) };
     });
     const ranked = all7.filter(x => x.worth).sort((a, b) => b.score - a.score || b.secs - a.secs).slice(0, top).map(({ worth, ...x }) => x);
-    // por pessoa e jogo (popup do jogo: "Amigos que jogaram"), inclusive jogos fora do ranking
+    // por pessoa e jogo (popup do jogo: "Amigos que jogaram"), inclusive jogos fora do ranking — só quem dá para identificar
     const played = all7.flatMap(x => x.players.map(p => ({ ...p, platform: x.platform, game: x.game })));
     // ---- clipes da semana ----
     const myGames = new Set(all7.filter(x => x.players.some(p => p.user_id === viewer)).flatMap(x => ggKeys(x.platform, x.game.id, x.game.title, x.game)));
@@ -242,7 +280,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   function clipGame(c, viewer) {
     const uid = c.streamer_id || c.author_id;
     const st = get(`SELECT * FROM activities WHERE user_id=? AND kind='game_start' AND created_at<=? AND created_at>? ORDER BY created_at DESC LIMIT 1`, uid, c.created_at + 60e3, c.created_at - 12 * 3600e3);
-    if (!st) { const e = [...current.values()].find(e => e.uid === uid && e.since <= c.created_at); return e && canSee(viewer, uid, e.platform) && !hiddenGame(uid, e.platform, e.game.id) ? { platform: e.platform, game: e.game } : null; }
+    if (st && parse(st.data).priv && viewer !== uid) return null; // partida que ninguém via ao vivo
+    if (!st) { const e = [...current.values()].find(e => e.uid === uid && e.since <= c.created_at); return e && (!e.priv || viewer === uid) && canSee(viewer, uid, e.platform) && !hiddenGame(uid, e.platform, e.game.id) ? { platform: e.platform, game: e.game } : null; }
     const end = get(`SELECT created_at t FROM activities WHERE user_id=? AND platform=? AND game_id=? AND kind='game_stop' AND created_at>=? ORDER BY created_at LIMIT 1`, uid, st.platform, st.game_id, st.created_at);
     if (end && end.t < c.created_at - 60e3) return null; // a partida já tinha acabado
     if (!canSee(viewer, uid, st.platform) || hiddenGame(uid, st.platform, st.game_id) || isLauncher({ id: st.game_id, title: st.title })) return null;
@@ -276,26 +315,24 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     },
     // jogo aberto no PC, informado pelo app desktop (game = { id, title } | null). Mesmo fluxo da Steam: publica, troca, encerra.
     reportLocal(uid, game) {
-      const k = uid + ':pc', prev = current.get(k);
-      if (!game || isLauncher(game) || pcVis(uid) === 'off' || hiddenGame(uid, 'pc', game.id)) return clear(uid, 'pc'); // launcher (Riot Client, Steam…) não é jogo
+      const k = uid + ':pc'; let prev = current.get(k);
+      if (!game || isLauncher(game) || hiddenGame(uid, 'pc', game.id)) return clear(uid, 'pc'); // launcher (Riot Client, Steam…) não é jogo. Em "Ninguém" segue: só a pessoa vê, mas conta na semana
       game = { id: game.id, title: game.title, ...(game.icon ? { icon: game.icon } : {}), ...(game.steam ? { steam: game.steam } : {}), ...(game.known ? { known: game.known } : {}) };
       if (prev && prev.game.id === game.id) {
-        prev.at = now();
+        prev.at = now(); touchVoice(prev); prev = resegment(uid, 'pc');
         if ((game.icon && prev.game.icon !== game.icon) || (game.steam && prev.game.steam !== game.steam) || prev.game.title !== game.title) { prev.game = { ...prev.game, ...game }; publish(uid, 'pc', prev); } // a imagem (ou o nome certo) chegou depois
         return;
       }
       if (prev) clear(uid, 'pc');
-      const entry = { uid, platform: 'pc', game, since: now(), state: null, at: now(), quiet: isInvisible(uid) };
-      current.set(k, entry); if (!entry.quiet) record(uid, 'pc', 'game_start', game, artOf(game, 'pc'));
-      publish(uid, 'pc', entry);
+      publish(uid, 'pc', newEntry(uid, 'pc', game, null));
     },
     clearLocal(uid) { clear(uid, 'pc'); }, // fechou o app (última conexão caiu)
     // mudou quem pode ver o jogo do PC: quem deixou de poder ver recebe "parou"; quem passou a poder, recebe o jogo atual
     onPcVisibility(uid, before, after) {
       const e = current.get(uid + ':pc'); if (!e) return;
-      if (after === 'off') return clear(uid, 'pc', { why: 'off', audienceOverride: [...new Set([uid, ...friendsOf(uid), ...guildPeers(uid)])] });
+      const cur = resegment(uid, 'pc'); // a partida segue (e conta na semana); em "Ninguém" some para os outros
       const all0 = new Set([...friendsOf(uid), ...guildPeers(uid)]);
-      for (const v of all0) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: 'pc', activity: canSee(v, uid, 'pc') ? pub(e) : null });
+      for (const v of all0) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: 'pc', activity: canSee(v, uid, 'pc') ? pub(cur) : null });
       void before;
     },
     // mudou quem pode ver a atividade (privacidade da presença): cada um recebe o atual ou "parou", conforme pode ver agora
@@ -307,11 +344,13 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     // voltou a aparecer: quem pode ver recebe o jogo atual
     onInvisible(uid, invisible) {
       const cands = [...new Set([...friendsOf(uid), ...guildPeers(uid)])];
-      for (const e of current.values()) if (e.uid === uid) {
-        if (invisible) e.quiet = true;
+      for (const e0 of [...current.values()]) if (e0.uid === uid) {
+        const e = resegment(uid, e0.platform); void invisible;
         for (const v of cands) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: e.platform, activity: canSee(v, uid, e.platform) ? pub(e) : null });
       }
     },
+    // entrou/saiu de uma sala de voz (servidor ou DM): começa/para de contar as horas do jogo aberto
+    onVoice(uid) { for (const e of current.values()) if (e.uid === uid) touchVoice(e); },
     onGameHidden(uid, platform, gameId) { const cur = current.get(uid + ':' + platform); if (cur?.game.id === gameId) clear(uid, platform, { why: 'hidden' }); },
     // amizade criada/desfeita: cada lado passa a ver (ou deixa de ver) o que o outro está jogando, na hora
     onFriendsChanged(a, b) {

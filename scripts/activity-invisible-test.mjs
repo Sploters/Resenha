@@ -46,14 +46,16 @@ try {
   U.beto.ws.close(); await connect('beto');
   ok(!U.beto.ready.activities.some(a => a.user_id === U.ana.id), 'invisível: o READY do amigo não traz o jogo');
 
-  await call(U.ana.tok, 'PATCH', '/me', { status: 'online' }); await sleep(400);
+  const tOn = Date.now(); await call(U.ana.tok, 'PATCH', '/me', { status: 'online' }); await sleep(400);
   ok(U.beto.ev.some(e => e.user_id === U.ana.id && e.activity?.game.id === 'valorant'), 'voltou a online: o amigo passa a ver o jogo atual');
-  await call(U.ana.tok, 'PATCH', '/me', { status: 'invisible' }); await sleep(400);
+  await call(U.ana.tok, 'PATCH', '/me', { status: 'invisible' }); const tOff = Date.now(); await sleep(400);
   ok(U.beto.ev.at(-1)?.activity === null, 'ficou invisível de novo: o jogo some na hora para o amigo', U.beto.ev.at(-1));
   await sleep(2700); send('ana', null); await sleep(600);
   await call(U.ana.tok, 'PATCH', '/me', { status: 'online' }); await sleep(300);
   const f = await call(U.beto.tok, 'GET', '/activity/feed');
-  ok(!f.events.some(e => e.user_id === U.ana.id), 'nada de "começou/parou de jogar" no histórico (nem o PoC, nem a sessão escondida)', f.events);
+  const evA = f.events.filter(e => e.user_id === U.ana.id);
+  ok(evA.length === 2 && evA.every(e => e.game.id === 'valorant' && e.at >= tOn && e.at <= tOff),
+    'no histórico só o trecho em que estava online (o amigo viu ao vivo); nada do PoC nem dos trechos invisíveis', f.events);
 } catch (e) { console.error(e); fails++; }
 finally { for (const u of Object.values(U)) u.ws?.close(); srv.kill(); fs.rmSync(DATA, { recursive: true, force: true }); }
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo certo'); process.exit(fails ? 1 : 0);
