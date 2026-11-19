@@ -29,6 +29,16 @@ export function banDialog(gid, uid, after) {
 
 // Moderação de voz (Moderar voz): itens do clique direito em quem está numa sala deste servidor e abaixo do seu cargo.
 // Mutar/ensurdecer valem em todas as salas do servidor até alguém tirar; mover leva a pessoa para outra sala.
+// arrastar alguém da lista de voz e soltar em outra sala (barra lateral): só quem pode Moderar voz e está acima da pessoa
+export function canMoveVoice(gid, uid) {
+  const vs = S.voice.get(uid), ch = vs && channelById(vs.channel_id);
+  return !!(guild(gid) && ch?.guild_id === gid && !vs.bot && can(gid, PERM.VOICE_MOD) && outranks(gid, uid));
+}
+export const canMoveTo = (c, from) => c?.type === 2 && c.id !== from && chCan(c, CH.CONNECT);
+export function moveVoice(gid, uid, c) {
+  const nm = nameOf(uid, gid);
+  return tryApi('PATCH', `/guilds/${gid}/voice/${uid}`, { channel_id: c.id }).then(r => r && toast(`${nm} foi movido para ${c.name}`));
+}
 export function voiceModItems(gid, uid) {
   const g = guild(gid), vs = S.voice.get(uid), ch = vs && channelById(vs.channel_id);
   if (!g || ch?.guild_id !== gid || vs.bot || !can(gid, PERM.VOICE_MOD) || !outranks(gid, uid)) return [];

@@ -50,24 +50,45 @@ export function trigger(sound, voice, { preview = false } = {}) {
   if (!preview && voice?.active) voice.send('SOUNDBOARD', { url: sound.url, volume: vol(sound), name: sound.name, emoji: sound.emoji });
   else { if (!preview && !voice?.active) toast('Entre em uma sala de voz para tocar para os outros. Tocando prévia.'); playLocal(sound.url, vol(sound)); }
 }
-// Atalhos: os que a pessoa definiu em cada som (clique direito → "Definir atalho") + os padrão Alt + teclado numérico
-// 1–9, que tocam os 9 primeiros sons na ordem: favoritos, meus sons, sons do servidor da chamada (os que já têm atalho
-// próprio ficam de fora). No app desktop valem com o jogo em foco enquanto você está numa chamada (syncSoundKeys).
+// Atalhos: os que a pessoa definiu em cada som (clique direito → "Definir atalho" ou Configurações → Atalhos) + Alt +
+// teclado numérico 1–9. Cada posição do teclado numérico pode ter um som escolhido (S.prefs.sbSlots[i] = id), ficar
+// vazia ('') ou automática (null: os primeiros sons na ordem favoritos, meus sons, sons do servidor da chamada — os que
+// já têm atalho próprio ou já estão numa posição ficam de fora). No app desktop valem com o jogo em foco enquanto você
+// está numa chamada (syncSoundKeys).
 export const NUMPAD_SLOTS = 9;
-export function numpadSounds(gid = null) {
+export const slotPicks = () => { const a = Array.isArray(S.prefs.sbSlots) ? S.prefs.sbSlots : []; return Array.from({ length: NUMPAD_SLOTS }, (_, i) => (typeof a[i] === 'string' ? a[i] : null)); };
+// lista de 9 posições (som ou null); `auto` diz se a posição foi preenchida automaticamente
+export function numpadSlots(gid = null) {
   if (S.prefs.sbNumpad === false) return [];
-  const own = S.prefs.sbKeys || {}, seen = new Set(), out = [];
+  const own = S.prefs.sbKeys || {}, picks = slotPicks(), seen = new Set(picks.filter(Boolean));
   const g = gid && S.guilds.get(gid);
   const pool = [...favs().map(findSound), ...mySounds(), ...(g && !(S.prefs.sbOffGuilds || {})[g.id] ? g.sounds || [] : [])];
-  for (const x of pool) { if (!x || seen.has(x.id) || own[x.id]) continue; seen.add(x.id); out.push(x); if (out.length >= NUMPAD_SLOTS) break; }
-  return out;
+  let k = 0;
+  return picks.map((id) => {
+    if (id) { const x = findSound(id); return x ? { sound: x, auto: false } : null; }
+    if (id === '') return null;
+    while (k < pool.length) { const x = pool[k++]; if (!x || seen.has(x.id) || own[x.id]) continue; seen.add(x.id); return { sound: x, auto: true }; }
+    return null;
+  });
 }
+export const numpadSounds = (gid = null) => numpadSlots(gid).filter(Boolean).map(x => x.sound);
 // combinação -> id do som (os atalhos próprios ganham de um padrão com a mesma tecla)
 export function soundKeys(gid = null) {
   const map = new Map();
-  numpadSounds(gid).forEach((x, i) => map.set(`Alt+Numpad${i + 1}`, x.id));
+  numpadSlots(gid).forEach((x, i) => x && map.set(`Alt+Numpad${i + 1}`, x.sound.id));
   for (const [id, c] of Object.entries(S.prefs.sbKeys || {})) if (c) map.set(c, id);
   return map;
+}
+// define o atalho próprio de um som (uma tecla toca um som só: quem já usava essa combinação perde)
+export function setSoundKey(id, combo) {
+  const k = (S.prefs.sbKeys ||= {});
+  if (combo) { for (const [x, c] of Object.entries(k)) if (c === combo && x !== id) delete k[x]; k[id] = combo; } else delete k[id];
+  savePrefs(); document.dispatchEvent(new Event('sb-changed'));
+}
+export function setSlot(i, id) { // id: som, '' vazio, null automático
+  const a = slotPicks(); a[i] = id;
+  if (id) a.forEach((x, j) => { if (j !== i && x === id) a[j] = null; }); // o mesmo som não fica em duas posições
+  S.prefs.sbSlots = a; savePrefs(); document.dispatchEvent(new Event('sb-changed'));
 }
 const voiceGid = (voice) => (voice?.channelId && [...S.guilds.values()].find(g => (g.channels || []).some(c => c.id === voice.channelId))?.id) || null;
 export const keyOfSound = (id, voice) => { for (const [c, x] of soundKeys(voiceGid(voice))) if (x === id) return c; return null; };
@@ -256,7 +277,7 @@ function quickSounds(anchor, voice, openFull) {
 }
 function keyDialog(s) {
   const btn = h('button.btn.grey');
-  captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { (S.prefs.sbKeys ||= {})[s.id] = c; savePrefs(); toast('Atalho definido'); });
-  modal('Atalho do som', `"${s.name}" — ${window.lcDesktop?.setSoundKeys ? 'no app desktop funciona também com o jogo em foco, enquanto você está numa chamada' : 'funciona com o app em foco'}. Alt + teclado numérico 1–9 já tocam os 9 primeiros sons (favoritos primeiro).`, h('div', btn), [{ label: 'Remover atalho', cls: 'grey', fn: () => { delete (S.prefs.sbKeys || {})[s.id]; savePrefs(); } }, { label: 'Concluir' }]);
+  captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { setSoundKey(s.id, c); toast('Atalho definido'); }, { empty: 'Clique e aperte as teclas' });
+  modal('Atalho do som', `"${s.name}" — ${window.lcDesktop?.setSoundKeys ? 'no app desktop funciona também com o jogo em foco, enquanto você está numa chamada' : 'funciona com o app em foco'}. Qualquer tecla ou combinação serve. Para escolher os sons do Alt + teclado numérico 1–9: Configurações → Atalhos.`, h('div', btn), [{ label: 'Remover atalho', cls: 'grey', fn: () => setSoundKey(s.id, '') }, { label: 'Concluir' }]);
 }
 export { vol as soundVol };

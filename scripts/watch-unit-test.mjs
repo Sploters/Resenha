@@ -59,6 +59,8 @@ console.log('— sincronização (lógica pura)');
   // com ajuste de velocidade: diferença pequena corrige sem pular
   r = decide({ expected: 10, actual: 10.05, playing: true, now: 10000, canRate: true });
   ok(r.action === 'none', 'velocidade: 50 ms não mexe');
+  r = decide({ expected: 10, actual: 10.09, playing: true, now: 10000, canRate: true, strikes: 1 });
+  ok(r.action === 'rate' && r.rate < 1, 'velocidade: 90 ms confirmado já corrige (não fica parado perto de 100 ms)', r.rate);
   r = decide({ expected: 10, actual: 10.4, playing: true, now: 10000, canRate: true });
   ok(r.action === 'none' && r.strikes === 1, 'velocidade: 0,4 s espera confirmar (leitura isolada não mexe)');
   r = decide({ expected: 10, actual: 10.4, playing: true, now: 10000, canRate: true, strikes: 1 });

@@ -77,7 +77,7 @@ const openFullProfile = (...a) => { lazySettings().then(m => m.openFullProfile(.
 import { saveCustomTheme } from './themeeditor.js';
 import { isLightPair, THEME_CODE_RE, decodeTheme, gradientCss, styleName, stripThemeCodes, themeText, encodeTheme, GRADIENT_THEMES, themeDef } from './themes.js';
 import { profileCard, STATUS_TXT } from './card.js';
-import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
+import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems, canMoveVoice, canMoveTo, moveVoice, isRepMod, repModal, flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { recordVoiceMessage, voiceEl } from './voicemsg.js';
 import { initPlugins, mentionUser, addMention, resolveMentions } from './plugins.js';
 import { initActivity, setActivities, onActivityUpdate, onIntegrationUpdate, activityPanel, activityOf, sameGameAs, guildGamesRow, playingLine, refreshFeedView, gameIcon, voiceGameIcon, titleEl } from './activity.js';
@@ -466,7 +466,7 @@ function onEvent(t, d) {
     case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
     case 'VOICE_MODERATED': { // a moderação moveu ou desconectou você (server: PATCH /api/guilds/:id/voice/:uid)
       const by = d.by ? nameOf(d.by, channelById(d.channel_id)?.guild_id) : 'A moderação';
-      if (d.action === 'move' && voice?.channelId === d.from) { const to = channelById(d.channel_id); toast(`${by} moveu você para ${to ? chName(to) : 'outra sala'}`); joinVoice(d.channel_id); }
+      if (d.action === 'move' && voice?.channelId === d.from) { const to = channelById(d.channel_id); movedNotice(by, to); joinVoice(d.channel_id); }
       else if (d.action === 'disconnect') toast(`${by} desconectou você da chamada`, true);
       break;
     }
@@ -1115,6 +1115,7 @@ const chIcon = (c, sz = 20) => icon(CH_KINDS[c.type]?.[0] || 'hash', sz);
 function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
+  if (vDrag) return; // arrastando alguém para outra sala: redesenha ao soltar (senão o arrasto é cancelado)
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inGames()) {
@@ -1156,7 +1157,7 @@ function renderSide() {
     const chRow = (c) => {
       const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
       const pol = isChatCh(c) ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
-      return h('div', h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
+      return h('div', voiceDropHooks(g, c), h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
         chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
@@ -1292,10 +1293,61 @@ function vusersBlock(g, vs) {
     ...(talk.length && (games.length || hold.length) ? [head(icon('voice', 14), 'Conversando', talk.length), ...talk.map(v => vuserRow(g, v))] : talk.map(v => vuserRow(g, v))),
     ...(hold.length ? [head(icon('pause', 14), 'Em espera', hold.length, '.hold'), ...hold.map(v => vuserRow(g, v))] : []));
 }
+// ---------- mover arrastando ----------
+// Quem pode Moderar voz (e o dono) arrasta alguém da lista de voz e solta em outra sala da barra lateral. Serve para
+// chamar a atenção de quem está mutado: a pessoa ouve um "toc-toc" e vê o aviso de quem a moveu, com o botão de desmutar.
+let vDrag = null;
+export const voiceDragging = () => !!vDrag;
+function vDragEnd() {
+  if (!vDrag) return; vDrag = null; document.body.classList.remove('vdrag-on');
+  document.querySelectorAll('.vdrop-ok,.vdrop-over').forEach(el => el.classList.remove('vdrop-ok', 'vdrop-over'));
+  renderSide(); // redesenhos adiados enquanto arrastava
+}
+function vDragStart(e, g, v) {
+  vDrag = { gid: g.id, uid: v.user_id, from: v.channel_id };
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('application/x-lc-vuser', v.user_id); e.dataTransfer.setData('text/plain', nameOf(v.user_id, g.id));
+  document.body.classList.add('vdrag-on'); e.currentTarget.classList.add('vdragging');
+  // salas que aceitam: destacadas durante o arrasto
+  for (const el of document.querySelectorAll('[data-vroom]')) if (canMoveTo(channelById(el.dataset.vroom), vDrag.from)) el.classList.add('vdrop-ok');
+}
+// atributos do bloco de uma sala de voz (linha + lista de quem está nela) para receber alguém arrastado
+function voiceDropHooks(g, c) {
+  if (c.type !== 2) return {};
+  const ok = () => vDrag && vDrag.gid === g.id && canMoveTo(c, vDrag.from);
+  return {
+    'data-vroom': c.id,
+    ondragenter: (e) => { if (ok()) { e.preventDefault(); e.currentTarget.classList.add('vdrop-over'); } },
+    ondragover: (e) => { if (ok()) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('vdrop-over'); } },
+    ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('vdrop-over'); },
+    ondrop: (e) => { if (!ok()) return; e.preventDefault(); const { gid, uid } = vDrag; vDragEnd(); moveVoice(gid, uid, c); },
+  };
+}
+let movedT = 0;
+function movedNotice(by, to) {
+  playSound('moved');
+  document.getElementById('vmoved')?.remove(); clearTimeout(movedT);
+  const close = () => { clearTimeout(movedT); el.remove(); };
+  const muted = !!(voice?.muted || voice?.deafened);
+  const el = h('div#vmoved.vmoved' + (muted ? '.muted' : ''), { role: 'alert' },
+    icon('voice', 20),
+    h('div.vm-t', h('b', `${by} moveu você para ${to ? chName(to) : 'outra sala'}`), muted && h('small', 'Você está mutado — talvez queiram falar com você')),
+    muted && h('button.btn', { type: 'button', onclick: () => { if (voice?.muted || voice?.deafened) voice.toggleMute(); renderVoiceUI(); close(); } }, voice?.deafened ? 'Desensurdecer e desmutar' : 'Desmutar'),
+    h('button.vm-x', { type: 'button', title: 'Fechar', 'aria-label': 'Fechar', onclick: close }, icon('x', 16)));
+  document.body.append(el);
+  movedT = setTimeout(close, muted ? 15000 : 6000);
+  // janela em segundo plano: pisca o título até a pessoa voltar
+  if (document.hidden) {
+    const t0 = document.title, msg = `🔔 ${by} moveu você`; let n = 0;
+    const iv = setInterval(() => { document.title = n++ % 2 ? t0 : msg; }, 1000);
+    const stop = () => { if (document.hidden) return; clearInterval(iv); document.title = t0; document.removeEventListener('visibilitychange', stop); };
+    document.addEventListener('visibilitychange', stop);
+  }
+}
 function vuserRow(g, v) {
   if (v.bot) return botRow(v);
-  const u = user(v.user_id);
-  const row = h('div.vuser' + (v.hold ? '.hold' : ''), { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id) },
+  const u = user(v.user_id), drag = canMoveVoice(g.id, v.user_id);
+  const row = h('div.vuser' + (v.hold ? '.hold' : '') + (drag ? '.vdraggable' : ''), { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id),
+    ...(drag ? { draggable: true, title: 'Arraste para outra sala para mover', ondragstart: (e) => vDragStart(e, g, v), ondragend: vDragEnd } : {}) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
     h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', 'Ao vivo'), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
     h('span.ico', v.wt && h('span.vu-wt', { title: 'Assistindo no Watch Together' }, icon('tv', 14)), v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.mod_deaf ? h('span.mico.lmute', { title: 'Ensurdecido pela moderação' }, icon('headoff', 14)) : v.deaf && icon('headoff', 14)));
@@ -1393,7 +1445,7 @@ function favSide() {
       ondragend: () => { dragId = null; el.classList.remove('dragging'); } },
       h('span.fav-g', g.icon ? h('img', { src: imgUrl(g.icon, 32), alt: '' }) : initialsOf(g.name)), chIcon(c),
       h('span.name', h('span.fn', chName(c)), h('small', g.name)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]));
-    return h('div', drop(el, f.g || '', c.id), vs.length > 0 && vusersBlock(g, vs));
+    return h('div', voiceDropHooks(g, c), drop(el, f.g || '', c.id), vs.length > 0 && vusersBlock(g, vs));
   };
   const fl = favList(), loose = fl.filter(f => !f.g);
   const list = h('div#side-list.favlist',

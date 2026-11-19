@@ -20,6 +20,8 @@ const SYN = {
   selfStreamStop: [N(880, 0, .26, { to: 440, type: 'triangle' })],
   // clipe salvo: "clique" curto e agudo, como o obturador de uma câmera (dá para saber sem olhar que o atalho pegou)
   clip: [N(1568, 0, .05, { type: 'square', gain: .35 }), N(2093, .06, .12, { type: 'triangle', gain: .8 })],
+  // a moderação moveu você de sala: dois "toc-toc" bem marcados (chama a atenção de quem está mutado e distraído)
+  moved: [N(1047, 0, .08, { type: 'square', gain: .4 }), N(1047, .14, .08, { type: 'square', gain: .4 }), N(784, .4, .08, { type: 'square', gain: .4 }), N(1175, .54, .22, { type: 'triangle' })],
   ring: [N(740, 0, .14), N(988, .17, .14), N(740, .6, .14), N(988, .77, .14)],
   message: [N(880, 0, .09, { gain: .6 })],
   mention: [N(988, 0, .1), N(1319, .1, .2)],
@@ -33,6 +35,7 @@ const SYN = {
 export const SOUND_DEFS = {
   mute: ['Microfone silenciado', 'voz'], unmute: ['Microfone ativado', 'voz'],
   deafen: ['Ensurdecido', 'voz'], undeafen: ['Áudio reativado', 'voz'],
+  moved: ['Moveram você de sala', 'voz'],
   selfJoin: ['Você entrou na chamada', 'voz'], selfLeave: ['Você saiu da chamada', 'voz'],
   join: ['Alguém entrou na chamada', 'voz'], leave: ['Alguém saiu da chamada', 'voz'],
   camOn: ['Câmera ligada (qualquer pessoa)', 'voz'], camOff: ['Câmera desligada (qualquer pessoa)', 'voz'],

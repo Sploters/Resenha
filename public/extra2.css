@@ -726,3 +726,21 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .ac-rc { display: inline-flex; align-items: center; gap: 2px; font-size: 15px; } .ac-rc b { color: var(--header); } .ac-rc small { margin-left: 6px; color: var(--text-muted); }
 .ac-pt { display: inline-flex; align-items: center; gap: 8px; } .ac-pt i { width: 28px; height: 36px; border-radius: 6px; border: 1px solid var(--divider); } .ac-pt b { color: var(--text-muted); }
 .ac-sys { display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; }
+/* Mover alguém arrastando para outra sala de voz */
+.vuser.vdraggable { cursor: grab; } .vuser.vdragging { opacity: .45; }
+.vdrag-on [data-vroom].vdrop-ok > .ch { outline: 1px dashed color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: -1px; }
+.vdrag-on [data-vroom].vdrop-over { background: color-mix(in srgb, var(--brand) 18%, transparent); border-radius: 6px; }
+.vdrag-on [data-vroom].vdrop-over > .ch { outline: 2px solid var(--brand); color: var(--header); }
+.vmoved { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 210; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px);
+  background: var(--bg-float); color: var(--text-normal); padding: 10px 12px 10px 16px; border-radius: 8px; border-left: 4px solid var(--brand); box-shadow: 0 6px 20px rgba(0,0,0,.5); animation: vmoved-in .25s ease-out; }
+.vmoved.muted { border-left-color: var(--yellow, #f0b232); animation: vmoved-in .25s ease-out, vmoved-shake .5s .3s 2; }
+.vmoved .vm-t { display: flex; flex-direction: column; min-width: 0; } .vmoved .vm-t b { color: var(--header); } .vmoved .vm-t small { color: var(--text-muted); }
+.vmoved .vm-x { background: none; border: 0; color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; } .vmoved .vm-x:hover { color: var(--header); }
+@keyframes vmoved-in { from { opacity: 0; transform: translate(-50%, -12px); } }
+@keyframes vmoved-shake { 25% { transform: translate(calc(-50% - 6px), 0); } 75% { transform: translate(calc(-50% + 6px), 0); } }
+@media (prefers-reduced-motion: reduce) { .vmoved, .vmoved.muted { animation: none; } }
+/* Atalhos do soundboard (Configurações → Atalhos) */
+.sbk-sel { max-width: 260px; min-width: 180px; padding: 8px 10px; background: var(--bg-tert); color: var(--text); border: 0; border-radius: 4px; font-size: 14px; outline: none; }
+.sbk-sel:focus-visible { box-shadow: 0 0 0 2px var(--brand); }
+.sbk-sel option, .sbk-sel optgroup { background: var(--bg-float); color: var(--text); }
+.sbk-slots .perm kbd { font-size: 12px; }

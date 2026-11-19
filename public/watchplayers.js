@@ -141,11 +141,15 @@ export class YouTubePlayer extends Base {
   seek(s) { this.ready && this.p.seekTo(Math.max(0, s), true); }
   time() { try { return this.ready ? +this.p.getCurrentTime() || 0 : 0; } catch { return 0; } }
   // velocidade fracionada (0,95×, 1,05×…): o YouTube aceita em vários players, mas pode arredondar para as da lista
-  // (0,75/1/1,25). Confere logo depois de pedir; se não ficou como pedido, desiste e o motor passa a pular
+  // (0,75/1/1,25). Confere logo depois de cada pedido (não só o primeiro: o player pode mudar a lista no meio do
+  // vídeo); se não ficou como pedido, desiste e o motor passa a pular
   get canRate() { return this.rateOk !== false; }
   setRate(r) {
-    if (!this.ready) return; try { this.p.setPlaybackRate(r); } catch { this.rateOk = false; return; }
-    if (r !== 1 && this.rateOk === undefined) setTimeout(() => { try { const got = +this.p.getPlaybackRate(); if (Math.abs(got - r) > 0.001) { this.rateOk = false; this.p.setPlaybackRate(1); } else this.rateOk = true; } catch { this.rateOk = false; } }, 700);
+    if (!this.ready) return; this.wantRate = r; try { this.p.setPlaybackRate(r); } catch { this.rateOk = false; return; }
+    if (r !== 1 && this.rateOk !== false) setTimeout(() => {
+      if (this.wantRate !== r) return; // já pediu outra velocidade: a conferência fica para ela
+      try { const got = +this.p.getPlaybackRate(); if (Math.abs(got - r) > 0.001) { this.rateOk = false; this.p.setPlaybackRate(1); } else this.rateOk = true; } catch { this.rateOk = false; }
+    }, 700);
   }
   duration() { try { return this.ready ? +this.p.getDuration() || 0 : 0; } catch { return 0; } }
   applyVol() { if (!this.ready) return; this.p.setVolume(this.vol); this.muted ? this.p.mute() : this.p.unMute(); }

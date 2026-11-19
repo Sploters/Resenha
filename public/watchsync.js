@@ -4,7 +4,8 @@
 // Sincronia fina: diferenças pequenas são corrigidas pela VELOCIDADE (o vídeo acelera ou freia um pouco até alcançar,
 // sem pulo nem engasgo); só diferenças grandes pulam. Pausado, alinha no ponto exato.
 export const IN_SYNC = 0.04;    // s: abaixo disso está em sincronia (volta para a velocidade normal)
-export const RATE_START = 0.1;  // s: acima disso (em 2 leituras seguidas) começa o ajuste pela velocidade
+export const RATE_START = 0.07; // s: acima disso (em 2 leituras seguidas) começa o ajuste pela velocidade
+                                // (abaixo dos 100 ms: com 0,1 a diferença podia ficar parada logo acima de 100 ms numa máquina lenta)
 export const MAX_NUDGE = 0.1;   // velocidade entre 0,9× e 1,1× (imperceptível na fala e na música)
 export const GAIN = 0.5;        // quanto da diferença é corrigido por segundo (0,5 s de diferença → 0,9×/1,1×)
 export const TOLERANCE = 0.25;  // s: sem ajuste de velocidade (player que não aceita), pula acima disso

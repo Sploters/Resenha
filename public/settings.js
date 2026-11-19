@@ -4,7 +4,7 @@ import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHOD
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboToAccel, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
-import { soundSources, mySounds, addSound, editSound, playLocal, soundVol } from './soundboard.js';
+import { soundSources, mySounds, addSound, editSound, playLocal, soundVol, findSound, numpadSlots, slotPicks, setSlot, setSoundKey, NUMPAD_SLOTS } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
@@ -975,8 +975,44 @@ function keysPage() {
         hint('O botão ↺ ao lado de um atalho volta só ele ao padrão; o × deixa ele sem tecla.')),
       section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
       section('Soundboard'),
-      card(row('Alt + teclado numérico 1–9', (desktop ? 'Funciona com o jogo em foco enquanto você está numa chamada. ' : 'Com o app em foco. ') + 'Toca os 9 primeiros sons: favoritos, depois os seus sons, depois os do servidor da chamada. O Num Lock precisa estar ligado.', toggle(S.prefs.sbNumpad !== false, (v) => { S.prefs.sbNumpad = v; save(); document.dispatchEvent(new Event('sb-changed')); }))),
-      hint('Atalho para um som específico: clique direito no som → "Definir atalho"' + (desktop ? ' (com Ctrl, Alt ou Shift ele funciona também com o jogo em foco).' : '.')));
+      card(row('Alt + teclado numérico 1–9', (desktop ? 'Funciona com o jogo em foco enquanto você está numa chamada. ' : 'Com o app em foco. ') + 'Escolha o som de cada tecla abaixo; as em "Automático" pegam os primeiros sons: favoritos, depois os seus, depois os do servidor da chamada. O Num Lock precisa estar ligado.', toggle(S.prefs.sbNumpad !== false, (v) => { S.prefs.sbNumpad = v; save(); document.dispatchEvent(new Event('sb-changed')); draw(); }))),
+      S.prefs.sbNumpad !== false && card(h('div.sbk-slots', numpadRows())),
+      section('Outros atalhos do soundboard'),
+      card(...customSbRows(), addSbRow()),
+      hint('Qualquer tecla ou combinação serve (ex.: F6, Ctrl + 1, Shift + Q)' + (desktop ? '; com Ctrl, Alt ou Shift ela funciona também com o jogo em foco.' : '.') + ' Também dá para definir pelo clique direito num som → "Definir atalho".'));
+  };
+  // sons que dá para escolher (por fonte), para os <select>
+  const soundOpts = (selected, skip = new Set()) => soundSources().filter(src => src.sounds.length).map(src => h('optgroup', { label: src.title },
+    src.sounds.filter(x => !skip.has(x.id) || x.id === selected).map(x => h('option', { value: x.id, selected: x.id === selected }, `${x.emoji ? x.emoji + ' ' : ''}${x.name}`))));
+  const numpadRows = () => {
+    const picks = slotPicks(), cur = numpadSlots(S.view?.gid || null);
+    return Array.from({ length: NUMPAD_SLOTS }, (_, i) => {
+      const auto = cur[i]?.auto ? cur[i].sound : null, p = picks[i];
+      const sel = h('select.sbk-sel', { 'aria-label': `Som do Alt + Num ${i + 1}`, onchange: () => { setSlot(i, sel.value === '*' ? null : sel.value); draw(); } },
+        h('option', { value: '*', selected: p === null }, auto ? `Automático (agora: ${auto.name})` : 'Automático'),
+        h('option', { value: '', selected: p === '' }, 'Nenhum'),
+        ...soundOpts(p || null));
+      return row(h('span', h('kbd', 'Alt'), ' + ', h('kbd', `Num ${i + 1}`)), null, sel);
+    });
+  };
+  const customSbRows = () => Object.entries(S.prefs.sbKeys || {}).filter(([id, c]) => c && findSound(id)).map(([id, c]) => {
+    const x = findSound(id);
+    const btn = captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), c, (nc) => { setSoundKey(id, nc); draw(); }, { combo: true });
+    return row(`${x.emoji ? x.emoji + ' ' : ''}${x.name}`, null, h('div.keyctl', btn,
+      h('button.ibtn', { type: 'button', title: 'Ouvir', 'aria-label': 'Ouvir ' + x.name, onclick: () => playLocal(x.url, soundVol(x)) }, icon('vol', 16)),
+      h('button.ibtn.key-rm', { type: 'button', title: 'Remover atalho', 'aria-label': 'Remover atalho', onclick: () => { setSoundKey(id, ''); draw(); toast('Atalho removido'); } }, icon('x', 16))));
+  });
+  const addSbRow = () => {
+    const used = new Set(Object.entries(S.prefs.sbKeys || {}).filter(([, c]) => c).map(([id]) => id));
+    const opts = soundOpts(null, used);
+    if (!opts.some(g => g.children.length)) return row('Adicionar atalho', 'Nenhum som disponível. Adicione sons no Soundboard.', null);
+    const sel = h('select.sbk-sel', { 'aria-label': 'Som para o novo atalho' }, h('option', { value: '' }, 'Escolha um som…'), ...opts);
+    const btn = captureKey(h('button.btn', { style: { minWidth: '160px' } }), '', (c) => {
+      if (!sel.value) { toast('Escolha o som primeiro', true); draw(); return; }
+      const taken = KEY_ROWS.find(k => hotkey(k) === c);
+      setSoundKey(sel.value, c); draw(); toast(taken ? `Atalho definido (atenção: ${comboLabel(c)} também é um atalho do app)` : 'Atalho definido');
+    }, { combo: true, empty: 'Escolher tecla' });
+    return row('Adicionar atalho', 'Escolha o som e depois a tecla.', h('div.keyctl', sel, btn));
   };
   draw();
   return root;

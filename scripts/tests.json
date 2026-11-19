@@ -170,6 +170,7 @@
     "clip-tap-test": 25,
     "watch-desktop-test": 25,
     "watch-test": 65,
-    "watch-unit-test": 8
+    "watch-unit-test": 8,
+    "voice-drag-test": 15
   }
 }

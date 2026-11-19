@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-19-3', title: 'Mover arrastando e atalhos do Soundboard do seu jeito',
+    items: [
+      { i: 'voice', t: 'Mover alguém de sala arrastando', d: 'Quem pode Moderar voz (e o dono do servidor) agora arrasta a pessoa da lista da sala e solta em outra sala de voz. Quem foi movido ouve um toque e vê quem o moveu; se estava mutado, aparece o botão "Desmutar" ali mesmo. Bom para chamar quem esqueceu o microfone desligado.' },
+      { i: 'soundboard', t: 'Escolha os sons dos atalhos', d: 'Em Configurações → Atalhos você escolhe o som de cada Alt + teclado numérico 1 a 9 (ou deixa no automático) e cria atalhos com qualquer outra tecla, como F6 ou Ctrl + Q.' },
+    ],
+  },
+  {
     id: '2026-11-19-2', title: 'Transmissão com áudio e vídeo juntos e atalhos no Soundboard',
     items: [
       { i: 'screen', t: 'Áudio e vídeo da transmissão sincronizados', d: 'O áudio do jogo podia chegar atrasado ou adiantado em relação ao vídeo, cada espectador de um jeito. Agora quem assiste alinha o vídeo da tela com o áudio dela, e o áudio do jogo sai com atraso pequeno e constante.' },
