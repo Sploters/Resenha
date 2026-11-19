@@ -23,14 +23,14 @@ class VadGateProcessor extends AudioWorkletProcessor {
     this.scaled = new Float32Array(FRAME); this.clean = new Float32Array(FRAME);
     this.queue = []; this.pool = []; // modo RNNoise: quadros esperando a antecedência { y, t }
     this.ring = new Float32Array(RING); this.r = 0; this.w = 0;
-    this.gDb = this.gate.p.floorDb; this.tgtDb = this.gate.p.floorDb; this.underruns = 0;
+    this.gDb = this.gate.p.floorDb; this.tgtDb = this.gate.p.floorDb; this.underruns = 0; this.frames = 0; // quadros analisados (testes)
     this.latency = this.denoise ? FRAME * (1 + this.gate.p.lookahead) : 0; this.w = this.latency;
     this.dbg = o.debug ? { vad: [], lvl: [], noise: [], low: [], hf: [], open: [], st: [], pitch: [], harm: [], spk: [], med: [] } : null;
     this.destroyed = false;
     this.port.onmessage = (e) => {
       const d = e.data;
       if (d === 'destroy') this.destroy();
-      else if (d === 'stats') this.port.postMessage({ stats: this.dbg, underruns: this.underruns, latency: this.latency, ready: !!this.st });
+      else if (d === 'stats') this.port.postMessage({ stats: this.dbg, underruns: this.underruns, latency: this.latency, ready: !!this.st, frames: this.frames });
       else if (d && typeof d === 'object') { // ajuste ao vivo (sensibilidade, liga/desliga) sem refazer o microfone
         if ('gate' in d) this.gateOn = d.gate !== false;
         if ('sens' in d) this.sens = d.sens;
@@ -48,7 +48,7 @@ class VadGateProcessor extends AudioWorkletProcessor {
   mkParams() { return gateParams(this.sens, { ...this.params, lock: this.lock, ...(this.gate ? { lookahead: this.gate.p.lookahead } : {}) }); }
   // analisa o quadro de inBuf: probabilidade de voz + nível; devolve o ganho alvo (e deixa o áudio limpo em this.clean)
   analyze() {
-    const x = this.inBuf, s = this.scaled, y = this.clean;
+    const x = this.inBuf, s = this.scaled, y = this.clean; this.frames++;
     for (let i = 0; i < FRAME; i++) s[i] = x[i] * 32767;
     const vad = this.st.processFrame(s); // limpa "s" no lugar e devolve a probabilidade de voz
     for (let i = 0; i < FRAME; i++) y[i] = s[i] / 32767;
@@ -81,6 +81,10 @@ class VadGateProcessor extends AudioWorkletProcessor {
       const a = inputs[0]?.[0]; if (this.failed && a) out.set(a); else out.fill(0); return true;
     }
     const ana = (this.denoise ? inputs[0]?.[0] : inputs[1]?.[0]) || null;
+    // sem entrada (microfone mutado: voice.js setIdle tira o microfone da cadeia): não roda o RNNoise sobre zeros, que
+    // custava tanto quanto falar (às vezes mais). Sai silêncio e a fila volta ao estado de um microfone recém-aberto.
+    if (!ana) { if (!this.idle) this.goIdle(); out.fill(0); for (let c = 1; c < outputs[0].length; c++) outputs[0][c].fill(0); return true; }
+    this.idle = false;
     for (let i = 0; i < n; i++) {
       this.inBuf[this.inN++] = ana ? ana[i] : 0;
       if (this.inN === FRAME) { this.inN = 0; const t = this.analyze(); if (this.denoise) this.pushFrame(t); else this.tgtDb = t >= 1 ? 0 : Math.max(this.gate.p.floorDb, 20 * Math.log10(t)); }
@@ -93,6 +97,14 @@ class VadGateProcessor extends AudioWorkletProcessor {
     }
     for (let c = 1; c < outputs[0].length; c++) outputs[0][c].set(out);
     return true;
+  }
+  // ao ficar sem entrada: descarta o que estava na fila e recomeça como no construtor (porta fechada, antecedência de
+  // silêncio já na saída); o estado do RNNoise e o nível de ruído aprendido pela porta continuam
+  goIdle() {
+    this.idle = true; this.inN = 0;
+    while (this.queue.length) this.pool.push(this.queue.pop().y);
+    this.ring.fill(0); this.r = 0; this.w = this.latency;
+    this.gDb = this.tgtDb = this.gate.p.floorDb;
   }
   destroy() { this.destroyed = true; try { this.st?.destroy(); } catch { } this.st = null; }
 }

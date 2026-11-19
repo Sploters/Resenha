@@ -551,10 +551,15 @@ mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id =
 // e espera a chamada acabar (reiniciar derruba todo mundo por ~6 s). Só contagens, sem nomes; atualizado a cada 10 s.
 {
   const file = path.join(DATA_DIR, 'em-chamada.json');
+  // Sem ninguém em chamada, só grava quando a contagem muda (antes: 8.640 gravações por dia no disco, à toa). Com gente
+  // em chamada continua a cada 10 s: o deploy só confia num arquivo de menos de 60 s para esperar; com zero, segue.
+  let last = '';
   const write = () => {
     let calls = 0, inCalls = 0, screens = 0;
     for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; } if (n) { calls++; inCalls += n; } }
-    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens })); fs.renameSync(file + '.tmp', file); } catch { }
+    const counts = `${calls},${inCalls},${screens}`;
+    if (!inCalls && counts === last) return;
+    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens })); fs.renameSync(file + '.tmp', file); last = counts; } catch { }
   };
   write(); setInterval(write, 10e3).unref();
 }

@@ -539,9 +539,12 @@ html.lc-desk video { filter: opacity(.999); }
 #stage .strip .tile .sctl .sc-main { height: 28px; padding: 0 8px; font-size: 12px; }
 /* barra de baixo: transmitindo, o botão de tela fica aceso e a bola vermelha da ponta vira "Parar transmissão" */
 #stage .bar .roundbtn.sharing { box-shadow: inset 0 0 0 2px #23a55a; }
-.live-dot { width: 9px; height: 9px; border-radius: 50%; background: #f23f43; flex: none; box-shadow: 0 0 0 0 rgba(242,63,67,.6); animation: livePulse 1.6s ease-out infinite; }
-@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(242,63,67,.6); } 70% { box-shadow: 0 0 0 7px rgba(242,63,67,0); } 100% { box-shadow: 0 0 0 0 rgba(242,63,67,0); } }
-@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+/* o anel que pulsa é um ::after do tamanho do ponto que cresce e some (transform/opacity, animados pelo compositor):
+   com box-shadow, cada quadro recalculava o estilo e repintava na thread principal (~60 vezes por segundo transmitindo) */
+.live-dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: #f23f43; flex: none; }
+.live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: rgb(242,63,67); opacity: 0; pointer-events: none; animation: livePulse 1.6s ease-out infinite; }
+@keyframes livePulse { 0% { transform: scale(1); opacity: .6; } 70% { transform: scale(2.556); opacity: 0; } 100% { transform: scale(1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live-dot::after { animation: none; } }
 /* faixa "AO VIVO" no painel de voz: fica à vista em qualquer tela do app enquanto transmite */
 #voice-panel .vp-live { display: flex; align-items: center; gap: 7px; margin: 6px 0 2px; padding: 5px 5px 5px 9px; border-radius: 8px; background: rgba(218,55,60,.14); box-shadow: inset 0 0 0 1px rgba(218,55,60,.45); font-size: 12px; color: var(--text, #dbdee1); }
 #voice-panel .vp-live b { color: #f57e81; font-size: 11px; letter-spacing: .06em; }
