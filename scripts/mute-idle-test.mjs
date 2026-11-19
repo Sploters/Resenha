@@ -5,6 +5,7 @@
 //  - mutado sai silêncio; depois de desmutar o som volta no mesmo nível de antes e sem faltar amostra.
 // MUTE_SPEECH=arquivo.wav usa uma gravação de voz no lugar da "fala" sintética (o GTCRN abafa a sintética, então o nível
 // só é comparado nele quando há som de verdade antes de mutar).
+// Também confere quem manda parar (Voice.applyMute): mudo, ensurdecido, moderação, teste e apertar-para-falar solto.
 // Uso: node scripts/mute-idle-test.mjs
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
@@ -38,6 +39,16 @@ try {
       while (performance.now() < end) { a.getFloatTimeDomainData(b); for (const x of b) s += x * x; n += b.length; await new Promise(r => setTimeout(r, 40)); }
       return +(10 * Math.log10(s / n + 1e-15)).toFixed(1); };
   });
+  // quem decide parar a cadeia (Voice.applyMute): todo jeito de o microfone estar fechado para, inclusive apertar-para-falar
+  // solto e a moderação; o teste de microfone aberto (holdMic) mantém o medidor vivo
+  const idleCases = await page.evaluate(() => {
+    const run = (st) => { let idle = null; const me = Object.assign(Object.create(window.V.Voice.prototype), { prefs: {}, muted: false, deafened: false, ptt: false, micGraph: { setIdle: (on) => { idle = on; } } }, st); me.applyMute(); return idle; };
+    return { aberto: run({}), mudo: run({ muted: true }), ensurdecido: run({ deafened: true }), moderacao: run({ modMute: true }), teste: run({ testMute: true }),
+      pttSolto: run({ prefs: { inputMode: 'ptt' } }), pttApertado: run({ prefs: { inputMode: 'ptt' }, ptt: true }), mudoComTesteAberto: run({ muted: true, micHold: 1 }) };
+  });
+  ok(idleCases.aberto === false && idleCases.pttApertado === false && idleCases.mudoComTesteAberto === false
+    && idleCases.mudo && idleCases.ensurdecido && idleCases.moderacao && idleCases.teste && idleCases.pttSolto,
+  'a cadeia para com o microfone fechado (mudo, ensurdecido, moderação, teste, apertar-para-falar solto) e roda aberto', idleCases);
   for (const mode of ['rnnoise', 'gtcrn']) {
     const info = await page.evaluate(async (prefs) => {
       window.ctx = window.V.newAudioContext(); await window.ctx.resume();

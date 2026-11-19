@@ -1261,7 +1261,10 @@ export class Voice {
   micEnabled() { return this.prefs.inputMode !== 'ptt' || this.ptt; }
   applyMute() {
     this.mic?.getAudioTracks().forEach(t => (t.enabled = !this.muted && !this.deafened && !this.modMute && !this.modDeaf && !this.testMute && this.micEnabled()));
-    this.micGraph?.setIdle?.((this.muted || this.deafened || this.testMute) && !this.micHold); // teste de microfone aberto mantém o medidor vivo
+    // microfone fechado por qualquer motivo (mudo, ensurdecido, moderação, teste, apertar-para-falar solto): a cadeia
+    // para e a IA de ruído não processa nada. O teste de microfone aberto mantém o medidor vivo
+    const closed = this.muted || this.deafened || this.modMute || this.modDeaf || this.testMute || !this.micEnabled();
+    this.micGraph?.setIdle?.(closed && !this.micHold);
   }
   // teste de microfone das Configurações aberto durante a chamada: microfone e áudio da sala ficam silenciados até o teste acabar
   // (não mexe no mutar/ensurdecer escolhido pela pessoa; ao parar o teste tudo volta como estava)
