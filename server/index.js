@@ -827,7 +827,9 @@ function currentVoice(uid) { for (const [cid, m] of voice) if (m.has(uid)) retur
 // UDP) e seguem funcionando: a pessoa fica na sala por VOICE_GRACE_MS esperando a conexão nova pedir VOICE_RESUME. Antes
 // saía na hora: para os outros ela sumia e voltava (voz cortada, transmissão encerrada), mesmo que a queda durasse 1 s.
 // Não voltou a tempo (fechou o app, internet caiu de vez): sai como antes, com o motivo 'drop'.
-const VOICE_GRACE_MS = +process.env.VOICE_GRACE_MS || 15000;
+// 20 s: uma queda de até 15 s (troca de Wi-Fi, VPN reconectando) mais os ~3 s que o app leva para reconectar quando a rede
+// volta (public/gateway.js). Com 15 s, uma queda de 15 s sempre tirava da sala.
+const VOICE_GRACE_MS = +process.env.VOICE_GRACE_MS || 20000;
 function holdVoice(uid, c, st, ms = VOICE_GRACE_MS) {
   if (st.dropT) return;
   st.dropT = setTimeout(() => { st.dropT = null; if (voice.get(c)?.get(uid) === st && st.ws.readyState !== 1) leaveVoice(uid, c, 'drop'); }, ms);
@@ -872,8 +874,10 @@ const WS_RATE = {
 };
 const WS_ALL = [300, 600];
 // tipos em que só importa o último valor: passando do limite, o último pedido é guardado e aplicado depois (o estado
-// não fica errado); os outros, passando do limite, são ignorados
-const WS_KEEP = new Set(['VIEW', 'VOICE_STATE', 'CLIENT_INFO', 'ACTIVE', 'ACTIVITY_LOCAL', 'ROOM_CODE']);
+// não fica errado); os outros, passando do limite, são ignorados. VOICE_JOIN também: ignorado, o app ficava
+// "conectando" para sempre sem resposta nenhuma (sair e entrar rápido, rejoin() da recuperação); guardado, entra
+// quando sobrar ficha (o limite continua o mesmo) e um VOICE_LEAVE depois dele o cancela.
+const WS_KEEP = new Set(['VIEW', 'VOICE_STATE', 'CLIENT_INFO', 'ACTIVE', 'ACTIVITY_LOCAL', 'ROOM_CODE', 'VOICE_JOIN']);
 const WS_FLOOD = 3000; // ignoradas em 10 s: fecha a conexão (o app reconecta sozinho)
 function wsGate(ws, t) {
   const now = performance.now(), b = (ws.buckets ||= {});
@@ -903,11 +907,20 @@ wss.on('connection', (ws) => {
     if (!msg || typeof msg.t !== 'string') return;
     const v = wsGate(ws, msg.t);
     if (v === 'drop') return;
-    if (v === 'later') { // estado (VIEW, VOICE_STATE…): não pode se perder; vale o último pedido, aplicado quando sobrar ficha
+    if (msg.t === 'VOICE_LEAVE') ws.later?.delete('VOICE_JOIN'); // saiu antes de a entrada guardada valer: não entra mais
+    // estado da voz (mudo, ensurdecido…) mandado depois de uma entrada que ficou guardada: espera a entrada, senão chegaria
+    // antes dela, não acharia a sala e se perderia (os outros veriam a pessoa desmutada)
+    const afterJoin = msg.t === 'VOICE_STATE' && ws.later?.has('VOICE_JOIN');
+    if (v === 'later' || afterJoin) { // estado (VIEW, VOICE_STATE…): não pode se perder; vale o último pedido, aplicado quando sobrar ficha
       (ws.later ||= new Map()).set(msg.t, msg);
       if (!ws.laterT) ws.laterT = setTimeout(function again() {
         ws.laterT = null; if (ws.readyState !== 1) return;
-        for (const [t, m] of ws.later) { if (wsGate(ws, t, true) !== 'ok') continue; ws.later.delete(t); handle(m); }
+        const order = [...ws.later.keys()].sort((a, b) => (b === 'VOICE_JOIN') - (a === 'VOICE_JOIN')); // a entrada primeiro
+        for (const t of order) {
+          if (t === 'VOICE_STATE' && ws.later.has('VOICE_JOIN')) continue;
+          if (wsGate(ws, t, true) !== 'ok') continue;
+          const m = ws.later.get(t); ws.later.delete(t); handle(m);
+        }
         if (ws.later.size) ws.laterT = setTimeout(again, 250);
       }, 250);
       return;

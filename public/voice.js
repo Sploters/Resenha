@@ -214,8 +214,9 @@ export function frameMax(f, buf, layout) {
 }
 
 export class Voice {
-  constructor({ send, ice, myId, onUpdate, prefs }) {
+  constructor({ send, ice, myId, onUpdate, prefs, serverRoom }) {
     this.send = send; this.ice = ice; this.myId = myId; this.onUpdate = onUpdate; this.prefs = prefs;
+    this.serverRoom = serverRoom || (() => null); // sala em que o servidor tem esta pessoa (último VOICE_STATE recebido)
     this.autoKbps = AUTO_MAX; // nível escolhido pelo modo automático (32-64 kbps, voz mono)
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
     this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
@@ -350,10 +351,14 @@ export class Voice {
     if (!silent) playSound('selfLeave');
     if (this.native) { this.native = null; window.lcDesktop?.nativeStop?.(); } // o servidor fecha a sessão ao sair da sala
     this.monitorOn = false; this.updateMonitor();
+    // o servidor vai responder com "saiu de <sala>" (VOICE_STATE sem sala). Se a pessoa já entrou de novo na MESMA sala
+    // antes de o aviso chegar (rejoin(), sair e entrar rápido), o aviso atrasado não pode tirá-la da entrada nova
+    // (ver ownLeaveEcho e public/gateway.js). Só anota se o servidor ainda a tem na sala: senão não vem aviso nenhum.
+    if (this.serverRoom() === this.channelId) (this._ownLeaves ||= []).push({ cid: this.channelId, until: Date.now() + 5000 });
     this.send('VOICE_LEAVE', {});
     if (this.hold) { const p = this._preHold || {}; this.hold = false; this._preHold = null; this.muted = !!p.muted; this.deafened = !!p.deafened; } // a espera é só desta chamada
     this.stopRecovery();
-    this.sfuClose();
+    this._sfuTok = null; this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
     this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
     this.micGraph?.dispose(); this.micGraph = null;
@@ -364,6 +369,11 @@ export class Voice {
     for (const a of this.analysers.values()) a.src.disconnect(); this.analysers.clear();
     clearInterval(this.timer); this.timer = null; this.sleepCtx(); this.onUpdate();
   }
+  // o aviso "saiu da sala" que chegou é a resposta a um VOICE_LEAVE desta página (consome a anotação)
+  ownLeaveEcho(cid) {
+    const now = Date.now(), l = (this._ownLeaves || []).filter(x => x.until > now), i = l.findIndex(x => x.cid === cid);
+    if (i >= 0) l.splice(i, 1); this._ownLeaves = l; return i >= 0;
+  }
   // fora da call o contexto de áudio da voz fica suspenso: rodando, ele mantém a thread de áudio e a saída de som
   // processando silêncio o tempo todo (~2-4% de CPU num PC comum). getCtx() acorda de novo quando precisar.
   sleepCtx() { setTimeout(() => { if (!this.channelId && !this._joinTo && this.ctx?.state === 'running') this.ctx.suspend().catch(() => { }); }, 1500); }
@@ -372,7 +382,10 @@ export class Voice {
     clearTimeout(this._mrWait); this._mrWait = null;
     const jt = this._jt; if (jt?.sent && !jt.joined) { timing('voice_server', performance.now() - jt.sent); jt.joined = performance.now(); if (!sfu) this._jt = null; }
     if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
-    if (sfu) this.sfuStart(sfu).catch(e => { console.warn('sfu', e); if (this.recovering) return this.mediaReconnect('start_failed'); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
+    // a falha só conta se esta conexão de mídia ainda for a atual: saiu (ou entrou de novo) no meio do caminho, o
+    // envio cancelado ("queue stopped") não é falha de conexão nem vira erro na tela
+    const tok = this._sfuTok = {};
+    if (sfu) this.sfuStart(sfu).catch(e => { if (this._sfuTok !== tok || this.channelId !== channel_id) return; console.warn('sfu', e); if (this.recovering) return this.mediaReconnect('start_failed'); track('voice_fail', 'sfu_error'); cancelTimer('voice_connect'); this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); });
     else (this._micReady || Promise.resolve()).then(() => { if (channel_id === this.channelId) for (const uid of peers) if (!this.peers.has(uid)) this.connect(uid, true); });
   }
   onPeerLeft({ user_id }) { this.drop(user_id); this.onUpdate(); }

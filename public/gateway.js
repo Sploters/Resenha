@@ -121,6 +121,9 @@ export function connect() {
   clearTimeout(connect.t);
   // resume=1: esta página caiu e está voltando com a chamada aberta; o servidor segura a sala até o VOICE_RESUME
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}${voice?.channelId ? '&resume=1' : ''}`);
+  // numa queda de verdade (pacotes somem sem resposta) a tentativa pode ficar "abrindo" por muito tempo, e a próxima nem
+  // começa: sem abrir em 6 s, desiste desta e tenta de novo (onclose)
+  const opening = ws; clearTimeout(connect.open); connect.open = setTimeout(() => { if (ws === opening && opening.readyState === 0) { closeWhy ||= 'não abriu em 6 s'; opening.close(); } }, 6000);
   ws.onmessage = (e) => {
     const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
     // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
@@ -130,6 +133,7 @@ export function connect() {
     evQ = p; p.then(() => { if (evQ === p) evQ = null; });
   };
   ws.onopen = () => {
+    clearTimeout(connect.open);
     // telemetria: caiu e voltou (conta a queda e quanto tempo ficou sem conexão, mesmo com a aba escondida)
     if (offlineSince && voice?.screen) voice.capLog?.({ t: 'capnote', msg: `conexão com o servidor caiu por ${((Date.now() - offlineSince) / 1000).toFixed(1)} s${restarting ? ' (servidor reiniciando)' : ''} e voltou; ${closeWhy || 'motivo desconhecido'}` });
     closeWhy = '';
@@ -146,11 +150,18 @@ export function connect() {
     if (e?.code) closeWhy = `fechada com código ${e.code}${e.reason ? ' (' + e.reason + ')' : ''}`;
     if (e?.code === 1012) restarting = true; // 1012 = o servidor está reiniciando
     if (ready && !offlineSince) offlineSince = Date.now();
-    try { await api('GET', '/users/0'); } catch (e) { if (e.status === 401) { localStorage.removeItem('lc_token'); S.token = null; return showAuth(); } }
     if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, restarting ? 'Servidor atualizando. Volta em alguns segundos…' : 'Conexão perdida. Reconectando…'));
-    connect.t = setTimeout(connect, reconnectDelay(retry++)); // com sorteio: num reinício, não voltam todos juntos
+    // com sorteio: num reinício, não voltam todos juntos. Em chamada, no máximo ~2 s entre tentativas (o servidor segura a
+    // sala só 15 s: com 10 s entre tentativas, a rede voltava aos 14 s e a próxima tentativa vinha aos ~25 s, tarde demais)
+    clearTimeout(connect.t); connect.t = setTimeout(connect, reconnectDelay(retry++, voice?.channelId ? 2000 : 10000));
+    // sessão encerrada (senha trocada, saiu em outro aparelho): volta ao login. Em paralelo e sem esperar: numa queda de
+    // rede este pedido pode ficar pendurado por minutos, e antes a reconexão só era agendada depois dele
+    api('GET', '/users/0').catch((e) => { if (e.status === 401 && S.token) { clearTimeout(connect.t); clearTimeout(connect.open); localStorage.removeItem('lc_token'); S.token = null; showAuth(); } });
   };
 }
+
+// a rede voltou (troca de Wi-Fi, cabo, VPN): tenta reconectar na hora, sem esperar a vez da próxima tentativa
+addEventListener('online', () => { if (S.token && ws && ws.readyState > 1) { clearTimeout(connect.t); connect(); } });
 
 // lista inteira de um servidor grande chegou: redesenha o que mostra membros (nomes, cores, lista)
 document.addEventListener('join-btn-changed', () => { if (channelById(S.view.cid)?.type === 2 || channelById(S.view.cid)?.type === 1) renderMain(); });
@@ -187,7 +198,7 @@ export function onEvent(t, d) {
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
-      if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate }); prewarmVoice(S.prefs); }
+      if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate, serverRoom: () => S.voice.get(S.me.id)?.channel_id || null }); prewarmVoice(S.prefs); }
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
       // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
       voice.beforeJoin = async (cid) => {
@@ -335,7 +346,9 @@ export function onEvent(t, d) {
       if ((before || null) !== (d.channel_id || null) && $('#members')) renderMembers(); // ícone "em chamada" na lista de membros
       if (d.user_id === S.me.id && d.channel_id !== before) resetPresenceSounds(); // saí ou troquei de sala: sons pendentes da sala antiga não tocam mais
       if (d.user_id === S.me.id && !d.channel_id) musicOnState({ active: false });
-      if (d.user_id === S.me.id && !d.channel_id && voice.active && voice.channelId === d.prev_channel_id) { setCallDropped(d.reason === 'drop'); voice.leave(); }
+      // resposta atrasada à própria saída (a página já entrou de novo na mesma sala): não tira da entrada nova
+      const ownEcho = d.user_id === S.me.id && !d.channel_id && !d.reason && !!voice?.ownLeaveEcho?.(d.prev_channel_id);
+      if (d.user_id === S.me.id && !d.channel_id && !ownEcho && voice.active && voice.channelId === d.prev_channel_id) { setCallDropped(d.reason === 'drop'); voice.leave(); }
       if (d.user_id !== S.me.id && !d.bot && !prevVs?.bot) { // o bot entrando/saindo não toca o som de pessoa
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
         if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
