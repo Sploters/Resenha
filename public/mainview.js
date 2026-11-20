@@ -159,10 +159,18 @@ async function renderDmPanel(uid) {
       h('div.dmp-scroll', h('div.popout.static.dmp-card', profileCard(u, { top: mutual, onImage: () => openUserProfile(uid) }))),
       h('div.dmp-foot', h('button.btn.grey.dmp-full', { type: 'button', onclick: () => openUserProfile(uid) }, 'Ver perfil completo'))));
   };
-  draw(user(uid));
-  const full = await api('GET', `/users/${uid}`).catch(() => null);
-  if (full && $('#dmpanel') === box) { mergeUser(full); draw(full); }
+  // o perfil completo (amigos e servidores em comum, sobre mim) muda a altura do cartão: desenhar o parcial e depois o
+  // completo fazia o painel nascer vazio e crescer. Guardado da última vez: entra direto; na 1ª vez espera até 400 ms
+  const known = dmFull.get(uid), req = api('GET', `/users/${uid}`).catch(() => null);
+  let drawn = known ? JSON.stringify(known) : null;
+  if (known) draw(known);
+  else { const quick = await Promise.race([req, new Promise(r => setTimeout(r, 400))]); if ($('#dmpanel') !== box) return; if (!quick) draw(user(uid)); }
+  const full = await req;
+  if (!full || $('#dmpanel') !== box) return;
+  mergeUser(full); dmFull.set(uid, full);
+  const json = JSON.stringify(full); if (json !== drawn) { drawn = json; draw(full); }
 }
+const dmFull = new Map(); // uid -> perfil completo da última abertura do painel
 // vídeo na DM: entra na chamada (se preciso) e liga a câmera
 async function videoCall(cid) {
   if (voice.channelId === cid) return voiceAct(() => voice.toggleCam());
