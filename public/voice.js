@@ -444,7 +444,7 @@ export class Voice {
   checkRecovered(sfu = this.sfu) {
     if (!this.recovering || !sfu?.ready || this.sfu !== sfu) return;
     if (![sfu.send, sfu.recv].every(x => !x || x.connectionState === 'connected' || x.connectionState === 'new')) return;
-    this.recovering = false; this._mrTries = 0; track('voice_recovered', this._mrReason || 'ice'); this._mrReason = null;
+    this.recovering = false; this._mrTries = 0; track('voice_recovered', this._mrReason || 'ice', { bg: true }); this._mrReason = null;
     if (this.screen) this.capLog({ t: 'capnote', msg: `conexão de mídia de volta em ${((Date.now() - (this._mrAt || Date.now())) / 1000).toFixed(1)} s` });
     this.onRecovered?.(); this.onUpdate();
   }
@@ -469,7 +469,7 @@ export class Voice {
     const n = this._mrTries = (this._mrTries || 0) + 1;
     // 1ª na hora (com um sorteio de até 1,5 s: quando o worker morre, a sala inteira volta ao mesmo tempo), depois 2 s, 5 s, 10 s… até 30 s
     const wait = [0, 2000, 5000, 10000, 20000][n - 1] ?? 30000, jitter = Math.random() * 1500;
-    track('voice_reconnect', reason);
+    track('voice_reconnect', reason, { bg: true }); // bg: conta com o app minimizado (jogando, transmitindo)
     this._mrTimer = setTimeout(() => {
       this._mrTimer = null;
       if (!this.channelId) return;

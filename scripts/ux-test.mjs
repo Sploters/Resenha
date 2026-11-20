@@ -120,6 +120,10 @@ try {
   await api(eu, 'POST', '/ux', { version: 'vteste', device: 'desktop', events: [{ e: 'games_open', d: '', n: 2 }, { e: 'timing', d: 'channel_switch:9', n: 1 }, { e: 'voice_fail', d: 'ice_failed', n: 1 }] });
   full = (await api(admin, 'GET', '/ux?version=vteste')).data;
   ok(full.eventos.games_open?.total === 2 && Object.keys(full.eventos).join() === 'games_open,voice_fail' && full.versoes.some(v => v.version === 'vteste'), 'filtro por versão mostra só o que veio daquela versão (faixa inválida descartada)', { ev: Object.keys(full.eventos), versoes: full.versoes });
+  // quedas da mídia da chamada (antes descartadas pelo servidor); motivo fora do formato é descartado
+  await api(eu, 'POST', '/ux', { version: 'vmidia', device: 'app', events: [{ e: 'voice_reconnect', d: 'ice', n: 3 }, { e: 'voice_reconnect', d: 'timeout', n: 1 }, { e: 'voice_recovered', d: 'ice', n: 2 }, { e: 'voice_reconnect', d: 'Ice <b>', n: 1 }] });
+  { const m = (await api(admin, 'GET', '/ux?version=vmidia')).data.eventos;
+    ok(m.voice_reconnect?.total === 4 && m.voice_reconnect.detalhes?.ice?.total === 3 && m.voice_reconnect.detalhes?.timeout?.total === 1 && m.voice_recovered?.total === 2, 'quedas da mídia da chamada contadas por motivo (formato inválido descartado)', m); }
   // retenção: duas contas de 3 dias atrás, uma voltou no dia seguinte (escritas direto no banco, como se fossem antigas)
   { const db = new DatabaseSync(DATA + '/resenha.db'); const d = (k) => new Date(Date.now() - k * 86400e3).toISOString().slice(0, 10);
     db.prepare('INSERT INTO ux_user(h,cohort) VALUES(?,?),(?,?)').run('teste1', d(3), 'teste2', d(3));

@@ -15,6 +15,7 @@ import { UX_VERSION } from './ux.js';
 
 const DEV = { desktop: 'PC', mobile: 'Celular', app: 'App desktop' };
 const TABS = { lfg: 'Procurar jogadores', home: 'Início', news: 'Notícias', tournaments: 'Torneios' };
+const MEDIA_DROP = { ice: 'Conexão de áudio/vídeo caiu', ice_error: 'Erro na conexão de áudio/vídeo', timeout: 'Servidor de mídia não respondeu', server: 'Servidor de mídia reiniciou', start_failed: 'Falha ao ligar a mídia' };
 const VOICE_FAIL = { join_error: 'Erro ao entrar', sfu_error: 'Falha no servidor de mídia', ice_failed: 'Conexão de áudio caiu', outdated: 'App desatualizado', calls_off: 'Pessoa não aceita ligações', denied: 'Recusado pelo servidor' };
 const nf = (n) => Number(n || 0).toLocaleString('pt-BR');
 const pl = (n, one, many) => `${nf(n)} ${Number(n) === 1 ? one : many}`;
@@ -262,7 +263,10 @@ export function uxStatsPage() {
       card('Tempos', 'Passe o mouse numa linha para ver por aparelho', timings(data.tempos, data.faixas_ms || [])),
       h('div.ux-grid',
         card('Conexão', `Caiu e voltou ${pl(E.ws_reconnect?.total || 0, 'vez', 'vezes')}`, data.tempos?.ws_offline?.geral ? h('div', h('p.ux-line', 'Tempo sem conexão: metade até ', h('b', ms(data.tempos.ws_offline.geral.p50)), ', 95% até ', h('b', ms(data.tempos.ws_offline.geral.p95))), list(E.ws_reconnect, 2, (k) => k === 'restart' ? 'Atualização do servidor' : 'Queda de rede ou do servidor')) : empty('Nenhuma queda neste período.')),
-        card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k))),
+        card('Falhas na voz', 'Por que não conectou', list(E.voice_fail, 10, (k) => VOICE_FAIL[k] || k)),
+        // a voz e o vídeo vão direto ao SFU (não pelo WebSocket): queda aqui é o que a pessoa ouve picotar ou travar
+        card('Mídia da chamada', `Refez a conexão ${pl(E.voice_reconnect?.total || 0, 'vez', 'vezes')}; voltou sozinha ${pl(E.voice_recovered?.total || 0, 'vez', 'vezes')}`,
+          E.voice_reconnect || E.voice_recovered ? list(E.voice_reconnect || E.voice_recovered, 6, (k) => MEDIA_DROP[k] || k) : empty('Nenhuma queda de mídia neste período.'))),
       card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
       card('Qualidade técnica das chamadas', 'Medida pela conexão em toda chamada, sem perguntar: atraso, perda de pacotes, oscilação, voz picotada, vídeo travando e quedas', netq(data.qualidade)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
