@@ -15,7 +15,8 @@ function Log($m) { Add-Content -LiteralPath $env:LC_LOG -Value ((Get-Date -Forma
 $pidI = [int]$env:LC_PID
 Log ('janela de atualizacao aberta; instalador pid ' + $pidI)
 $f = $null
-try {
+# LC_QUIET: abertura escondida (iniciar com o Windows): so acompanha, sem janela
+if ($env:LC_QUIET -ne '1') { try {
   Add-Type -AssemblyName System.Windows.Forms, System.Drawing
   [Windows.Forms.Application]::EnableVisualStyles()
   $f = New-Object Windows.Forms.Form
@@ -31,7 +32,7 @@ try {
   $b = New-Object Windows.Forms.ProgressBar
   $b.Style = 'Marquee'; $b.MarqueeAnimationSpeed = 20; $b.SetBounds(22, 76, 316, 8)
   $f.Controls.AddRange(@($t, $s, $b))
-} catch { Log ('janela nao abriu: ' + $_); $f = $null }
+} catch { Log ('janela nao abriu: ' + $_); $f = $null } }
 $start = Get-Date
 $running = { $null -ne (Get-Process -Id $pidI -ErrorAction SilentlyContinue) }
 if ($f) {
@@ -52,7 +53,7 @@ if (-not (Get-Process -Name $name -ErrorAction SilentlyContinue)) {
 }
 `;
 
-// o: { pid (do instalador), exe (o Resenha.exe instalado), version, icon, dir (pasta para o script e o log) }
+// o: { pid (do instalador), exe (o Resenha.exe instalado), version, icon, dir (pasta para o script e o log), quiet (sem janela) }
 function watchInstall(o, log = () => { }) {
   if (process.platform !== 'win32' || !o.pid) return;
   try {
@@ -60,7 +61,7 @@ function watchInstall(o, log = () => { }) {
     fs.writeFileSync(file, '﻿' + SCRIPT.replace(/\n/g, '\r\n'), 'utf8'); // BOM: o Windows PowerShell lê os acentos certo
     const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', file], {
       detached: true, stdio: 'ignore', windowsHide: true,
-      env: { ...process.env, LC_PID: String(o.pid), LC_EXE: o.exe, LC_ICON: o.icon || '', LC_LOG: path.join(o.dir, 'update.log'),
+      env: { ...process.env, LC_PID: String(o.pid), LC_EXE: o.exe, LC_ICON: o.icon || '', LC_QUIET: o.quiet ? '1' : '', LC_LOG: path.join(o.dir, 'update.log'),
         LC_TITLE: o.version ? `Atualizando o Resenha para ${o.version}…` : 'Atualizando o Resenha…', LC_SUB: 'Leva alguns segundos. O app abre sozinho quando terminar.' },
     });
     p.on('error', (e) => log('janela de atualização não abriu (a instalação segue):', e.message));

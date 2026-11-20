@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 const require = createRequire(import.meta.url);
-const { MAX_TRIES, sha256File, checkReady, startupAction } = require('../desktop/updready.js');
+const { MAX_TRIES, HIDDEN_MS, sha256File, checkReady, startupAction, markHidden, takeHidden } = require('../desktop/updready.js');
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
 // assinatura de mentira com o mesmo contrato de updatekey.verifyUpdate (motivo da recusa, ou null)
@@ -44,4 +44,11 @@ ok(seen.join() === [...Array(MAX_TRIES).fill('install'), 'skip', 'skip'].join(),
 ok(startupAction({ ...r, tries: 1 }, '1.0.60', newer, false) === 'drop', 'instalou: na abertura seguinte só descarta a anotação');
 
 fs.rmSync(dir, { recursive: true, force: true });
+// abertura escondida (iniciar com o Windows) que instalou: a reabertura logo depois continua escondida, uma vez só
+{ const c = {}; markHidden(c, 1000);
+  ok(takeHidden(c, 1000 + 30e3) === true && c.hiddenRelaunch === undefined, 'reabriu 30 s depois de instalar escondido: continua escondido (e a anotação some)');
+  ok(takeHidden(c, 1000 + 31e3) === false, 'a abertura seguinte já é normal');
+  markHidden(c, 1000); ok(takeHidden(c, 1000 + HIDDEN_MS + 1) === false && c.hiddenRelaunch === undefined, 'anotação velha (mais de 5 min): abre normal e a anotação some');
+  ok(takeHidden({}, 5) === false, 'sem anotação: abre normal');
+  ok(takeHidden({ hiddenRelaunch: 9000 }, 1000) === false, 'relógio voltou para trás: abre normal'); }
 console.log(fails ? `\n${fails} FALHA(S)` : '\nATUALIZAÇÃO NA ABERTURA OK'); process.exit(fails ? 1 : 0);

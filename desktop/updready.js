@@ -33,4 +33,16 @@ function startupAction(r, appVersion, newer, portable) {
   return 'install';
 }
 
-module.exports = { MAX_TRIES, sha256File, checkReady, startupAction };
+// Abriu escondido (iniciar com o Windows, --hidden) e foi instalar a versão baixada: o instalador reabre o app SEM o
+// --hidden (--force-run, ou a janelinha de acompanhamento), e ele aparecia na tela logo depois do login. Antes de fechar
+// para instalar, o app anota a hora (markHidden); a próxima abertura até HIDDEN_MS depois continua escondida (takeHidden,
+// que apaga a anotação: vale uma vez só).
+const HIDDEN_MS = 5 * 60e3;
+function markHidden(cfg, now) { cfg.hiddenRelaunch = now; }
+function takeHidden(cfg, now) {
+  const t = cfg.hiddenRelaunch; if (t == null) return false;
+  delete cfg.hiddenRelaunch;
+  return typeof t === 'number' && now >= t && now - t < HIDDEN_MS;
+}
+
+module.exports = { MAX_TRIES, HIDDEN_MS, sha256File, checkReady, startupAction, markHidden, takeHidden };

@@ -168,7 +168,7 @@ function rememberServerIp() {
 }
 function createWindow(forceShow) {
   win = new BrowserWindow({
-    ...cfg.bounds, minWidth: 940, minHeight: 600, show: !(process.argv.includes('--hidden') || cfg.startMinimized) || !!forceShow, titleBarStyle: 'hidden', titleBarOverlay: OVERLAY, backgroundColor: '#1e1f22', title: 'Resenha', icon: icon(), autoHideMenuBar: true,
+    ...cfg.bounds, minWidth: 940, minHeight: 600, show: !isStartHidden() || !!forceShow, titleBarStyle: 'hidden', titleBarOverlay: OVERLAY, backgroundColor: '#1e1f22', title: 'Resenha', icon: icon(), autoHideMenuBar: true,
     webPreferences: { devTools: false, preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   win.removeMenu(); Menu.setApplicationMenu(null);
@@ -220,7 +220,7 @@ function createWindow(forceShow) {
   });
   win.on('show', closeSplash);
   win.once('ready-to-show', () => { win.setIcon(icon()); // reaplica o ícone (janela criada escondida às vezes ficava sem ícone na barra de tarefas)
-    if (!(process.argv.includes('--hidden') || cfg.startMinimized) || forceShow) win.show(); });
+    if (!isStartHidden() || forceShow) win.show(); });
   win.on('close', (e) => {
     cfg.bounds = win.isMaximized() ? cfg.bounds : win.getBounds(); saveCfg();
     if (!quitting && cfg.closeToTray) { e.preventDefault(); win.hide(); }
@@ -605,7 +605,8 @@ const portable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 // acompanha o instalador e reabre o app se ele não voltar sozinho; se a janela falhar, a instalação segue igual.
 // Sem reopen (fechou o app com a atualização baixada): instala quieto.
 // A versão pedida fica anotada (cfg.pendingUpdate): se o app abrir de novo na versão velha, a página avisa que não deu.
-function runInstaller(file, reopen) {
+// quiet: acompanha o instalador sem mostrar a janelinha (abertura escondida)
+function runInstaller(file, reopen, quiet = false) {
   const args = portable ? [] : ['/S', '--updated', ...(reopen ? ['--force-run'] : [])];
   log('instalando atualização', update?.version, args.join(' '), file);
   if (!portable && update?.version) { cfg.pendingUpdate = { version: update.version, at: Date.now() }; saveCfg(); }
@@ -617,7 +618,7 @@ function runInstaller(file, reopen) {
     // o ícone está dentro do app.asar (o PowerShell não lê): copia para a pasta temporária
     const dir = app.getPath('userData');
     let icon = ''; try { icon = path.join(app.getPath('temp'), 'resenha-update.ico'); fs.writeFileSync(icon, fs.readFileSync(path.join(__dirname, 'build', 'icon.ico'))); } catch { icon = ''; }
-    updSplash.watchInstall({ pid: p.pid, exe: process.execPath, version: update?.version, icon, dir }, log);
+    updSplash.watchInstall({ pid: p.pid, exe: process.execPath, version: update?.version, icon, dir, quiet }, log);
   }
   return !!p.pid;
 }
@@ -701,6 +702,13 @@ async function detectGpu() {
     if (cfg.gpuOld !== old) { cfg.gpuOld = old; saveCfg(); }
   } catch (e) { log('gpu info falhou', e.message); }
 }
+// abriu escondido: iniciar com o Windows (--hidden), "iniciar minimizado", ou a reabertura logo depois de instalar a
+// atualização numa abertura escondida (updready.takeHidden). Calculado uma vez, no começo
+let startHidden = null;
+function isStartHidden() {
+  if (startHidden == null) { const had = cfg.hiddenRelaunch != null, t = updReady.takeHidden(cfg, Date.now()); if (had) saveCfg(); startHidden = process.argv.includes('--hidden') || !!cfg.startMinimized || t; }
+  return startHidden;
+}
 // Abriu com uma versão nova já baixada e conferida (updready.js): instala em silêncio, com a janelinha "Atualizando…",
 // e o app reabre na versão nova. Devolve true se o app vai fechar para instalar.
 function installReadyOnStart() {
@@ -712,8 +720,10 @@ function installReadyOnStart() {
   if (!file) { log('atualização anotada não confere mais (apagada ou trocada): descartada', r.version); delete cfg.readyUpdate; saveCfg(); return false; }
   r.tries = (r.tries || 0) + 1; saveCfg();
   update = { version: r.version, name: r.name, file }; updating = true;
-  log('abertura com a versão', r.version, 'já baixada: instalando antes de abrir (tentativa', r.tries + ')');
-  if (!runInstaller(file, true)) { updating = false; return false; } // instalador não abriu: abre a versão atual
+  // abertura escondida: a versão nova também abre escondida, e sem a janelinha "Atualizando…" na tela
+  const quiet = isStartHidden(); if (quiet) { updReady.markHidden(cfg, Date.now()); saveCfg(); }
+  log('abertura com a versão', r.version, 'já baixada: instalando antes de abrir (tentativa', r.tries + ')' + (quiet ? ', escondida' : ''));
+  if (!runInstaller(file, true, quiet)) { updating = false; return false; } // instalador não abriu: abre a versão atual
   quitting = true; app.quit(); return true;
 }
 app.whenReady().then(() => {
