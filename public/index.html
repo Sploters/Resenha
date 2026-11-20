@@ -15,6 +15,60 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%235865f2'/%3E%3Cpath d='M18 24h28a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H30l-8 6v-6h-4a4 4 0 0 1-4-4V28a4 4 0 0 1 4-4z' fill='%23fff'/%3E%3C/svg%3E">
 <!-- fundo escuro desde o 1º quadro: sem isto a página fica branca até o style.css chegar (clarão ao abrir) -->
 <style>html { background: #1e1f22; }</style>
+<!-- esqueleto da abertura com o CSS aqui mesmo: os arquivos de estilo vêm depois dele, no <body>, e o navegador já pinta
+     o esqueleto enquanto eles chegam (antes a tela ficava lisa ~0,9 s numa abertura sem cache). Medidas da tela real
+     (1920×1080): abas 40 px, trilho 72, lateral e membros 300, cabeçalho 48, campo de mensagem 56 -->
+<style>
+#boot { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg-tert, #1e1f22); pointer-events: none; transition: opacity .18s ease-out; }
+html.boot #boot { display: flex; } #boot.out { opacity: 0; }
+#boot :is(i, b, em, u, s, q) { display: block; background: rgba(219, 222, 225, .1); border-radius: 6px; }
+#boot q::before, #boot q::after { content: none; }
+#boot .bt-tab { position: absolute; left: 72px; top: 4px; width: 240px; height: 32px; border-radius: 8px; background: var(--bg-sec, #2b2d31); }
+#boot .bt-rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; padding-top: 51px; }
+#boot .bt-rail i { width: 26px; height: 26px; border-radius: 7px; margin-bottom: 29px; }
+#boot .bt-rail b { width: 48px; height: 48px; border-radius: 50%; margin-bottom: 9px; } #boot .bt-rail b + i { margin-top: 18px; }
+#boot .bt-side { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); border-top-left-radius: 12px; margin-top: 40px; padding: 14px 16px; display: flex; flex-direction: column; }
+#boot .bt-side b { height: 18px; width: 58%; margin: 0 0 17px; } #boot .bt-side em { height: 16px; width: 46%; margin-bottom: 26px; }
+#boot .bt-side i { height: 14px; width: 40%; margin: 0 0 18px 8px; } #boot .bt-side u { height: 10px; width: 36%; margin: 14px 0 16px; }
+#boot .bt-user { position: absolute; left: 8px; bottom: 8px; width: 354px; height: 60px; display: flex; align-items: center; gap: 16px; }
+#boot .bt-user i { width: 48px; height: 48px; border-radius: 50%; flex: none; } #boot .bt-user b { flex: 1; height: 60px; border-radius: 12px; }
+#boot .bt-main { flex: 1; min-width: 0; background: var(--bg-pri, #313338); display: flex; flex-direction: column; margin-top: 40px; }
+#boot .bt-head { height: 48px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; box-shadow: 0 1px 0 rgba(0, 0, 0, .2); }
+#boot .bt-head i { width: 20px; height: 20px; } #boot .bt-head b { width: 90px; height: 16px; }
+#boot .bt-msgs { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 22px; padding: 14px 16px; }
+#boot p { display: flex; gap: 16px; margin: 0; flex: none; } #boot p > i { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+#boot p span { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 3px; min-width: 0; }
+#boot p em { height: 14px; width: 120px; } #boot p u { height: 12px; width: 46%; } #boot p u.w { width: 64%; }
+#boot p s { width: 400px; max-width: 90%; height: 225px; border-radius: 8px; margin-top: 4px; }
+#boot p q { width: 480px; max-width: 95%; height: 250px; border-radius: 8px; margin-top: 4px; }
+#boot .bt-msgs > b { height: 52px; flex: none; border-radius: 0; margin: -14px -16px 0; }
+#boot .bt-comp { height: 56px; margin: 0 16px 10px; border-radius: 8px; flex: none; }
+#boot .bt-mem { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); margin-top: 40px; padding: 18px 12px; display: flex; flex-direction: column; }
+#boot .bt-mem > b { height: 30px; margin: 0 0 22px; } #boot .bt-mem > u { height: 10px; width: 34%; margin: 4px 0 16px 6px; }
+#boot .bt-mem p { align-items: center; gap: 12px; margin: 0 0 10px 6px; } #boot .bt-mem p > i { width: 32px; height: 32px; } #boot .bt-mem p em { width: 72px; height: 14px; }
+@media (max-width: 1100px) { #boot .bt-mem { display: none; } }
+@media (max-width: 640px) { #boot :is(.bt-side, .bt-rail, .bt-tab, .bt-user) { display: none; } #boot .bt-main { margin-top: 0; } }
+@media (prefers-reduced-motion: reduce) { #boot { transition: none; } }
+</style>
+</head>
+<body>
+<!-- esqueleto do app enquanto o JavaScript carrega (só para quem já está logado); some quando o app fica pronto -->
+<script>try { if (localStorage.getItem('lc_token')) document.documentElement.classList.add('boot') } catch (e) { }</script>
+<div id="boot" aria-hidden="true">
+  <div class="bt-tab"></div>
+  <div class="bt-rail"><i></i><i></i><b></b><b></b><i></i></div>
+  <div class="bt-side"><b></b><em></em><i></i><i></i><i></i><i></i><u></u><i></i><i></i><u></u><i></i><u></u><i></i></div>
+  <div class="bt-user"><i></i><b></b></div>
+  <div class="bt-main"><div class="bt-head"><i></i><b></b></div><div class="bt-msgs"><b></b>
+    <p><i></i><span><em></em><u></u><s></s></span></p>
+    <p><i></i><span><em></em><u class="w"></u></span></p>
+    <p><i></i><span><em></em><u class="w"></u></span></p>
+    <p><i></i><span><em></em><q></q></span></p>
+    <p><i></i><span><em></em><u></u></span></p>
+    <p><i></i><span><em></em><u class="w"></u></span></p>
+  </div><i class="bt-comp"></i></div>
+  <div class="bt-mem"><b></b><u></u><p><i></i><em></em></p><p><i></i><em></em></p><p><i></i><em></em></p><p><i></i><em></em></p><p><i></i><em></em></p><u></u><p><i></i><em></em></p></div>
+</div>
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/extra.css">
 <link rel="stylesheet" href="/extra2.css">
@@ -22,18 +76,6 @@
 <link rel="stylesheet" href="/ux.css">
 <link rel="stylesheet" href="/forum.css">
 <link rel="stylesheet" href="/watch.css">
-</head>
-<body>
-<!-- esqueleto do app enquanto o JavaScript carrega (só para quem já está logado); some quando o app fica pronto -->
-<script>try { if (localStorage.getItem('lc_token')) document.documentElement.classList.add('boot') } catch (e) { }</script>
-<div id="boot" aria-hidden="true">
-  <div class="bt-tab"></div>
-  <div class="bt-rail"><i></i><i></i><i></i><i></i><i></i></div>
-  <div class="bt-side"><b></b><i></i><i></i><i></i><i></i><i></i><i></i></div>
-  <div class="bt-user"><i></i><b></b></div>
-  <div class="bt-main"><b></b><div class="bt-msgs"><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p><p><i></i><span><em></em><u></u></span></p></div><s></s></div>
-  <div class="bt-mem"><b></b><p><i></i><span><em></em></span></p><p><i></i><span><em></em></span></p><p><i></i><span><em></em></span></p><p><i></i><span><em></em></span></p><p><i></i><span><em></em></span></p><p><i></i><span><em></em></span></p></div>
-</div>
 <div id="auth" class="hidden"></div>
 <div id="app" class="hidden"></div>
 <div id="layer"></div>

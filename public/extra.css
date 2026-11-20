@@ -44,6 +44,8 @@ body { background: var(--bg-tert); }
 /* anel de fala por dentro do quadro (antes a sombra de 3 px saía para fora: quem falava "crescia" e o vão entre os quadros
    caía de 14 para ~8 px, a grade parecia pulsar). A borda (2 px) + 1 px por cima do vídeo = os mesmos 3 px */
 .tile.speaking::after { content: ''; position: absolute; inset: 0; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--green); pointer-events: none; z-index: 3; }
+/* sobre vídeo (câmera com fundo verde, jogo claro): uma faixa escura por dentro separa o contorno da imagem */
+.tile.hasvid.speaking::after, .tile.screen.speaking::after { box-shadow: inset 0 0 0 1px var(--green), inset 0 0 0 3px rgba(0, 0, 0, .55); }
 .tile:fullscreen, .tile:fullscreen.speaking { border-color: transparent; } .tile:fullscreen::after { display: none; } /* tela cheia: sem anel de fala em volta da tela toda */
 .tile .avatar.speaking { box-shadow: none; }
 .tile .tctl { position: absolute; right: 8px; top: 8px; display: none; gap: 8px; align-items: center; background: rgba(0,0,0,.6); border-radius: 6px; padding: 2px 6px; color: #fff; } .tile:hover .tctl { display: flex; } .tctl input { width: 90px; }
