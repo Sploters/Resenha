@@ -59,9 +59,21 @@ function tabMenu(e, tab) {
   ]);
 }
 
+const badge = (t) => { const n = t.cid && D.S.mentions[t.cid]; return n > 0 ? h('span.ct-pill', n) : (t.cid && D.S.unread[t.cid] ? h('i.ct-dot') : null); };
+// não lidas e menções mudaram (unread.js updateTitle): só os selos das abas, sem redesenhar a barra. Antes a barra só era
+// redesenhada ao navegar, e o canal aberto ficava com o ponto de não lida depois de lido
+export function paintTabBadges() {
+  if (!st) return;
+  for (const el of document.querySelectorAll('#chtabs .ct-tab')) {
+    const t = st.tabs.find(x => String(x.id) === el.dataset.id); if (!t) continue;
+    const old = el.querySelector(':scope > .ct-pill, :scope > .ct-dot'), b = badge(t);
+    if (old && b && old.className === b.className && old.textContent === b.textContent) continue;
+    if (old) old.remove(); if (b) el.querySelector(':scope > .ct-name')?.after(b);
+  }
+}
+
 function build() {
   const cur = here();
-  const badge = (t) => { const n = t.cid && D.S.mentions[t.cid]; return n > 0 ? h('span.ct-pill', n) : (t.cid && D.S.unread[t.cid] ? h('i.ct-dot') : null); };
   const tabEls = st.tabs.map(t => h('div.ct-tab' + (t.id === st.active ? '.active' : ''), {
     title: title(t), 'data-id': t.id, onclick: () => { st.active = t.id; save(); open(t); draw(); },
     onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }, oncontextmenu: (e) => tabMenu(e, t),

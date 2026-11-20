@@ -3,6 +3,7 @@ import { S, api, channelById, closeNotifs, channelMuted, channelUnmuted, serverM
 import { renderRail } from './rail.js';
 import { renderSide } from './side.js';
 import { inboxBadge } from './inbox.js';
+import { paintTabBadges } from './plugins.js';
 // número no ícone (ideia "notification settings", Stoat #1254): título da aba, ícone da aba (favicon), ícone do app
 // instalado (PWA) e barra de tarefas do app desktop. Notificações → "Ícone e barra de tarefas": só menções (padrão),
 // menções + ponto para mensagens não lidas, ou nada.
@@ -41,6 +42,7 @@ export function updateTitle() {
   setFavicon(n, dot);
   try { if (n || dot) navigator.setAppBadge?.(n || undefined)?.catch?.(() => { }); else navigator.clearAppBadge?.()?.catch?.(() => { }); } catch { }
   for (const btn of document.querySelectorAll('.inbox-btn')) { btn.querySelector('.ibadge')?.remove(); const b = inboxBadge(); if (b) btn.append(b); }
+  paintTabBadges();
 }
 export function ack(cid) {
   closeNotifs(cid);
