@@ -2,10 +2,12 @@
 # Envia o código para o Umbrel, reconstrói a imagem e recria o container com os mesmos dados.
 # Uso: sh deploy/umbrel.sh [usuario@host] [ip-da-vpn]
 # Requer chave SSH no servidor e o usuário no grupo docker.
-# Ninguém precisa sair da chamada (detalhes em deploy/servidor.sh e docs/ATUALIZACOES-E-RELATORIOS.md):
-# - só a interface mudou: entra sem reiniciar o servidor, ninguém cai;
-# - o servidor mudou: reinicia na hora se não houver conversa acontecendo (sozinho ou em silêncio não conta); senão
-#   espera em segundo plano no servidor (pode fechar o terminal) e, pendente há mais de 24 h, entra de madrugada.
+# Ninguém precisa sair da chamada: a voz roda num processo próprio no container (server/voz.js). O deploy faz o menor
+# reinício possível (detalhes em deploy/servidor.sh e docs/ATUALIZACOES-E-RELATORIOS.md):
+# - só a interface mudou: nada reinicia;
+# - o servidor mudou: só o app reinicia, as chamadas continuam (espera só por bot de música / assistir junto);
+# - a voz ou as dependências mudaram: troca o container sem conversa acontecendo (sozinho ou em silêncio não conta);
+#   senão espera em segundo plano no servidor (pode fechar o terminal) e, pendente há mais de 24 h, entra de madrugada.
 #   FORCAR=1 sh deploy/umbrel.sh   troca na hora mesmo com chamada ativa (todos voltam sozinhos em segundos)
 set -e
 # O endereço do servidor não fica no repositório: passe como argumento ou crie deploy/servidor.conf

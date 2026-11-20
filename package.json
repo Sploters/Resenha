@@ -5,7 +5,7 @@
   "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
+    "start": "node server/voz.js",
     "build:vendor": "esbuild scripts/msc-entry.mjs --bundle --format=esm --minify --platform=browser --outfile=public/vendor/msc/mediasoup-client.js && esbuild node_modules/qrcode-generator/dist/qrcode.mjs --bundle --format=esm --minify --outfile=public/vendor/qr/qrcode.js \"--banner:js=/*! QR Code Generator for JavaScript — Copyright (c) 2009 Kazuhiko Arase — MIT license (https://github.com/kazuhikoarase/qrcode-generator). Gerado por npm run build:vendor. */\" && node scripts/vendor-mediabunny.mjs && node scripts/vendor-rnnoise-vad.mjs",
     "check": "node scripts/check.mjs",
     "lint": "eslint .",

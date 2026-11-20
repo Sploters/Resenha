@@ -10,7 +10,12 @@ WorkingDirectory=/opt/resenha
 Environment=PORT=3000
 Environment=HTTPS_PORT=3443
 Environment=DATA_DIR=/var/lib/resenha
-ExecStart=/usr/bin/node server/index.js
+# processo da voz (as chamadas) com o app como filho: "systemctl kill --kill-whom=main -s USR2 resenha" reinicia só o
+# app, sem derrubar ninguém; "systemctl kill --kill-whom=main -s HUP resenha" troca só a interface (depois de atualizar
+# os arquivos em /opt/resenha). Sem --kill-whom=main o sinal iria também para o app e os processos do mediasoup
+ExecStart=/usr/bin/node server/voz.js
+KillMode=mixed
+TimeoutStopSec=15
 Restart=always
 RestartSec=3
 StateDirectory=resenha

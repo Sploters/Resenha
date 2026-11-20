@@ -1,6 +1,6 @@
 // Transmissão nativa (programa de captura do app desktop, até 120 FPS): sessão por pessoa no SFU e rotas do pacote de
 // teste. Devolve natives/endNative/startNative/nativeOut, usados pelo gateway e pelas permissões de vídeo das salas.
-import { sfuEnabled, sfuAttachNative } from '../sfu.js';
+import { sfuEnabled, sfuAttachNative } from '../sfuapi.js';
 
 export function mountNativeScreen(app, d) {
   const { auth, bad, dispatch, currentVoice } = d;
@@ -16,9 +16,12 @@ export function mountNativeScreen(app, d) {
   // test: o pacote de teste (código colado à mão): até 10 min para começar e no máximo 30 min
   async function startNative(uid, cid, live, layers = 1) {
     endNative(uid, 'replaced');
-    const n = await sfuAttachNative(cid, uid, layers);
+    return watchNative(uid, await sfuAttachNative(cid, uid, layers), live);
+  }
+  // vigia a sessão: termina sozinha quando o programa para de mandar (ou nunca começou)
+  function watchNative(uid, n, live, started = 0) {
     n.host = process.env.RTC_ANNOUNCED_IP ? process.env.RTC_ANNOUNCED_IP.split(',')[0].trim() : (n.ip && n.ip !== '0.0.0.0' ? n.ip : null);
-    n.started = 0; n.last = 0; n.bytes = 0; n.t0 = Date.now();
+    n.started = started; n.last = started; n.bytes = 0; n.t0 = Date.now();
     n.timer = setInterval(async () => {
       if (n.producer.closed) return endNative(uid, 'closed');
       const st = await n.producer.getStats().catch(() => []), b = st.reduce((x, e) => x + (e.byteCount || 0), 0), now = Date.now();
@@ -35,6 +38,8 @@ export function mountNativeScreen(app, d) {
     n.producer.observer.on('close', () => { if (natives.get(uid) === n) endNative(uid, 'closed'); });
     return n;
   }
+  // o app reiniciou e a transmissão continuou no processo da voz (server/voz.js): volta a vigiar (já estava no ar)
+  const adoptNative = (uid, n) => watchNative(uid, n, true, Date.now());
   const nativeOut = (n, host) => ({ producer_id: n.producer.id, host: n.host || host, port: n.port, ssrc: n.ssrc, ssrcs: n.ssrcs, pt: n.payloadType, key: n.key, serverKey: n.serverKey });
   app.post('/api/native-screen', auth, (req, res) => (async () => {
     const cid = currentVoice(req.uid);
@@ -44,5 +49,5 @@ export function mountNativeScreen(app, d) {
     res.json({ ...o, code: `LC120 ${o.host} ${o.port} ${o.ssrc} ${o.pt} ${o.key} ${o.serverKey}` });
   })().catch(e => { console.error('native-screen', e); if (!res.headersSent) bad(res, 'Não consegui preparar a transmissão: ' + e.message, 500); }));
   app.post('/api/native-screen/stop', auth, (req, res) => { endNative(req.uid, 'stopped'); res.json({ ok: true }); });
-  return { natives, endNative, startNative, nativeOut };
+  return { natives, endNative, startNative, nativeOut, adoptNative };
 }

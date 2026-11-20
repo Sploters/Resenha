@@ -8,7 +8,8 @@ import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
-import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuLastVoice } from './sfu.js';
+// SFU no processo da voz (server/voz.js, quando o app roda como filho dele) ou neste mesmo processo: server/sfuapi.js
+import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuLastVoice, sfuSplit, sfuRestore, sfuAdopt, sfuSnapshot } from './sfuapi.js';
 import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
@@ -536,7 +537,7 @@ mountStorage(app, { auth, wrap, bad, all, get, run, can, P, dispatch, channelAud
 
 mountFiles(app, { ...core, thumbs, clipKeys }); // /files e miniaturas de vídeo (server/routes/files.js)
 
-const { natives, endNative, startNative, nativeOut } = mountNativeScreen(app, core); // transmissão nativa (server/routes/nativescreen.js)
+const { natives, endNative, startNative, nativeOut, adoptNative } = mountNativeScreen(app, core); // transmissão nativa (server/routes/nativescreen.js)
 
 // saúde do servidor (server/health.js): CPU, memória, disco, rede, workers do SFU, pessoas e chamadas, erros e alertas
 mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id === uid, dataDir: DATA_DIR,
@@ -570,14 +571,18 @@ function callActive(cid) {
   // em chamada continua a cada 10 s: o deploy só confia num arquivo de menos de 60 s para esperar; com zero, segue.
   let last = '';
   const write = () => {
-    let calls = 0, inCalls = 0, screens = 0, ativas = 0, emAtivas = 0;
+    // sessoes: salas com bot de música ou "assistir junto" — vivem no app, então reiniciar o app (mesmo com a voz num
+    // processo próprio) as encerra; o deploy espera por elas também (deploy/servidor.sh)
+    const watchOn = (cid) => { try { return watch._sessions.has(cid); } catch { return false; } }; // watch é criado mais abaixo
+    let calls = 0, inCalls = 0, screens = 0, ativas = 0, emAtivas = 0, sessoes = 0;
     for (const [cid, room] of voice) {
-      let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; }
+      let n = 0, bot = false; for (const st of room.values()) { if (st.bot) { bot = true; continue; } n++; if (st.screen) screens++; }
       if (n) { calls++; inCalls += n; } if (n && callActive(cid)) { ativas++; emAtivas += n; }
+      if (n && (bot || watchOn(cid))) sessoes++;
     }
-    const counts = `${calls},${inCalls},${screens},${ativas},${emAtivas}`;
+    const counts = `${calls},${inCalls},${screens},${ativas},${emAtivas},${sessoes}`;
     if (!inCalls && counts === last) return;
-    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens, ativas, emAtivas })); fs.renameSync(file + '.tmp', file); last = counts; } catch { }
+    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens, ativas, emAtivas, sessoes, vozSeparada: sfuSplit })); fs.renameSync(file + '.tmp', file); last = counts; } catch { }
   };
   write(); setInterval(write, 10e3).unref();
 }
@@ -823,10 +828,13 @@ function currentVoice(uid) { for (const [cid, m] of voice) if (m.has(uid)) retur
 // saía na hora: para os outros ela sumia e voltava (voz cortada, transmissão encerrada), mesmo que a queda durasse 1 s.
 // Não voltou a tempo (fechou o app, internet caiu de vez): sai como antes, com o motivo 'drop'.
 const VOICE_GRACE_MS = +process.env.VOICE_GRACE_MS || 15000;
-function holdVoice(uid, c, st) {
+function holdVoice(uid, c, st, ms = VOICE_GRACE_MS) {
   if (st.dropT) return;
-  st.dropT = setTimeout(() => { st.dropT = null; if (voice.get(c)?.get(uid) === st && st.ws.readyState !== 1) leaveVoice(uid, c, 'drop'); }, VOICE_GRACE_MS);
+  st.dropT = setTimeout(() => { st.dropT = null; if (voice.get(c)?.get(uid) === st && st.ws.readyState !== 1) leaveVoice(uid, c, 'drop'); }, ms);
 }
+// eventos do SFU para quem está na sala: vão para a conexão ATUAL da pessoa (depois de um VOICE_RESUME ela é outra; antes
+// iam para a da entrada, já morta, e quem retomava a sessão deixava de saber de câmeras e transmissões novas)
+const sfuNotify = (cid, uid) => (t, x) => { const st = voice.get(cid)?.get(uid); if (st) send(st.ws, t, { ...x, channel_id: cid }); };
 // a pessoa abriu uma conexão nova e o servidor ainda a tem numa sala por uma conexão antiga (caiu a internet sem aviso,
 // F5 atrás de proxy, app reiniciado): a mesma aba/janela (tab) sai da sala na hora; outra conexão da mesma conta pode ser
 // outro aparelho de verdade, então a antiga só sai se não responder a um ping em 5 s
@@ -977,7 +985,7 @@ wss.on('connection', (ws) => {
           if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));
           if (!sfuEnabled()) break;
-          sfuJoin(ch.id, uid, (t, x) => send(ws, t, { ...x, channel_id: ch.id })).then(sfu => {
+          sfuJoin(ch.id, uid, sfuNotify(ch.id, uid)).then(sfu => {
             if (voice.get(ch.id)?.get(uid) !== st) return sfuLeave(ch.id, uid); // saiu enquanto entrava
             if (st.modMute || st.modDeaf || st.noSpeak) sfuModerate(ch.id, uid, { mute: st.modMute || st.noSpeak, deaf: st.modDeaf });
             send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers, sfu });
@@ -989,7 +997,7 @@ wss.on('connection', (ws) => {
           if (!st || st.ws !== ws || String(d.channel_id) !== c) return send(ws, 'SFU_RESET', { channel_id: String(d.channel_id || ''), reason: 'not_in_room', gone: true });
           if (natives.has(uid)) endNative(uid, 'replaced'); // o app recomeça a transmissão nativa sozinho no sfuStart
           sfuLeave(c, uid);
-          sfuJoin(c, uid, (t, x) => send(ws, t, { ...x, channel_id: c })).then(sfu => {
+          sfuJoin(c, uid, sfuNotify(c, uid)).then(sfu => {
             if (voice.get(c)?.get(uid) !== st) return sfuLeave(c, uid);
             send(ws, 'VOICE_JOINED', { channel_id: c, peers: [...voice.get(c).keys()].filter(x => x !== uid), sfu, rejoin: true });
           }).catch(e => { console.error('sfu rejoin', e.message); if (voice.get(c)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: c, reason: 'rejoin_failed' }); });
@@ -1192,7 +1200,53 @@ function loadTls() {
   return { key: fs.readFileSync(keyP), cert: fs.readFileSync(certP) };
 }
 
+// ---- app reiniciado com a voz num processo próprio (server/voz.js): as chamadas continuaram lá ----
+// Retrato do estado de cada pessoa nas salas (mudo, tela, cargos, desde quando…), mandado ao processo da voz a cada 3 s
+// quando muda e no encerramento. Quando o app volta, refaz as salas com ele; cada pessoa fica "segurando o lugar" até o
+// app dela retomar a sessão (VOICE_RESUME) ou VOICE_RESTORE_GRACE_MS passar (aí sai, como uma queda).
+const DEAD_WS = { readyState: 3, send() { }, close() { }, terminate() { } };
+const RESTORE_GRACE_MS = +process.env.VOICE_RESTORE_GRACE_MS || 60000;
+function voiceSnapshot() {
+  const rooms = {};
+  for (const [cid, room] of voice) {
+    const peers = {};
+    for (const [uid, st] of room) {
+      const o = {};
+      for (const [k, v] of Object.entries(st)) { if (k === 'ws' || k === 'dropT' || typeof v === 'function') continue; try { JSON.stringify(v); o[k] = v; } catch { } }
+      peers[uid] = o;
+    }
+    rooms[cid] = { start: roomStart.get(cid) || 0, peers };
+  }
+  return { rooms };
+}
+if (sfuSplit) {
+  let lastSnap = '';
+  setInterval(() => { const s = voiceSnapshot(), k = JSON.stringify(s); if (k === lastSnap) return; lastSnap = k; sfuSnapshot(s).catch(() => { lastSnap = ''; }); }, 3000).unref();
+}
+async function restoreVoice() {
+  if (!sfuSplit) return;
+  const s = await sfuRestore().catch((e) => { console.log('  Voz: não consegui pegar o estado das salas:', e.message); return null; });
+  if (!s) return;
+  let n = 0;
+  for (const { cid, peers } of s.rooms || []) {
+    const ch = get('SELECT * FROM channels WHERE id=?', cid), saved = s.snap?.rooms?.[cid];
+    for (const uid of peers) {
+      const meta = saved?.peers?.[uid];
+      // bot de música (para junto com o app), sala apagada ou conta que não existe: sai da sala lá também
+      if (!ch || meta?.bot || String(uid).startsWith('bot_') || !get('SELECT id FROM users WHERE id=?', uid)) { sfuLeave(cid, uid); continue; }
+      if (!voice.has(cid)) { voice.set(cid, new Map()); roomStart.set(cid, saved?.start || Date.now()); }
+      const st = { mute: false, deaf: false, video: false, screen: false, ...meta, ...voicePermsOf(ch, uid), ws: DEAD_WS, at: meta?.at || Date.now() };
+      voice.get(cid).set(uid, st);
+      sfuAdopt(cid, uid, sfuNotify(cid, uid));
+      holdVoice(uid, cid, st, RESTORE_GRACE_MS); n++;
+    }
+  }
+  for (const nh of s.natives || []) { if (voice.get(nh.cid)?.has(nh.uid)) adoptNative(nh.uid, nh); else nh.close(); }
+  if (n) console.log(`  Voz: ${n} pessoa(s) continuam nas chamadas depois do reinício do app; cada app retoma a própria sessão`);
+}
+
 await startSfu();
+await restoreVoice();
 activity.start();
 server.listen(PORT, HOST, () => {
   console.log(`\n  Resenha rodando`);
@@ -1225,9 +1279,11 @@ function shutdown(sig) {
   // (código 1012 = reinício do serviço; o aviso vai junto para clientes que não leem o código)
   for (const c of wss.clients) try { c.send(JSON.stringify({ t: 'SERVER_RESTART', d: {} })); c.close(1012, 'Servidor reiniciando'); } catch { }
   try { fs.rmSync(path.join(DATA_DIR, 'em-chamada.json'), { force: true }); } catch { }
+  // voz num processo próprio: o retrato final das salas vai para lá (o app novo continua de onde este parou)
+  const snapP = sfuSplit ? Promise.race([sfuSnapshot(voiceSnapshot()).catch(() => { }), new Promise(r => setTimeout(r, 800))]) : null;
   server.close();
   // espera os avisos saírem (até 0,5 s; antes o processo saía na hora e os apps só viam a conexão cair)
-  const t0 = Date.now(), end = () => { try { db.close(); } catch { } process.exit(0); };
+  const t0 = Date.now(), end = async () => { await snapP; try { db.close(); } catch { } process.exit(0); };
   const tick = () => ([...wss.clients].every(c => c.readyState === 3) || Date.now() - t0 > 500 ? end() : setTimeout(tick, 25));
   tick();
 }

@@ -44,14 +44,17 @@ com o IP da VPN. Arquivos opcionais no servidor que ele usa:
   steamcommunity.com/dev/apikey). Liga a biblioteca e as conquistas da Steam.
 
 ### Atualizar sem derrubar a chamada
-Como o Discord: ninguém precisa sair da chamada. `sh deploy/umbrel.sh` monta a imagem nova e decide sozinho
-(`deploy/servidor.sh`, detalhes em [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md#atualizar-o-servidor-sem-derrubar-ninguém)):
-- **Só a interface mudou** (`public/`): troca os arquivos dentro do container e manda `SIGHUP`. O servidor não reinicia e
-  ninguém cai. Cada página recarrega quando não atrapalha (e volta sozinha para a chamada).
-- **O servidor mudou:** reinicia na hora se não houver chamada **ativa** (2+ pessoas conversando ou transmitindo; sozinho
-  ou em silêncio há 15 min não conta). Quem estava em chamada volta sozinho em segundos. Com chamada ativa, espera em
-  segundo plano no servidor (pode fechar o terminal; `tail -f ~/.resenha-deploy/espera.log` acompanha) e troca quando a
-  conversa parar. Pendente há mais de 24 h, troca de madrugada (3 h às 6 h) mesmo assim.
+Como o Discord: ninguém precisa sair da chamada. No container rodam o processo da voz (`server/voz.js`, as chamadas) e,
+como filho dele, o app (site, chat, banco). `sh deploy/umbrel.sh` monta a imagem nova e faz o menor reinício possível
+(`deploy/servidor.sh`, detalhes em [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md#os-três-níveis-do-deploy)):
+- **Só a interface mudou** (`public/`): entra sem reiniciar nada. Cada página recarrega quando não atrapalha.
+- **O servidor mudou:** só o app reinicia (~2 s). As chamadas continuam no processo da voz; ninguém sai da sala. Espera
+  apenas se houver bot de música ou "assistir junto" tocando (eles vivem no app).
+- **A voz ou as dependências mudaram** (ou é a primeira vez com este deploy): troca o container quando não houver chamada
+  **ativa** (2+ pessoas conversando ou transmitindo; sozinho ou em silêncio há 15 min não conta). As chamadas caem por
+  segundos e voltam sozinhas.
+- Com espera, ela fica em segundo plano no servidor (pode fechar o terminal; `tail -f ~/.resenha-deploy/espera.log`
+  acompanha). Pendente há mais de 24 h, entra de madrugada (3 h às 6 h) mesmo assim.
 
 O servidor grava a contagem em `~/resenha-data/em-chamada.json` (só números, sem nomes). Na troca, os apps mostram
 "Servidor atualizando. Volta em alguns segundos…" em vez de "Conexão perdida".

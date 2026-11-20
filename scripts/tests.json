@@ -166,6 +166,7 @@
     "upload-test": 12,
     "ux-test": 46,
     "voice-network-test": 100,
+    "voz-processo-test": 45,
     "voicefx-test": 10,
     "native-clip-test": 40,
     "clip-tap-test": 25,

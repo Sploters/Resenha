@@ -1,7 +1,7 @@
 // Servidores: criar, editar, excluir; membros (expulsar, banir, castigo, apelido, cargos), moderação de voz, registro de
 // auditoria, jogos do servidor e cargos (com a hierarquia: só se mexe em quem/no que está abaixo).
 // activity chega por getter (d.activity): é criado mais abaixo no index.js, então só é lido na hora da requisição
-import { sfuModerate } from '../sfu.js';
+import { sfuModerate } from '../sfuapi.js';
 
 export function mountGuilds(app, d) {
   const { auth, wrap, bad, clean, db, all, get, run, newId, tx, lim, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE, renumberRoles, dispatch, send, guildMemberIds, channelAudience, guildFull, memberObj, vsObj, getUser, userPub, audit, auditSince, AUDIT_DAYS, isFileUrl, cssColor, voice, leaveVoice, currentVoice, refreshVoicePerms, dropViewers, removeMember } = d;

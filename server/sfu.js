@@ -231,7 +231,7 @@ export async function sfuAttachRtp(cid, uid) {
   peer.transports.set(t.id, t);
   t.observer.on('close', () => peer.transports.delete(t.id));
   registerProducer(r, peer, 'mic', p);
-  return { port: t.tuple.localPort, ssrc, payloadType: 101, close: () => { try { p.close(); } catch { } try { t.close(); } catch { } } };
+  return { transport: t, producer: p, port: t.tuple.localPort, ssrc, payloadType: 101, close: () => { try { p.close(); } catch { } try { t.close(); } catch { } } };
 }
 
 // Transmissão nativa (teste de 120 FPS): um programa no PC captura a tela, comprime em H.264 na placa de vídeo e
@@ -409,3 +409,8 @@ export async function sfuLoad() {
   const cur = await sampleLoad();
   return { enabled: sfuEnabled(), workers: live().length, current: cur, peakCpuPercent: peakCpu, history: loadHist.slice(-40) };
 }
+
+// Para o processo da voz (server/voz.js), que mantém as salas vivas enquanto o app reinicia: quem está em cada sala
+// e quando cada uma teve fala pela última vez
+export const sfuRooms = () => [...rooms].map(([cid, r]) => ({ cid, peers: [...r.peers.keys()] }));
+export const sfuLastVoices = () => Object.fromEntries([...rooms].filter(([, r]) => r.lastVoiceAt).map(([cid, r]) => [cid, r.lastVoiceAt]));

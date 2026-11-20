@@ -5,7 +5,8 @@ Como gerar os arquivos do cliente, montar o app desktop, rodar os testes e medir
 
 ## Scripts do `package.json`
 
-    npm start              # sobe o servidor (node server/index.js)
+    npm start              # sobe o servidor como em produção (node server/voz.js: voz + app como filho)
+    node server/index.js   # tudo num processo só (voz incluída): o jeito de sempre para desenvolver e testar
     npm run check          # sintaxe de todo o JS (node --check em server/, public/, desktop/ e scripts/)
     npm run lint           # ESLint (eslint.config.js)
     npm run test:fast      # testes sem navegador: *-unit-test e smoke-test, em segundos

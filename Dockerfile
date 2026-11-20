@@ -21,4 +21,6 @@ VOLUME /data
 EXPOSE 3000 3443 40000/udp 40000/tcp 40001-40010/udp
 # "unhealthy" no docker ps / painel da VPS quando o servidor para de responder ou a voz (SFU) está fora (server/health.js)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
-CMD ["node", "server/index.js"]
+# server/voz.js: processo da voz (mediasoup), que roda o app (server/index.js) como filho. Reiniciar o app (deploy:
+# SIGUSR2) não derruba as chamadas; SIGHUP troca só a interface. Ver deploy/servidor.sh
+CMD ["node", "server/voz.js"]

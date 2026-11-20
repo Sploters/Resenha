@@ -1,18 +1,21 @@
 #!/bin/sh
 # Lado do servidor do deploy (chamado por deploy/umbrel.sh depois de copiar o código para ~/resenha).
-# Uso: sh servidor.sh instalar <ip> <forcar 0|1>      (monta a imagem e atualiza)
-#      sh servidor.sh esperar  <ip> <hash>            (espera em segundo plano; quem chama é o próprio "instalar")
+# Uso: sh servidor.sh instalar <ip> <forcar 0|1>                (monta a imagem e atualiza)
+#      sh servidor.sh esperar  <ip> <tipo> <hash-voz> <hash-app>  (espera em segundo plano; quem chama é o "instalar")
 #
-# Como o Discord: ninguém precisa sair da chamada para atualizar.
-# 1. Só a interface mudou (public/): troca os arquivos dentro do container e manda SIGHUP. O servidor NÃO reinicia,
-#    ninguém cai; as páginas recebem a versão nova e recarregam quando não atrapalha (public/uiupdate.js).
-# 2. O servidor mudou: precisa reiniciar (as chamadas caem por ~6 s e voltam sozinhas). Troca na hora se não houver
-#    chamada ATIVA (2+ pessoas conversando ou transmitindo; ver callActive em server/index.js). Pessoa sozinha ou gente
-#    dormindo em silêncio na call não segura a atualização. Com chamada ativa: fica esperando em segundo plano (pode
-#    fechar o terminal) e troca quando a conversa parar.
-# 3. Limite: pendente há mais de ESPERA_HORAS (24), troca de madrugada (3 h às 6 h, fuso FUSO) mesmo com chamada ativa.
-# FORCAR=1 troca na hora, sempre.
-# Estado em ~/.resenha-deploy: rodando (hash do código do servidor que está no ar), pendente (desde quando espera),
+# Como o Discord: ninguém precisa sair da chamada para atualizar. No container rodam dois processos: o da voz
+# (server/voz.js, mediasoup: as chamadas) e, como filho dele, o app (server/index.js: site, chat, banco). Três níveis:
+# 1. Só a interface mudou (public/): troca os arquivos dentro do container e manda SIGHUP. Nada reinicia; as páginas
+#    recebem a versão nova e recarregam quando não atrapalha (public/uiupdate.js).
+# 2. O app mudou (server/, menos a voz): troca o código dentro do container e manda SIGUSR2. Só o app reinicia (~2 s); as
+#    chamadas continuam no processo da voz e cada app retoma a sessão. Espera só por bot de música e "assistir junto",
+#    que vivem no app e acabariam ("sessoes" em em-chamada.json).
+# 3. A voz mudou (server/voz.js, server/sfu.js, dependências, Dockerfile) ou primeira vez: troca o container (as chamadas
+#    caem ~6 s e voltam sozinhas). Espera não haver chamada ATIVA (2+ pessoas conversando ou transmitindo; ver
+#    callActive em server/index.js) nem sessões. Sozinho ou em silêncio na call não segura.
+# Com espera: fica em segundo plano no servidor (pode fechar o terminal). Pendente há mais de ESPERA_HORAS (24), troca de
+# madrugada (3 h às 6 h, fuso FUSO) mesmo assim. FORCAR=1 troca o container na hora, sempre.
+# Estado em ~/.resenha-deploy: rodando-voz e rodando-app (hash do que está no ar), pendente (desde quando espera),
 # espera.pid (o processo que espera) e espera.log.
 set -e
 MODO=$1; IP=$2
@@ -20,19 +23,28 @@ EST=$HOME/.resenha-deploy; mkdir -p "$EST"
 F=$HOME/resenha-data/em-chamada.json
 ESPERA_HORAS=${ESPERA_HORAS:-24}; FUSO=${FUSO:-America/Sao_Paulo}
 
-# hash de tudo que entra na imagem e não é public/ (mudou = precisa reiniciar o servidor)
-hash_servidor() {
-  cd "$HOME/resenha" && find server package.json package-lock.json Dockerfile PRIVACIDADE.md SECURITY.md scripts/reset-password.mjs -type f 2>/dev/null \
-    | LC_ALL=C sort | xargs sha1sum | sha1sum | cut -c1-40
-}
-# pessoas em chamadas ativas agora. O servidor grava em-chamada.json a cada 10 s; arquivo velho (servidor parado) = 0.
-# Servidor antigo (sem "emAtivas"): conta todo mundo em chamada, como antes.
-em_ativas() {
+hash_de() { (cd "$HOME/resenha" && find "$@" -type f 2>/dev/null | LC_ALL=C sort | xargs sha1sum | sha1sum | cut -c1-40); }
+# o que só muda com o container novo: o processo da voz, o SFU, as dependências e a imagem
+hash_voz() { hash_de server/voz.js server/sfu.js package.json package-lock.json Dockerfile; }
+# o resto do servidor (o app reinicia sozinho dentro do container)
+hash_app() { hash_de server PRIVACIDADE.md SECURITY.md scripts/reset-password.mjs; }
+
+# lê um número de em-chamada.json. O servidor grava a cada 10 s; arquivo velho (servidor parado) = 0.
+campo() {
   [ -f "$F" ] || { echo 0; return; }
   T=$(sed -n 's/.*"t":\([0-9]*\).*/\1/p' "$F")
   { [ -n "$T" ] && [ $(( $(date +%s) - T / 1000 )) -lt 60 ]; } || { echo 0; return; }
-  N=$(sed -n 's/.*"emAtivas":\([0-9]*\).*/\1/p' "$F"); [ -n "$N" ] || N=$(sed -n 's/.*"inCalls":\([0-9]*\).*/\1/p' "$F")
+  N=$(sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p" "$F")
+  # servidor antigo, sem "emAtivas": conta todo mundo em chamada, como antes
+  [ -z "$N" ] && [ "$1" = emAtivas ] && N=$(sed -n 's/.*"inCalls":\([0-9]*\).*/\1/p' "$F")
   echo "${N:-0}"
+}
+# o que segura cada tipo de troca (vazio = pode trocar)
+segura() {
+  S=$(campo sessoes)
+  if [ "$1" = voz ]; then N=$(campo emAtivas); [ "$N" -gt 0 ] && { echo "$N pessoa(s) em chamada com conversa acontecendo"; return; }; fi
+  [ "$S" -gt 0 ] && echo "$S sala(s) com bot de música ou assistindo junto"
+  return 0
 }
 madrugada() { H=$(TZ=$FUSO date +%H); [ "$H" = 03 ] || [ "$H" = 04 ] || [ "$H" = 05 ]; }
 # a espera roda com setsid (líder do próprio grupo): mata o grupo inteiro, senão o sleep em andamento a deixaria viva
@@ -41,7 +53,7 @@ parar_espera() {
   rm -f "$EST/espera.pid"
 }
 
-trocar_container() { # $1 = hash do código que vai entrar
+trocar_container() { # $1 = hash da voz, $2 = hash do app
   DB=$(cd "$HOME/resenha-data" && ls resenha.db* localcord.db* 2>/dev/null || true)
   [ -n "$DB" ] && tar czf "$HOME/resenha-backups/data-$(date +%Y%m%d-%H%M%S).tgz" -C "$HOME/resenha-data" $DB
   # cookies do YouTube (opcional): ~/resenha-data/cookies.txt. Chave da Steam (opcional): ~/resenha-steam.env com a
@@ -49,14 +61,32 @@ trocar_container() { # $1 = hash do código que vai entrar
   COOKIES=; [ -f "$HOME/resenha-data/cookies.txt" ] && COOKIES='-e YTDLP_COOKIES=/data/cookies.txt'
   STEAM=; [ -f "$HOME/resenha-steam.env" ] && STEAM="--env-file $HOME/resenha-steam.env"
   # docker stop (não rm -f, que mata na hora): o servidor avisa os apps que está atualizando antes de fechar
-  docker stop -t 8 resenha >/dev/null 2>&1 || true
+  docker stop -t 10 resenha >/dev/null 2>&1 || true
   docker rm -f resenha >/dev/null 2>&1 || true
   docker run -d --name resenha --restart=always \
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \
     -v "$HOME/resenha-data:/data" -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP $COOKIES $STEAM resenha >/dev/null
-  echo "$1" > "$EST/rodando"; rm -f "$EST/pendente"
+  echo "$1" > "$EST/rodando-voz"; echo "$2" > "$EST/rodando-app"; rm -f "$EST/rodando" "$EST/pendente"
   sleep 4
   docker logs resenha 2>&1 | head -3
+}
+# troca pastas inteiras dentro do container (nada de arquivo velho sobrando): /app/<pasta> <- ~/resenha/<pasta>
+copiar_para_container() {
+  for d in "$@"; do docker cp "$HOME/resenha/$d" "resenha:/app/$d.new"; done
+  docker exec resenha sh -c "for d in $*; do rm -rf /app/\$d.old && mv /app/\$d /app/\$d.old && mv /app/\$d.new /app/\$d && rm -rf /app/\$d.old; done"
+}
+reiniciar_app() { # $1 = hash do app
+  copiar_para_container server public
+  docker cp "$HOME/resenha/PRIVACIDADE.md" resenha:/app/PRIVACIDADE.md
+  docker cp "$HOME/resenha/SECURITY.md" resenha:/app/SECURITY.md
+  docker cp "$HOME/resenha/scripts/reset-password.mjs" resenha:/app/scripts/reset-password.mjs
+  docker kill -s USR2 resenha >/dev/null
+  echo "$1" > "$EST/rodando-app"; rm -f "$EST/pendente"
+  sleep 4
+  docker logs --since 10s resenha 2>&1 | grep -E '\[voz\]|Voz:|Resenha rodando' || true
+}
+aplicar() { # $1 = tipo (voz|app), $2 = hash da voz, $3 = hash do app
+  if [ "$1" = voz ]; then trocar_container "$2" "$3"; else reiniciar_app "$3"; fi
 }
 
 case "$MODO" in
@@ -64,53 +94,57 @@ instalar)
   FORCAR=${3:-0}
   cd "$HOME/resenha"
   docker build -q --build-arg YTDLP_BUST=$(date +%Y%m%d) -t resenha . >/dev/null # yt-dlp novo a cada dia de deploy (o YouTube muda)
-  SRV=$(hash_servidor)
-  RODANDO=$(cat "$EST/rodando" 2>/dev/null || true)
+  HV=$(hash_voz); HA=$(hash_app)
+  RV=$(cat "$EST/rodando-voz" 2>/dev/null || true); RA=$(cat "$EST/rodando-app" 2>/dev/null || true)
   ATIVO=$(docker inspect -f '{{.State.Running}}' resenha 2>/dev/null || echo false)
   parar_espera # deploy novo substitui qualquer espera anterior
 
-  # 1. só a interface mudou: troca sem reiniciar
-  if [ "$FORCAR" != 1 ] && [ "$ATIVO" = true ] && [ -n "$RODANDO" ] && [ "$SRV" = "$RODANDO" ]; then
+  if [ "$FORCAR" = 1 ] || [ "$ATIVO" != true ] || [ -z "$RV" ] || [ "$HV" != "$RV" ]; then TIPO=voz
+  elif [ "$HA" != "$RA" ]; then TIPO=app
+  else TIPO=interface; fi
+
+  if [ "$TIPO" = interface ]; then
     rm -f "$EST/pendente"
-    docker cp "$HOME/resenha/public" resenha:/app/public.new
-    docker exec resenha sh -c 'rm -rf /app/public.old && mv /app/public /app/public.old && mv /app/public.new /app/public && rm -rf /app/public.old'
+    copiar_para_container public
     docker kill -s HUP resenha >/dev/null
     sleep 2
     docker logs --since 15s resenha 2>&1 | grep -E 'Interface|SIGHUP' || true
-    echo "Só a interface mudou: atualizada sem reiniciar (ninguém caiu da chamada). Cada página recarrega quando não atrapalhar."
+    echo "Só a interface mudou: atualizada sem reiniciar nada. Cada página recarrega quando não atrapalhar."
     exit 0
   fi
 
-  # 2. o servidor mudou (ou primeira vez com este deploy): reinicia agora se puder, senão espera em segundo plano
-  N=$(em_ativas)
-  if [ "$FORCAR" = 1 ] || [ "$ATIVO" != true ] || [ "$N" -eq 0 ]; then
-    [ "$FORCAR" = 1 ] && [ "$N" -gt 0 ] && echo "FORCAR=1: trocando com $N pessoa(s) em chamada ativa (voltam sozinhas em segundos)."
-    trocar_container "$SRV"
+  MOTIVO=$(segura $TIPO)
+  if [ "$FORCAR" = 1 ] || [ "$ATIVO" != true ] || [ -z "$MOTIVO" ]; then
+    [ "$FORCAR" = 1 ] && [ -n "$MOTIVO" ] && echo "FORCAR=1: trocando com $MOTIVO (as chamadas voltam sozinhas em segundos)."
+    if [ "$TIPO" = app ]; then echo "O servidor mudou (a voz não): reiniciando só o app. As chamadas continuam."
+    else echo "A voz/as dependências mudaram (ou é a primeira vez com este deploy): trocando o container."; fi
+    aplicar $TIPO "$HV" "$HA"
     exit 0
   fi
   [ -f "$EST/pendente" ] || date +%s > "$EST/pendente"
   cp "$HOME/resenha/deploy/servidor.sh" "$EST/servidor.sh" # cópia: um deploy novo pode trocar o arquivo original
-  setsid nohup sh "$EST/servidor.sh" esperar "$IP" "$SRV" >> "$EST/espera.log" 2>&1 < /dev/null &
+  setsid nohup sh "$EST/servidor.sh" esperar "$IP" "$TIPO" "$HV" "$HA" >> "$EST/espera.log" 2>&1 < /dev/null &
   echo $! > "$EST/espera.pid"
-  echo "$N pessoa(s) em chamada com conversa acontecendo. A imagem nova está pronta e entra sozinha quando a conversa"
-  echo "parar (gente sozinha ou em silêncio não conta). Pendente há mais de ${ESPERA_HORAS} h: entra de madrugada mesmo assim."
+  if [ "$TIPO" = app ]; then echo "Agora: $MOTIVO (reiniciar o app encerraria isso). As chamadas em si não seriam afetadas."
+  else echo "Agora: $MOTIVO. Esta atualização troca o container (a voz mudou), o que derruba as chamadas por segundos."; fi
+  echo "A imagem nova está pronta e entra sozinha quando isso acabar. Pendente há mais de ${ESPERA_HORAS} h: entra de madrugada mesmo assim."
   echo "Pode fechar o terminal. Acompanhar: ssh no servidor e tail -f ~/.resenha-deploy/espera.log  |  Trocar já: FORCAR=1"
   ;;
 esperar)
-  SRV=$3
-  echo "$(date '+%F %T') esperando as chamadas ativas acabarem para atualizar o servidor ($SRV)"
+  TIPO=$3; HV=$4; HA=$5
+  echo "$(date '+%F %T') esperando para atualizar ($TIPO; voz $HV, app $HA)"
   AVISO=0
   while :; do
-    N=$(em_ativas); DESDE=$(cat "$EST/pendente" 2>/dev/null || date +%s)
-    if [ "$N" -eq 0 ]; then echo "$(date '+%F %T') nenhuma chamada ativa: atualizando"; trocar_container "$SRV"; break; fi
+    MOTIVO=$(segura "$TIPO"); DESDE=$(cat "$EST/pendente" 2>/dev/null || date +%s)
+    if [ -z "$MOTIVO" ]; then echo "$(date '+%F %T') liberado: atualizando"; aplicar "$TIPO" "$HV" "$HA"; break; fi
     if [ $(( $(date +%s) - DESDE )) -ge $(( ESPERA_HORAS * 3600 )) ] && madrugada; then
-      echo "$(date '+%F %T') pendente há mais de ${ESPERA_HORAS} h: atualizando de madrugada com $N pessoa(s) em chamada ativa"
-      trocar_container "$SRV"; break
+      echo "$(date '+%F %T') pendente há mais de ${ESPERA_HORAS} h: atualizando de madrugada mesmo com $MOTIVO"
+      aplicar "$TIPO" "$HV" "$HA"; break
     fi
-    [ $(( $(date +%s) - AVISO )) -ge 1800 ] && { echo "$(date '+%F %T') $N pessoa(s) em chamada ativa; esperando"; AVISO=$(date +%s); }
+    [ $(( $(date +%s) - AVISO )) -ge 1800 ] && { echo "$(date '+%F %T') $MOTIVO; esperando"; AVISO=$(date +%s); }
     sleep 15
   done
   rm -f "$EST/espera.pid"
   ;;
-*) echo "uso: $0 instalar <ip> [forcar] | esperar <ip> <hash>"; exit 1 ;;
+*) echo "uso: $0 instalar <ip> [forcar] | esperar <ip> <tipo> <hash-voz> <hash-app>"; exit 1 ;;
 esac

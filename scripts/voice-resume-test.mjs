@@ -34,6 +34,7 @@ try {
   await A.evaluate(() => window.__lc.voice.toggleScreen({ res: 720, fps: 30, audio: false, hint: 'motion' }));
   const bSees = () => B.evaluate((uid) => [...(window.__lc.voice.sfu?.consumers.values() || [])].filter(e => e.uid === uid).map(e => e.source).sort().join(','), a.id);
   await B.waitForFunction((uid) => [...(window.__lc.voice.sfu?.consumers.values() || [])].some(e => e.uid === uid && e.source === 'screen'), { timeout: 15000 }, a.id).catch(() => { });
+  const bSeesOf = (P, uid) => P.evaluate((uid) => [...(window.__lc.voice.sfu?.consumers.values() || [])].filter(e => e.uid === uid).map(e => e.source).sort().join(','), uid);
   const before = await bSees();
   ok(/mic/.test(before) && /screen/.test(before), 'antes: o Bruno recebe a voz e a transmissão da Alice', before);
 
@@ -52,6 +53,10 @@ try {
   const after = await bSees();
   ok(after === before, 'o Bruno continua com a voz e a transmissão da Alice', after);
   ok(await B.evaluate((uid) => window.__lc.S.voice.get(uid)?.channel_id, a.id) === vch.id, 'para o Bruno a Alice segue na sala');
+  // avisos do SFU depois da retomada vão para a conexão NOVA da Alice (antes iam para a da entrada, já morta)
+  await B.evaluate(() => window.__lc.voice.toggleCam());
+  await A.waitForFunction((uid) => [...(window.__lc.voice.sfu?.consumers.values() || [])].some(e => e.uid === uid && e.source === 'cam'), { timeout: 15000 }, b.id).catch(() => { });
+  ok(await A.evaluate((uid) => [...(window.__lc.voice.sfu?.consumers.values() || [])].some(e => e.uid === uid && e.source === 'cam'), b.id), 'depois da retomada, a câmera que o Bruno ligou chega à Alice', { aliceVe: await bSeesOf(A, b.id), brunoCam: await B.evaluate(() => !!window.__lc.voice.cam), err: await B.evaluate(() => window.__lc.voice.error) });
 
   // 2) fechar a página (app fechado): sai na hora, sem esperar a tolerância
   const t1 = Date.now();
