@@ -14,6 +14,7 @@ try {
   const ra = await api('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' });
   const p = await browser.newPage(); await p.setViewport({ width: 1280, height: 800 });
+  await p.setBypassCSP(true); // a CSP do servidor bloqueia o <script> inline que o teste injeta (o botão que trava)
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   // relógio deste "PC" 20 s adiantado em relação ao servidor
   await p.evaluateOnNewDocument((t) => { localStorage.lc_token = t; const real = Date.now; Date.now = () => real() + 20000; }, ra.token);
@@ -25,7 +26,7 @@ try {
   ok(timers.length > 0 && timers.every(t => /^0:0[0-4]$/.test(t)), 'cronômetro começa perto de 0:00 mesmo com o relógio do PC 20 s adiantado', timers);
   // um clique que trava 1,5 s
   // <script> de verdade (código injetado pelo DevTools não tem endereço e o Chrome não diz de quem é)
-  await p.addScriptTag({ content: "const b = document.createElement('button'); b.id = 'trava'; b.textContent = 'x'; b.addEventListener('click', function travaDeTeste() { const t = performance.now(); while (performance.now() - t < 1500); }); document.body.append(b);" });
+  await p.addScriptTag({ content: "const b = document.createElement('button'); b.id = 'trava'; b.textContent = 'x'; b.style.cssText = 'position:fixed;left:8px;top:8px;z-index:2147483647'; b.addEventListener('click', function travaDeTeste() { const t = performance.now(); while (performance.now() - t < 1500); }); document.body.append(b);" });
   await p.click('#trava'); await sleep(7000);
   const perf = await api(ra.token, 'GET', '/perf');
   const f = perf.travadas?.[0];

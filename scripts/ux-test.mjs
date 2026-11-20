@@ -129,6 +129,8 @@ try {
   await api(eu, 'POST', '/relationships', { username: 'ana' }); await api(ana, 'PUT', '/relationships/' + euId, {});
   await api(eu, 'POST', `/channels/${dm}/messages`, { content: 'oi (eu desligou as estatísticas)' });
   const Q = await (await browser.createBrowserContext()).newPage(); await Q.setViewport({ width: 1400, height: 900 });
+  // a CSP do servidor bloqueia o <script> inline que o teste injeta mais abaixo (para gerar um erro de JavaScript da própria página)
+  await Q.setBypassCSP(true);
   await Q.goto(BASE); await Q.evaluate((t) => localStorage.setItem('lc_token', t), ana); await Q.goto(BASE); await Q.waitForSelector('#rail .rail-wrap', { timeout: 15000 }); await sleep(800);
   const qflush = () => Q.evaluate(async () => { await (await window.__lc.import('ux.js')).flushUx(); });
   // troca de canal medida + mensagem enviada pelo campo (tempo de envio e 1ª mensagem)
