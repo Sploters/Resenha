@@ -75,6 +75,11 @@ pub const MAX_SWITCHES: usize = 6;
 pub const SWITCH_WINDOW: f64 = 300.0;
 pub const HARD_FAILS: usize = 3;
 pub const HARD_WINDOW: f64 = 120.0;
+/// volta ao método preferido que não se sustentou: saiu dele de novo em menos de RETURN_HOLD s. Depois de RETURN_FAILS
+/// voltas assim, para de tentar nesta transmissão (cada ida e volta é um corte para quem assiste: com um jogo que
+/// congela o WGC, eram dois cortes a cada ~5 min, sem fim)
+pub const RETURN_HOLD: f64 = 120.0;
+pub const RETURN_FAILS: u32 = 2;
 
 #[derive(Default, Clone)]
 struct Per { hard: Vec<f64>, disabled: Option<String>, last_err: Option<String> }
@@ -100,6 +105,9 @@ pub struct Selector {
     switches: Vec<f64>,
     noted_forced: bool,
     noted_budget: bool,
+    returned_at: Option<f64>,
+    failed_returns: u32,
+    returns_off: bool,
     /// decisões para o app (eventos JSON "capnote"); o pipeline esvazia e emite
     pub notes: Vec<Value>,
     pub plan_why: String,
@@ -115,7 +123,8 @@ impl Selector {
             Mode::Auto => (vec![Method::Dxgi, Method::Wgc], format!("Windows 10 (build {os_build}): DXGI primeiro (sem borda amarela e segue funcionando em tela cheia exclusiva); WGC só se o DXGI não funcionar")),
         };
         Self { mode, win11, window_src, order, per: Default::default(), active: None, active_since: 0.0, got_first: false, black_since: None, stale_since: None, cand: None,
-            next_check: 0.0, backoff: BACKOFF_MIN, next_return: 0.0, return_backoff: RETURN_MIN, switches: vec![], noted_forced: false, noted_budget: false, notes: vec![], plan_why }
+            next_check: 0.0, backoff: BACKOFF_MIN, next_return: 0.0, return_backoff: RETURN_MIN, switches: vec![], noted_forced: false, noted_budget: false,
+            returned_at: None, failed_returns: 0, returns_off: false, notes: vec![], plan_why }
     }
     pub fn order(&self) -> Vec<Method> { self.order.clone() }
     pub fn active(&self) -> Option<Method> { self.active }
@@ -202,7 +211,7 @@ impl Selector {
         // de volta ao WGC: só faz diferença para janela (o DXGI recorta e mostra o que estiver por cima; o WGC isola a
         // janela). Só quando o WGC é o preferido (Windows 11) e depois de RETURN_MIN s, dobrando a cada tentativa.
         let pref = self.order[0];
-        if !self.forced() && self.window_src && pref == Method::Wgc && a != pref && self.usable(pref) && !h.exclusive && now >= self.next_return && self.budget_ok(now) && self.black_since.is_none() {
+        if !self.forced() && self.window_src && pref == Method::Wgc && a != pref && self.usable(pref) && !self.returns_off && !h.exclusive && now >= self.next_return && self.budget_ok(now) && self.black_since.is_none() {
             self.next_return = now + self.return_backoff; self.return_backoff = (self.return_backoff * 2.0).min(BACKOFF_MAX);
             self.cand = Some(Cand { m: pref, since: now, why: "voltar ao método preferido".into(), returning: true, frames: 0, black: 0, lit: 0, changed: 0, act_changed: 0 });
             return Action::OpenCandidate(pref, format!("testando a volta para {} (isola a janela)", pref.id().to_uppercase()));
@@ -241,11 +250,23 @@ impl Selector {
     pub fn promoted(&mut self, now: f64) {
         let Some(c) = self.cand.take() else { return };
         self.switches.push(now);
+        if c.returning { self.returned_at = Some(now); } else { self.left_after_return(now); }
         if !c.returning { self.backoff = BACKOFF_MIN; self.next_check = now + BACKOFF_MIN; self.next_return = now + self.return_backoff; }
         self.opened(now, c.m); self.got_first = true;
     }
+    /// saiu do método preferido: se foi pouco depois de voltar a ele, a volta não se sustentou
+    fn left_after_return(&mut self, now: f64) {
+        let Some(r) = self.returned_at.take() else { return };
+        if now - r >= RETURN_HOLD { return; }
+        self.failed_returns += 1;
+        if self.failed_returns >= RETURN_FAILS && !self.returns_off {
+            self.returns_off = true;
+            let m = self.order[0].id().to_uppercase();
+            self.note(now, format!("{m} não se sustentou nas últimas {RETURN_FAILS} voltas (parou em menos de {RETURN_HOLD:.0} s): sem novas tentativas de voltar a ele nesta transmissão"));
+        }
+    }
     /// troca a frio concluída (a ativa morreu e `m` abriu)
-    pub fn switched_cold(&mut self, now: f64, m: Method) { if self.active.is_some() { self.switches.push(now); self.next_return = now + self.return_backoff; } self.opened(now, m); }
+    pub fn switched_cold(&mut self, now: f64, m: Method) { if self.active.is_some() { self.switches.push(now); self.left_after_return(now); self.next_return = now + self.return_backoff; } self.opened(now, m); }
 }
 
 fn r1(x: f64) -> f64 { (x * 10.0).round() / 10.0 }
@@ -440,4 +461,36 @@ mod tests {
         while u < t + 4.0 { let _ = s.tick(u, &ok(30)); d = s.cand_tick(u, &Health { frames: 1, lit: 2, changed: 0, ..Default::default() }); if d != Action::None { break; } u += 0.5; }
         assert!(matches!(d, Action::DropCandidate(_)), "{d:?}");
     }
+    /// Windows 11, janela de jogo: o WGC congela ~20 s depois de cada volta (jogo que sai da composição do Windows).
+    /// Simula 30 min e devolve os instantes de cada troca de método.
+    fn pingue_pongue(mins: f64) -> Vec<f64> {
+        let mut s = Selector::new(Mode::Auto, 26200, true);
+        s.opened(0.0, Method::Wgc);
+        let (mut since, mut trocas, mut t) = (0.0, vec![], 0.5);
+        let stale = Health { frames: 0, expect_motion: true, ..Default::default() };
+        while t < mins * 60.0 {
+            let a = s.active().unwrap();
+            let h = if a == Method::Wgc && t - since > 20.0 { stale } else { ok(30) };
+            match s.tick(t, &h) { Action::SwitchCold(m, _) => { s.switched_cold(t, m); since = t; trocas.push(t); } _ => {} }
+            if s.candidate().is_some() {
+                match s.cand_tick(t, &ok(30)) {
+                    Action::Promote(_) => { s.promoted(t); since = t; trocas.push(t); }
+                    Action::DropCandidate(w) => s.cand_dropped(t, &w),
+                    _ => {}
+                }
+            }
+            t += 0.5;
+        }
+        trocas
+    }
+
+    #[test]
+    fn janela_wgc_que_congela_nao_fica_trocando() {
+        let tr = pingue_pongue(30.0);
+        eprintln!("trocas em 30 min: {} -> {:?}", tr.len(), tr.iter().map(|x| x.round()).collect::<Vec<_>>());
+        // cada troca é um corte para quem assiste: depois que a volta ao WGC não se sustenta, para de tentar
+        assert!(tr.len() <= 5, "{} trocas em 30 min: {:?}", tr.len(), tr);
+        assert!(tr.iter().all(|&x| x < 15.0 * 60.0), "ainda trocando depois de 15 min: {tr:?}");
+    }
+
 }

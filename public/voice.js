@@ -423,9 +423,10 @@ export class Voice {
     if (!this.recovering || !sfu?.ready || this.sfu !== sfu) return;
     if (![sfu.send, sfu.recv].every(x => !x || x.connectionState === 'connected' || x.connectionState === 'new')) return;
     this.recovering = false; this._mrTries = 0; track('voice_recovered', this._mrReason || 'ice'); this._mrReason = null;
+    if (this.screen) this.capLog({ t: 'capnote', msg: `conexão de mídia de volta em ${((Date.now() - (this._mrAt || Date.now())) / 1000).toFixed(1)} s` });
     this.onRecovered?.(); this.onUpdate();
   }
-  markRecovering(reason) { if (!this.recovering) { this.recovering = true; this._mrReason = reason; this.onUpdate(); } }
+  markRecovering(reason) { if (!this.recovering) { this.recovering = true; this._mrReason = reason; this._mrAt = Date.now(); if (this.screen) this.capLog({ t: 'capnote', msg: `conexão de mídia caiu (${reason}): reconectando` }); this.onUpdate(); } }
   async iceRestart(t, sfu) {
     if (this.sfu !== sfu || t.closed) return;
     if (t.connectionState === 'connected') return this.checkRecovered(sfu); // voltou sozinha enquanto esperava
@@ -831,6 +832,7 @@ export class Voice {
   async govApplyNow(g, ch, note) {
     const p = this.sfu?.producers.screen; if (!p?.rtpSender || this.gov !== g) return;
     Object.assign(g, ch); g.bad = 0; g.good = 0; g.cool = 2; g.note = note; g.steps.push({ at: Date.now(), note }); if (g.steps.length > 20) g.steps.shift();
+    this.capLog({ t: 'capnote', msg: 'controle da transmissão: ' + note }); // cada troca reconfigura o codificador: quem assiste pode ver um corte
     g.applying = true; // os parâmetros mudam em duas etapas (passando por 'balanced'); quem lê o estado espera terminar
     const lv = g.ladder[g.level], capH = this.screen?.getVideoTracks()[0]?.getSettings?.().height || lv.h, s = Math.max(1, capH / lv.h);
     try {

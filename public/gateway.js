@@ -129,6 +129,7 @@ export function connect() {
   };
   ws.onopen = () => {
     // telemetria: caiu e voltou (conta a queda e quanto tempo ficou sem conexão, mesmo com a aba escondida)
+    if (offlineSince && voice?.screen) voice.capLog?.({ t: 'capnote', msg: `conexão com o servidor caiu por ${((Date.now() - offlineSince) / 1000).toFixed(1)} s${restarting ? ' (servidor reiniciando)' : ''} e voltou` });
     if (offlineSince) { track('ws_reconnect', restarting ? 'restart' : '', { bg: true }); timing('ws_offline', Date.now() - offlineSince, { bg: true }); offlineSince = 0; }
     restarting = false;
     retry = 0; $('#reconnect')?.remove();
