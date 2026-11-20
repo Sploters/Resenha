@@ -68,6 +68,12 @@ Saída em `trabalho/<rodada>/` (fora do git):
   lista de arquivos;
 - `relatorio.json`: o que deu certo, o que falhou e os tempos.
 
+Conteúdo fixo também quer dizer: os outros 4 ficam conectados até o fim (senão vão ficando offline no meio dos
+movimentos), alertas de saúde desligados (o "disco quase cheio" da máquina que captura entrava na tela), cargos com cor
+em texto (`#e67e22`, como o app grava) e a janela do navegador no tamanho da tela (senão os movimentos saíam só com o
+canto de cima à esquerda, 780×493, ou com 993 de altura depois da tela cheia). Se o crítico apontar algo estranho, olhe o
+quadro antes de mexer no app: na 1ª passagem metade dos "graves" era da captura.
+
 Limites: os roteiros não têm passo fixo de verdade (o relógio da página corre normal), então servem para pegar salto de
 layout, piscada e esqueleto sumindo de uma vez, não para medir tempo de quadro (isso é do `perf-audit`). Duas rodadas do
 mesmo código saem quase iguais: mudam o horário das mensagens e a borda de alguns avatares.

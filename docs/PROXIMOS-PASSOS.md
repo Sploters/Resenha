@@ -193,13 +193,16 @@ desktop pega a interface nova sozinho.
 - **Renderizar o `AudioContext` sem dispositivo** (`setSinkId({ type: 'none' })`) custa o mesmo. Já foi testado.
 - **Teste offline (`OfflineAudioContext`) não serve** para mudo/desmudo (desconectar e reconectar a fonte): use tempo real.
 - **Servidor de teste órfão:** teste que cai pode deixar `node server/index.js` vivo na porta fixa, e o próximo falha
-  sem motivo aparente. Confira com `pgrep -f "node server/index.js"` e `/proc/<pid>/environ` (o `pkill -f` pelo nome da
+  sem motivo aparente. Pelo `run-tests.mjs` isso não acontece mais (`EXIT_WITH_PARENT=1` → `server/parentwatch.js`: o
+  servidor se encerra quando o teste morre). Rodando um teste ou o `perf-audit` direto, ainda pode. Confira com `pgrep -f "node server/index.js"` e `/proc/<pid>/environ` (o `pkill -f` pelo nome da
   pasta não acha: ela está no ambiente, não na linha de comando).
 - **A CSP do servidor bloqueia `new Function`** em experimentos na página: suba o servidor com `CSP=off`.
 - **Processo Node que mantém um servidor filho** não termina sozinho e perde a saída se for morto pelo `timeout`: use
   `process.exit` no fim.
-- Testes instáveis conhecidos: `reconnect-storm-test` e `watch-test` (passam na 2ª tentativa no CI). Corrigidos nesta
-  passagem: `call-restart-test`, `black-capture-test`, `voice-network-test`, `ux-test` e `freeze-report-test`.
+- Testes instáveis: corrigidos `reconnect-storm-test` (limite na cauda do sorteio), `voice-recovery-test` (bytes fixos de
+  voz), `callinvite-test` (servidor órfão), além dos de antes (`call-restart`, `black-capture`, `voice-network`, `ux`,
+  `freeze-report`). `watch-test` e `voice-network-test` não falharam aqui em 3 rodadas; o `run-tests` agora imprime por que
+  a 1ª tentativa falhou (e põe no resumo do GitHub), então o próximo "instável" já vem com o motivo.
 - **Bateria completa nesta máquina (nov/2026, depois desta passagem): 131 de 134.** Os 3 que falham falham igual no
   código de antes (`c6034af`, conferido numa worktree): `community-test` e a 2ª tentativa do `focus-fly-test` (o alerta
   "Disco quase cheio" da máquina de nuvem vira notificação no meio do teste), 1ª tentativa do `focus-fly-test` ("Até eu
@@ -236,7 +239,18 @@ desktop pega a interface nova sozinho.
 7. ~~Consertar os testes instáveis~~ **feito**: `ux-test` e `freeze-report-test` (a CSP bloqueava o `<script>` inline que
    eles injetam; o CI da `main` ficava vermelho por isso), `call-restart-test` (compara enviado × recebido em vez de um
    número fixo de bytes), `voice-network-test` (envio atrasado depois de fechar o socket) e `black-capture-test`
-   (servidor órfão). Ainda instáveis no CI: `reconnect-storm-test` e `watch-test` (passam na 2ª tentativa).
+   (servidor órfão). 2ª passagem (nov/2026): `reconnect-storm-test`, `voice-recovery-test`, `callinvite-test` e servidor
+   de teste que se encerra sozinho (ver "Lições"). Sem instável reproduzível aqui; o log do CI mostra o motivo do próximo.
+8. **Acabamento visual com crítico cego** (nov/2026, `scripts/critico-capturas.mjs`, 5 rodadas): feito o que segue em
+   `public/changelog.js` (2026-11-20-1). O que o último crítico ainda aponta como grave, para uma próxima passagem:
+   - **entrar na chamada:** a grade se reorganiza 3 vezes em ~1,5 s (2×2 → 2+2+1 → 2×3, os quadros trocam de lugar) e os
+     quadros de vídeo/transmissão ficam pretos ~0,5 s até o 1º quadro chegar (sem avatar nem "conectando");
+   - **abrir o app:** carrega em pedaços (mensagens sem avatar, imagem vazia, depois tudo de uma vez) e o esqueleto ainda
+     não bate 100% com a tela final;
+   - médios: painel de perfil da DM nasce vazio e cresce; seção "Administração" das configurações entra depois; aba do
+     canal aberto com selo de não lido (headless: a janela não tem foco); setas de cargo desativadas pouco visíveis.
+   Rejeitado de propósito: fade entre telas (troca de canal e configurações agora são na hora; qualquer fade entre duas
+   telas de texto mistura os textos ou pisca a tela vazia).
 
 ### 2. Curto prazo (pequeno e seguro)
 - ~~Contar reconexões de mídia nas estatísticas~~ **feito** (`f3902a1`): quadro "Mídia da chamada" no painel; conta
