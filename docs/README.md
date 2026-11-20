@@ -24,6 +24,7 @@ Comece pelo [README](../README.md) da raiz. Aqui está o resto, por assunto.
 
 ## Desenvolvimento
 - [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md): scripts, arquivos gerados, testes, verificação automática do GitHub, release do app desktop, teste de carga.
+- [PROMPTS.md](PROMPTS.md): como escrever pedidos longos para o Claude (prioridades, alvo com números, portões de verificação), com modelo em branco, dois prompts prontos e o roteiro de capturas do crítico visual (`scripts/critico-capturas.mjs`).
 - [CHECKLIST-CONCORRENTES.md](CHECKLIST-CONCORRENTES.md): ideias aprovadas dos concorrentes, em ordem de trabalho.
 - [PROXIMAS-CORRECOES.md](PROXIMAS-CORRECOES.md): problemas à espera de dados para corrigir.
 

@@ -26,3 +26,8 @@ scripts/perf-big-*.json
 
 # programas nativos: compilados por desktop/build-native.mjs (no GitHub, a cada release), não versionados
 desktop/native/*.exe
+
+# capturas e pacotes do crítico visual (scripts/critico-capturas.mjs) e imagens de referência (não entram no app)
+trabalho/
+referencia/
+.testdata-critico/
