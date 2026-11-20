@@ -44,15 +44,21 @@ com o IP da VPN. Arquivos opcionais no servidor que ele usa:
   steamcommunity.com/dev/apikey). Liga a biblioteca e as conquistas da Steam.
 
 ### Atualizar sem derrubar a chamada
-`sh deploy/umbrel.sh` monta a imagem nova e, se houver gente em chamada, **espera a sala esvaziar** antes de trocar o
-container (reiniciar derruba todo mundo por ~6 s). O servidor grava a contagem em `~/resenha-data/em-chamada.json` a cada
-10 s (só números, sem nomes). `FORCAR=1` troca na hora; `ESPERA_MAX=30` desiste depois de 30 min (padrão 120; a imagem
-nova fica pronta). Na troca, o servidor avisa os apps antes de fechar e eles mostram "Servidor atualizando. Volta em
-alguns segundos…" em vez de "Conexão perdida". No painel de estatísticas, as quedas por atualização aparecem separadas
-das quedas de rede.
+Como o Discord: ninguém precisa sair da chamada. `sh deploy/umbrel.sh` monta a imagem nova e decide sozinho
+(`deploy/servidor.sh`, detalhes em [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md#atualizar-o-servidor-sem-derrubar-ninguém)):
+- **Só a interface mudou** (`public/`): troca os arquivos dentro do container e manda `SIGHUP`. O servidor não reinicia e
+  ninguém cai. Cada página recarrega quando não atrapalha (e volta sozinha para a chamada).
+- **O servidor mudou:** reinicia na hora se não houver chamada **ativa** (2+ pessoas conversando ou transmitindo; sozinho
+  ou em silêncio há 15 min não conta). Quem estava em chamada volta sozinho em segundos. Com chamada ativa, espera em
+  segundo plano no servidor (pode fechar o terminal; `tail -f ~/.resenha-deploy/espera.log` acompanha) e troca quando a
+  conversa parar. Pendente há mais de 24 h, troca de madrugada (3 h às 6 h) mesmo assim.
 
-    FORCAR=1 sh deploy/umbrel.sh      # troca na hora mesmo com gente em chamada
-    ESPERA_MAX=30 sh deploy/umbrel.sh # desiste depois de 30 min esperando
+O servidor grava a contagem em `~/resenha-data/em-chamada.json` (só números, sem nomes). Na troca, os apps mostram
+"Servidor atualizando. Volta em alguns segundos…" em vez de "Conexão perdida".
+
+    FORCAR=1 sh deploy/umbrel.sh         # troca na hora mesmo com chamada ativa
+    ESPERA_HORAS=12 sh deploy/umbrel.sh  # limite para trocar de madrugada (padrão 24 h)
+    FUSO=America/Manaus sh deploy/umbrel.sh # fuso da "madrugada" (padrão America/Sao_Paulo)
 
 ## Acesso pela VPN
 Exponha o servidor só pela VPN (Tailscale, Hamachi, Radmin). Os amigos entram pelo IP da VPN do servidor.

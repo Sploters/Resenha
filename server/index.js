@@ -8,7 +8,7 @@ import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
-import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent } from './sfu.js';
+import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuLastVoice } from './sfu.js';
 import { mountHealth } from './health.js';
 import { getAdapter, listAdapters } from './integrations/index.js';
 import { createActivityService } from './activity.js';
@@ -547,22 +547,45 @@ mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id =
     for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; if (st.video) cams++; } if (n) { calls++; inCalls += n; } }
     return { online: conns.size, connections, calls, inCalls, screens, cams };
   } });
-// quem está em chamada agora, num arquivo da pasta de dados: o deploy (deploy/umbrel.sh) lê antes de trocar o container
-// e espera a chamada acabar (reiniciar derruba todo mundo por ~6 s). Só contagens, sem nomes; atualizado a cada 10 s.
+// Chamada "ativa" = conversa acontecendo: 2 ou mais pessoas E (alguém falou nos últimos CALL_ACTIVE_MS, alguém entrou
+// há menos que isso, ou alguém está transmitindo a tela). Pessoa sozinha, ou gente dormindo em silêncio na call, não conta:
+// para ela uma queda de segundos com volta automática não faz diferença. Usado pelo deploy (só troca o servidor sem
+// chamadas ativas) e pela página (só recarrega sozinha para a versão nova numa chamada parada; public/uiupdate.js).
+// Sem SFU (voz P2P) o servidor não ouve ninguém: 2 ou mais pessoas contam como ativa, como antes.
+const CALL_ACTIVE_MS = +process.env.CALL_ACTIVE_MS || 15 * 60e3;
+function callActive(cid) {
+  const room = voice.get(cid); if (!room) return false;
+  let n = 0, screen = false, joined = 0;
+  for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screen = true; joined = Math.max(joined, st.at || 0); }
+  if (n < 2) return false;
+  if (screen || !sfuEnabled()) return true;
+  return Date.now() - Math.max(sfuLastVoice(cid), joined, roomStart.get(cid) || 0) < CALL_ACTIVE_MS;
+}
+// quem está em chamada agora, num arquivo da pasta de dados: o deploy (deploy/umbrel.sh e deploy/trocar.sh) lê antes de
+// trocar o container e espera as chamadas ATIVAS acabarem (reiniciar derruba todo mundo por ~6 s). Só contagens, sem
+// nomes; atualizado a cada 10 s.
 {
   const file = path.join(DATA_DIR, 'em-chamada.json');
   // Sem ninguém em chamada, só grava quando a contagem muda (antes: 8.640 gravações por dia no disco, à toa). Com gente
   // em chamada continua a cada 10 s: o deploy só confia num arquivo de menos de 60 s para esperar; com zero, segue.
   let last = '';
   const write = () => {
-    let calls = 0, inCalls = 0, screens = 0;
-    for (const room of voice.values()) { let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; } if (n) { calls++; inCalls += n; } }
-    const counts = `${calls},${inCalls},${screens}`;
+    let calls = 0, inCalls = 0, screens = 0, ativas = 0, emAtivas = 0;
+    for (const [cid, room] of voice) {
+      let n = 0; for (const st of room.values()) { if (st.bot) continue; n++; if (st.screen) screens++; }
+      if (n) { calls++; inCalls += n; } if (n && callActive(cid)) { ativas++; emAtivas += n; }
+    }
+    const counts = `${calls},${inCalls},${screens},${ativas},${emAtivas}`;
     if (!inCalls && counts === last) return;
-    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens })); fs.renameSync(file + '.tmp', file); last = counts; } catch { }
+    try { fs.writeFileSync(file + '.tmp', JSON.stringify({ t: Date.now(), calls, inCalls, screens, ativas, emAtivas })); fs.renameSync(file + '.tmp', file); last = counts; } catch { }
   };
   write(); setInterval(write, 10e3).unref();
 }
+// a chamada de quem pergunta está parada? (public/uiupdate.js: recarregar sozinho para a versão nova sem atrapalhar)
+app.get('/api/voice/quiet', auth, (req, res) => {
+  const c = currentVoice(req.uid);
+  res.set('Cache-Control', 'no-store').json({ in_call: !!c, quiet: !c || !callActive(c) });
+});
 app.get('/api/sfu/load', auth, (req, res) => { // só donos de servidor: carga do worker do mediasoup
   if (!get('SELECT 1 AS x FROM guilds WHERE owner_id=?', req.uid)) return bad(res, 'Sem permissão', 403);
   sfuLoad().then(d => res.json(d), e => bad(res, e.message, 500));
@@ -611,7 +634,7 @@ mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servido
 // política de privacidade e de segurança desta instalação (o dono pode editar os arquivos na raiz do projeto)
 for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 'SECURITY.md']])
   app.get(route, (req, res) => res.type('text/plain; charset=utf-8').sendFile(path.join(__dirname, '..', file), (e) => e && !res.headersSent && res.status(404).end()));
-if (process.env.STATIC_OFF !== '1') mountStatic(app, path.join(__dirname, '..', 'public')); // comprimido, versionado e com modulepreload (server/static.js)
+const ui = process.env.STATIC_OFF !== '1' ? mountStatic(app, process.env.PUBLIC_DIR || path.join(__dirname, '..', 'public')) : null; // PUBLIC_DIR: só testes (scripts/uiupdate-test.mjs) // comprimido, versionado e com modulepreload (server/static.js)
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 app.get(/^\/(?!api|files|gateway).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
@@ -863,7 +886,7 @@ wss.on('connection', (ws) => {
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   uxSeen(uid); // telemetria: usou o app hoje (uma vez por dia, sem guardar quem)
   if (first) social.onConnect(uid); // métricas: voltou por causa de um convite/atividade?
-  { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin(), now: Date.now() })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
+  { const t0 = performance.now(); if (ws.readyState === 1) ws.send(buildReadyRaw(uid, { desktop_min: desktopMin(), now: Date.now(), ui: ui?.version || null })); mountPerf.time?.('WS READY (montar + enviar)', performance.now() - t0); }
   if (first) { broadcastStatus(uid); activity.poke(); }
   if (!first) send(ws, 'DEVICES', { active: [...conns.get(uid)].filter(w => w.active).map(w => ({ tab: w.tab, kind: w.devKind || 'web', at: w.activeAt })) });
 
@@ -940,7 +963,7 @@ wss.on('connection', (ws) => {
           if (!voice.has(ch.id)) { voice.set(ch.id, new Map()); roomStart.set(ch.id, Date.now()); }
           const room = voice.get(ch.id);
           const peers = [...room.keys()];
-          const st = { ws, mute: false, deaf: false, video: false, screen: false };
+          const st = { ws, mute: false, deaf: false, video: false, screen: false, at: Date.now() };
           if (ch.guild_id) { const vm = get('SELECT voice_mute m, voice_deaf d FROM members WHERE guild_id=? AND user_id=?', ch.guild_id, uid); st.modMute = !!vm?.m; st.modDeaf = !!vm?.d; } // vale em todas as salas do servidor
           Object.assign(st, voicePermsOf(ch, uid));
           room.set(uid, st);
@@ -1133,6 +1156,7 @@ wss.on('connection', (ws) => {
     const c = currentVoice(uid);
     const vst = c && voice.get(c).get(uid);
     if (vst && vst.ws === ws && code === 4000) leaveVoice(uid, c, 'drop'); // a página fechou (app fechado, aba fechada, F5): sai na hora
+    else if (vst && vst.ws === ws && code === 4002) leaveVoice(uid, c, 'reload'); // recarregando para a versão nova: volta sozinha em segundos (os outros não ouvem sair/entrar)
     else if (vst && vst.ws === ws) {
       holdVoice(uid, c, vst);
       // por que caiu (para achar quedas que se repetem): código do fechamento, quem fechou e há quanto tempo estava aberta
@@ -1207,5 +1231,16 @@ function shutdown(sig) {
   const tick = () => ([...wss.clients].every(c => c.readyState === 3) || Date.now() - t0 > 500 ? end() : setTimeout(tick, 25));
   tick();
 }
+// Atualização só da interface (public/), sem reiniciar e sem derrubar ninguém: deploy/umbrel.sh troca a pasta e manda
+// SIGHUP. A versão nova vai para todas as páginas abertas (UI_VERSION); cada uma recarrega quando não atrapalha
+// (public/uiupdate.js). Sem esta linha, SIGHUP encerraria o processo.
+process.on('SIGHUP', () => {
+  if (!ui) return;
+  try {
+    if (!ui.reload()) return console.log('  SIGHUP: interface sem mudança');
+    console.log(`  Interface atualizada sem reiniciar: versão ${ui.version}`);
+    for (const c of wss.clients) send(c, 'UI_VERSION', { v: ui.version });
+  } catch (e) { console.log('  SIGHUP: falha ao recarregar a interface', e.message); }
+});
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

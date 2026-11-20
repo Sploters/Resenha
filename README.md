@@ -35,7 +35,7 @@ Detalhes e variáveis: [docs/INSTALACAO.md](docs/INSTALACAO.md) e [docs/CONFIGUR
     npm start            # HTTP :3000 e HTTPS :3443
 
 ## Atualizar sem derrubar a chamada
-`sh deploy/umbrel.sh` monta a imagem nova e, se houver gente em chamada, **espera a sala esvaziar** antes de trocar o container (reiniciar derruba todo mundo por ~6 s). `FORCAR=1` troca na hora; `ESPERA_MAX=30` desiste depois de 30 min (padrão 120). Na troca, os apps mostram "Servidor atualizando. Volta em alguns segundos…". Sem o script: reconstrua a imagem e recrie o container com o mesmo volume (o banco migra sozinho).
+Ninguém precisa sair da chamada para atualizar. `sh deploy/umbrel.sh`: se **só a interface** mudou, entra sem reiniciar o servidor (ninguém cai; cada página recarrega quando não atrapalha e volta sozinha para a chamada). Se o **servidor** mudou, reinicia na hora quando não há conversa acontecendo (gente sozinha ou em silêncio na call não conta; quem estava em chamada volta sozinho em segundos); com conversa, espera em segundo plano no servidor e, pendente há mais de 24 h, entra de madrugada. `FORCAR=1` troca na hora. Detalhes em [docs/ATUALIZACOES-E-RELATORIOS.md](docs/ATUALIZACOES-E-RELATORIOS.md). Sem o script: reconstrua a imagem e recrie o container com o mesmo volume (o banco migra sozinho).
 
 ## VPN
 Exponha o servidor só pela VPN (Tailscale, Hamachi, Radmin). Suba a VPN **antes** do servidor (a voz escuta nos IPs das interfaces), libere a porta 40000 UDP+TCP no firewall e, em Docker, passe o IP da VPN em `TLS_SAN=IP:<ip-vpn>` (certificado HTTPS autoassinado, necessário para microfone, câmera e tela) e `RTC_ANNOUNCED_IP=<ip-vpn>`.

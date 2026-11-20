@@ -36,6 +36,7 @@ import { rumReady } from './rum.js';
 import { myDesktopVersion, refreshDesktopVersion, latestDesktop } from './appupdate.js';
 import { musicOn } from './botmusic.js';
 import { warnOutdated, scanOutdated, outdatedModal } from './appver.js';
+import { onUiVersion } from './uiupdate.js';
 import { attention, updateTitle, ack } from './unread.js';
 import { openSettings, go, applyRoute, buildShell } from './nav.js';
 import { renderRail, joinInvite } from './rail.js';
@@ -173,6 +174,7 @@ export function onEvent(t, d) {
       const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
       if (d.now) S.clockOff = d.now - Date.now(); // relógio do servidor - o deste aparelho (cronômetro da chamada vem com a hora do servidor)
       S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
+      onUiVersion(d.ui); // interface nova no servidor desde que esta página abriu? (public/uiupdate.js)
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
       if (S.remote) onRemoteEvent('REMOTE_STATE', { ...S.remote, state: 'ended', reason: 'left' }); // reconectou: o servidor já encerrou a sessão
@@ -337,7 +339,7 @@ export function onEvent(t, d) {
       if (d.user_id !== S.me.id && !d.bot && !prevVs?.bot) { // o bot entrando/saindo não toca o som de pessoa
         const prevState = prevVs, dmCh = S.dms.get(d.channel_id || d.prev_channel_id);
         if (mineCh && d.channel_id === mineCh && before !== mineCh) presenceSound(d.user_id, 'join');
-        else if (mineCh && before === mineCh && d.channel_id !== mineCh) presenceSound(d.user_id, 'leave'); // saiu, caiu ou foi para outra sala
+        else if (mineCh && before === mineCh && d.channel_id !== mineCh) presenceSound(d.user_id, 'leave', d.reason === 'reload' ? 30000 : 0); // saiu, caiu ou foi para outra sala ('reload': volta sozinha, a entrada anula o som)
         else if (mineCh && d.channel_id === mineCh && before === mineCh) { // mudou algo dentro da minha sala
           if (d.screen && !prevState?.screen) playSound('streamStart');
           else if (!d.screen && prevState?.screen) playSound('streamStop');
@@ -387,6 +389,7 @@ export function onEvent(t, d) {
     case 'SFU_RES': voice.onSfuRes(d); break;
     case 'SFU_RESET': voice?.onSfuReset(d); renderVoiceUI(); break;
     case 'PONG': wsPings.get(d.n)?.(); break;
+    case 'UI_VERSION': onUiVersion(d.v); break; // interface atualizada no servidor sem reiniciar
     case 'VOICE_RESUMED': voice?._resumeWait?.(d); break;
     case 'SFU_NEW_PRODUCER': voice.onSfuProducer(d); break;
     case 'SFU_CODEC_FALLBACK': voice.onCodecFallback(d); break;

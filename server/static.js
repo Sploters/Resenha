@@ -35,19 +35,26 @@ const DYN_RE = /(\bimport\(\s*)(['"])\.\/([\w.-]+\.js)\2/g;
 
 export function mountStatic(app, dir) {
   const root = path.resolve(dir);
-  // versão: conteúdo de todos os .js/.css/.html da raiz de public
-  const top = fs.readdirSync(root).filter(f => /\.(js|css|html)$/.test(f)).sort();
-  const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(fs.readFileSync(path.join(root, f)));
-  const V = hash.digest('hex').slice(0, 10);
-  const mods = new Set(top.filter(f => f.endsWith('.js')));
+  // Estado que depende dos arquivos de public/: montado na subida e de novo em reload() (atualização só da interface,
+  // sem reiniciar o servidor: deploy/umbrel.sh troca public/ e manda SIGHUP; ver server/index.js)
+  let V = '', mods = new Set(), graph = new Set();
+  function scan() {
+    // versão: conteúdo de todos os .js/.css/.html da raiz de public
+    const top = fs.readdirSync(root).filter(f => /\.(js|css|html)$/.test(f)).sort();
+    const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(fs.readFileSync(path.join(root, f)));
+    V = hash.digest('hex').slice(0, 10);
+    mods = new Set(top.filter(f => f.endsWith('.js')));
+    // módulos que o app.js puxa (direta ou indiretamente) — vão no modulepreload
+    graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const m of fs.readFileSync(path.join(root, f), 'utf8').matchAll(IMPORT_RE)) walk(m[3]); };
+    walk('app.js');
+  }
+  scan();
   const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m))
     .replace(DYN_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m));
-  // módulos que o app.js puxa (direta ou indiretamente) — vão no modulepreload
-  const graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const m of fs.readFileSync(path.join(root, f), 'utf8').matchAll(IMPORT_RE)) walk(m[3]); };
-  walk('app.js');
+  // <meta name="lc-ui">: a página sabe com qual versão abriu (public/uiupdate.js compara com a do servidor)
   const index = () => fs.readFileSync(path.join(root, 'index.html'), 'utf8')
     .replace(/(href|src)="\/([\w.-]+\.(?:js|css))"/g, (m, a, f) => `${a}="/${f}?v=${V}"`)
-    .replace('</head>', [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${V}">`).join('\n') + '\n</head>');
+    .replace('</head>', `<meta name="lc-ui" content="${V}">\n` + [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${V}">`).join('\n') + '\n</head>');
 
   const cache = new Map(); // caminho -> { mtime, body, br, gz, etag, type }
   function entry(rel, file) {
@@ -66,8 +73,8 @@ export function mountStatic(app, dir) {
     if (enc === 'br') return (e.br ||= zlib.brotliCompressSync(e.body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: e.body.length } }));
     return (e.gz ||= zlib.gzipSync(e.body, { level: 9 }));
   };
-  function send(req, res, rel, longCache) {
-    const e = entry(rel, path.join(root, rel)); if (!e) return false;
+  function send(req, res, rel, longCache, e = entry(rel, path.join(root, rel))) {
+    if (!e) return false;
     if (e.type) res.setHeader('Content-Type', e.type);
     res.setHeader('Cache-Control', longCache ? 'public, max-age=31536000, immutable' : 'no-cache');
     res.setHeader('ETag', e.etag); res.setHeader('Vary', 'Accept-Encoding');
@@ -79,7 +86,7 @@ export function mountStatic(app, dir) {
     res.end(req.method === 'HEAD' ? undefined : out);
     return true;
   }
-  let warm = null;
+  let warm = null, prev = null; // prev: { V, cache } da versão anterior da interface (só .js/.css da raiz)
   app.use((req, res, next) => {
     if (warm && /\.(js|css)$/.test(req.path)) return void warm.then(() => serve(req, res, next));
     serve(req, res, next);
@@ -92,26 +99,43 @@ export function mountStatic(app, dir) {
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) return next();
     rel = path.relative(root, file).split(path.sep).join('/');
-    if (!fs.existsSync(file)) { // rota da interface (ex.: /@me): a página
+    if (!fs.existsSync(file) && !(prev && req.query.v === prev.V && prev.cache.has(rel))) { // rota da interface (ex.: /@me): a página
       if (!path.extname(rel)) return send(req, res, 'index.html', false) || next();
       return next();
     }
+    // página aberta antes de uma atualização da interface pedindo um módulo da versão dela (tela aberta sob demanda):
+    // entrega o da versão anterior, guardado em memória, para não misturar módulos novos e velhos na mesma página
+    if (prev && req.query.v === prev.V && prev.cache.has(rel)) return send(req, res, rel, true, prev.cache.get(rel));
     const versioned = req.query.v === V && (mods.has(rel) || /^[\w.-]+\.css$/.test(rel));
     return send(req, res, rel, versioned) || next();
   }
   // minifica tudo logo na subida, num processo à parte e sem travar o servidor: quem pedir .js/.css antes de terminar
   // (fração de segundo) espera ficar pronto
-  if (!minOff) {
+  function prewarm() {
     const files = fs.readdirSync(root).filter(f => /\.(js|css)$/.test(f));
+    // sem minificar: monta tudo já assim mesmo (a versão anterior guardada em reload() precisa de todos os arquivos)
+    if (minOff) { for (const f of files) entry(f, path.join(root, f)); return; }
     const items = files.map(f => { const src = fs.readFileSync(path.join(root, f), 'utf8'); return { ext: path.extname(f), code: mods.has(f) ? rewrite(src) : src }; });
-    warm = runMinify(items, false).then((out) => {
+    const p = warm = runMinify(items, false).then((out) => {
       let ok = 0; out.forEach((m, i) => { if (m != null) { minDone.set(items[i].code, m); ok++; } });
       if (!ok) minOff = true, console.warn('[static] não deu para minificar (esbuild instalado?): a interface sai como está no disco');
-      warm = null;
+      if (warm === p) warm = null;
       // já monta o que vai ser entregue e solta os textos-fonte (só o minificado fica na memória)
       for (const f of files) entry(f, path.join(root, f));
       minDone.clear();
     });
   }
-  return V;
+  prewarm();
+  return {
+    get version() { return V; },
+    // public/ mudou no disco: versão nova, tudo montado de novo. Devolve true se a versão mudou
+    reload() {
+      const before = V, old = new Map([...cache].filter(([rel]) => !rel.includes('/') && /\.(js|css)$/.test(rel)));
+      scan();
+      if (V === before) return false;
+      prev = { V: before, cache: old };
+      cache.clear(); minDone.clear(); prewarm();
+      return true;
+    },
+  };
 }

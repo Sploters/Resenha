@@ -135,10 +135,13 @@ export function trackLastCall() {
 addEventListener('pagehide', saveLastCall, { capture: true }); // F5 / fechar: o "agora" da saída
 function readLastCall() { try { return JSON.parse(localStorage.getItem(LASTCALL) || 'null'); } catch { return null; } }
 export function checkRejoinOnLoad() {
+  // recarregou sozinha para a versão nova da interface no meio desta chamada (public/uiupdate.js): volta direto
+  let auto = null; try { auto = JSON.parse(localStorage.getItem('lc_uireload') || 'null'); localStorage.removeItem('lc_uireload'); } catch { }
   const r = readLastCall(); if (!r?.cid) return;
   if (Date.now() - r.at > REJOIN_MS || !channelById(r.cid)) return forgetLastCall();
   if (S.voice.get(S.me.id)?.channel_id) return; // já está numa chamada por outra aba ou aparelho
   offerRejoin(r.cid, r, true);
+  if (auto?.cid === r.cid && Date.now() - auto.at < 2 * 60e3) rejoinNow();
 }
 function offerRejoin(cid, r = readLastCall(), quiet) {
   if (!channelById(cid)) return;

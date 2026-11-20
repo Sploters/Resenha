@@ -2135,3 +2135,5 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 .ach-icons img { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; background: var(--bg-mod-hover); }
 /* câmera com "Inverter a imagem" (VOICE_STATE.mirror): espelhada para todos */
 .tile.utile.mirrored > video { transform: scaleX(-1) translateZ(0); }
+/* versão nova da interface (public/uiupdate.js): mesmo cartão do aviso do app desktop; com os dois, este fica em cima */
+.appupd:not(.uiupd) ~ .appupd.uiupd { bottom: 170px; }

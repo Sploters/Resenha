@@ -4,7 +4,7 @@
 // - Fila compartilhada com as regras de Hosting/Sharing, sem duplicados acidentais, autor de cada item.
 // - Fim do vídeo: temporizador pela duração + relatório "ended" de quem está perto do fim → próximo da fila.
 // - Anfitrião: quem começou. Se cair, espera HOST_GRACE para ele voltar; senão passa para quem está há mais tempo.
-// - Reconexão: quem cai (reason 'drop' da voz) fica offline na sessão e volta sozinho ao reentrar na sala.
+// - Reconexão: quem cai (reason 'drop' ou 'reload' da voz) fica offline na sessão e volta sozinho ao reentrar na sala.
 // Os eventos do player nos clientes NUNCA viram comandos (só relatórios): ver docs/WATCH-TOGETHER.md.
 // Dependências injetadas (para os testes rodarem sem o resto do servidor): ver createWatch.
 import crypto from 'node:crypto';
@@ -301,7 +301,7 @@ export function createWatch({
   }
   function onVoiceLeave(uid, cid, reason) {
     const s = sessions.get(cid); if (!s || !s.members.has(uid)) return;
-    if (reason !== 'drop') return removeMember(s, uid, 'voice_leave');
+    if (reason !== 'drop' && reason !== 'reload') return removeMember(s, uid, 'voice_leave'); // 'reload': página recarregando para a versão nova (volta sozinha)
     const m = s.members.get(uid); m.online = false; m.leftAt = now(); // continua autorizado (controllers) ao voltar
     if (s.host === uid) {
       clearTimeout(s.hostTimer);

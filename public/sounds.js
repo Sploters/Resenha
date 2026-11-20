@@ -100,7 +100,8 @@ export { savePrefs };
 const LEAVE_DELAY = 2500, JOIN_DELAY = 350, FLAP_WINDOW = 60000, FLAP_MAX = 2, GAP_MS = 400;
 const presence = new Map(); // uid -> { timer, kind, hist: [ts] }
 let lastPresenceAt = 0;
-export function presenceSound(uid, kind) {
+// delay: espera própria para o som de saída (a página de quem saiu está recarregando para a versão nova e volta sozinha)
+export function presenceSound(uid, kind, delay) {
   const now = Date.now();
   let p = presence.get(uid); if (!p) presence.set(uid, p = { timer: null, kind: null, hist: [] });
   p.hist = p.hist.filter(t => now - t < FLAP_WINDOW); p.hist.push(now);
@@ -115,6 +116,6 @@ export function presenceSound(uid, kind) {
     if (p.hist.length > FLAP_MAX * 2) return;
     const t = Date.now(); if (t - lastPresenceAt < GAP_MS) return;
     lastPresenceAt = t; playSound(kind);
-  }, kind === 'leave' ? LEAVE_DELAY : JOIN_DELAY);
+  }, kind === 'leave' ? (delay || LEAVE_DELAY) : JOIN_DELAY);
 }
 export function resetPresenceSounds() { for (const p of presence.values()) clearTimeout(p.timer); presence.clear(); }

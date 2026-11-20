@@ -194,12 +194,15 @@ function levelsFor(r) {
   return r.levelsP ||= r.router.createAudioLevelObserver({ maxEntries: 16, threshold: LEVEL_DB, interval: 250 }).then((o) => {
     let last = '';
     const push = (ids) => { const k = ids.sort().join(); if (k === last) return; last = k; for (const x of r.peers.values()) if (x.wantLevels) x.notify('SFU_SPEAKING', { ids }); };
-    o.on('volumes', (v) => push([...new Set(v.map(x => x.producer.appData.uid).filter(Boolean))]));
+    o.on('volumes', (v) => (r.lastVoiceAt = Date.now(), push([...new Set(v.map(x => x.producer.appData.uid).filter(Boolean))])));
     o.on('silence', () => push([]));
     r.levelsNow = () => last ? last.split(',') : [];
     return o;
   });
 }
+// última vez que alguém falou na sala (o mesmo medidor acima, que existe em toda sala com microfone): o deploy só
+// atualiza com a sala parada e a página só recarrega sozinha numa chamada parada (server/index.js callActive)
+export const sfuLastVoice = (cid) => rooms.get(cid)?.lastVoiceAt || 0;
 // Publica o producer na sala e avisa os demais participantes
 function registerProducer(r, peer, source, p) {
   peer.producers.get(source)?.close();
