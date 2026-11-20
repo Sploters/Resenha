@@ -35,6 +35,15 @@ const audioIn = (p, ms = 2000) => p.evaluate(async (ms) => {
   const snap = async () => { let b = 0; for (const r of recv) (await r.getStats()).forEach(x => { if (x.type === 'inbound-rtp' && x.kind === 'audio') b += x.bytesReceived || 0; }); return b; };
   const a = await snap(); await new Promise(r => setTimeout(r, ms)); return (await snap()) - a;
 }, ms);
+// voz que sai do microfone de quem fala nos mesmos `ms`
+const audioOut = (p, ms = 2000) => p.evaluate(async (ms) => {
+  const snap = async () => { let b = 0; (await window.__lc.voice.sfu?.producers.mic?.rtpSender?.getStats())?.forEach(x => { if (x.type === 'outbound-rtp' && x.kind === 'audio') b += x.bytesSent || 0; }); return b; };
+  const a = await snap(); await new Promise(r => setTimeout(r, ms)); return (await snap()) - a;
+}, ms);
+// o bruno ouve a alice: chega quase tudo o que ela mandou na mesma janela. Não dá para exigir um número fixo de bytes: o
+// microfone falso é um bipe e a porta por voz e o DTX do Opus fazem a alice mandar de ~30 a ~6.000 bytes/s. Janela em que
+// ela quase não mandou nada não prova nada: mede de novo (até 3 vezes)
+const hears = async (from, to) => { let r; for (let i = 0; i < 3; i++) { const [sent, recv] = await Promise.all([audioOut(from), audioIn(to)]); r = { sent, recv }; if (sent >= 500) break; } return { ...r, ok: r.sent > 0 && r.recv >= r.sent * 0.8 }; };
 const state = (p, vc) => p.evaluate((vc) => {
   const { voice, S } = window.__lc;
   return { canal: voice.channelId === vc, sfu: !!voice.sfu?.ready, mudo: voice.muted, na_sala: [...S.voice.values()].filter(v => v.channel_id === vc).map(v => v.user_id).sort() };
@@ -46,8 +55,8 @@ try {
   const vc = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 2).id, g.id);
   for (const p of [A, B]) await p.evaluate(async (vc) => { await window.__lc.voice.join(vc); for (let i = 0; i < 100 && !window.__lc.voice.sfu?.ready; i++) await new Promise(r => setTimeout(r, 100)); }, vc);
   await sleep(2500);
-  const before = await audioIn(B);
-  ok(before > 2000, 'antes: o bruno ouve a alice (bytes de voz em 2 s)', before);
+  const before = await hears(A, B);
+  ok(before.ok, 'antes: o bruno ouve a alice (bytes de voz enviados/recebidos em 2 s)', before);
   await B.evaluate(() => { const v = window.__lc.voice; if (!v.muted) v.toggleMute(); });
   ok((await state(B, vc)).mudo === true, 'bruno mutado antes de reiniciar');
   const idA = await A.evaluate(() => window.__lc.S.me.id), idB = await B.evaluate(() => window.__lc.S.me.id);
@@ -59,7 +68,7 @@ try {
   const sa = await state(A, vc), sb = await state(B, vc);
   ok(sb.mudo === true, 'bruno continua mutado depois de voltar', sb.mudo);
   ok(JSON.stringify(sa.na_sala) === JSON.stringify([idA, idB].sort()) && JSON.stringify(sb.na_sala) === JSON.stringify(sa.na_sala), 'a sala mostra as duas pessoas, uma vez cada', { alice: sa.na_sala.length, bruno: sb.na_sala.length });
-  const after = await audioIn(B);
-  ok(after > 2000, 'depois: o bruno volta a ouvir a alice (bytes de voz em 2 s)', after);
+  const after = await hears(A, B);
+  ok(after.ok, 'depois: o bruno volta a ouvir a alice (bytes de voz enviados/recebidos em 2 s)', after);
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); try { srv?.kill('SIGKILL'); } catch { } console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

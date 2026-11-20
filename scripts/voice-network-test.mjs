@@ -15,7 +15,9 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---- relé: 127.0.0.1:RTC (o que o navegador vê) <-> 127.0.0.2:RTC (o SFU) ----
 const net = { loss: 0, delay: 0, jitter: 0, burst: 0, only: null }; // only: 'down' = só do SFU para quem ouve // burst: chance de começar uma rajada de 5 perdas seguidas
-const front = dgram.createSocket('udp4'), back = new Map(); let lost = 0, passed = 0;
+const front = dgram.createSocket('udp4'), back = new Map(); let lost = 0, passed = 0, closed = false;
+// envio atrasado (later) que cai depois do fim: o socket já fechou e send() derrubaria o processo (ERR_SOCKET_DGRAM_NOT_RUNNING)
+const send = (s, m, port, addr) => { if (!closed) s.send(m, port, addr); };
 const drop = (st) => { if (st.burst > 0) { st.burst--; return true; } if (net.burst && Math.random() < net.burst) { st.burst = 4; return true; } return Math.random() < net.loss; };
 // só perde mídia (RTP/RTCP: 1º byte 128–191); STUN e DTLS passam, senão a conexão nem abre
 const isRtp = (m) => m[0] >= 128 && m[0] <= 191;
@@ -24,10 +26,10 @@ front.on('message', (msg, from) => {
   const k = from.address + ':' + from.port; let b = back.get(k);
   if (!b) {
     b = { s: dgram.createSocket('udp4'), up: { burst: 0 }, down: { burst: 0 } }; back.set(k, b);
-    b.s.on('message', (m) => { if (isRtp(m) && drop(b.down)) { lost++; return; } passed++; later(() => front.send(m, from.port, from.address)); });
+    b.s.on('message', (m) => { if (isRtp(m) && drop(b.down)) { lost++; return; } passed++; later(() => send(front, m, from.port, from.address)); });
   }
   if (isRtp(msg) && net.only !== 'down' && drop(b.up)) { lost++; return; } passed++;
-  later(() => b.s.send(msg, RTC, '127.0.0.2'));
+  later(() => send(b.s, msg, RTC, '127.0.0.2'));
 });
 await new Promise(r => front.bind(RTC, '127.0.0.1', r));
 
@@ -81,4 +83,4 @@ try {
   ok(out['atraso 80 ± 40 ms'].tapado_pct < 2, 'com atraso oscilando o buffer absorve (quase nada inventado)', out['atraso 80 ± 40 ms'].tapado_pct);
   if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify(out, null, 2));
 } catch (e) { console.log('ERRO', e); fails++; }
-finally { await browser.close(); try { srv.kill('SIGKILL'); } catch { } front.close(); console.log(`  relé: ${passed} pacotes passaram, ${lost} perdidos de propósito`); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }
+finally { await browser.close(); try { srv.kill('SIGKILL'); } catch { } closed = true; front.close(); for (const b of back.values()) b.s.close(); console.log(`  relé: ${passed} pacotes passaram, ${lost} perdidos de propósito`); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

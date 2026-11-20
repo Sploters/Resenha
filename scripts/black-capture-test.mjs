@@ -7,6 +7,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + 
 fs.rmSync('.testdata-black', { recursive: true, force: true });
 const PORT = 3225, BASE = `http://localhost:${PORT}`;
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', RTC: '0', DATA_DIR: './.testdata-black' }, stdio: 'ignore' });
+// o servidor morre junto com o teste, mesmo se ele cair no meio (antes ficava vivo na porta e o próximo teste falhava)
+const killSrv = () => { try { if (process.platform === 'win32') execSync(`taskkill /pid ${srv.pid} /T /F`, { stdio: 'ignore' }); else srv.kill('SIGKILL'); } catch { } };
+process.on('exit', killSrv);
 await sleep(1800);
 const b = await puppeteer.launch({ executablePath: process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
 try {
@@ -50,5 +53,5 @@ try {
   ok(fm['I420 cinza'] > 40 && fm['NV12 cinza'] > 40 && fm['I420 azul escuro'] > 30 && fm['NV12 azul escuro'] > 30 && fm['RGBA azul escuro'] === 40, 'leitura do quadro: cinza e azul escuros não são preto');
 } catch (e) { console.log('  EXCEÇÃO', e.message); fails++; }
 console.log(fails ? `\n${fails} FALHA(S)` : '\nCAPTURA PRETA OK');
-await b.close(); try { execSync(`taskkill /pid ${srv.pid} /T /F`, { stdio: 'ignore' }); } catch { }
+await b.close(); killSrv();
 process.exit(fails ? 1 : 0);
