@@ -153,7 +153,11 @@ export function connect() {
   // numa queda de verdade (pacotes somem sem resposta) a tentativa pode ficar "abrindo" por muito tempo, e a próxima nem
   // começa: sem abrir em 6 s, desiste desta e tenta de novo (onclose)
   const opening = ws; clearTimeout(connect.open); connect.open = setTimeout(() => { if (ws === opening && opening.readyState === 0) { closeWhy ||= 'não abriu em 6 s'; opening.close(); } }, 6000);
+  // eventos de um socket que já foi trocado por outro (a rede voltou e o 'online' abriu um novo antes de este terminar de
+  // fechar) são ignorados: antes o onclose dele agendava mais uma conexão e ficavam 2 abertas, cada evento tratado 2 vezes
+  const sock = ws;
   ws.onmessage = (e) => {
+    if (sock !== ws) return;
     const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
     // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
     const enc = e.data.includes('"e2ee:1:');
@@ -175,7 +179,7 @@ export function connect() {
     refreshDesktopVersion().then(v => { if (v !== sent) gwSend('CLIENT_INFO', { desktop: v }); });
   };
   ws.onclose = async (e) => {
-    if (!S.token) return;
+    if (!S.token || sock !== ws) return;
     if (e?.code) closeWhy = `fechada com código ${e.code}${e.reason ? ' (' + e.reason + ')' : ''}`;
     if (e?.code === 1012) restarting = true; // 1012 = o servidor está reiniciando
     if (ready && !offlineSince) offlineSince = Date.now();
