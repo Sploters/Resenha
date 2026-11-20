@@ -30,13 +30,12 @@ const sitem = (a) => { const g = GAMES[a]; if (!g) return { success: 0, appid: a
 const SID = (n) => '7656119800000000' + n;
 const LIB = { [SID(1)]: { 7001: 7200, 7005: 95 }, [SID(2)]: { 7001: 30, 7004: 600 }, [SID(3)]: null /* privada */ };
 const WISH = { [SID(1)]: [7002, 7003, 7004], [SID(2)]: [7002], [SID(3)]: [] };
-let wishCalls = 0;
 const mock = http.createServer((q, r) => {
   const u = new URL(q.url, M); r.setHeader('content-type', 'application/json');
   if (u.pathname === '/openid/login' && q.method === 'POST') { r.setHeader('content-type', 'text/plain'); return r.end('ns:http://specs.openid.net/auth/2.0\nis_valid:true\n'); }
   if (u.pathname.startsWith('/ISteamUser/GetPlayerSummaries')) return r.end(JSON.stringify({ response: { players: u.searchParams.get('steamids').split(',').map(id => ({ steamid: id, personaname: 'Steam' + id.slice(-1), communityvisibilitystate: 3, personastate: 1 })) } }));
   if (u.pathname.startsWith('/IPlayerService/GetOwnedGames')) { const l = LIB[u.searchParams.get('steamid')]; return r.end(JSON.stringify({ response: l ? { game_count: Object.keys(l).length, games: Object.entries(l).map(([appid, m]) => ({ appid: +appid, name: GAMES[appid].name, playtime_forever: m, rtime_last_played: s(now - day) })) } : {} })); }
-  if (u.pathname.startsWith('/IWishlistService/GetWishlist')) { wishCalls++; return r.end(JSON.stringify({ response: { items: (WISH[u.searchParams.get('steamid')] || []).map((appid, i) => ({ appid, priority: i, date_added: s(now - i * day) })) } })); }
+  if (u.pathname.startsWith('/IWishlistService/GetWishlist')) { return r.end(JSON.stringify({ response: { items: (WISH[u.searchParams.get('steamid')] || []).map((appid, i) => ({ appid, priority: i, date_added: s(now - i * day) })) } })); }
   if (u.pathname.startsWith('/sapi/IStoreBrowseService/GetItems')) return r.end(JSON.stringify({ response: { store_items: JSON.parse(u.searchParams.get('input_json')).ids.map(x => sitem(x.appid)) } }));
   if (u.pathname.startsWith('/sapi/IStoreService/GetTagList')) return r.end(JSON.stringify({ response: { tags: [{ tagid: 10, name: 'Ação' }] } }));
   if (u.pathname.startsWith('/img/')) { const a = u.pathname.split('/')[2]; r.setHeader('content-type', 'image/svg+xml'); return r.end(svg(GAMES[a]?.color || '#555', GAMES[a]?.name || '')); }

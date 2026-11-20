@@ -6,7 +6,7 @@ import { openTrimmer } from './cliptrim.js';
 import { trackWatch } from './clipwatch.js';
 import { postClip } from './clips.js';
 import { stagger, pulse } from './motion.js';
-import { S, api, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
+import { S, tryApi, toast, menu, modal, confirmBox, promptBox, can, PERM, guild, nameOf } from './state.js';
 
 let ctx = {}; // injetado por app.js: go(gid, cid), jumpTo(mid)
 export const initClipsGallery = (c) => { ctx = c; };

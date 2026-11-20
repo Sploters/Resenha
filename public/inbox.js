@@ -12,9 +12,6 @@ import { renderSide } from './side.js';
 import { profile, initialsOf, openDM } from './usermenu.js';
 import { msgEl } from './chat.js';
 import { jumpTo } from './msgactions.js';
-// o mesmo botão abre e fecha o painel da direita (fixadas / caixa de entrada)
-const resultsOpen = (kind) => $('#results')?.dataset.kind === kind;
-function markResultBtns() { const k = $('#results')?.dataset.kind; $('.pins-btn')?.classList.toggle('sel', k === 'pins'); $('.inbox-btn')?.classList.toggle('sel', k === 'inbox'); }
 // prende o popup pela borda direita do botão, logo abaixo dele (medir a largura falha durante a animação de entrada, que encolhe o popup)
 export const anchorRight = (pop, btn, gap) => { const r = btn.getBoundingClientRect(); pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + gap) + 'px'; };
 // popups dos botões do topo (fixadas, notificações): clicar de novo no mesmo botão fecha
@@ -78,15 +75,6 @@ export async function showPins(e) {
   const pop = popout(btn, h('div.pp', h('div.pp-head', icon('pin', 22), h('b', 'Mensagens fixadas')), body,
     h('div.pp-foot', h('b', 'Dica:'), h('span', S.view.kind === 'guild' ? 'Quem tem a permissão "Gerenciar mensagens" pode fixar uma mensagem pelo menu de contexto dela.' : 'Clique com o botão direito numa mensagem e escolha "Fixar mensagem".'))));
   pop.classList.add('pinspop'); anchorRight(pop, btn, 8);
-}
-let searchSeq = 0;
-async function doSearch(q) {
-  const seq = ++searchSeq;
-  if (!q.trim()) return closeResults();
-  const gid = S.view.kind === 'guild' ? S.view.gid : '';
-  const list = await tryApi('GET', `/search?q=${encodeURIComponent(q)}${gid ? '&guild=' + gid : ''}`); if (!list || seq !== searchSeq) return; // chegou uma busca mais nova
-  showResults(`${list.length} resultado(s)`, list);
-  if (!list.length) $('#results')?.append(h('div.hintline', { style: { padding: '8px' } }, 'Dica: use de:nome, tem:imagem, tem:arquivo, tem:link ou em:canal para filtrar.'));
 }
 // ---------- caixa de entrada: menções, respostas e @everyone ----------
 const inboxCount = () => Object.values(S.mentions).reduce((n, v) => n + (v || 0), 0) + [...S.rels.values()].filter(r => r.type === 3).length + dealsUnseen(); // menções + pedidos de amizade esperando resposta + promoções da wishlist
@@ -208,11 +196,4 @@ function friendRequests(redraw, empty) {
     out.length > 0 && h('div.ib-req-h', `Enviados — ${out.length}`), ...out.map(r => row(r, false)),
     ...lost,
   ].filter(Boolean);
-}
-function closeResults() { $('#results')?.remove(); markResultBtns(); }
-function showResults(title, list, kind = 'search') {
-  closeResults();
-  const panel = h('div#results', { 'data-kind': kind }, h('div.rh', title, h('button.ibtn', { style: { width: '20px', height: '20px' }, onclick: closeResults }, icon('x', 14))),
-    list.length ? list.map(m => { const e = msgEl(m, null); e.querySelector('.toolbar')?.remove(); e.onclick = () => { const ch = channelById(m.channel_id); closeResults(); if (S.view.cid !== m.channel_id) { go(ch.guild_id || '@me', m.channel_id); setTimeout(() => jumpTo(m.id), 600); } else jumpTo(m.id); }; return e; }) : h('div.empty', { style: { marginTop: '20px' } }, 'Nada encontrado.'));
-  $('#content')?.append(panel); markResultBtns();
 }

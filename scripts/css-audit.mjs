@@ -79,12 +79,12 @@ try {
   for (const id of new Set(ruleUsage.map(r => r.styleSheetId))) { try { const { text } = await cdp.send('CSS.getStyleSheetText', { styleSheetId: id }); sheets.set(id, text); } catch { } }
   const files = Object.fromEntries(fs.readdirSync('public').filter(f => f.endsWith('.css')).map(f => [f, fs.readFileSync('public/' + f, 'utf8')]));
   const rulesOf = (t) => { // [início, fim, seletor] de cada regra comum
-    const out = []; let i = 0, depth = 0; const stack = []; let start = 0;
+    const out = []; let i = 0; const stack = []; let start = 0;
     while (i < t.length) {
       if (t[i] === '/' && t[i + 1] === '*') { const e = t.indexOf('*/', i + 2); i = e < 0 ? t.length : e + 2; continue; }
       if (t[i] === '"' || t[i] === "'") { const q = t[i]; i++; while (i < t.length && t[i] !== q) i += t[i] === '\\' ? 2 : 1; i++; continue; }
-      if (t[i] === '{') { const sel = t.slice(start, i).trim(); stack.push({ sel, at: start, group: /^@(media|supports|layer|container|document)/.test(sel) }); depth++; start = i + 1; }
-      else if (t[i] === '}') { const b = stack.pop(); depth--; if (b && !b.group && !b.sel.startsWith('@') && !stack.some(x => !x.group)) out.push([b.at, i + 1, b.sel.replace(/\s+/g, ' ')]); start = i + 1; }
+      if (t[i] === '{') { const sel = t.slice(start, i).trim(); stack.push({ sel, at: start, group: /^@(media|supports|layer|container|document)/.test(sel) }); start = i + 1; }
+      else if (t[i] === '}') { const b = stack.pop(); if (b && !b.group && !b.sel.startsWith('@') && !stack.some(x => !x.group)) out.push([b.at, i + 1, b.sel.replace(/\s+/g, ' ')]); start = i + 1; }
       else if (t[i] === ';' && (!stack.length || stack[stack.length - 1].group)) start = i + 1;
       i++;
     }

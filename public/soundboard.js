@@ -1,6 +1,6 @@
 // Soundboard: sons pessoais (sincronizados na conta) + sons dos servidores, tocados para toda a sala de voz.
 import { h, icon, avatar, initials, whenGone, soundEmoji, debounce } from './util.js';
-import { S, api, tryApi, toast, savePrefs, modal, promptBox, popout, closeFloating, guild, can, PERM, confirmBox, menu, emojiPicker } from './state.js';
+import { S, api, tryApi, toast, savePrefs, modal, popout, closeFloating, can, PERM, confirmBox, menu, emojiPicker } from './state.js';
 import { toggle, slider, comboFromEvent, comboLabel, captureKey } from './ui.js';
 
 const MAX_BYTES = 2 * 1024 * 1024, MAX_SECS = 15;
@@ -16,7 +16,6 @@ export function soundSources() {
 }
 export const findSound = (id) => { for (const src of soundSources()) { const s = src.sounds.find(x => x.id === id); if (s) return s; } return null; };
 
-let ctx;
 const sink = (el) => { if (S.prefs.outputId && el.setSinkId) el.setSinkId(S.prefs.outputId).catch(() => { }); };
 export function playLocal(url, volumePct = 100) {
   try {

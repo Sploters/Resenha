@@ -1,7 +1,7 @@
 // Editor de tema em painel lateral: prévia ao vivo no app, cores do gradiente, direção, intensidade, "Surpreenda-me".
 import { h, icon } from './util.js';
 import { S, savePrefs, applyTheme, toast, promptBox } from './state.js';
-import { gradientCss, paintTheme, encodeTheme, HEX, MAX_COLORS } from './themes.js';
+import { paintTheme, encodeTheme, HEX, MAX_COLORS } from './themes.js';
 
 export function shareTheme(t) {
   const code = encodeTheme(t);

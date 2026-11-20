@@ -30,7 +30,6 @@ const TICK = 100; // jiffies por segundo do /proc (Linux)
 
 // ---------- CPU de processos pelo /proc (servidor e navegador inteiro, com os filhos) ----------
 const cpuOf = (pid) => { try { const f = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' '); return (+f[11] + +f[12]) / TICK * 1000; } catch { return 0; } }; // ms
-const rssOf = (pid) => { try { return +/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'))[1] / 1024; } catch { return 0; } }; // MB
 function tree(root) {
   const kids = new Map();
   for (const d of fs.readdirSync('/proc')) { if (!/^\d+$/.test(d)) continue; try { const pp = +fs.readFileSync(`/proc/${d}/stat`, 'utf8').split(') ')[1].split(' ')[1]; (kids.get(pp) || kids.set(pp, []).get(pp)).push(+d); } catch { } }

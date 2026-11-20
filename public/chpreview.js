@@ -1,7 +1,7 @@
 // Prévia de canal: mostra as últimas mensagens ao passar o mouse (ou Shift + mouse / clique do meio) num canal da lista,
 // sem abrir o canal nem marcá-lo como lido.
 import { h, icon, avatar, md, stamp, inviteText, skeleton } from './util.js';
-import { S, api, user, nameOf, roleColor, roleDot, channelById, dmPeer, emojiUrl } from './state.js';
+import { S, api, user, nameOf, roleColor, roleDot, dmPeer, emojiUrl } from './state.js';
 import { styleName, themeText } from './themes.js';
 import { chName } from './chnames.js';
 

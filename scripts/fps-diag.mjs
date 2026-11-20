@@ -162,7 +162,6 @@ try {
   for (let i = 0; i < 30 && !(await E.evaluate(() => window.__lc.voice.sfu?.ready)); i++) await sleep(500);
   const sfuOk = await E.evaluate(() => !!window.__lc.voice.sfu?.ready); console.log('SFU pronto no remetente:', sfuOk, JSON.stringify(await E.evaluate(() => ({ ch: window.__lc.voice.channelId, sfu: !!window.__lc.voice.sfu, err: window.__lc.voice.error }))));
   await ev(SENDER_JS); await ev('__diag.patch()'); await B.evaluate(RECV_JS);
-  const aliceId = await E.evaluate(() => window.__lc.S.me.id);
 
   const animBrowser = await puppeteer.launch({ executablePath: EDGE, headless: false, defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'], args: ['--kiosk', '--disable-features=CalculateNativeWinOcclusion', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--user-data-dir=' + process.cwd() + '/.testdata-diag-a', pathToFileURL(path.resolve('scripts/fps-diag-anim.html')).href] }); browsers.push(animBrowser);
   await sleep(2500);
@@ -198,7 +197,6 @@ try {
       const pick = await ev(`__diag.pick('${c.target}')`); if (pick.error) { console.log('  pulou', c.target, pick.error, pick.all); continue; }
       const video = c.fps === 'livre' ? true : { frameRate: { ideal: c.fps, max: c.fps }, cursor: 'always' };
       if (process.env.CAP_ONLY && !process.env.CAP_ONLY.split(',').includes(c.target + c.fps)) continue;
-      const vis0 = await A.evaluate(() => document.visibilityState);
       const a = await animSnap();
       const watch = setInterval(async () => { try { const v = await A.evaluate(() => document.visibilityState); if (v !== 'visible') console.log('   anim ficou', v); } catch { } }, 1000);
       const r = await ev(`__diag.captureOnly(${JSON.stringify(video)}, 10)`);
@@ -297,7 +295,7 @@ try {
       for (let i = 0; i < 10; i++) { vals.push(await ev('window.__lc.voice.captureFps')); await sleep(1000); }
       const t1 = await ev('performance.now()'); const ts = await ev('__diag.capStop()');
       const direct = sigma(ts, t0, t1).fps, shown = median(vals);
-      const text = await ev(`(() => { window.__lc.voice.onUpdate?.(); return window.__lc.voice.captureFps })()`);
+      await ev(`(() => { window.__lc.voice.onUpdate?.(); return window.__lc.voice.captureFps })()`);
       await ev(`window.__lc.voice.stopLocal('screen'); true`);
       const stopped = await ev('window.__lc.voice.captureFps');
       const row = { requested: fps, appMetric: shown, direct, diff: r1(Math.abs(shown - direct)), series: vals, afterStop: stopped };

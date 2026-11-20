@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---- relé: 127.0.0.1:RTC (o que o navegador vê) <-> 127.0.0.2:RTC (o SFU) ----
 const net = { loss: 0, delay: 0, jitter: 0, burst: 0, only: null }; // only: 'down' = só do SFU para os navegadores, 'up' = só dos navegadores para o SFU // burst: chance de começar uma rajada de 5 perdas seguidas
-const front = dgram.createSocket('udp4'), back = new Map(); let lost = 0, passed = 0;
+const front = dgram.createSocket('udp4'), back = new Map();
 const drop = (st) => { if (st.burst > 0) { st.burst--; return true; } if (net.burst && Math.random() < net.burst) { st.burst = 4; return true; } return Math.random() < net.loss; };
 // só perde mídia (RTP/RTCP: 1º byte 128–191); STUN e DTLS passam, senão a conexão nem abre
 const isRtp = (m) => m[0] >= 128 && m[0] <= 191;
@@ -24,9 +24,9 @@ front.on('message', (msg, from) => {
   const k = from.address + ':' + from.port; let b = back.get(k);
   if (!b) {
     b = { s: dgram.createSocket('udp4'), up: { burst: 0 }, down: { burst: 0 } }; back.set(k, b);
-    b.s.on('message', (m) => { if (isRtp(m) && net.only !== 'up' && drop(b.down)) { lost++; return; } passed++; later(() => front.send(m, from.port, from.address)); });
+    b.s.on('message', (m) => { if (isRtp(m) && net.only !== 'up' && drop(b.down)) return; later(() => front.send(m, from.port, from.address)); });
   }
-  if (isRtp(msg) && net.only !== 'down' && drop(b.up)) { lost++; return; } passed++;
+  if (isRtp(msg) && net.only !== 'down' && drop(b.up)) return;
   later(() => b.s.send(msg, RTC, '127.0.0.2'));
 });
 await new Promise(r => front.bind(RTC, '127.0.0.1', r));

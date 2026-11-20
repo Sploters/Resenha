@@ -39,7 +39,6 @@ const goTab = async (p, label) => { await p.evaluate(() => window.__lc.go('@me')
 // a aba Atividade virou o painel "Ativo agora" (sempre à direita dos Amigos)
 const goPanel = (p) => goTab(p, 'Todos');
 const cards = (p) => txt(p, '#actfeed .an-card.an-play');
-const befriend = async (a, b) => { await call(a.tok, 'POST', '/relationships', { username: b.uname }); await call(b.tok, 'PUT', '/relationships/' + (await call(b.tok, 'GET', '/me/settings') && b.id), {}); };
 
 try {
   const pa = await open(A), pb = await open(B), pc = await open(C);

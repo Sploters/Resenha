@@ -363,7 +363,6 @@ try {
   await cmd(HP, 'skip', { item_id: (await W(HP)).sess.current.id });
   ok(await until(async () => (await W(B)).sess.current?.service === 'file' && (await W(B)).playerState === 'playing' && (await W(C)).playerState === 'playing', 10000), 'link de vídeo toca integrado para todos');
   await sleep(2500);
-  const fsp = Math.abs((await ptime(B)) - (await ptime(C)));
   await until(async () => (await spread([B, C])) < 0.1, 6000, 300);
   ok((await spread([B, C])) < 0.15, 'link de vídeo sincronizado (menos de 150 ms)', +(await spread([B, C])).toFixed(3));
   await shot(B, '16-link-de-video');

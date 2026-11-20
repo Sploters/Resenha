@@ -253,7 +253,6 @@ export function uxStatsPage() {
   const draw = () => {
     drawVersions();
     const E = data.eventos || {}, total = Object.values(E).reduce((n, e) => n + e.total, 0);
-    const back = E.back_to_friends?.detalhes || {}, esc = back.esc?.total || 0, backAll = esc + (back.rail?.total || 0);
     const fl = Object.values(data.funis || {}), st = fl.reduce((n, x) => n + x.comecaram, 0), dn = fl.reduce((n, x) => n + Math.min(x.terminaram, x.comecaram), 0);
     const sw = data.tempos?.channel_switch?.geral;
     body.replaceChildren(...[ // (o filtro tira os 'false' das partes condicionais: replaceChildren escreveria "false")

@@ -45,7 +45,7 @@ try {
   await B.type('.e2-form input[type=password]', 'curta'); await B.evaluate(() => document.querySelectorAll('.e2-form input[type=password]')[1].value = 'curta');
   await modalBtn(B, 'Ativar'); await sleep(200);
   ok(/10 caracteres/.test(await B.$eval('.e2-err', e => e.textContent)), 'frase curta é recusada');
-  await B.evaluate((p) => { const [a, b] = document.querySelectorAll('.e2-form input[type=password], .e2-form input[placeholder="Repita a frase"]'); a.value = p; document.querySelector('.e2-form input[placeholder="Repita a frase"]').value = p; }, PASS_B);
+  await B.evaluate((p) => { const [a] = document.querySelectorAll('.e2-form input[type=password], .e2-form input[placeholder="Repita a frase"]'); a.value = p; document.querySelector('.e2-form input[placeholder="Repita a frase"]').value = p; }, PASS_B);
   await modalBtn(B, 'Ativar'); await B.waitForFunction(() => !document.querySelector('.e2-form'), { timeout: 15000 });
   await A.waitForFunction(() => document.querySelector('#e2-btn')?.classList.contains('e2-on'), { timeout: 5000 }).catch(() => { });
   ok(await A.$eval('#e2-btn', b => b.classList.contains('e2-on')), 'a outra pessoa ativou: a conversa fica protegida sozinha (evento E2EE_KEY)');

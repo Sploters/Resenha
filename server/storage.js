@@ -25,7 +25,6 @@ export function mountStorage(app, d) {
   const { auth, wrap, bad, all, get, run, can, P, dispatch, channelAudience, messageObj, unlinkIfUnused, isAdmin, uploadDir, db } = d;
   try { db.exec('ALTER TABLE guilds ADD COLUMN media_days INTEGER DEFAULT 0'); } catch { /* já existe */ }
 
-  const fileOf = (url) => path.basename(String(url || '').split('/')[2] || '');
   // nome do lugar: "Servidor › #canal" ou "DM com Fulano" (do ponto de vista de uid)
   const placeName = (ch, uid) => {
     if (ch.guild_id) { const g = get('SELECT name FROM guilds WHERE id=?', ch.guild_id); return { guild: g?.name || 'Servidor', channel: '#' + (ch.name || 'canal') }; }

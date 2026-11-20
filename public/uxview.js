@@ -2,7 +2,7 @@
 // tem na fila e o que já mandou nesta abertura do app, em linguagem de gente, mais o que o servidor conta sozinho.
 // Transparência: nada aqui é exemplo, é a lista real (public/ux.js guarda as últimas 30 remessas só na memória).
 import { h, icon } from './util.js';
-import { modal, S } from './state.js';
+import { modal } from './state.js';
 import { uxPending, uxSent, uxOn, flushUx, UX_VERSION } from './ux.js';
 
 export const EVENT_NAMES = {

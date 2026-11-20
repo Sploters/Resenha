@@ -231,7 +231,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   // clipes da semana: ranking ponderado, categorias e recomendações vêm de server/clipstats.js (clipsWeek)
   const WEEK_DAYS = 7;
   function weekFor(viewer, { top = 3 } = {}) {
-    const t0 = now(), since = t0 - WEEK_DAYS * 864e5, fr = friendsOf(viewer), ids = [viewer, ...fr], frSet = new Set(fr);
+    const t0 = now(), since = t0 - WEEK_DAYS * 864e5, fr = friendsOf(viewer), ids = [viewer, ...fr];
     const days = []; for (let i = WEEK_DAYS - 1; i >= 0; i--) days.push(dayKey(t0 - i * 864e5));
     const dayIdx = new Map(days.map((k, i) => [k, i]));
     const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, canSee(viewer, uid, platform)); return seeMemo.get(k); };

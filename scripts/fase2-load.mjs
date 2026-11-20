@@ -44,7 +44,7 @@ try {
   const t0 = Date.now(); let k = 0;
   while ((Date.now() - t0) / 1000 < SECS) { await sample(tOwner, 'carga ' + (++k)); await sleep(5000); }
   // recepção de um espectador: confirma que de fato recebe
-  const rx = await sess[N_S].evaluate(async () => { const v = window.__lc.voice, out = []; for (const [uid, p] of v.peers) { const s = await v.streamStats(uid); if (s?.w) out.push({ w: s.w, h: s.h, fps: s.fps, kbps: s.kbps, loss: s.loss, q: s.quality }); } return out; });
+  const rx = await sess[N_S].evaluate(async () => { const v = window.__lc.voice, out = []; for (const uid of v.peers.keys()) { const s = await v.streamStats(uid); if (s?.w) out.push({ w: s.w, h: s.h, fps: s.fps, kbps: s.kbps, loss: s.loss, q: s.quality }); } return out; });
   results.viewerRx = rx; console.log('  espectador 1 recebendo:', JSON.stringify(rx));
   const loadS = results.samples.filter(s => s.tag.startsWith('carga')), cpus = loadS.map(s => s.cpu).filter(x => x != null);
   results.summary = { idleCpu: results.samples.filter(s => s.tag === 'ocioso').map(s => s.cpu), loadCpuAvg: +(cpus.reduce((a, b) => a + b, 0) / (cpus.length || 1)).toFixed(1), loadCpuPeak: Math.max(...cpus), rssLoad: loadS.at(-1)?.rssMB, counts: loadS.at(-1) && { peers: loadS.at(-1).peers, transports: loadS.at(-1).transports, producers: loadS.at(-1).producers, consumers: loadS.at(-1).consumers } };

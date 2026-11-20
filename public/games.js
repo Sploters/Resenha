@@ -5,7 +5,7 @@
 // - Configurações → Contas vinculadas: quem vê, sincronizar a Steam e a sua wishlist
 // O servidor decide quem cada um pode ver; aqui só se mostra o que ele mandou.
 import { h, icon, avatar, skeleton } from './util.js';
-import { S, api, tryApi, toast, modal, notify } from './state.js';
+import { S, tryApi, toast, modal, notify } from './state.js';
 import { steamInfo } from './steamcard.js';
 import { playingSteam } from './activity.js';
 import { section, row, seg } from './ui.js';

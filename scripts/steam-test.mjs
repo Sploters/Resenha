@@ -85,7 +85,7 @@ try {
   const LB = await startLink(tb); const dup = await cb(steamReturn(LB.returnTo));
   ok(dup.status === 400 && /outro usuário/.test(dup.html) && (await call(tb, 'GET', '/integrations')).data[0].account === null, 'a mesma conta Steam não pode ser vinculada a dois usuários');
   // state de um usuário não serve para outro (o state liga ao usuário que pediu)
-  const LA2 = await startLink(ta); const stolen = await cb(steamReturn(LA2.returnTo)); // ainda é da alice: re-vincula a mesma conta (ok), nunca a do bob
+  const LA2 = await startLink(ta); await cb(steamReturn(LA2.returnTo)); // ainda é da alice: re-vincula a mesma conta (ok), nunca a do bob
   ok((await call(tb, 'GET', '/integrations')).data[0].account === null, 'o state sempre vincula ao usuário que iniciou o pedido');
 
   // ---- privacidade ----

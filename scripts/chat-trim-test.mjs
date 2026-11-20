@@ -5,7 +5,6 @@ import puppeteer from 'puppeteer-core'; import { spawn } from 'node:child_proces
 const PORT=3297,BASE=`http://localhost:${PORT}`,D='./.testdata-churn',sleep=(ms)=>new Promise(r=>setTimeout(r,ms)); let fails=0; const ok=(c,m,x)=>{console.log((c?'  ok   ':'  FAIL ')+m+(x!==undefined?'  '+JSON.stringify(x):''));if(!c)fails++;};
 const srv=spawn('node',['server/index.js'],{env:{...process.env,PORT,HTTPS:'0',DATA_DIR:D,RTC:'0'},stdio:'ignore'}); for(let i=0;i<150;i++){try{await fetch(BASE+'/api/server-info');break}catch{await sleep(200)}}
 const call=(tok,m,p,b)=>fetch(BASE+'/api'+p,{method:m,headers:{'content-type':'application/json',...(tok?{authorization:'Bearer '+tok}:{})},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
-const reg=async(n)=>{const r=await call('','POST','/register',{username:n,password:'Teste.senha-123'});await call(r.token,'PATCH','/me',{});return r.token};
 const meta=JSON.parse(fs.readFileSync(D+'/load.json','utf8')); const a='load-0', g={id:meta.guild}; const bs=Array.from({length:30},(_,i)=>'load-'+(i+1));
 const br=await puppeteer.launch({executablePath: process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome',headless:'new',args:['--no-sandbox']}); const p=await br.newPage(); await p.setViewport({width:1440,height:900});
 await p.evaluateOnNewDocument(t=>{localStorage.lc_token=t},a); await p.goto(BASE); await p.waitForSelector('#rail .rail-wrap');
@@ -16,8 +15,8 @@ const st=()=>p.evaluate(()=>{const els=[...document.querySelectorAll('#msgs > .m
 let s=await st(); ok(s.n<=250 && s.last==='msg 299','chat limitado com a pessoa no fim', {n:s.n,first:s.first,last:s.last});
 // rolar até o topo várias vezes: as antigas voltam, na ordem, sem duplicar
 for(let k=0;k<30;k++){ await p.evaluate(()=>{const m=document.querySelector('#msgs'); m.scrollTop=0; m.dispatchEvent(new Event('scroll'));}); await sleep(700); }
-s=await st(); const nums=(await p.evaluate(()=>[...document.querySelectorAll('#msgs > .msg')].map(e=>+(e.textContent.match(/msg (\d+)/)||[])[1]).filter(x=>!isNaN(x))));
+s=await st(); 
 // (histórico em janela: passando de 300 no chat, as mais novas saem de baixo e aparece "vendo mensagens antigas")
 ok(s.n<=300 && (await p.evaluate(()=>/mensagem antiga \d/.test(document.querySelector('#msgs').innerText))) && !!(await p.$('#detached-bar')),'rolando para cima as antigas voltam (até a msg 0 e além), com o chat limitado',{n:s.n,first:s.first,last:s.last});
-const mine=nums.filter((x,i)=>true); ok(new Set(s.ids).size===s.ids.length && s.ids.every((x,i)=>!i||BigInt(x)>BigInt(s.ids[i-1])),'sem duplicadas e na ordem',{n:s.ids.length});
+ok(new Set(s.ids).size===s.ids.length && s.ids.every((x,i)=>!i||BigInt(x)>BigInt(s.ids[i-1])),'sem duplicadas e na ordem',{n:s.ids.length});
 await br.close(); srv.kill(); console.log(fails?fails+' falha(s)':'tudo certo'); process.exit(fails?1:0);

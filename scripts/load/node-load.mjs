@@ -63,8 +63,8 @@ if (process.argv[2] === 'worker') {
   const rss = () => { try { return Math.round(+fs.readFileSync(`/proc/${pid}/status`, 'utf8').match(/VmRSS:\s+(\d+)/)[1] / 1024); } catch { return null; } };
   const ws = Array.from({ length: WORKERS }, (_, w) => fork(new URL(import.meta.url).pathname, ['worker', w, WORKERS]));
   const all = { ready: [], http: {}, entrega: [], erros: 0, wsFail: 0, recebidas: 0, frames: 0, bytes: 0 };
-  let phase = 0, phaseT = 0, cur = 0, lastCpu = cpu(), t = 0;
-  const setTarget = (n) => { cur = n; ws.forEach((w, i) => w.send({ target: Math.floor(n / WORKERS) + (i < n % WORKERS ? 1 : 0) })); };
+  let phase = 0, phaseT = 0, lastCpu = cpu(), t = 0;
+  const setTarget = (n) => { ws.forEach((w, i) => w.send({ target: Math.floor(n / WORKERS) + (i < n % WORKERS ? 1 : 0) })); };
   const rows = [];
   const tick = async () => {
     const parts = await Promise.all(ws.map(w => new Promise(r => { w.once('message', r); w.send({ report: true }); })));

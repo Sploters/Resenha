@@ -107,7 +107,7 @@ setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => 
 function addServerModal() {
   flow('add_server', 'start');
   const name = h('input', { value: `Servidor de ${S.me.display_name}`, maxLength: 100 }), code = h('input', { placeholder: 'https://… ou código do convite' });
-  const m = modal('Crie seu servidor', 'Seu servidor é onde você e seus amigos conversam.', h('div',
+  modal('Crie seu servidor', 'Seu servidor é onde você e seus amigos conversam.', h('div',
     h('label.f', 'Nome do servidor', name),
     h('div', { style: { textAlign: 'center', color: 'var(--text-muted)', margin: '8px 0' } }, '— ou entre em um servidor —'),
     h('label.f', 'Link ou código de convite', code)),

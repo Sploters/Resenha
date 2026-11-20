@@ -40,7 +40,6 @@ export function rememberPost(p) {
 export async function loadPost(pid) {
   try { const p = await api('GET', `/posts/${pid}`); rememberPost(p); return S.posts.get(pid); } catch { return null; }
 }
-const postOf = (id) => S.posts.get(id)?.post;
 
 // ---------- eventos ----------
 export function onForumEvent(t, d) {

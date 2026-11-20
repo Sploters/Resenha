@@ -29,7 +29,7 @@ try {
     out.last.connect(ctx.destination); src.start(START / R);
     ctx.suspend(256 / R).then(async () => { await new Promise(r => setTimeout(r, 700)); out.setVadGate({ sens: prefs.vadSens ?? 50 }); ctx.resume(); });
     const y = (await ctx.startRendering()).getChannelData(0).subarray(START);
-    const dbgOn = prefs.vadDebug; const stats = out.vadGate ? await new Promise((ok) => { out.vadGate.port.onmessage = (e) => e.data?.stats !== undefined && ok(e.data); out.vadGate.port.postMessage('stats'); setTimeout(() => ok(null), 3000); }) : null;
+    const stats = out.vadGate ? await new Promise((ok) => { out.vadGate.port.onmessage = (e) => e.data?.stats !== undefined && ok(e.data); out.vadGate.port.postMessage('stats'); setTimeout(() => ok(null), 3000); }) : null;
     const rms = (a, b) => { let s = 0; for (let i = Math.round(a * R); i < Math.round(b * R); i++) s += y[i] * y[i]; return +(10 * Math.log10(s / ((b - a) * R) + 1e-15)).toFixed(1); };
     const types = out.nodes.map(nd => nd.constructor.name + (nd instanceof AudioWorkletNode ? `(${nd.numberOfInputs})` : ''));
     const d = stats?.stats, dsum = d && [300, 330, 360, 400, 450].map(k => [k, +d.vad[k].toFixed(2), Math.round(d.lvl[k]), Math.round(d.noise[k]), d.st[k]]);

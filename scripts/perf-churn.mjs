@@ -35,7 +35,7 @@ try {
     if (ws && ws.readyState === 1) { ws.close(); socks.delete(i); } else open(i);
     events++; await sleep(1000 / RATE);
   }
-  if (process.env.PROFILE) { const { profile } = await cdp.send('Profiler.stop'); const self = new Map(), byId = new Map(profile.nodes.map(n => [n.id, n])), dt = profile.timeDeltas; const tot = {};
+  if (process.env.PROFILE) { const { profile } = await cdp.send('Profiler.stop'); const byId = new Map(profile.nodes.map(n => [n.id, n])), dt = profile.timeDeltas; const tot = {};
     profile.samples.forEach((id, i) => { const n = byId.get(id), f = n.callFrame, k = (f.functionName || '(anon)') + ' ' + f.url.split('/').pop().split('?')[0] + ':' + (f.lineNumber + 1); tot[k] = (tot[k] || 0) + (dt[i] || 0); });
     R.topSelf = Object.entries(tot).sort((x, y) => y[1] - x[1]).slice(0, 15).map(([k, v]) => (v / 1e4 / SECS).toFixed(2) + '% ' + k); }
   const b = await m(), d = (k) => +((b[k] - a[k]) / SECS * 100).toFixed(1);

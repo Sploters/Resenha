@@ -1,7 +1,7 @@
 // Teste da transmissão nativa (120 FPS): gera o código para o programa de captura do PC, assiste a própria
 // transmissão pelo servidor (o vídeo faz a volta inteira: PC -> servidor -> este app) e mede quadros por segundo.
 import { h, icon } from './util.js';
-import { S, api, toast, modal } from './state.js';
+import { api, toast, modal } from './state.js';
 
 let cur = null; // teste aberto
 export function nativeEnded(d) { if (cur && d.producer_id === cur.producer_id) cur.ended(d.reason); }

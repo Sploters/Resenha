@@ -3,8 +3,8 @@ import { pulse } from './motion.js';
 import { h, icon, avatar, framePos, imgUrl } from './util.js';
 import { openNews } from './changelog.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, savePrefs, setDevice, popout, closeFloating, user, nameOf, focusOn, setFocus } from './state.js';
-import { seg, toggle, slider, noiseCards } from './ui.js';
+import { S, tryApi, toast, savePrefs, setDevice, popout, closeFloating, focusOn, setFocus } from './state.js';
+import { toggle, noiseCards } from './ui.js';
 
 const STATUS = [['online', 'Online', 's-online', ''], ['idle', 'Ausente', 's-idle', ''], ['dnd', 'Não perturbe', 's-dnd', 'Silencia notificações'], ['invisible', 'Invisível', 's-offline', 'Aparece offline']];
 
@@ -13,17 +13,6 @@ async function devices(kind) {
 }
 export function applyOutput(voice) {
   for (const p of voice.peers.values()) { p.audioEl?.setSinkId?.(S.prefs.outputId).catch(() => { }); p.screenAudioEl?.setSinkId?.(S.prefs.outputId).catch(() => { }); }
-}
-function deviceList(kind, key, onPick) {
-  const box = h('div.devlist');
-  const draw = async () => {
-    const list = await devices(kind);
-    box.replaceChildren(...[{ deviceId: '', label: 'Padrão do sistema' }, ...list.filter(d => d.deviceId !== 'default' && d.deviceId !== 'communications')].map((d, i) =>
-      h('div.dev' + ((S.prefs[key] || '') === d.deviceId ? '.on' : ''), { onclick: () => { setDevice(key, d.deviceId, d.label); draw(); onPick?.(d); } }, h('span.dot'), h('span', d.label || `Dispositivo ${i}`))));
-    if (!list.length) box.append(h('small', { style: { color: 'var(--text-muted)' } }, 'Permita o acesso ao microfone para listar os dispositivos.'));
-  };
-  draw(); navigator.mediaDevices?.addEventListener?.('devicechange', draw);
-  return box;
 }
 
 // ---------- volume por usuário: controle deslizante até 200% + campo numérico até 1000% ----------
@@ -62,7 +51,7 @@ export function volumeControl(voice, uid, kind = 'mic', label) {
 // Menu do botão de microfone/fone (como o do Discord): dispositivo em submenu, volume e configurações de voz
 export function openAudioPanel(anchor, voice, kind, { openSettings } = {}) {
   const inp = kind === 'in', key = inp ? 'inputId' : 'outputId', dk = inp ? 'audioinput' : 'audiooutput';
-  const sub = h('div.dm-sub'), cur = h('div.dm-subtext', 'Padrão do sistema');
+  const cur = h('div.dm-subtext', 'Padrão do sistema');
   let fly = null, flyTimer = 0;
   const closeFly = () => { clearTimeout(flyTimer); fly?.remove(); fly = null; };
   const later = () => { clearTimeout(flyTimer); flyTimer = setTimeout(closeFly, 200); };

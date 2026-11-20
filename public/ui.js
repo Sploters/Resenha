@@ -1,6 +1,6 @@
 // Componentes de interface compartilhados (app + configurações)
 import { h, icon } from './util.js';
-import { SCREEN_PRESETS, NOISE_MODES } from './voice.js';
+import { NOISE_MODES } from './voice.js';
 import { S } from './state.js';
 import { track } from './ux.js';
 

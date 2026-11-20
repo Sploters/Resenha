@@ -6,7 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 const PORT = 3241, BASE = `http://localhost:${PORT}`, OUT = '.testshots/native';
 const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const H = +(process.env.H || 720), W = Math.round(H * 16 / 9), FPS = +(process.env.FPS || 120), SECS = +(process.env.SECS || 12);
+const H = +(process.env.H || 720), FPS = +(process.env.FPS || 120), SECS = +(process.env.SECS || 12);
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 execFileSync('cargo', ['build', '--release', '--quiet'], { cwd: 'native/lc-stream', stdio: 'inherit' });

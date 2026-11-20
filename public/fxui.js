@@ -1,5 +1,5 @@
 // Efeitos de voz (interface): escolher o efeito, ouvir a própria voz com ele, indicador de quem está usando.
-import { h, icon } from './util.js';
+import { h } from './util.js';
 import { S, popout, savePrefs, closeFloating } from './state.js';
 import { FX, fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';

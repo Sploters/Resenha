@@ -432,7 +432,7 @@ export const isImageUrl = (u) => /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif)(\?\
 // mensagem só de emojis (até 27) mostra grande. Sem expressão com repetição dentro de repetição: a anterior,
 // ^(\s*(A|B)(…)*\s*){1,27}$, tinha várias formas de casar o mesmo texto e "😀 😀 … 😀 x" levava 22 s com 14 emojis
 // (com 27, travava para sempre a aba de quem abrisse o canal). Agora: tira tudo que é emoji e conta os grafemas.
-const EMOJI_PART = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\u200d\ufe0f\s]/gu, EMOJI_HEAD = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u;
+const EMOJI_PART = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\ufe0f\s]|\u200d/gu, EMOJI_HEAD = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u;
 const graphemes = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter() : null;
 export const onlyEmoji = (s) => {
   const t = String(s || '').trim(); if (!t || t.length > 400 || t.replace(EMOJI_PART, '')) return false;

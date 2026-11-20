@@ -117,7 +117,6 @@ ok(r.results[0]?.title === 'Resultado gatos', 'pesquisa');
 await cmd('caio', 'add', { item: r.results[0] });
 ok(S().queue.at(-1).duration === 100 && metaCalls.at(-1) !== 'AAAAAAAAAAA', 'adicionar pela busca usa os dados do resultado (sem oEmbed)');
 await cmd('ana', 'add', { url: yt('CCCCCCCCCCC') });
-const q0 = S().queue.map(x => x.ref).join();
 
 // Hosting: permissões
 const seq0 = S().pb.seq;

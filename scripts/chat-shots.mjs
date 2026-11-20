@@ -17,7 +17,6 @@ try {
   await call(a.tok, 'POST', '/relationships', { username: 'amigo' }); await call(b.tok, 'PUT', `/relationships/${a.id}`, {});
   const dm = await call(a.tok, 'POST', '/dms', { user_id: b.id });
   const g = await call(a.tok, 'POST', '/guilds', { name: 'Turma' }); const code = (await call(a.tok, 'POST', `/guilds/${g.id}/invites`)).code; await call(b.tok, 'POST', '/invites/' + code);
-  const gg = await call(a.tok, 'GET', `/guilds/${g.id}`); const tc = (gg.channels || []).find(c => c.type === 0) ;
   const cid = dm.id;
   const msgs = [[b,'opa, bora jogar hoje?'],[a,'bora'],[a,'que horas?'],[b,'umas 21h'],[b,'chama o resto da galera'],[b,'vou abrir a sala de voz já já'],[a,'fechou'],[a,'sim senhor'],[a,'não tá ficando nem verde, olha isso aqui que texto comprido pra ver como quebra a linha quando a mensagem é maior que a largura da tela do chat']];
   for (const [u, t] of msgs) { await call(u.tok, 'POST', `/channels/${cid}/messages`, { content: t }); await sleep(30); }

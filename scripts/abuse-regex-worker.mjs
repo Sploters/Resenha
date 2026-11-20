@@ -1,5 +1,5 @@
 // Parte do scripts/abuse-regex-test.mjs: roda uma função do chat com um texto, num worker que pode ser morto se travar.
-import { parentPort, workerData } from 'node:worker_threads';
+import { parentPort } from 'node:worker_threads';
 const noop = () => { }, el = () => new Proxy(function () { }, { get: (t, k) => (k === Symbol.toPrimitive ? () => '' : k === 'length' ? 0 : el()), apply: () => el(), construct: () => el() });
 class E { } Object.assign(globalThis, { Element: E, DocumentFragment: E, HTMLElement: E, Node: E, window: globalThis, location: { origin: 'http://x', hash: '', href: 'http://x/' },
   localStorage: { getItem: () => null, setItem: noop, removeItem: noop }, sessionStorage: { getItem: () => null, setItem: noop }, matchMedia: () => ({ matches: false, addEventListener: noop }),

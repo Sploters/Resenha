@@ -39,7 +39,6 @@ const clickText = (page, sel, rx) => page.evaluate((sel, rx) => { const el = [..
 // ações da transmissão ficam no menu "Mais opções" do quadro (qualidade, destacar para todos...)
 const tileMenu = async (page, rx) => { const opened = await page.evaluate(() => { const b = document.querySelector('#stage .tile.screen .sctl button[title="Mais opções"]'); if (!b) return false; b.click(); return true; }); if (!opened) return false; await sleep(150);
   return page.evaluate((rx) => { const it = [...document.querySelectorAll('.menu .it')].find(e => new RegExp(rx).test(e.textContent)); if (!it) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return false; } it.click(); return true; }, rx); };
-const clickTitle = (page, rx) => page.evaluate((rx) => { const el = [...document.querySelectorAll('button')].find(e => new RegExp(rx).test(e.title)); if (!el) return false; el.click(); return true; }, rx);
 // painel de layout (botão no topo do palco): abre, escolhe a miniatura pelo nome e fecha
 const openLayout = async (page) => { if (!(await page.evaluate(() => !!document.querySelector('.layoutpop')))) { await page.evaluate(() => document.getElementById('vc-layout')?.click()); await sleep(200); } };
 const setLayout = async (page, label) => { await openLayout(page); const r = await clickText(page, '.layoutpop .lopt .lname', '^' + label); await sleep(500); await page.keyboard.press('Escape'); await sleep(100); return r; };
@@ -58,7 +57,7 @@ try {
   ok(owner.status === 200 && member.status === 403 && anon.status === 401, '/api/sfu/load: dono 200, membro comum 403, sem login 401', { owner: owner.status, member: member.status, anon: anon.status });
 
   const A = await session('alice', ta), B = await session('bob', tb);
-  const aid = await A.evaluate(() => window.__lc.S.me.id), bid = await B.evaluate(() => window.__lc.S.me.id);
+  const aid = await A.evaluate(() => window.__lc.S.me.id);
   await sleep(1500);
   const chans = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels, g.id), vch = chans.find(c => c.type === 2);
   for (const p of [A, B]) await p.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id);

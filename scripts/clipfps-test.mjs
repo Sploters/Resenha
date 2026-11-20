@@ -54,8 +54,8 @@ async function run(label, { fps, w = 1280, h = 720, rtc = true, local = false, o
       const f = new VideoFrame(c, { timestamp: Math.round(due * 1000) }); await wr.write(f); n++; } })();
     let track = gen, pcs = [], cv = null;
     if (local) { // captura local (como a sua própria transmissão pelo Chromium): canvas desenhado na taxa da fonte
-      cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); let k = 0;
-      const iv = setInterval(() => { g.drawImage(c, 0, 0); k++; }, 1000 / fps); pcs.push({ close: () => clearInterval(iv) });
+      cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d');
+      const iv = setInterval(() => { g.drawImage(c, 0, 0); }, 1000 / fps); pcs.push({ close: () => clearInterval(iv) });
       track = cv.captureStream(fps).getVideoTracks()[0];
     }
     if (rtc && !local) { // ida e volta por WebRTC no mesmo processo: o quadro chega como o de uma transmissão de outra pessoa

@@ -72,7 +72,7 @@ export function createGate(p) {
   let since = 1e9, fooled = 0, soft = false, stuck = false, calm = 0, loudRun = 0; // quadros desde a última voz, voz seguida, detector enganado
   const win = new Float32Array(Math.max(1, Math.round(p.floorWinMs / FRAME_MS))).fill(-90); let wi = 0, noise = -90, filled = 0;
   // trava na voz: volume típico da fala (~percentil 75 dos quadros de voz), histograma do tom (meio semitom por casa)
-  let spk = null, spkN = 0, fScore = 0, segRun = 0, segGap = 0, quietRun = 0, lockArmed = true, blocked = 0, unblocked = 0, sinceNear = 1e9, takeover = 0;
+  let spk = null, spkN = 0, fScore = 0, segRun = 0, segGap = 0, quietRun = 0, lockArmed = true, blocked = 0, unblocked = 0, takeover = 0;
   const hist = new Float32Array(96); let histW = 0, med = null, medAge = 0;
   const pitchMed = () => { if (histW < p.learnFrames * 2 * 0.5) return null; let acc = 0; for (let i = 0; i < hist.length; i++) { acc += hist[i]; if (acc >= histW / 2) return i / 2; } return null; };
   const g = {
@@ -118,7 +118,6 @@ export function createGate(p) {
       }
       const lockOk = !p.lock || (near && fScore < 1.5); // pode ABRIR (um quadro solto com tom errado, comum no começo da palavra, não impede)
       const lockKeep = !p.lock || ((keepNear || ownNear) && (!otherTalking || (lvl >= spk - p.pitchLoudDb && !foreign))); // pode MANTER aberta
-      if (near && vad >= need && loud) sinceNear = 0; else sinceNear++;
       // sua voz ficou bem mais baixa de vez (outro microfone, afastou): depois de unlockMs, o volume típico desce aos poucos
       // (a contagem só zera depois de 1 s sem bloqueio: as sílabas que ainda passam no meio não recomeçam a espera)
       if (lvOn && !near && own && vad >= need && loud) { unblocked = 0; if (++blocked * FRAME_MS > p.unlockMs) spk -= p.unlockDb; } else if (++unblocked > 100) blocked = 0;
