@@ -209,7 +209,11 @@ esqueleto do perfil da DM, um "Entrar" só, controles subindo, esqueleto do chat
 `perf-budget --base`: nada piorou de verdade; a 1ª rodada marcou "+55%" na thread principal da abertura (328 ms) e era
 ruído (os 3 pares acima). `idleChat/layoutsPerS` e `stylePerS` (2,3/s) continuam acima do orçamento, iguais antes e depois.
 
-**Bateria completa nesta máquina:** (em andamento; resultado no próximo commit)
+**Bateria completa nesta máquina** (`node scripts/run-tests.mjs`, 143 testes, 54 min): **141 de 143.** Os 2 que falham
+falham igual no código de antes (`b150ac0`, conferido na worktree `/home/user/base`): `gifs-test` (o seletor de GIFs não
+carrega as imagens: "Waiting for selector .gifpicker .gtile img") e `community2-test` ("Marcar como spoiler só para mim
+cobre a mensagem e fica guardado na conta"). Os 3 de antes (`community`, `focus-fly`, `screen-release`) agora passam.
+Próximo passo: ver se os dois dependem da internet (GIFs) ou são defeito do app (spoiler), com o motivo na 1ª tentativa.
 
 **Lição:** o banco preparado `.testdata-churn` é alterado pelo `perf-churn`/`perf-inp` rodados à mão (eles usam a pasta
 direto) e o `namefx-emoji-test` passa a falhar ("Waiting for selector .cx-opt[title=Emoji]"). Apagar a pasta e deixar o
