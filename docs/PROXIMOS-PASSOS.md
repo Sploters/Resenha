@@ -139,7 +139,10 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 4. ~~Testes da minificação~~ **feito**: os 13 passam com a minificação ligada (o `ux-test` falhava pela CSP, item 7).
 5. ~~Primeira release com os `.exe` compilados~~ **conferida**: v1.0.54 (CI Windows, "Compilar os programas nativos"
    ok). Setup 122,69 → 113,39 MB e Portátil 111,31 → 103,11 MB em relação à v1.0.53 (tamanho real dos arquivos).
-6. **Juntar a cópia local do dono** (música) com o remoto, sem perder nada.
+6. **Juntar a cópia local do dono** (música): **preparado** na branch local `musica-junta` (`78daba6`, sobre esta), sem
+   tocar na cópia local. Conflitos resolvidos (painel novo com o volume salvo do remoto, id novo na novidade, frase do
+   README em `docs/RECURSOS.md`, ícone repetido); `music-test` e afins passam. Falta o dono confirmar que a música estava
+   pronta para virar commit.
 7. ~~Consertar os testes instáveis~~ **feito**: `ux-test` e `freeze-report-test` (a CSP bloqueava o `<script>` inline que
    eles injetam; o CI da `main` ficava vermelho por isso), `call-restart-test` (compara enviado × recebido em vez de um
    número fixo de bytes), `voice-network-test` (envio atrasado depois de fechar o socket) e `black-capture-test`
@@ -195,7 +198,7 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
 3. "Criar convite": exigir a permissão / opção por servidor "membros sem cargo podem convidar" ligada por padrão
    (recomendado) / tirar a permissão da lista. Hoje não existe permissão de servidor para quem não tem cargo.
-4. Música da cópia local: se já pode virar commit (7 arquivos conflitam com o remoto; `util.js` e `server/music.js` não).
+4. Música da cópia local: já juntada na branch `musica-junta`; confirmar se pode entrar.
 5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
 
