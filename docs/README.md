@@ -2,7 +2,8 @@
 
 Comece pelo [README](../README.md) da raiz. Aqui está o resto, por assunto.
 
-- [AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md): pedido da auditoria de consumo de recursos, estado atual e métricas de referência (comece por aqui).
+- [PROXIMOS-PASSOS.md](PROXIMOS-PASSOS.md): **comece por aqui.** O que já foi feito (com números), como medir, lições e o roadmap em ordem.
+- [AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md): pedido da auditoria de consumo de recursos e métricas de referência (antes das otimizações).
 
 ## Instalação e uso
 - [INSTALACAO.md](INSTALACAO.md): requisitos, Node, Docker, `deploy/umbrel.sh`, atualizar sem derrubar a chamada, VPN, app desktop, dados e cópia de segurança.
@@ -38,6 +39,7 @@ Comece pelo [README](../README.md) da raiz. Aqui está o resto, por assunto.
 - [MODO-LEVE.md](MODO-LEVE.md): modo leve (manual e automático com o jogo aberto) e "Consumo agora".
 - [ADMINISTRACAO.md](ADMINISTRACAO.md#desempenho): entrega da interface e alerta de lentidão.
 - [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md#desempenho-e-carga): medição, orçamento e teste de carga.
+- [PROXIMOS-PASSOS.md](PROXIMOS-PASSOS.md#como-medir-ferramentas-em-scripts): medir CPU, memória e transmissão antes e depois (`scripts/perf-*.mjs`, `medir-resenha.ps1` no Windows).
 
 ## Histórico
 Planos já executados, auditorias pontuais e relatórios de fase. Ficam como registro do que foi medido e decidido; podem

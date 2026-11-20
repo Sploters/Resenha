@@ -1,5 +1,9 @@
 # Auditoria de consumo de recursos — pedido e ponto de partida
 
+> **Atualização (nov/2026):** a auditoria e as otimizações já foram feitas. O estado atual, os números de antes e
+> depois e o roadmap estão em [PROXIMOS-PASSOS.md](PROXIMOS-PASSOS.md). Este arquivo fica como o pedido original e a
+> referência de antes.
+
 Guia para quem for fazer a auditoria (outra sessão do Claude ou uma pessoa). Primeiro vem o pedido do dono do projeto,
 igual ao que ele escreveu. Depois, o estado em que o código ficou, o que já foi medido e o que ainda falta conferir.
 
