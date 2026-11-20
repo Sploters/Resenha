@@ -96,6 +96,9 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 - **Memória que cresce e volta com `Memory.simulatePressureNotification`** é cache, não vazamento. Desenhar quadros de
   vídeo num canvas 2D (por `<video>`, `ImageBitmap` ou `VideoFrame`, com ou sem `willReadFrequently`) enche um cache do
   Chromium até ~470 MB. Ler o `VideoFrame` com `copyTo` não enche.
+- **Não rode teste direto com `| head`:** o `head` fecha a saída, o teste morre antes de encerrar o servidor dele e o
+  órfão fica com a porta (inclusive a de voz padrão, 40000): o próximo teste falha "sem motivo" (ex.: `ui-test` "modo de
+  voz: SFU"). Use `grep` sem `head`, ou o `run-tests.mjs`.
 - **A CSP do servidor também vale nos testes:** `addScriptTag({ content })` não roda. Use `page.setBypassCSP(true)` na
   página do teste, sem desligar a CSP do servidor.
 - **O microfone falso do Chromium manda de ~30 a ~6.000 bytes/s** (bipe + porta por voz + DTX). Teste de "ouve a voz"
@@ -134,8 +137,9 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
    servidor agora tem `[voz] conexão de quem está em chamada caiu: código …; aberta havia N s`, e o diagnóstico da
    captura mostra o motivo do lado do app. Se "aberta havia" for sempre ~300 s, é proxy, túnel ou VPN com vida máxima
    de conexão: o ajuste é lá, não no app. Pergunte se o servidor usa VPN (Tailscale, ZeroTier, Radmin) ou túnel.
-3. **Permissão "Criar convite"** não é conferida pelo servidor (`POST /api/guilds/:id/invites` em
-   `server/routes/invites.js`): qualquer membro convida. Falha de segurança à espera da decisão do dono.
+3. ~~Permissão "Criar convite"~~ **feito** (`61d785a`, decisão do dono: opção por servidor). "Membros sem cargo podem
+   convidar" (`guilds.invite_all`, ligada por padrão = como antes); desligada, só o cargo com "Criar convite", o dono
+   e os administradores, no link e no convite para a chamada. Teste `invite-perm-test`.
 4. ~~Testes da minificação~~ **feito**: os 13 passam com a minificação ligada (o `ux-test` falhava pela CSP, item 7).
 5. ~~Primeira release com os `.exe` compilados~~ **conferida**: v1.0.54 (CI Windows, "Compilar os programas nativos"
    ok). Setup 122,69 → 113,39 MB e Portátil 111,31 → 103,11 MB em relação à v1.0.53 (tamanho real dos arquivos).
@@ -196,8 +200,6 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
    assiste deve ver a última imagem e o aviso "O jogo não está na tela"); iniciar com o Windows com uma versão baixada
    (deve continuar escondido); GPU e VRAM.
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
-3. "Criar convite": exigir a permissão / opção por servidor "membros sem cargo podem convidar" ligada por padrão
-   (recomendado) / tirar a permissão da lista. Hoje não existe permissão de servidor para quem não tem cargo.
 4. Música da cópia local: já juntada na branch `musica-junta`; confirmar se pode entrar.
 5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
