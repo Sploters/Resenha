@@ -112,10 +112,8 @@ function bootReady() {
 }
 function releaseBoot() {
   const boot = document.getElementById('boot');
-  // sai com um fade curto do próprio esqueleto (o app embaixo já está pronto: não é troca entre duas telas com texto)
-  let gone = false;
-  const done = () => { if (gone) return; gone = true; const end = () => { boot?.remove(); document.documentElement.classList.remove('boot'); };
-    if (!boot?.isConnected || document.hidden) return end(); boot.classList.add('out'); setTimeout(end, 200); };
+  // sai de uma vez: um fade deixava as barras do esqueleto por cima do texto de verdade (crítico, rodada 5)
+  const done = () => { boot?.remove(); document.documentElement.classList.remove('boot'); };
   if (!boot || !document.documentElement.classList.contains('boot')) return done();
   const t0 = performance.now();
   const tick = () => { if (!boot.isConnected) return; if (performance.now() - t0 > 1500 || bootReady()) done(); else requestAnimationFrame(tick); };

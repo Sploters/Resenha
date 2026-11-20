@@ -59,7 +59,7 @@ function videoFor(key, stream, muted = true) {
     const had = v && !v.classList.contains('nofr');
     if (v) v.srcObject = null; v = h('video' + (had ? '' : '.nofr'), { autoplay: true, playsInline: true, muted }); v.srcObject = stream; vidCache.set(key, v); v.play?.().catch(() => { });
     // até o 1º quadro o vídeo fica transparente e o quadro mostra o avatar (câmera) ou "conectando" (transmissão), não preto
-    const shown = v, ready = () => { if (had) return; shown.classList.remove('nofr'); const t = shown.closest('.tile'); if (t) { t.classList.remove('waitvid'); t.querySelectorAll(':scope > .vwait, :scope > .vwait-av').forEach(e => e.remove()); } }; // o aviso sai na hora e só o vídeo entra com fade (features.css): os dois juntos pela metade ficavam sobrepostos
+    const shown = v, ready = () => { if (had) return; shown.classList.remove('nofr'); const t = shown.closest('.tile'); if (t) { t.classList.remove('waitvid'); t.querySelectorAll(':scope > .vwait, :scope > .vwait-av').forEach(e => e.remove()); } }; // aviso e vídeo trocam no mesmo quadro (com fade, ficavam sobrepostos ou com um vazio no meio)
     if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(ready); else v.addEventListener('loadeddata', ready, { once: true });
   }
   else if (v.paused) v.play?.().catch(() => { }); // o navegador pausa <video> removido da tela; ao voltar à sala ele ficava congelado
