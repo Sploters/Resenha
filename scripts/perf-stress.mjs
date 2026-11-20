@@ -122,8 +122,9 @@ try {
   // entrar/sair 15x (esperando cada uma)
   const base = await measure(A, 2);
   const t1 = Date.now();
-  for (let i = 0; i < 15; i++) { await A.p.evaluate(() => window.__lc.voice.leave({ silent: true })); await join(A, vch); }
-  R.joinLeave15 = { msEach: Math.round((Date.now() - t1) / 15) }; await sleep(3000);
+  const cycles = [];
+  for (let i = 0; i < 15; i++) { const c0 = Date.now(); await A.p.evaluate(() => window.__lc.voice.leave({ silent: true })); const c1 = Date.now(); await join(A, vch); cycles.push([c1 - c0, Date.now() - c1]); }
+  R.joinLeave15 = { msEach: Math.round((Date.now() - t1) / 15), cycles }; await sleep(3000);
   R.joinLeave15.after = await measure(A, 3); R.joinLeave15.before = base; R.joinLeave15.sfu = await sfuLoad(a.tok);
 
   // trocar de sala sem esperar (cliques seguidos): só pode sobrar UMA sala, um microfone e um timer
