@@ -12,6 +12,7 @@ const https = require('node:https');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { verifyUpdate } = require('./updatekey');
+const updReady = require('./updready');
 
 // O app se chamava LocalCord: na primeira abertura depois da troca de nome, a pasta de dados antiga (servidor salvo,
 // login, configurações) passa a se chamar Resenha. Se não der para renomear agora (arquivo em uso), usa a antiga e tenta
@@ -573,6 +574,9 @@ async function doCheckUpdate() {
 function prepareUpdate() {
   const u = update; if (!u) return Promise.reject(new Error('sem atualização'));
   return (u.downloading ||= (async () => {
+    // já baixada numa abertura anterior (e o arquivo é o mesmo que foi assinado): não baixa de novo
+    const r = cfg.readyUpdate;
+    if (r?.version === u.version && r.name === u.name) { const f = updReady.checkReady(r, verifyUpdate); if (f) { u.file = f; log('atualização já estava baixada', u.version); return f; } }
     const file = path.join(app.getPath('temp'), u.name), part = file + '.part';
     // progresso para a tela "Atualizando" da página (desde a 1.0.29)
     let last = -1;
@@ -584,6 +588,8 @@ function prepareUpdate() {
     const bad = verifyUpdate(signature, { name: u.name, version: u.version, size: fs.statSync(part).size, sha256 });
     if (bad) { fs.rmSync(part, { force: true }); log('ATUALIZAÇÃO RECUSADA', u.version, bad); throw new Error(bad); }
     fs.renameSync(part, file); u.file = file; log('atualização baixada e assinatura conferida', u.version, sha256);
+    // anotada para a próxima abertura: o app instala antes de mostrar a janela e já abre na versão nova
+    if (!portable) { cfg.readyUpdate = { version: u.version, name: u.name, file, sha256, signature, tries: 0 }; saveCfg(); }
     return file;
   })().catch((e) => { u.downloading = null; throw e; }));
 }
@@ -693,7 +699,23 @@ async function detectGpu() {
     if (cfg.gpuOld !== old) { cfg.gpuOld = old; saveCfg(); }
   } catch (e) { log('gpu info falhou', e.message); }
 }
+// Abriu com uma versão nova já baixada e conferida (updready.js): instala em silêncio, com a janelinha "Atualizando…",
+// e o app reabre na versão nova. Devolve true se o app vai fechar para instalar.
+function installReadyOnStart() {
+  const r = cfg.readyUpdate, act = updReady.startupAction(r, app.getVersion(), newerVer, portable);
+  if (act === 'none') return false;
+  if (act === 'drop') { delete cfg.readyUpdate; saveCfg(); return false; }
+  if (act === 'skip') { log('atualização baixada não entrou em', updReady.MAX_TRIES, 'aberturas: fica para o "Reiniciar agora"', r.version); return false; }
+  let file = null; try { file = updReady.checkReady(r, verifyUpdate); } catch (e) { log('conferir a atualização baixada falhou', e.message); }
+  if (!file) { log('atualização anotada não confere mais (apagada ou trocada): descartada', r.version); delete cfg.readyUpdate; saveCfg(); return false; }
+  r.tries = (r.tries || 0) + 1; saveCfg();
+  update = { version: r.version, name: r.name, file }; updating = true;
+  log('abertura com a versão', r.version, 'já baixada: instalando antes de abrir (tentativa', r.tries + ')');
+  if (!runInstaller(file, true)) { updating = false; return false; } // instalador não abriu: abre a versão atual
+  quitting = true; app.quit(); return true;
+}
 app.whenReady().then(() => {
+  if (installReadyOnStart()) return;
   // iniciar com o Windows: a entrada antiga no registro tinha o id antigo; apaga e recria com o novo
   try { app.setLoginItemSettings({ openAtLogin: false, name: OLD_ID }); if (cfg.autoStart) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch { }
   log('abertura', ms(), 'ms: Electron pronto');

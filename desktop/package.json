@@ -37,6 +37,7 @@
       "helper.js",
       "updsplash.js",
       "updatekey.js",
+      "updready.js",
       "watchwin.js",
       "watchbridge.js"
     ],
