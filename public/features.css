@@ -1301,12 +1301,13 @@ html.anim .updov .uo-card { animation: lc-pop .25s cubic-bezier(.2, .9, .3, 1.15
 .updov .uo-prog { display: flex; align-items: center; gap: 10px; }
 .updov .uo-bar { position: relative; flex: 1; height: 6px; border-radius: 3px; overflow: hidden; background: var(--bg-tert); }
 .updov .uo-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--green, #23a55a); transition: width .25s ease-out; }
-.updov .uo-bar.ind .uo-fill { width: 35% !important; animation: uoSlide 1.1s ease-in-out infinite; }
+.updov .uo-bar.ind .uo-fill { width: 35% !important; animation: uoSlide 1.1s ease-in-out infinite; transition: none; }
 .updov .uo-pct { min-width: 34px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .updov .uo-pct:empty { display: none; }
 .updov.bad .uo-prog { display: none; }
 .updov .uo-btns:not(:empty) { margin-top: 4px; display: flex; justify-content: center; }
-@keyframes uoSlide { from { left: -35%; } to { left: 100%; } }
+/* de -35% a 100% da barra, por transform (% da própria faixa, que tem 35%: -100% a 285,7%): no compositor, sem layout a cada quadro */
+@keyframes uoSlide { from { transform: translateX(-100%); } to { transform: translateX(285.715%); } }
 
 /* ícone do jogo ao lado do nome na sala de voz e popup "Jogando agora" ao passar o mouse (activity.js) */
 .vuser .vgame { display: inline-flex; flex: none; padding: 2px; border-radius: 4px; cursor: pointer; }

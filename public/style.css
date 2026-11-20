@@ -284,11 +284,14 @@ button.ibtn.busy, button.gstar.busy, button.adel.busy { opacity: .55; transition
 #topbar button, #topbar .tab, #topbar [role="button"], #topbar a { cursor: pointer; }
 #topbar input, #topbar textarea { cursor: text; user-select: text; }
 /* ---- skeletons de carregamento (util.js skeleton) ---- */
-@keyframes skShine { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+/* brilho que passa: uma faixa (::after, 2x a largura) que anda por transform, no compositor. Antes animava o
+   background-position do próprio bloco: 60 recálculos de estilo/s e repintura de cada bloco a cada quadro */
+@keyframes skShine { from { transform: translateX(-75%); } to { transform: translateX(25%); } }
 .skeleton { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
 .skeleton i, #boot i, #boot b, #boot em, #boot u, #boot s { display: block; background: var(--bg-mod-hover, rgba(255,255,255,.06)); border-radius: 6px; }
-html.anim .skeleton i, html.anim #boot i, html.anim #boot em, html.anim #boot u {
-  background-image: linear-gradient(90deg, transparent 0, rgba(255,255,255,.05) 40%, transparent 80%); background-size: 200% 100%; background-repeat: no-repeat; animation: skShine 1.4s ease-in-out infinite; }
+html.anim :is(.skeleton i, #boot i, #boot em, #boot u) { position: relative; overflow: hidden; }
+html.anim :is(.skeleton i, #boot i, #boot em, #boot u)::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 200%; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0, rgba(255,255,255,.05) 40%, transparent 80%); animation: skShine 1.4s ease-in-out infinite; will-change: transform; }
 .sk-msg, .sk-row { display: flex; gap: 14px; align-items: flex-start; }
 .sk-av { width: 40px; height: 40px; flex: none; border-radius: 50% !important; } .sk-av.sm { width: 32px; height: 32px; }
 .sk-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; min-width: 0; }
