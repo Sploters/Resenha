@@ -151,10 +151,19 @@ export async function resolveQuery(q) {
   if (/(^|\.)spotify\.com$/.test(u.hostname)) return spotifyTracks(u);
   // link de vídeo dentro de uma playlist/mix do YouTube: toca só o vídeo (a playlist inteira só com o link da playlist)
   const single = /youtube\.com$|youtu\.be$/.test(u.hostname.replace(/^www\.|^music\./, '')) && (u.searchParams.has('v') || u.hostname.endsWith('youtu.be'));
+  // playlist: listar tudo (até 100) leva segundos, e só depois o áudio da 1ª era procurado (mais uma chamada ao yt-dlp).
+  // Agora o áudio da 1ª é procurado AO MESMO TEMPO que a lista: começa a tocar quando o mais lento dos dois termina
+  const firstP = single ? null : runJson(['-J', '-f', 'bestaudio/best', '--playlist-items', '1', '--', u.href], 45_000)
+    .then(r => { const e = r?.entries?.find(Boolean) || (r?.url ? r : null); const t = e && trackFrom(e); return t?.url && e.url ? { key: t.url, st: cacheInfo(t.url, e) } : null; }, () => null);
   const j = await runJson(['-J', '-f', 'bestaudio/best', ...(single ? ['--no-playlist'] : ['--flat-playlist', '--playlist-end', String(MAX_PLAYLIST)]), '--', u.href]);
   if (j.entries) {
     const list = j.entries.filter(Boolean).map(e => trackFrom(e)).filter(t => t.url);
     if (!list.length) throw new Error('Playlist vazia');
+    const key = list[0].url;
+    if (firstP && !urlCache.has(key)) { // a 1ª ainda está sendo procurada: quem for tocar espera esta busca em vez de abrir outra
+      const p = firstP.then(r => { if (r?.key === key && r.st) return r.st; if (urlCache.get(key)?.p === p) urlCache.delete(key); return streamInfo(list[0]); });
+      urlCache.set(key, { p });
+    }
     return list;
   }
   const t = trackFrom(j, u.href);
@@ -406,9 +415,17 @@ export async function handle(uid, cid, d) {
     if (!(await musicAvailable())) throw new Error('O servidor não tem yt-dlp/ffmpeg instalados (use a imagem Docker atualizada)');
     if (!env.sfuEnabled()) throw new Error('O bot de música precisa do SFU de voz ativo');
     let tracks;
-    if (op === 'pl_load') { const p = env.get('SELECT tracks FROM music_playlists WHERE id=? AND guild_id=?', String(d.id), ch.guild_id); if (!p) throw new Error('Playlist não encontrada'); tracks = JSON.parse(p.tracks); }
-    else tracks = d.track?.url ? [{ ...strip(d.track) }] : await resolveQuery(d.query); // track: escolhido nos resultados da busca
-    s = sessions.get(cid) || await startSession(ch.guild_id, cid);
+    // o bot entra na sala ENQUANTO o link é lido (antes: só depois da lista inteira chegar)
+    const fresh = !sessions.get(cid), sessP = fresh ? startSession(ch.guild_id, cid) : null;
+    sessP?.catch(() => { });
+    try {
+      if (op === 'pl_load') { const p = env.get('SELECT tracks FROM music_playlists WHERE id=? AND guild_id=?', String(d.id), ch.guild_id); if (!p) throw new Error('Playlist não encontrada'); tracks = JSON.parse(p.tracks); prefetch(tracks[0]); }
+      else tracks = d.track?.url ? [{ ...strip(d.track) }] : await resolveQuery(d.query); // track: escolhido nos resultados da busca
+    } catch (e) { // link inválido ou fora do ar: o bot que entrou por causa deste pedido sai
+      if (sessP) sessP.then(x => { if (x && !x.current && !x.queue.length) endSession(x, 'Não consegui tocar'); }, () => { });
+      throw e;
+    }
+    s = sessP ? await sessP : sessions.get(cid) || await startSession(ch.guild_id, cid); // a sessão nova só serve depois de entrar na sala
     const room = Math.max(0, MAX_QUEUE - s.queue.length - (s.current ? 1 : 0));
     const add = tracks.slice(0, room).map(t => ({ ...strip(t), id: newTid(), by: uid }));
     if (!add.length) throw new Error('A fila está cheia');
