@@ -12,6 +12,9 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', a
 const SCEN = {
   base: () => { },
   skeleton: async () => { const { skeleton } = await window.__lc.import('util.js'); const box = document.createElement('div'); box.id = '__anim'; box.style.cssText = 'position:fixed;left:80px;top:80px;width:600px;z-index:99999;background:#222'; box.append(skeleton('msgs', 8)); document.body.append(box); },
+  // selo "AO VIVO" de quem transmite (public/share.js): o anel pulsante no ::after (como era) e num elemento filho
+  livedot: () => { const box = document.createElement('div'); box.id = '__anim'; box.style.cssText = 'position:fixed;left:80px;top:80px;z-index:99999;display:flex;padding:8px'; box.innerHTML = '<i class="live-dot"></i>'; document.body.append(box); },
+  livedotFilho: () => { const st = document.createElement('style'); st.textContent = '.__ld2::after{animation:none!important}.__ld2>i{position:absolute;inset:0;border-radius:50%;background:rgb(242,63,67);opacity:0;pointer-events:none;animation:livePulse 1.6s ease-out infinite}'; document.head.append(st); const box = document.createElement('div'); box.id = '__anim'; box.style.cssText = 'position:fixed;left:80px;top:80px;z-index:99999;display:flex;padding:8px'; box.innerHTML = '<i class="live-dot __ld2"><i></i></i>'; document.body.append(box); },
   updbar: () => { const box = document.createElement('div'); box.id = '__anim'; box.className = 'updov'; box.innerHTML = '<div class="uo-card"><h3>Atualizando</h3><div class="uo-prog"><div class="uo-bar ind"><div class="uo-fill"></div></div></div></div>'; document.body.append(box); },
 };
 try {

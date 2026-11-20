@@ -59,7 +59,7 @@ async function abrir(u) {
     navigator.mediaDevices.getDisplayMedia = () => navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080, frameRate: 60 }, audio: false });
     // conexões em tempo real: guarda todas, anota quem os outros viram sair e permite bloquear a reconexão (queda de rede)
     const W = window.WebSocket; window.__ws = []; window.__left = []; window.__blockWs = false;
-    window.WebSocket = function (url, ...x) { const s = new W(window.__blockWs ? url.replace(/^ws(s?):\/\/[^/]+/, 'ws$1://127.0.0.1:9') : url, ...x); window.__ws.push(s);
+    window.WebSocket = function (url, ...x) { const s = new W(window.__blockWs ? url.replace('/gateway?', '/gateway-sem-rede?') : url, ...x); window.__ws.push(s);
       s.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (m.t === 'VOICE_STATE' && m.d && !m.d.channel_id) window.__left.push({ uid: m.d.user_id, at: Date.now() }); } catch { } }); return s; };
     window.WebSocket.prototype = W.prototype; Object.assign(window.WebSocket, { OPEN: 1, CLOSED: 3, CONNECTING: 0, CLOSING: 2 });
   }, u.tok);

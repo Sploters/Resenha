@@ -21,11 +21,12 @@ try {
   const g = await api(a.tok, 'POST', '/guilds', { name: 'T' }); await api(b.tok, 'POST', '/invites/' + (await api(a.tok, 'POST', `/guilds/${g.id}/invites`)).code);
   const open = async (br, tok) => { const p = await br.newPage(); await p.setViewport({ width: 1280, height: 800 });
     p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
+    if (process.env.DEBUG) p.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') console.log('  console', m.type(), m.text().slice(0, 200)); });
     await p.evaluateOnNewDocument((t) => { localStorage.lc_token = t;
       navigator.mediaDevices.getDisplayMedia = () => navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, frameRate: 30 }, audio: false });
-      // sem rede: as tentativas de reconectar vão para uma porta fechada; a conferência da sessão fica pendurada
+      // sem rede: as tentativas de reconectar vão para um caminho que o servidor derruba (como a rede fora: fecha sem resposta; outra porta a CSP bloqueia e a tentativa nunca avisa que fechou); a conferência da sessão fica pendurada
       const W = window.WebSocket; window.__ws = []; window.__left = []; window.__off = false;
-      window.WebSocket = function (url, ...x) { const s = new W(window.__off ? url.replace(/^ws(s?):\/\/[^/]+/, 'ws$1://127.0.0.1:9') : url, ...x); window.__ws.push(s);
+      window.WebSocket = function (url, ...x) { const s = new W(window.__off ? url.replace('/gateway?', '/gateway-sem-rede?') : url, ...x); window.__ws.push(s);
         s.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (m.t === 'VOICE_STATE' && m.d && !m.d.channel_id) window.__left.push({ uid: m.d.user_id, at: Date.now() }); } catch { } }); return s; };
       window.WebSocket.prototype = W.prototype; Object.assign(window.WebSocket, { OPEN: 1, CLOSED: 3, CONNECTING: 0, CLOSING: 2 });
       const F = window.fetch; window.fetch = (u, ...x) => window.__off && /\/api\/users\/0$/.test(String(u)) ? new Promise(() => { }) : F(u, ...x);
@@ -48,6 +49,7 @@ try {
   await A.evaluate(() => { window.__off = false; });
   await A.waitForFunction(() => window.__ws.at(-1).readyState === 1, { timeout: 15000 }).catch(() => { });
   const back = Date.now() - t0 - OUT_MS;
+  if (process.env.DEBUG) console.log(await A.evaluate(() => JSON.stringify({ n: window.__ws.length, st: window.__ws.slice(-4).map(w => [w.url.replace(/token=[^&]+/, ''), w.readyState]), tok: !!window.__lc.S.token })));
   await sleep(4000);
   const st = await A.evaluate(() => ({ cid: window.__lc.voice.channelId, ready: !!window.__lc.voice.sfu?.ready, screen: !!window.__lc.voice.screen }));
   const left = await B.evaluate((uid) => window.__left.filter(x => x.uid === uid).length, a.id);
