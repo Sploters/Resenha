@@ -143,10 +143,8 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 4. ~~Testes da minificação~~ **feito**: os 13 passam com a minificação ligada (o `ux-test` falhava pela CSP, item 7).
 5. ~~Primeira release com os `.exe` compilados~~ **conferida**: v1.0.54 (CI Windows, "Compilar os programas nativos"
    ok). Setup 122,69 → 113,39 MB e Portátil 111,31 → 103,11 MB em relação à v1.0.53 (tamanho real dos arquivos).
-6. **Juntar a cópia local do dono** (música): **preparado** na branch local `musica-junta` (`78daba6`, sobre esta), sem
-   tocar na cópia local. Conflitos resolvidos (painel novo com o volume salvo do remoto, id novo na novidade, frase do
-   README em `docs/RECURSOS.md`, ícone repetido); `music-test` e afins passam. Falta o dono confirmar que a música estava
-   pronta para virar commit.
+6. ~~Juntar a cópia local do dono~~ (música): **deixado de lado a pedido do dono.** A junção ficou guardada na branch
+   local `musica-junta` (`78daba6`, não enviada) caso seja útil depois.
 7. ~~Consertar os testes instáveis~~ **feito**: `ux-test` e `freeze-report-test` (a CSP bloqueava o `<script>` inline que
    eles injetam; o CI da `main` ficava vermelho por isso), `call-restart-test` (compara enviado × recebido em vez de um
    número fixo de bytes), `voice-network-test` (envio atrasado depois de fechar o socket) e `black-capture-test`
@@ -200,7 +198,6 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
    assiste deve ver a última imagem e o aviso "O jogo não está na tela"); iniciar com o Windows com uma versão baixada
    (deve continuar escondido); GPU e VRAM.
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
-4. Música da cópia local: já juntada na branch `musica-junta`; confirmar se pode entrar.
 5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
 
