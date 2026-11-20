@@ -31,6 +31,7 @@ const decodeErrors = (f) => { try { return execFileSync('ffmpeg', ['-v', 'error'
 // programa como o app desktop abre: configuração em JSON na 1ª linha; eventos JSON por linha na saída
 function program(cfg) {
   const p = spawn(BIN, ['--stdin'], { stdio: ['pipe', 'pipe', 'ignore'] }), waits = new Map(), events = [];
+  p.stdin.on('error', () => { }); // fechou antes de ler: sem isso o EPIPE derruba o teste
   let buf = '';
   p.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); let ev; try { ev = JSON.parse(l); } catch { continue; } events.push(ev); if (ev.t === 'clip') waits.get(ev.id)?.(ev); } });
   p.stdin.write(JSON.stringify(cfg) + '\n');

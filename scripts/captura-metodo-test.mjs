@@ -35,6 +35,9 @@ async function page(tok, desk) {
         if (!done && (ev.t === 'started' || ev.t === 'error')) { done = true; resolve(ev.t === 'started' ? { ok: true, ...ev } : { ok: false, error: ev.error }); }
         p.evaluate((ev) => window.__natCb?.(ev), ev).catch(() => { }); } });
       h.proc.on('exit', (code) => { if (!done) { done = true; resolve({ ok: false, error: 'saiu ' + code }); } if (!h.stopped) p.evaluate((code) => window.__natCb?.({ t: 'exit', code }), code).catch(() => { }); });
+      // o programa pode fechar antes de ler (ex.: Windows 10 só DXGI, falha na hora): a escrita dá EPIPE e, sem quem trate o
+      // erro, derrubava o teste inteiro (CI do GitHub). Fechou cedo = o 'exit' acima já responde
+      h.proc.stdin.on('error', () => { });
       h.proc.stdin.write(JSON.stringify(cfg) + '\n');
     }));
     await p.exposeFunction('__natStop', () => { for (const h of helpers) if (!h.stopped) { h.stopped = true; try { h.proc.stdin.write('stop\n'); h.proc.stdin.end(); } catch { } } });

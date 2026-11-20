@@ -26,7 +26,7 @@ async function page(tok, desk) {
   if (desk) {
     // ponte do processo principal: liga o programa de verdade (versão Linux) com a configuração que o app passou
     await p.exposeFunction('__natStart', (o) => new Promise((resolve) => {
-      const h = { cfg: o, proc: spawn(BIN, ['--stdin'], { stdio: ['pipe', 'pipe', 'ignore'] }), events: [] }; helpers.push(h);
+      const h = { cfg: o, proc: spawn(BIN, ['--stdin'], { stdio: ['pipe', 'pipe', 'ignore'] }), events: [] }; helpers.push(h); h.proc.stdin.on('error', () => { }); // fechou antes de ler: sem isso o EPIPE derruba o teste
       let buf = '', done = false;
       h.proc.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); let ev; try { ev = JSON.parse(l); } catch { continue; } h.events.push(ev);
         if (!done && (ev.t === 'started' || ev.t === 'error')) { done = true; resolve(ev.t === 'started' ? { ok: true, ...ev } : { ok: false, error: ev.error }); }
