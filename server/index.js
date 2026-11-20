@@ -627,7 +627,7 @@ const onUpgrade = (req, socket, head) => {
   if (url.pathname !== '/gateway') return socket.destroy();
   const s = sessions.lookup(url.searchParams.get('token') || '');
   if (!s) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
-  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.tokenHash = s.hash; ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; wss.emit('connection', ws); });
+  wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.tokenHash = s.hash; ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; ws.resume = url.searchParams.get('resume') === '1'; wss.emit('connection', ws); });
 };
 server.on('upgrade', onUpgrade);
 
@@ -714,6 +714,7 @@ function dropWatching(uid, cid) { // tira uid das transmissões que assistia e e
 // reason 'drop': a conexão caiu/fechou (F5, internet, app fechado) — o app oferece "Reconectar" quando a pessoa volta
 function leaveVoice(uid, cid, reason) {
   const m = voice.get(cid); if (!m || !m.has(uid)) return;
+  clearTimeout(m.get(uid).dropT);
   remote.onLeave(uid); // controle remoto acaba antes de qualquer outra coisa
   m.delete(uid); dropWatching(uid, cid); if (!m.size) { voice.delete(cid); roomStart.delete(cid); acts.delete(cid); }
   else { const a = acts.get(cid); if (a?.spot && (a.spot.slice(2) === uid)) { a.spot = a.spotBy = null; roomSend(cid, 'ROOM_STATE', actState(cid)); } } // quem estava em destaque saiu
@@ -794,13 +795,28 @@ const remote = createRemote({
   sendUser: (uid, type, d) => { const c = currentVoice(uid), st = c && voice.get(c).get(uid); if (st?.ws?.readyState === 1) send(st.ws, type, d); else dispatch([uid], type, d); },
 });
 function currentVoice(uid) { for (const [cid, m] of voice) if (m.has(uid)) return cid; return null; }
+// A conexão em tempo real de quem está na sala caiu. A voz e a transmissão NÃO passam por ela (vão direto ao SFU, por
+// UDP) e seguem funcionando: a pessoa fica na sala por VOICE_GRACE_MS esperando a conexão nova pedir VOICE_RESUME. Antes
+// saía na hora: para os outros ela sumia e voltava (voz cortada, transmissão encerrada), mesmo que a queda durasse 1 s.
+// Não voltou a tempo (fechou o app, internet caiu de vez): sai como antes, com o motivo 'drop'.
+const VOICE_GRACE_MS = +process.env.VOICE_GRACE_MS || 15000;
+function holdVoice(uid, c, st) {
+  if (st.dropT) return;
+  st.dropT = setTimeout(() => { st.dropT = null; if (voice.get(c)?.get(uid) === st && st.ws.readyState !== 1) leaveVoice(uid, c, 'drop'); }, VOICE_GRACE_MS);
+}
 // a pessoa abriu uma conexão nova e o servidor ainda a tem numa sala por uma conexão antiga (caiu a internet sem aviso,
 // F5 atrás de proxy, app reiniciado): a mesma aba/janela (tab) sai da sala na hora; outra conexão da mesma conta pode ser
 // outro aparelho de verdade, então a antiga só sai se não responder a um ping em 5 s
 function dropStaleVoice(uid, ws) {
   const c = currentVoice(uid), st = c && voice.get(c).get(uid), old = st?.ws;
   if (!old || old === ws) return;
-  if (old.readyState !== 1 || (ws.tab && old.tab === ws.tab)) { leaveVoice(uid, c, 'drop'); try { old.terminate(); } catch { } return; }
+  // mesma aba/janela (ou a antiga já caiu). Reconexão da MESMA página ainda na chamada (resume=1): segura a sala para o
+  // VOICE_RESUME. Página nova (F5, app reaberto: ela não está mais na chamada): sai na hora, como sempre
+  if (old.readyState !== 1 || (ws.tab && old.tab === ws.tab)) {
+    old.lcWhy ||= 'substituída pela conexão nova da mesma janela';
+    if (ws.resume) holdVoice(uid, c, st); else leaveVoice(uid, c, 'drop');
+    try { old.terminate(); } catch { } return;
+  }
   if (old.probing) return;
   old.probing = true; old.alive = false; try { old.ping(); } catch { }
   setTimeout(() => { old.probing = false; if (!old.alive) old.terminate(); }, 5000); // terminate -> 'close' -> sai da sala
@@ -843,7 +859,7 @@ wss.on('connection', (ws) => {
   const first = !conns.has(uid);
   if (first) conns.set(uid, new Set());
   conns.get(uid).add(ws); legacyConns.add(ws);
-  ws.alive = true; ws.on('pong', () => (ws.alive = true));
+  ws.alive = true; ws.t0 = Date.now(); ws.on('pong', () => (ws.alive = true));
   dropStaleVoice(uid, ws); // antes do READY: quem caiu e voltou (ou deu F5) não aparece mais na sala como "fantasma"
   uxSeen(uid); // telemetria: usou o app hoje (uma vez por dia, sem guardar quem)
   if (first) social.onConnect(uid); // métricas: voltou por causa de um convite/atividade?
@@ -1066,6 +1082,15 @@ wss.on('connection', (ws) => {
           resolveLocalGame(title, steam, known).then(r => { localNames.set(key, r); if (localNames.size > 2000) localNames.delete(localNames.keys().next().value); clearTimeout(timer); if (!sent || r.title !== title || r.steam !== steam) report(r); });
           break;
         }
+        // conexão nova depois de uma queda: continua a mesma sessão de voz (ver holdVoice), sem sair nem entrar para ninguém
+        case 'VOICE_RESUME': {
+          const c = currentVoice(uid), st = c && voice.get(c).get(uid), want = String(d?.channel_id || '');
+          // outra conexão viva (outro aparelho) está com a sala: não toma o lugar dela
+          if (!st || c !== want || (st.ws !== ws && st.ws.readyState === 1)) { send(ws, 'VOICE_RESUMED', { channel_id: want, ok: false }); break; }
+          clearTimeout(st.dropT); st.dropT = null; st.ws = ws;
+          send(ws, 'VOICE_RESUMED', { channel_id: c, ok: true });
+          break;
+        }
         case 'VOICE_LEAVE': { const c = currentVoice(uid); if (c) leaveVoice(uid, c); break; }
         case 'VOICE_STATE': {
           const c = currentVoice(uid); if (!c) return;
@@ -1102,17 +1127,23 @@ wss.on('connection', (ws) => {
       }
     } catch (e) { console.error('ws', e); }
   };
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     clearTimeout(ws.laterT);
     const set = conns.get(uid); set?.delete(ws); legacyConns.delete(ws); if (ws.view) setView(ws, null);
     const c = currentVoice(uid);
-    if (c && voice.get(c).get(uid).ws === ws) leaveVoice(uid, c, 'drop');
+    const vst = c && voice.get(c).get(uid);
+    if (vst && vst.ws === ws && code === 4000) leaveVoice(uid, c, 'drop'); // a página fechou (app fechado, aba fechada, F5): sai na hora
+    else if (vst && vst.ws === ws) {
+      holdVoice(uid, c, vst);
+      // por que caiu (para achar quedas que se repetem): código do fechamento, quem fechou e há quanto tempo estava aberta
+      console.log(`[voz] conexão de quem está em chamada caiu: código ${code}${ws.lcWhy ? ', ' + ws.lcWhy : ''}${reason?.length ? ', motivo ' + String(reason).slice(0, 80) : ''}; aberta havia ${Math.round((Date.now() - ws.t0) / 1000)} s; aguardando ${VOICE_GRACE_MS / 1000} s pela volta`);
+    }
     if (set && !set.size) { conns.delete(uid); broadcastStatus(uid); social.onDisconnect(uid); }
     else { if (ws.active) pushDevices(uid); pushPlatforms(uid); }
     if (ws.localGame && ![...(set || [])].some(o => o.localGame)) activity.clearLocal(uid); // o app desktop que informava o jogo fechou
   });
 });
-setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) { ws.terminate(); continue; } ws.alive = false; ws.ping(); } }, 30000);
+setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) { ws.lcWhy ||= 'o aparelho não respondeu ao ping do servidor em 30 s'; ws.terminate(); continue; } ws.alive = false; ws.ping(); } }, 30000);
 
 // HTTPS com certificado autoassinado (necessário para microfone/câmera/tela fora de localhost)
 function loadTls() {

@@ -107,18 +107,19 @@ export function logout() {
 // =============== Gateway ===============
 // (tabId, o id desta aba/janela, vem de state.js: vai no gateway e no cabeçalho X-LC-Tab das chamadas à API)
 // conexão "travada" (a internet caiu sem o navegador perceber): 2 pings seguidos sem resposta = reconecta (e volta para a sala)
-let wsMiss = 0;
+let wsMiss = 0, closeWhy = ''; // por que a última conexão caiu (diagnóstico da captura)
 setInterval(async () => {
   if (!ready || ws?.readyState !== 1 || document.hidden && !voice?.active) { wsMiss = 0; return; }
   const cur = ws, ms = await wsPing();
   if (cur !== ws) return;
   if (ms != null) { wsMiss = 0; return; }
   if (++wsMiss < 2) return;
-  wsMiss = 0; const onclose = cur.onclose; cur.onclose = cur.onmessage = null; try { cur.close(); } catch { } onclose?.();
+  wsMiss = 0; const onclose = cur.onclose; cur.onclose = cur.onmessage = null; try { cur.close(); } catch { } closeWhy = 'sem resposta a 2 pings seguidos (5 s cada)'; onclose?.();
 }, 8000);
 export function connect() {
   clearTimeout(connect.t);
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}`);
+  // resume=1: esta página caiu e está voltando com a chamada aberta; o servidor segura a sala até o VOICE_RESUME
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway?token=${S.token}&tab=${tabId}${voice?.channelId ? '&resume=1' : ''}`);
   ws.onmessage = (e) => {
     const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
     // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
@@ -129,7 +130,8 @@ export function connect() {
   };
   ws.onopen = () => {
     // telemetria: caiu e voltou (conta a queda e quanto tempo ficou sem conexão, mesmo com a aba escondida)
-    if (offlineSince && voice?.screen) voice.capLog?.({ t: 'capnote', msg: `conexão com o servidor caiu por ${((Date.now() - offlineSince) / 1000).toFixed(1)} s${restarting ? ' (servidor reiniciando)' : ''} e voltou` });
+    if (offlineSince && voice?.screen) voice.capLog?.({ t: 'capnote', msg: `conexão com o servidor caiu por ${((Date.now() - offlineSince) / 1000).toFixed(1)} s${restarting ? ' (servidor reiniciando)' : ''} e voltou; ${closeWhy || 'motivo desconhecido'}` });
+    closeWhy = '';
     if (offlineSince) { track('ws_reconnect', restarting ? 'restart' : '', { bg: true }); timing('ws_offline', Date.now() - offlineSince, { bg: true }); offlineSince = 0; }
     restarting = false;
     retry = 0; $('#reconnect')?.remove();
@@ -140,6 +142,7 @@ export function connect() {
   };
   ws.onclose = async (e) => {
     if (!S.token) return;
+    if (e?.code) closeWhy = `fechada com código ${e.code}${e.reason ? ' (' + e.reason + ')' : ''}`;
     if (e?.code === 1012) restarting = true; // 1012 = o servidor está reiniciando
     if (ready && !offlineSince) offlineSince = Date.now();
     try { await api('GET', '/users/0'); } catch (e) { if (e.status === 401) { localStorage.removeItem('lc_token'); S.token = null; return showAuth(); } }
@@ -207,7 +210,7 @@ export function onEvent(t, d) {
       voice.onAppAudioEvent = (ev) => { const n = ev.name || 'O jogo'; toast(ev.t === 'waiting' ? `${n} fechou: o áudio da transmissão volta sozinho quando ele abrir de novo.` : `Áudio de ${n} reconectado na transmissão.`, ev.t === 'waiting'); renderVoiceUI(); };
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
-      if (ready && voice.channelId) { resetPresenceSounds(); voice.rejoin(); }
+      if (ready && voice.channelId) { resetPresenceSounds(); voice.resume(); }
       e2eeLoad(true);
       if (!ready) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
@@ -384,6 +387,7 @@ export function onEvent(t, d) {
     case 'SFU_RES': voice.onSfuRes(d); break;
     case 'SFU_RESET': voice?.onSfuReset(d); renderVoiceUI(); break;
     case 'PONG': wsPings.get(d.n)?.(); break;
+    case 'VOICE_RESUMED': voice?._resumeWait?.(d); break;
     case 'SFU_NEW_PRODUCER': voice.onSfuProducer(d); break;
     case 'SFU_CODEC_FALLBACK': voice.onCodecFallback(d); break;
     case 'SFU_CONSUMER_CLOSED': voice.onSfuConsumerClosed(d); break;
@@ -515,6 +519,9 @@ for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) window.addEv
 window.addEventListener('focus', reportActive); window.addEventListener('blur', () => setTimeout(reportActive, 50));
 document.addEventListener('visibilitychange', reportActive);
 setInterval(reportActive, 15e3);
+// página fechando (app fechado, aba fechada, F5): avisa o servidor que é saída de verdade (código 4000) e ele tira da
+// sala na hora. Queda de rede não passa por aqui: o servidor segura a sala uns segundos esperando a volta (voice.resume)
+addEventListener('pagehide', () => { if (voice?.channelId && ws?.readyState === 1) try { ws.close(4000, 'saindo'); } catch { } });
 // ---- reputação: limite de envio aplicado pela comunidade ----
 const softmuteUntil = (gid) => { const t = gid && member(gid, S.me.id)?.softmute_until; return t && t > Date.now() ? t : 0; };
 export function renderSoftmute() {

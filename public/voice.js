@@ -257,6 +257,28 @@ export class Voice {
     this.onUpdate();
   }
 
+  // A conexão com o servidor caiu e voltou. Voz, câmera e transmissão não passam por ela (seguiram pelo SFU): pede para
+  // continuar a mesma sessão (o servidor segura a sala uns segundos, server/index.js holdVoice) e ninguém vê sair e
+  // entrar. Se o servidor já não tem a sessão (reiniciou, demorou demais), entra de novo como antes (rejoin).
+  async resume() {
+    const cid = this.channelId; if (!cid) return;
+    const ok = await new Promise((res) => { const t = setTimeout(() => res(false), 4000); this._resumeWait = (d) => { clearTimeout(t); res(!!d?.ok && d.channel_id === cid); }; this.send('VOICE_RESUME', { channel_id: cid }); });
+    this._resumeWait = null;
+    if (this.channelId !== cid) return;
+    if (!ok) { if (this.screen) this.capLog({ t: 'capnote', msg: 'o servidor não tinha mais a sessão de voz: entrando de novo na sala (a transmissão para)' }); return this.rejoin(); }
+    if (this.screen) this.capLog({ t: 'capnote', msg: 'sessão de voz retomada: para os outros você não saiu, e a transmissão seguiu' });
+    this.sendStateNow(); // mudo, ensurdecido, câmera e tela como estão agora
+    this.sfuResync().catch(() => { });
+  }
+  // depois de retomar: o que os outros ligaram ou desligaram durante a queda (os avisos não chegaram)
+  async sfuResync() {
+    const s = this.sfu; if (!s?.ready) return;
+    const r = await this.sfuReq('producers'); if (this.sfu !== s || !r?.producers) return;
+    const live = new Set(r.producers.map(p => p.producer_id));
+    for (const [id, e] of [...s.consumers]) if (!live.has(e.c.producerId)) this.onSfuConsumerClosed({ consumer_id: id });
+    for (const id of [...s.seen]) if (!live.has(id)) s.seen.delete(id);
+    for (const p of r.producers) this.onSfuProducer(p);
+  }
   // depois de a conexão com o servidor cair: volta para a mesma sala, em silêncio e mantendo mudo/ensurdecido
   rejoin() {
     const cid = this.channelId; if (!cid) return;
