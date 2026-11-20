@@ -69,6 +69,17 @@ try {
   const st = acc.settings || acc || {};
   ok(!('liteAuto' in st) && !('liteAutoGame' in st), 'automático é só desta máquina (não vai para a conta)', Object.keys(st).filter(k => /lite/i.test(k)));
 
+  // consumo real nas estatísticas de uso: média de 5 min por modo, em faixas (public/lite.js perfAdd)
+  const perf = await p.evaluate(async () => {
+    const m = await window.__lc.import('lite.js'), ux = await window.__lc.import('ux.js'), real = Date.now; let dt = 0;
+    Date.now = () => real() + dt;
+    try { for (let i = 0; i < 4; i++) await m._usageSample(); const before = ux.uxPending().filter(x => x.e === 'perf').length; dt = 301e3; await m._usageSample(); return { before, after: ux.uxPending().filter(x => x.e === 'perf'), cores: navigator.hardwareConcurrency }; }
+    finally { Date.now = real; }
+  });
+  // ponte de mentira: 11,2% de um núcleo e 470 MB; dividido pelos núcleos desta máquina
+  const cpuBand = ((x) => [1, 2.5, 5, 10, 20, 40].filter(t => x > t).length)(11.2 / perf.cores);
+  ok(perf.before === 0 && perf.after.length === 1 && perf.after[0].d === `ocioso:${cpuBand}:2`, 'consumo real: um evento a cada 5 min com o modo e as faixas (sem número exato)', perf);
+
   // página
   await p.evaluate(() => window.__lc.openSettings('lite')); await sleep(2500);
   const txt = await p.$eval('#settings .pane', el => el.textContent);

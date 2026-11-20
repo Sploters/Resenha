@@ -120,6 +120,15 @@ try {
   await api(eu, 'POST', '/ux', { version: 'vteste', device: 'desktop', events: [{ e: 'games_open', d: '', n: 2 }, { e: 'timing', d: 'channel_switch:9', n: 1 }, { e: 'voice_fail', d: 'ice_failed', n: 1 }] });
   full = (await api(admin, 'GET', '/ux?version=vteste')).data;
   ok(full.eventos.games_open?.total === 2 && Object.keys(full.eventos).join() === 'games_open,voice_fail' && full.versoes.some(v => v.version === 'vteste'), 'filtro por versão mostra só o que veio daquela versão (faixa inválida descartada)', { ev: Object.keys(full.eventos), versoes: full.versoes });
+  // consumo real do app desktop (perf): "modo:faixa:faixa"; fora do formato é descartado
+  await api(eu, 'POST', '/ux', { version: 'vperf', device: 'app', events: [{ e: 'perf', d: 'voz:3:2', n: 4 }, { e: 'perf', d: 'transmitindo:5:4', n: 1 }, { e: 'perf', d: 'voz:9:2', n: 1 }, { e: 'perf', d: 'jogando:1:1', n: 1 }] });
+  { const m = (await api(admin, 'GET', '/ux?version=vperf')).data.eventos.perf;
+    ok(m?.total === 5 && m.detalhes?.['voz:3:2']?.total === 4 && m.detalhes?.['transmitindo:5:4']?.total === 1, 'consumo real contado por modo e faixas (formato inválido descartado)', m); }
+  // e o quadro do painel mostra a metade e os 90% por modo
+  await A.evaluate(() => window.__lc.openSettings('account')); await sleep(600);
+  await A.evaluate(() => [...document.querySelectorAll('#settings .ni')].find(x => /Estatísticas de uso/.test(x.textContent)).click()); await sleep(1500);
+  { const t = await A.evaluate(() => [...document.querySelectorAll('.ux-card')].find(c => /Consumo real do app desktop/.test(c.textContent))?.textContent || '');
+    ok(/Em chamada \(4 amostras\): processador metade até 10%, 90% até 10%; memória metade até 600 MB/.test(t) && /Transmitindo \(1 amostra\): processador metade até 40%/.test(t), 'painel: consumo real por modo (metade e 90%)', t.slice(0, 300)); }
   // quedas da mídia da chamada (antes descartadas pelo servidor); motivo fora do formato é descartado
   await api(eu, 'POST', '/ux', { version: 'vmidia', device: 'app', events: [{ e: 'voice_reconnect', d: 'ice', n: 3 }, { e: 'voice_reconnect', d: 'timeout', n: 1 }, { e: 'voice_recovered', d: 'ice', n: 2 }, { e: 'voice_reconnect', d: 'Ice <b>', n: 1 }] });
   { const m = (await api(admin, 'GET', '/ux?version=vmidia')).data.eventos;

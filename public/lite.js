@@ -5,6 +5,7 @@ import { toggle, row, section } from './ui.js';
 import { refreshFreeze } from './freeze.js';
 import { stopAllBuffers } from './clips.js';
 import { leave } from './motion.js';
+import { track } from './ux.js';
 
 const HEAVY_NOISE = ['rnnoise', 'gtcrn'];
 const scr = () => ({ res: 1080, fps: 30, hint: 'motion', audio: true, ...S.prefs.screen });
@@ -178,6 +179,20 @@ function doing() {
   if (liteOn()) out.push('modo leve');
   return out.join(' · ');
 }
+// ---------- consumo real nas estatísticas de uso (só o app desktop, só com as estatísticas permitidas) ----------
+// Cada amostra (a cada 10 s; 2 s com o painel aberto) é a média desde a anterior (percentCPUUsage). Acumula por modo
+// (parado, em chamada, assistindo, transmitindo) e a cada 5 min manda UM evento por modo com as faixas da média de
+// processador (do PC inteiro, como no painel) e de memória do app: sem número exato, ~12 eventos por hora.
+const PERF_CPU = [1, 2.5, 5, 10, 20, 40], PERF_MEM = [250, 400, 600, 900, 1300, 2000], PERF_MS = 300e3;
+const perfBand = (v, t) => { let i = 0; while (i < t.length && v > t[i]) i++; return i; };
+const PERF = { start: Date.now(), acc: new Map() };
+function perfMode() { const v = USE.getVoice?.(); return v?.screen ? 'transmitindo' : S.watching?.size ? 'assistindo' : v?.active ? 'voz' : 'ocioso'; }
+function perfAdd(cpuPct, memB, now) {
+  const k = perfMode(), a = PERF.acc.get(k) || { n: 0, cpu: 0, mem: 0 }; a.n++; a.cpu += cpuPct; a.mem += memB; PERF.acc.set(k, a);
+  if (now - PERF.start < PERF_MS) return;
+  for (const [m, x] of PERF.acc) if (x.n >= 3) track('perf', `${m}:${perfBand(x.cpu / x.n, PERF_CPU)}:${perfBand(x.mem / x.n / 1048576, PERF_MEM)}`, { bg: true });
+  PERF.acc.clear(); PERF.start = now;
+}
 async function sample() {
   let cpu = 0, mem = 0; const g = new Map();
   if (desktop?.appMetrics) {
@@ -190,6 +205,7 @@ async function sample() {
   if (!USE.mem || mem > USE.mem.v) USE.mem = { v: mem, at: now, what };
   for (const [k, x] of g) { const p = USE.parts.get(k) || { cpu: 0, mem: 0 }; p.cpu = Math.max(p.cpu, x.cpu); p.mem = Math.max(p.mem, x.mem); USE.parts.set(k, p); }
   USE.hist.push({ at: now, cpu, mem }); while (USE.hist.length && now - USE.hist[0].at > 600e3) USE.hist.shift();
+  if (desktop?.appMetrics && USE.hist.length > 1) perfAdd(cpu / cores(), mem, now); // a 1ª leitura do Electron é 0 (não há anterior)
   return { cpu, mem, g };
 }
 // chamado na abertura do app (app.js): começa a medir em segundo plano
@@ -197,6 +213,7 @@ export function startUsageWatch(getVoice) {
   USE.getVoice = getVoice; if (USE.t) return;
   sample(); USE.t = setInterval(() => { if (!usageOpen) sample(); }, 10e3);
 }
+export const _usageSample = () => sample(); // testes (scripts/autolite-test.mjs)
 export const usagePeak = () => ({ since: USE.since, cpu: USE.cpu, mem: USE.mem, parts: Object.fromEntries(USE.parts) });
 let usageOpen = false;
 const hhmm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });

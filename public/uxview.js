@@ -9,7 +9,7 @@ export const EVENT_NAMES = {
   back_to_friends: 'Voltou para Amigos', games_open: 'Abriu a seção Jogos', games_tab: 'Trocou de aba em Jogos', info_tip: 'Abriu uma explicação ⓘ',
   settings_search_empty: 'Busca sem resultado nas Configurações', flow: 'Começou/terminou uma tarefa', rage_click: 'Vários cliques rápidos no mesmo lugar',
   dead_click: 'Clique que não fez nada', js_error: 'Erro do app', error_shown: 'Aviso de erro na tela', timing: 'Tempo de carregamento',
-  voice_fail: 'Falha ao entrar na voz', ws_reconnect: 'Conexão caiu e voltou', voice_reconnect: 'Mídia da chamada caiu (refez a conexão)', voice_recovered: 'Mídia da chamada voltou', u_turn: 'Foi e voltou rápido', quick_exit: 'Saiu logo de uma página',
+  voice_fail: 'Falha ao entrar na voz', ws_reconnect: 'Conexão caiu e voltou', voice_reconnect: 'Mídia da chamada caiu (refez a conexão)', voice_recovered: 'Mídia da chamada voltou', perf: 'Consumo do app (amostra de 5 min)', u_turn: 'Foi e voltou rápido', quick_exit: 'Saiu logo de uma página',
   menu_open: 'Abriu um menu', menu_abandoned: 'Fechou um menu sem escolher', menu_pick: 'Escolheu um item de menu', slow_switch: 'Troca de canal lenta (onde foi o tempo)', call_rating: 'Avaliação da chamada', call_issue: 'Problema na chamada',
   call_quality: 'Qualidade da rede na chamada', call_net: 'Medida da chamada (faixa)', call_qcause: 'O que pesou na chamada', call_rating_q: 'Avaliação × rede medida',
 };

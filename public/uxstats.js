@@ -15,6 +15,18 @@ import { UX_VERSION } from './ux.js';
 
 const DEV = { desktop: 'PC', mobile: 'Celular', app: 'App desktop' };
 const TABS = { lfg: 'Procurar jogadores', home: 'Início', news: 'Notícias', tournaments: 'Torneios' };
+// consumo real do app desktop (evento perf, public/lite.js): por modo, a faixa da metade e dos 90% das amostras de 5 min
+const PERF_MODES = [['ocioso', 'Parado'], ['voz', 'Em chamada'], ['assistindo', 'Assistindo transmissão'], ['transmitindo', 'Transmitindo']];
+const PERF_CPU_L = ['1%', '2,5%', '5%', '10%', '20%', '40%', 'mais de 40%'], PERF_MEM_L = ['250 MB', '400 MB', '600 MB', '900 MB', '1,3 GB', '2 GB', 'mais de 2 GB'];
+function perfRows(ev) {
+  const by = new Map();
+  for (const [k, v] of Object.entries(ev?.detalhes || {})) { const [m, c, me] = k.split(':'), x = by.get(m) || { n: 0, cpu: Array(7).fill(0), mem: Array(7).fill(0) }; x.n += v.total; x.cpu[+c] += v.total; x.mem[+me] += v.total; by.set(m, x); }
+  if (!by.size) return empty('Nenhuma amostra neste período (só o app desktop mede).');
+  const q = (arr, n, p) => { let s = 0; for (let i = 0; i < arr.length; i++) { s += arr[i]; if (s >= n * p) return i; } return arr.length - 1; };
+  const upTo = (L, i) => (i === L.length - 1 ? L[i] : 'até ' + L[i]);
+  return h('div', PERF_MODES.filter(([m]) => by.has(m)).map(([m, label]) => { const x = by.get(m);
+    return h('p.ux-line', h('b', label), ` (${pl(x.n, 'amostra', 'amostras')}): processador metade ${upTo(PERF_CPU_L, q(x.cpu, x.n, .5))}, 90% ${upTo(PERF_CPU_L, q(x.cpu, x.n, .9))}; memória metade ${upTo(PERF_MEM_L, q(x.mem, x.n, .5))}, 90% ${upTo(PERF_MEM_L, q(x.mem, x.n, .9))}`); }));
+}
 const MEDIA_DROP = { ice: 'Conexão de áudio/vídeo caiu', ice_error: 'Erro na conexão de áudio/vídeo', timeout: 'Servidor de mídia não respondeu', server: 'Servidor de mídia reiniciou', start_failed: 'Falha ao ligar a mídia' };
 const VOICE_FAIL = { join_error: 'Erro ao entrar', sfu_error: 'Falha no servidor de mídia', ice_failed: 'Conexão de áudio caiu', outdated: 'App desatualizado', calls_off: 'Pessoa não aceita ligações', denied: 'Recusado pelo servidor' };
 const nf = (n) => Number(n || 0).toLocaleString('pt-BR');
@@ -267,6 +279,7 @@ export function uxStatsPage() {
         // a voz e o vídeo vão direto ao SFU (não pelo WebSocket): queda aqui é o que a pessoa ouve picotar ou travar
         card('Mídia da chamada', `Refez a conexão ${pl(E.voice_reconnect?.total || 0, 'vez', 'vezes')}; voltou sozinha ${pl(E.voice_recovered?.total || 0, 'vez', 'vezes')}`,
           E.voice_reconnect || E.voice_recovered ? list(E.voice_reconnect || E.voice_recovered, 6, (k) => MEDIA_DROP[k] || k) : empty('Nenhuma queda de mídia neste período.'))),
+      card('Consumo real do app desktop', 'Média de 5 min do processador (do PC inteiro) e da memória do app, por modo, no PC de quem usa', perfRows(E.perf)),
       card('Qualidade das chamadas', 'Pergunta rápida depois de algumas chamadas; quem teve problema diz o motivo', calls(data.chamadas)),
       card('Qualidade técnica das chamadas', 'Medida pela conexão em toda chamada, sem perguntar: atraso, perda de pacotes, oscilação, voz picotada, vídeo travando e quedas', netq(data.qualidade)),
       card('Eventos por dia', null, daily(data.por_dia || [], data.desde, data.dias)),
