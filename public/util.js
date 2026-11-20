@@ -287,7 +287,7 @@ export function imgUrl(url, size) {
 const STATUS_LABEL = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', offline: 'Offline', invisible: 'Invisível' };
 export function avatar(u, size = 40, opts = {}) {
   if (u?.bot) return h('div.avatar.botav', { style: { width: size + 'px', height: size + 'px' }, title: 'Bot de música' }, icon('musicbot', Math.round(size * .56)));
-  const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.color || '#5865f2' } });
+  const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.avatar ? 'var(--bg-mod-hover, #35373c)' : u?.color || '#5865f2' } }); // com foto: fundo neutro até ela carregar (antes piscava a cor da pessoa)
   if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { title: STATUS_LABEL[u.status] || 'Offline', style: opts.ring ? { borderColor: opts.ring, '--st-hole': opts.ring } : null }));
   return el;

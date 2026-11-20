@@ -45,7 +45,8 @@ html.anim .backdrop > .modal { animation: lc-pop .22s cubic-bezier(.2, .9, .3, 1
 html.anim .menu { animation: lc-pop .12s ease-out; transform-origin: top left; }
 html.anim .popout { animation: lc-pop .16s ease-out; }
 html.anim #toast { animation: lc-up .26s cubic-bezier(.2, .9, .3, 1.1); }
-html.anim #settings { animation: lc-fade .18s ease-out; }
+/* configurações: abrem e fecham na hora, como uma troca de tela. Antes entravam meio transparentes (o menu se misturava com
+   a lista de canais por trás); com fundo opaco e conteúdo em fade, um quadro inteiro saía cinza e vazio (crítico visual) */
 #settings .content > .pane { animation: none !important; }
 html.anim .sw { animation: lc-switch .22s ease-out; }
 html.anim #members.sw { animation-name: lc-left; }
@@ -1407,12 +1408,6 @@ html.anim .icon-swap > svg, html.anim .icon-swap > .icon { animation: mv-icon .2
 html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, transparent 55%); mask-image: linear-gradient(90deg, #000 45%, transparent 55%);
   -webkit-mask-size: 220% 100%; mask-size: 220% 100%; animation: mv-reveal .35s var(--ease-out) forwards; }
 
-/* troca de tela (motion.js viewTransition): a velha sai mais rápido enquanto a nova entra; o destaque do canal e a
-   aba ativa "deslizam" para o novo lugar (mesmo nome = mesmo elemento, como o layoutId) */
-::view-transition-old(root) { animation: mv-fade-out 120ms var(--ease-in) both; }
-::view-transition-new(root) { animation: lc-fade 160ms var(--ease-out) both; }
-::view-transition-group(*) { animation-duration: 220ms; animation-timing-function: var(--ease-in-out); }
-/* (sem view-transition-name em canal/aba ativos: o navegador "arrastava" o destaque do item antigo até o clicado) */
 
 /* ---------- vídeos de redes sociais no chat (media.js) ---------- */
 .sembed { position: relative; margin-top: 6px; width: min(400px, 100%); aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; color: #fff; }

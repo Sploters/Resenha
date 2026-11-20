@@ -76,6 +76,10 @@ label.f input:focus, label.f textarea:focus { outline: 1px solid var(--brand); }
 .cat { display: flex; align-items: center; justify-content: space-between; padding: 16px 8px 4px 2px; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); cursor: pointer; letter-spacing: .02em; }
 .cat:hover { color: var(--interactive-hover); } .cat .add { opacity: 0; } .cat:hover .add { opacity: 1; }
 .cat .arrow { width: 12px; height: 12px; margin-right: 2px; transition: transform .15s; } .cat.collapsed .arrow { transform: rotate(-90deg); }
+/* seta da categoria (side.js catRow: 1º ícone do título): com 12 px o triângulo parecia um traço ("- CANAIS DE TEXTO") e não
+   girava ao recolher (a regra acima procura .arrow, que o ícone não tem) */
+.catblk > .cat > span > .icon:first-child { width: 16px; height: 16px; margin: -2px 0 -2px -4px; flex: none; transition: transform .15s; }
+.catblk > .cat.collapsed > span > .icon:first-child { transform: rotate(-90deg); }
 .ch { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin-bottom: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; font-weight: 500; position: relative; min-height: 34px; }
 .ch:hover { background: var(--bg-mod-hover); color: var(--interactive-hover); } .ch.active { background: var(--bg-mod-sel); color: var(--text-strong); }
 .ch.unread { color: var(--text-strong); } .ch.unread::before { content: ""; position: absolute; left: -8px; width: 4px; height: 8px; background: #fff; border-radius: 0 4px 4px 0; }
@@ -219,7 +223,10 @@ pre.md-pre { background: #2b2d31; border: 1px solid #1e1f22; border-radius: 4px;
 #home .tabs { display: flex; gap: 8px; align-items: center; } #home .tab { padding: 2px 8px; border-radius: 4px; color: var(--interactive); font-weight: 500; font-size: 16px; } #home .tab:hover { background: var(--bg-mod-hover); color: var(--interactive-hover); } #home .tab.active { background: var(--bg-mod-sel); color: #fff; }
 #home .tab.green { background: var(--green); color: #fff; } #home .tab.green.active { background: none; color: var(--green); }
 #home .pane { flex: 1; overflow-y: auto; padding: 16px 20px; }
-.fsearch { background: var(--bg-tert); border: 0; border-radius: 4px; padding: 8px; width: 100%; outline: none; margin-bottom: 16px; }
+.fsearch { background: var(--bg-tert); border: 0; border-radius: 8px; padding: 8px 10px 8px 34px; width: 100%; outline: none; margin-bottom: 16px;
+  /* lupa, como nas outras buscas (Buscar conversa, Buscar membros) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23949ba4' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='m16 16 4.5 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: 11px 50%; background-size: 16px; }
 .fh { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 8px 0; }
 .frow { display: flex; align-items: center; gap: 12px; padding: 12px 8px; border-top: 1px solid var(--divider); border-radius: 8px; cursor: pointer; } .frow:hover { background: var(--bg-mod-hover); }
 .frow .fn { flex: 1; min-width: 0; } .frow .fn b { color: var(--header); font-weight: 600; } .frow .fn small { display: block; color: var(--text-muted); font-size: 14px; }
@@ -249,7 +256,7 @@ pre.md-pre { background: #2b2d31; border: 1px solid #1e1f22; border-radius: 4px;
 .popout .pb { background: var(--bg-tert); margin: 8px 16px 16px; border-radius: 8px; padding: 12px; } .popout h3 { margin: 0; color: var(--header); font-size: 20px; } .popout .un { color: var(--text); font-size: 14px; } .popout hr { border: 0; height: 1px; background: var(--divider); margin: 12px 0; } .popout h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; color: var(--header); } .popout p { margin: 0 0 8px; font-size: 14px; }
 .emoji-picker { position: fixed; background: var(--bg-sec); border-radius: 8px; width: 352px; height: 340px; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 95; display: flex; flex-direction: column; } .emoji-picker input { margin: 12px; background: var(--bg-tert); border: 0; border-radius: 4px; padding: 8px; outline: none; } .emoji-grid { flex: 1; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-wrap: wrap; align-content: flex-start; } .emoji-grid .cap { width: 100%; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 8px 4px 4px; } .emoji-grid .emoji-chunk { width: 100%; display: flex; flex-wrap: wrap; content-visibility: auto; } .emoji-grid span { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 26px; border-radius: 4px; cursor: pointer; } .emoji-grid span:hover { background: var(--bg-mod-hover); }
 .ac { position: absolute; bottom: 70px; left: 16px; right: 16px; background: var(--bg-sec); border-radius: 8px; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); max-height: 260px; overflow-y: auto; z-index: 10; } .ac .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; } .ac .it.sel, .ac .it:hover { background: var(--bg-mod-hover); } .ac small { color: var(--text-muted); margin-left: auto; }
-#toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--bg-float); padding: 10px 20px; border-radius: 6px; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,.5); border-left: 4px solid var(--brand); } #toast.err { border-color: var(--red); }
+#toast { position: fixed; bottom: 88px; /* acima da caixa de mensagem (antes cobria metade dela) */ left: 50%; transform: translateX(-50%); background: var(--bg-float); padding: 10px 20px; border-radius: 6px; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,.5); border-left: 4px solid var(--brand); } #toast.err { border-color: var(--red); }
 #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 120; display: flex; align-items: center; justify-content: center; cursor: zoom-out; } #lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 4px; }
 #dropzone { position: absolute; inset: 0; background: rgba(88,101,242,.25); border: 3px dashed var(--brand); z-index: 20; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; pointer-events: none; }
 #results { width: 360px; background: var(--bg-sec); overflow-y: auto; flex: none; padding: 8px; } #results .rh { padding: 8px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: flex; justify-content: space-between; } #results .msg { padding-left: 56px; border-radius: 6px; background: var(--bg-pri); margin-bottom: 8px; cursor: pointer; } #results .msg .av { left: 8px; } #results .msg:hover .toolbar { display: none; }
@@ -261,13 +268,25 @@ pre.md-pre { background: #2b2d31; border: 1px solid #1e1f22; border-radius: 4px;
 #settings .pane { flex: 1.5; padding: 60px 40px 80px; overflow-y: auto; max-width: 740px; position: relative; } #settings .pane h2 { margin: 0 0 20px; color: var(--header); font-size: 20px; }
 #settings .close { position: fixed; top: 60px; right: 40px; width: 36px; height: 36px; border: 2px solid var(--interactive); border-radius: 50%; color: var(--interactive); display: flex; align-items: center; justify-content: center; } #settings .close:hover { background: var(--bg-mod-hover); color: #fff; }
 .card2 { background: var(--bg-sec); border-radius: 8px; padding: 16px; margin-bottom: 20px; } .row2 { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; } .prof-banner { height: 100px; border-radius: 8px 8px 0 0; } .swatches { display: flex; gap: 8px; flex-wrap: wrap; } .swatches i { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; } .swatches i.sel { border-color: #fff; }
-.role-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 4px; cursor: pointer; } .role-row:hover { background: var(--bg-mod-hover); } .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.role-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 4px; cursor: pointer; }
+/* subir/descer cargo: botões pequenos e redondos com seta (antes quadrados de 46×38 com ▲▼ de texto); desativado bem apagado */
+.role-row .role-mv { width: 30px; height: 30px; min-width: 0; padding: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
+.role-row .role-mv:not(.down) .icon { transform: rotate(180deg); }
+.role-row .role-mv:disabled { opacity: .3; }
+ .role-row:hover { background: var(--bg-mod-hover); } .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
 .perm { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--divider); } .switch { width: 40px; height: 24px; border-radius: 12px; background: #80848e; position: relative; cursor: pointer; flex: none; transition: .15s; } .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .15s; } .switch.on { background: var(--green); } .switch.on::after { left: 19px; }
 .meter { height: 8px; background: #1e1f22; border-radius: 4px; overflow: hidden; margin-top: 8px; } .meter i { display: block; height: 100%; width: 0; background: var(--green); transition: width .05s; }
 input[type=range] { width: 100%; accent-color: var(--brand); }
 
 @media (max-width: 900px) { #members, #results { display: none; } #side { width: 200px; } }
 @media (max-width: 640px) { #side { position: absolute; z-index: 30; left: 72px; height: 100%; transform: translateX(-130%); transition: transform .2s; } #app.nav-open #side { transform: none; } .msg { padding-right: 12px; } }
+/* celular: a barra dos servidores sai junto com a lista de canais (☰ traz as duas). Antes ficava fixa e o chat tinha só ~300
+   de 390 px, com uma ponta da lista escondida aparecendo na borda */
+@media (max-width: 640px) {
+  #rail { position: absolute; z-index: 31; left: 0; height: 100%; transform: translateX(-100%); transition: transform .2s; }
+  #app.nav-open #rail { transform: none; }
+  #side { transform: translateX(calc(-100% - 80px)); }
+}
 
 /* botão ocupado (ação em andamento, ver busy() em util.js): spinner pequeno depois de 250 ms, sem trocar o texto */
 button.busy { pointer-events: none; } /* sem clique repetido enquanto a ação anterior não termina */
@@ -302,12 +321,17 @@ html.anim :is(.skeleton i, #boot i, #boot em, #boot u)::after { content: ''; pos
 /* esqueleto do app inteiro antes do JavaScript (index.html) */
 #boot { display: none; position: fixed; inset: 0; z-index: 99; background: var(--bg-tert, #1e1f22); }
 html.boot #boot { display: flex; }
-#boot .bt-rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; }
+#boot .bt-rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 40px; }
 #boot .bt-rail i { width: 48px; height: 48px; border-radius: 50%; }
-#boot .bt-side { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-top-left-radius: 12px; margin-top: 8px; }
+#boot .bt-side { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-top-left-radius: 12px; margin-top: 40px; }
 #boot .bt-side b { height: 34px; margin-bottom: 8px; } #boot .bt-side i { height: 26px; width: 80%; } #boot .bt-side i:nth-child(odd) { width: 62%; }
-#boot .bt-main { flex: 1; min-width: 0; background: var(--bg-pri, #313338); display: flex; flex-direction: column; margin-top: 8px; }
+#boot .bt-main { flex: 1; min-width: 0; background: var(--bg-pri, #313338); display: flex; flex-direction: column; margin-top: 40px; }
 #boot .bt-main > b { height: 48px; border-radius: 0; background: transparent; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+/* esqueleto na forma do app: faixa das abas em cima (40 px, as colunas começam abaixo dela) e a coluna da direita (membros /
+   Ativo agora), que some em tela estreita como a de verdade. Antes o app entrava ~32 px mais baixo e com uma coluna a mais */
+#boot .bt-mem { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); margin-top: 40px; display: flex; flex-direction: column; gap: 14px; padding: 20px 14px; }
+#boot .bt-mem i { height: 32px; width: 85%; } #boot .bt-mem i:nth-child(odd) { width: 70%; }
+@media (max-width: 1100px) { #boot .bt-mem { display: none; } }
 #boot .bt-msgs { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 18px; padding: 16px; }
 #boot p { display: flex; gap: 14px; margin: 0; } #boot p i { width: 40px; height: 40px; border-radius: 50%; flex: none; }
 #boot p span { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; } #boot em { height: 14px; width: 18%; } #boot u { height: 12px; width: 55%; }

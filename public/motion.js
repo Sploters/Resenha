@@ -54,10 +54,8 @@ export function swapIcon(btn, key, state) {
   return btn;
 }
 
-// troca de tela com as duas versões sobrepostas (a velha some enquanto a nova aparece). Sem suporte, com animações
-// desligadas ou com vídeo na tela (transmissões: a captura do quadro pesa e pisca), só troca.
-export function viewTransition(fn) {
-  if (!animOn() || !document.startViewTransition || document.querySelector('#stage video, .livepip video, .fsbox')) return fn();
-  // trocar de canal rápido pula a transição anterior: o aviso "Transition was skipped" não é erro (antes virava promessa rejeitada sem tratamento)
-  try { const t = document.startViewTransition(fn); t.ready?.catch(() => { }); t.finished?.catch(() => { }); } catch { fn(); }
-}
+// troca de tela: na hora, sem fade entre a tela velha e a nova. Antes era uma View Transition com as duas versões
+// sobrepostas, e o texto de uma aparecia por cima do da outra; com "sai e depois entra" a tela inteira piscava vazia
+// (as abas e o painel do usuário moram dentro das colunas). Como no Discord e no Slack: troca direta, e o movimento fica
+// por conta da entrada das mensagens (S.staggerNext → mv-rise)
+export function viewTransition(fn) { return fn(); }

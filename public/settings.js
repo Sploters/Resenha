@@ -1166,8 +1166,8 @@ function rolesPage(gid) {
       const ok = manage && roleBelow(gid, r);
       return h('div.role-row', { onclick: () => edit(r), title: ok ? '' : 'Igual ou acima do seu cargo mais alto: só para ver' }, h('i.dot', { style: { background: r.color } }), h('span', { style: { flex: 1 } }, r.name, !ok && manage && h('small.mut', ' 🔒')),
         h('small', { style: { color: 'var(--text-muted)' } }, `${[...g.members.values()].filter(m => m.roles.includes(r.id)).length} membros`),
-        ok && h('button.btn.grey', { title: 'Subir', disabled: !(list[i - 1] && roleBelow(gid, list[i - 1])), onclick: (e) => { e.stopPropagation(); move(r, -1); } }, '▲'),
-        ok && h('button.btn.grey', { title: 'Descer', disabled: !list[i + 1], onclick: (e) => { e.stopPropagation(); move(r, 1); } }, '▼'));
+        ok && h('button.btn.grey.role-mv', { title: 'Subir', 'aria-label': 'Subir', disabled: !(list[i - 1] && roleBelow(gid, list[i - 1])), onclick: (e) => { e.stopPropagation(); move(r, -1); } }, icon('caret', 16)),
+        ok && h('button.btn.grey.role-mv.down', { title: 'Descer', 'aria-label': 'Descer', disabled: !list[i + 1], onclick: (e) => { e.stopPropagation(); move(r, 1); } }, icon('caret', 16)));
     }));
     if (!g.roles.length) box.append(note('Nenhum cargo ainda.'));
   };

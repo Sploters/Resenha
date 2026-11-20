@@ -120,6 +120,17 @@ export function threadWatch(box) {
     }
     for (const el of touched) threadMark(el);
   }).observe(box, { childList: true });
+  // .rolando enquanto a PESSOA rola (e 1,2 s depois): a data grudada no topo só aparece nesse tempo (ux.css .daysep). A
+  // rolagem que o próprio app faz (descer até o fim ao abrir, imagem carregando) não conta: só a que vem logo depois de
+  // roda do mouse, toque, tecla ou clique na barra. Só troca a classe no começo e no fim, não a cada evento
+  let idle = 0, intent = -Infinity;
+  const mark = () => { intent = performance.now(); };
+  for (const ev of ['wheel', 'touchmove', 'keydown', 'pointerdown']) box.addEventListener(ev, mark, { passive: true });
+  box.addEventListener('scroll', () => {
+    if (performance.now() - intent > 1500) return;
+    if (!box.classList.contains('rolando')) box.classList.add('rolando');
+    clearTimeout(idle); idle = setTimeout(() => box.classList.remove('rolando'), 1200);
+  }, { passive: true });
   return box;
 }
 export function renderMessages(keepPos) {

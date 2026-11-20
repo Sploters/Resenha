@@ -168,6 +168,9 @@ export function rejoinPanel() {
 export function joinVoice(cid) {
   if (voice.channelId === cid) return;
   { const c = channelById(cid); if (c?.guild_id && !chCan(c, CH.CONNECT)) return toast('Você não tem permissão para entrar nesta sala de voz', true); }
+  // o "Entrar" do topo some já no clique (antes ficava ~100 ms a mais, até a sala responder, e piscava). Se a entrada
+  // falhar, o palco redesenhado (stage.js) mostra de novo
+  document.querySelector('.vc-join-top')?.classList.add('hidden');
   startTimer('voice_connect', cid); // telemetria: para quando o áudio conecta (voice.js) ou quando a sala aceita sem servidor de mídia
   voice.join(cid).then(() => { if (voice.error) { track('voice_fail', 'join_error'); cancelTimer('voice_connect'); toast(voice.error, true); voice.error = null; } else setTimeout(() => gameTick?.(), 1500); }); // jogo já aberto: oferece transmitir logo
 }

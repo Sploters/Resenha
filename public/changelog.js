@@ -6,6 +6,16 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-20-1', title: 'Visual mais caprichado',
+    items: [
+      { i: 'sparkle', t: 'Troca de canal limpa', d: 'Trocar de canal, de conversa ou abrir as configurações acontece na hora, sem as duas telas aparecendo misturadas por um instante.' },
+      { i: 'eye', t: 'Abre sem clarão', d: 'O app abre já no fundo escuro, e o esqueleto de carregamento tem a mesma forma das telas de verdade.' },
+      { i: 'phone', t: 'Melhor no celular', d: 'O chat usa a largura toda: a barra dos servidores some junto com a lista de canais e volta pelo botão de menu.' },
+      { i: 'voice', t: 'Chamada mais calma', d: 'O contorno de quem está falando fica por dentro do quadro (a grade não "pulsa" mais) e o botão Entrar some assim que você clica.' },
+      { i: 'edit', t: 'Detalhes', d: 'A data do chat só aparece enquanto você rola, os avisos não cobrem mais a caixa de mensagem, as setas das categorias e dos cargos ficaram maiores e a busca de Amigos ganhou a lupa.' },
+    ],
+  },
+  {
     id: '2026-11-19-5', title: 'Curtidas, ranking da semana e clipes recomendados',
     items: [
       { i: 'heart', t: 'Curta clipes', d: 'No player e na galeria tem o coração para curtir. Cada clipe mostra quantas pessoas assistiram, curtiram e compartilharam, e quanto do clipe a galera costuma ver.' },
