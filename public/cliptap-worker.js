@@ -9,6 +9,11 @@
 //   rápida vista (a de menos atraso de rede); salto grande no carimbo (transmissão recomeçou) recomeça o buffer.
 // - Mensagens da página: { cmd: 'clip', id, secs } -> { id, ok, codec, w, h, avcc, ats, keys, lens, data } (transferido);
 //   { cmd: 'keep', ms } (0 = só deixa passar). Para a página: { needKey: true }.
+// No ENVIADOR da sua própria transmissão (side 'send', voice.js sfuProduce): os quadros que o Chromium acabou de comprimir,
+// em vez do MediaRecorder comprimindo a tela de novo (~18% de um núcleo). O enviador manda 3 camadas (simulcast), cada
+// uma no seu ssrc: guarda só a maior (o ssrc cujo quadro-chave é o mais largo; se ela parar por 3 s, a próxima maior
+// assume e o buffer recomeça). Quadro-chave: pedido ao próprio codificador (generateKeyFrame), sem passar pelo servidor.
+// O codec chega depois ({ cmd: 'codec' }): o encaixe entra antes do produce saber se ficou H.264 ou VP8.
 // Colocado num receptor que já recebe vídeo (ou logo depois do consume), o encaixe não recebe quadros: a página liga o worker quando a transmissão chega
 // (voice.js onSfuProducer) e ele fica só deixando os quadros passarem (keep 0) até um buffer de clipe pedir para guardar.
 const KEY_EVERY = 5000, MAX_BYTES = 300 << 20, WRAP = 2 ** 32;
@@ -18,10 +23,25 @@ function reset(s) { s.frames = []; s.bytes = 0; s.off = Infinity; s.lastKeyMs = 
 onrtctransform = (ev) => {
   const t = ev.transformer, o = t.options || {};
   const s = st = { keep: pendingKeep || +o.keep || 0, codec: String(o.codec || ''), frames: [], bytes: 0, off: Infinity, lastRtp: null, wraps: 0, lastKeyMs: -Infinity, lastAsk: 0, n: 0, keys: 0, all: 0, err: '' };
-  t.readable.pipeThrough(new TransformStream({ transform(frame, ctl) { s.all++; if (s.keep > 0) { try { take(s, frame); } catch (e) { s.err = String(e?.message || e); } } ctl.enqueue(frame); } }))
+  s.send = o.side === 'send'; s.t = t; s.top = null; s.topW = 0; s.topAt = 0; if (pendingCodec) s.codec = pendingCodec;
+  t.readable.pipeThrough(new TransformStream({ transform(frame, ctl) { s.all++; if (s.keep > 0) { try { if (!s.send || isTop(s, frame)) take(s, frame); } catch (e) { s.err = String(e?.message || e); } } ctl.enqueue(frame); } }))
     .pipeTo(t.writable).catch(() => { });
 };
 
+// enviador: o quadro é da camada maior? (escolhe pelo quadro-chave mais largo; troca de camada recomeça o buffer)
+function isTop(s, frame) {
+  const md = frame.getMetadata?.() || {}, ssrc = md.synchronizationSource, w = md.width || 0, now = Date.now();
+  if (frame.type === 'key' && w > 0) {
+    if (ssrc === s.top) s.topW = w;
+    else if (s.top == null || w > s.topW || now - s.topAt > 3000) { if (s.top != null) reset(s); s.top = ssrc; s.topW = w; s.topAt = now; }
+  }
+  if (ssrc !== s.top) return false;
+  s.topAt = now; return true;
+}
+function askKey(s) {
+  if (!s.send) { postMessage({ needKey: true }); return; }
+  try { s.t.generateKeyFrame?.()?.catch?.(() => { }); } catch { /* sem suporte: o buffer espera o próximo quadro-chave */ }
+}
 function take(s, frame) {
   const now = Date.now(), md = frame.getMetadata?.() || {}, key = frame.type === 'key';
   let rtp = md.rtpTimestamp ?? frame.timestamp; if (!(rtp >= 0)) return;
@@ -33,7 +53,7 @@ function take(s, frame) {
   if (d < s.off) s.off = d;
   else if (d - s.off > 5000) { reset(s); s.off = d; }
   if (key) { s.lastKeyMs = ms; s.keys++; }
-  if (now - s.lastAsk > 2000 && (!s.frames.length || ms - s.lastKeyMs > KEY_EVERY)) { s.lastAsk = now; postMessage({ needKey: true }); }
+  if (now - s.lastAsk > 2000 && (!s.frames.length || ms - s.lastKeyMs > KEY_EVERY)) { s.lastAsk = now; askKey(s); }
   if (!s.frames.length && !key) return;
   const data = frame.data.slice(0); // cópia: o original segue para o decodificador
   s.frames.push({ ms, key, w: md.width || 0, h: md.height || 0, data }); s.bytes += data.byteLength; s.n++;
@@ -87,8 +107,9 @@ function clip(s, secs) {
   return { ok: true, codec: h264 ? 'V_MPEG4/ISO/AVC' : 'V_VP8', w: k.w || 0, h: k.h || 0, avcc: h264 ? avcc(ps.sps, ps.pps) : null, ats, keys, lens, data };
 }
 
-let pendingKeep = 0; // 'keep' que chegou antes do primeiro quadro (o encaixe ainda não tinha disparado)
+let pendingKeep = 0, pendingCodec = ''; // 'keep'/'codec' que chegaram antes do primeiro quadro (o encaixe ainda não tinha disparado)
 onmessage = ({ data: m }) => {
+  if (m?.cmd === 'codec') { pendingCodec = String(m.codec || ''); if (st) st.codec = pendingCodec; return; }
   if (m?.cmd === 'keep' && !st) { pendingKeep = Math.max(0, +m.ms || 0); return; }
   if (!m || !st) { if (m?.cmd === 'clip') postMessage({ id: m.id, ok: false, error: 'o vídeo ainda não chegou' }); return; }
   if (m.cmd === 'clip') {

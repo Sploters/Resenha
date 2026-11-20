@@ -540,6 +540,9 @@ export class Voice {
         if (c) { opts.codec = c; opts.encodings = this.sfuEncodings('screen', false); }
       }
     }
+    // clipes da sua transmissão ligados: os quadros já comprimidos saem do enviador para o buffer (ownTap), sem o
+    // MediaRecorder comprimir a tela de novo. Entra antes do 1º quadro (depois o encaixe não recebe nada)
+    if (source === 'screen' && !this.e2ee && this.prefs?.clipsOn === true) opts.onRtpSender = (sender) => { this._ownTap?.close(); this._ownTap = attachTap(sender, '', { send: true }); };
     if (this.e2ee) { delete opts.codec; opts.onRtpSender = (sender) => this.e2eeAttach(sender, 'enc'); } // protegida: só VP8 (o H.264 não aceita quadro cifrado); a cifra entra antes do primeiro quadro sair
     let p;
     try { p = await s.send.produce(opts); }
@@ -549,6 +552,11 @@ export class Voice {
     }
     if (this.sfu !== s) return p.close();
     s.producers[source] = p;
+    if (source === 'screen' && this._ownTap) { // codec que ficou (H.264 da placa ou VP8): o worker precisa para montar o clipe
+      const mt = p.rtpParameters?.codecs?.[0]?.mimeType || '';
+      if (/^video\/(vp8|h264)$/i.test(mt)) { this._ownTap.setCodec(mt); this.onUpdate(); } // redesenha: o palco troca o buffer do clipe para os quadros enviados
+      else { this._ownTap.close(); this._ownTap = null; }
+    }
     if (source === 'screen') { this.sfuTuneScreen(); if (opts.codec) setTimeout(() => this.checkHwEncoder(), 3500); }
   }
   async sfuPublishScreen() {
@@ -559,6 +567,7 @@ export class Voice {
   sfuStop(source) {
     const s = this.sfu, p = s?.producers[source]; if (!p) return;
     p.close(); delete s.producers[source];
+    if (source === 'screen') { this._ownTap?.close(); this._ownTap = null; } // o encaixe era daquele enviador
     this.sfuReq('close_producer', { source }).catch(() => { });
   }
   // alguém na sala não consegue receber o H.264 desta transmissão (o servidor avisa): volta ao VP8, que todos decodificam
@@ -988,6 +997,14 @@ export class Voice {
   // Clipe da transmissão de outra pessoa direto dos quadros comprimidos que chegam (clipbuf.js createTapBuffer): o receptor
   // do vídeo, o codec, o pedido de quadro-chave ao servidor e o atraso entre chegar e aparecer na tela (para alinhar com
   // o áudio, que é gravado já tocando). null: chamada protegida (a cifra ocupa o receptor), malha P2P ou ainda chegando.
+  // A sua transmissão pelo Chromium com os clipes ligados: os quadros que o próprio enviador comprimiu (sfuProduce). O
+  // áudio é gravado na hora da captura, como o vídeo: sem atraso a compensar. null: sem o encaixe (clipes ligados com a
+  // transmissão já no ar, chamada protegida, pelo programa nativo) -> clips.js usa o MediaRecorder, como antes.
+  ownTap() {
+    const t = this._ownTap; if (!t?.codec || this.native || this.e2ee || this.sfu?.producers.screen?.closed !== false) return null;
+    if (t.delayMs) return t; // o mesmo objeto a cada redesenho (clips.js compara)
+    return Object.assign(t, { delayMs: async () => 0, size: () => { const st = this.screen?.getVideoTracks()[0]?.getSettings?.() || {}; return { w: st.width, h: st.height }; } });
+  }
   screenTap(uid) {
     const s = this.sfu; if (this.e2ee || !s?.ready) return null;
     const e = [...s.consumers.values()].filter(x => x.uid === uid && x.source === 'screen' && !x.c.closed).at(-1); if (!e?.tap) return null;

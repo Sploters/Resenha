@@ -256,12 +256,13 @@ export function createNativeBuffer(audio, opts = {}) {
 // Encaixa o worker no receptor do vídeo de uma transmissão que está chegando, DURANTE a negociação (mediasoup-client
 // consume({ onRtpReceiver })): colocado depois, ou com o vídeo já chegando, não recebeu quadro nenhum. Fica só deixando os quadros
 // passarem até um buffer de clipe pedir. null quando não dá.
-export function attachTap(receiver, codec) {
-  if (!receiver || receiver.transform || !window.RTCRtpScriptTransform || !window.Worker || !/^video\/(vp8|h264)$/i.test(codec || '')) return null;
+// receptor (transmissão de outra pessoa) ou, com { send: true }, o enviador da sua (o codec vem depois: setCodec)
+export function attachTap(target, codec, { send = false } = {}) {
+  if (!target || target.transform || !window.RTCRtpScriptTransform || !window.Worker || (!send && !/^video\/(vp8|h264)$/i.test(codec || ''))) return null;
   try {
     const worker = new Worker(new URL('./cliptap-worker.js', import.meta.url));
-    receiver.transform = new RTCRtpScriptTransform(worker, { codec });
-    return { worker, receiver, codec, busy: false, close: () => worker.terminate() };
+    target.transform = new RTCRtpScriptTransform(worker, { codec: codec || '', side: send ? 'send' : 'recv' });
+    return { worker, receiver: target, send, codec: codec || '', busy: false, close: () => worker.terminate(), setCodec(c) { this.codec = c; worker.postMessage({ cmd: 'codec', codec: c }); } };
   } catch { return null; }
 }
 export const canTap = (tap) => !!(tap?.worker && !tap.busy);
@@ -276,7 +277,7 @@ export function createTapBuffer(tap, audio, opts = {}) {
     const f = waits.get(m?.id); if (f) { waits.delete(m.id); f(m); }
   };
   const buf = createSplicedBuffer({
-    how: 'quadros recebidos', mime: `video/webm;codecs=${/h264/i.test(tap.codec) ? 'h264' : 'vp8'},opus`,
+    how: tap.send ? 'quadros enviados' : 'quadros recebidos', mime: `video/webm;codecs=${/h264/i.test(tap.codec) ? 'h264' : 'vp8'},opus`,
     keep: (ms) => w.postMessage({ cmd: 'keep', ms }),
     // o worker continua no receptor (tirar não adianta: o Chromium não o religaria depois), só para de guardar
     stop: () => { for (const f of waits.values()) f({ ok: false, error: 'parado' }); waits.clear(); w.onmessage = null; try { w.postMessage({ cmd: 'keep', ms: 0 }); } catch { /* worker encerrado */ } tap.busy = false; },
