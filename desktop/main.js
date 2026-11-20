@@ -474,6 +474,7 @@ native.onNativeEvent((ev) => { if (win && !win.isDestroyed()) win.webContents.se
 ipcMain.on('set-throttle', (_e, on) => { if (win && !win.isDestroyed()) win.webContents.setBackgroundThrottling(!!on); });
 ipcMain.handle('get-settings', () => ({ ...cfg, version: app.getVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName, updateFailed }));
 ipcMain.handle('set-settings', (_e, patch) => {
+  if (!patch || typeof patch !== 'object') patch = {};
   for (const k of ['autoStart', 'startMinimized', 'closeToTray', 'globalHotkeys']) if (k in patch) cfg[k] = !!patch[k];
   for (const k of ['hotkeyMute', 'hotkeyDeafen', 'hotkeyClip', 'hotkeyShare']) if (typeof patch[k] === 'string') cfg[k] = patch[k];
   if ('hardwareAcceleration' in patch) cfg.hardwareAcceleration = !!patch.hardwareAcceleration;
@@ -633,17 +634,20 @@ if (cfg.pendingUpdate) {
 }
 function download(url, dest, redirects = 5, onProgress) {
   return new Promise((resolve, reject) => {
+    // falhou com o arquivo aberto: fecha e apaga (no Windows o .part aberto não deixava a próxima tentativa apagar/renomear)
+    let f = null;
+    const fail = (e) => { if (f) { f.destroy(); fs.rm(dest, { force: true }, () => { }); } reject(e); };
     httpsGet(url, { ...reqOpts(url, 'application/octet-stream'), timeout: 60000 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) { res.resume(); return resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1, onProgress)); }
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
       // download interrompido não pode virar "instalador pronto": confere o tamanho anunciado
       const size = +res.headers['content-length'] || 0;
-      const f = fs.createWriteStream(dest); res.pipe(f); f.on('error', reject);
+      f = fs.createWriteStream(dest); res.pipe(f); f.on('error', fail);
       if (onProgress) { let got = 0; res.on('data', (c) => { got += c.length; onProgress(got, size); }); }
       // conexão caiu no meio: sem isso o download nunca terminava nem falhava
-      res.on('aborted', () => reject(new Error('download interrompido'))); res.on('error', reject);
+      res.on('aborted', () => fail(new Error('download interrompido'))); res.on('error', fail);
       f.on('finish', () => f.close(() => { const got = fs.statSync(dest).size; if (size && got !== size) reject(new Error(`download incompleto (${got} de ${size} bytes)`)); else resolve(); }));
-    }).on('error', reject).on('timeout', function () { this.destroy(new Error('tempo esgotado')); });
+    }).on('error', fail).on('timeout', function () { this.destroy(new Error('tempo esgotado')); });
   });
 }
 ipcMain.handle('get-update', () => update && { version: update.version, ready: !!update.file });

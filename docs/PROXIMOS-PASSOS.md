@@ -184,6 +184,7 @@ esqueleto do perfil da DM, um "Entrar" só, controles subindo, esqueleto do chat
 | `e564087` | Servidor (sem teste: exigem falha do mediasoup ou um par perdido por 3 min): roteador que falhou ficava preso na sala; transporte RTP do bot de música vazava se o produce falhasse; retrato da chamada para o processo de voz só ia quando mudava, e a limpeza de pares fantasmas nunca rodava em chamada parada | — |
 | `fac7fcb` | Gateway: a rede voltando enquanto o socket antigo fechava deixava 2 conexões abertas (cada evento tratado 2 vezes) | `ws-dup-test` |
 | `da41eff` | Preferências com o armazenamento do navegador cheio ou bloqueado: a exceção parava antes do envio à conta | `prefs-storage-test` |
+| (app desktop) | `desktop/main.js`: `download()` não fechava nem apagava o `.part` nos caminhos de erro (no Windows a próxima tentativa podia não conseguir apagar/renomear); `set-settings` com `null` lançava | sem teste aqui: só no Windows (precisa de nova versão do app) |
 
 **Achados duvidosos (não mexidos):**
 - servidor: duas entradas seguidas na mesma sala tirando o par da 2ª do SFU (`sfuLeave` no `then` da 1ª) — não se
@@ -192,9 +193,6 @@ esqueleto do perfil da DM, um "Entrar" só, controles subindo, esqueleto do chat
 - servidor: o bot de música não volta depois que um worker do mediasoup morre (o `notify` dele é vazio);
 - servidor: moderador tira o surdo e o servidor retoma consumidores de microfone que o app pausou (ensurdecido por conta
   própria): só banda, o app silencia na saída;
-- `desktop/main.js`: `download()` não fecha o arquivo nos caminhos de erro (no Windows o `.part` pode ficar preso até
-  reabrir o app) — só dá para ver no Windows;
-- `desktop/main.js`: `set-settings` com `null` lança (o app sempre manda um objeto).
 
 **Desempenho** (`perf-audit`, container, alternando as duas versões na mesma máquina; antigo = `b150ac0`):
 
@@ -218,8 +216,9 @@ direto) e o `namefx-emoji-test` passa a falhar ("Waiting for selector .cx-opt[ti
 `run-tests` preparar de novo resolve.
 
 ### O que testar no Windows (dono)
-Tudo desta passagem está em `public/` e `server/`: basta atualizar o servidor (`sh deploy/umbrel.sh`); o app desktop pega
-a interface nova sozinho. Nada mudou em `desktop/` nem nos nativos.
+Quase tudo desta passagem está em `public/` e `server/`: basta atualizar o servidor (`sh deploy/umbrel.sh`); o app desktop
+pega a interface nova sozinho. Em `desktop/main.js` só os dois cuidados do download e do `set-settings` (entram na próxima
+versão do app; **não executado no Windows**). Nada mudou nos nativos.
 1. **Abrir o app** (fechado de vez, pela bandeja → Sair, e aberto de novo): o esqueleto aparece logo, com a forma da tela,
    e troca de uma vez pela tela inteira (sem mensagem sem foto nem imagem vazia aparecendo depois). Com a internet lenta,
    no máximo 1,5 s de esqueleto.
