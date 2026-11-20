@@ -189,8 +189,8 @@ try {
     await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, voz.id); await sleep(300); await clicarTexto(pg, '#stage .btn', /Entrar/); await sleep(3000);
     await tela(pg, '2-chamada');
     // 3. assistindo a transmissão em tela cheia, controles visíveis
-    await pg.evaluate((a) => window.__lc.voice.openStream(a), ana.id).catch(e => relatorio.erros.push('assistir: ' + e.message)); await sleep(2500);
-    await pg.evaluate(() => { const v = document.querySelector('#stage video'); const alvo = v?.closest('.tile, .vtile, [class*=tile]') || v?.parentElement; return alvo?.requestFullscreen?.(); }).catch(() => { });
+    await pg.evaluate((a) => window.__lc.voice.openStream(a), ana.id).catch(e => relatorio.erros.push('assistir: ' + e.message)); await sleep(5000); // o codificador por software do container leva uns segundos para limpar os rastros do vídeo
+    await pg.evaluate(() => { const v = document.querySelector('#stage .tile.screen video') || document.querySelector('#stage video'); const alvo = v?.closest('.tile, .vtile, [class*=tile]') || v?.parentElement; return alvo?.requestFullscreen?.(); }).catch(() => { });
     await sleep(1200); await pg.mouse.move(W / 2, H - 60); await sleep(400);
     try { await pg.screenshot({ path: path.join(OUT, 'telas', '3-assistindo.png') }); relatorio.telas['3-assistindo'] = 'ok'; console.log('  tela 3-assistindo'); } catch (e) { relatorio.telas['3-assistindo'] = 'falhou: ' + e.message; }
     await pg.evaluate(() => document.fullscreenElement && document.exitFullscreen()).catch(() => { }); await sleep(500);
