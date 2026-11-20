@@ -1,0 +1,97 @@
+# Windows: o que só roda de verdade no Windows, sem publicar nada. Os testes de sempre (testes.yml) rodam no Linux, onde o
+# lc-stream e o lc-audio só compilam a parte de teste; aqui eles compilam e rodam como no PC de quem usa:
+# - cargo test do lc-stream e do lc-audio no próprio Windows (a lógica de captura, troca WGC/DXGI, janela coberta...);
+# - os .exe de verdade respondendo (scripts/win-native-smoke.mjs: sondagem, lista de janelas, tela cheia e o vigia do
+#   jogo fora do monitor numa janela de verdade que o teste minimiza);
+# - a lógica da atualização (updready-test) no sistema de arquivos do Windows;
+# - o instalador montado (sem assinar nem publicar), instalado em silêncio numa pasta e conferido (app e nativos dentro).
+# Não testa captura de tela de verdade nem placa de vídeo: a máquina do GitHub não tem monitor nem GPU.
+name: Windows — nativos, atualização e instalador
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', 'native/**', 'scripts/win-native-smoke.mjs', 'scripts/updready-test.mjs', '.github/workflows/windows-testes.yml']
+  pull_request:
+    paths: ['desktop/**', 'native/**', 'scripts/win-native-smoke.mjs', 'scripts/updready-test.mjs', '.github/workflows/windows-testes.yml']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-testes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # o mesmo cache do desktop-release.yml (dependências do Rust e o que já foi compilado)
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/lc-input/target
+            native/lc-stream/target
+            native/lc-audio/target
+          key: cargo-win-${{ hashFiles('native/lc-input/Cargo.lock', 'native/lc-stream/Cargo.lock', 'native/lc-audio/Cargo.lock') }}
+
+      - name: Testes do Rust no Windows (lc-stream e lc-audio)
+        run: |
+          (cd native/lc-stream && cargo test --release --locked)
+          (cd native/lc-audio && cargo test --release --locked)
+
+      - name: Dependências do app desktop
+        working-directory: desktop
+        run: npm ci
+
+      - name: Compilar os programas nativos
+        working-directory: desktop
+        env:
+          NATIVE_REQUIRE_BUILD: '1'
+        run: node build-native.mjs
+
+      - name: Programas nativos de verdade
+        run: node scripts/win-native-smoke.mjs
+
+      - name: Atualização na abertura (lógica, no Windows)
+        run: node scripts/updready-test.mjs
+
+      - name: Conferir os arquivos do app
+        working-directory: desktop
+        run: node ../scripts/desktop-files-check.mjs
+
+      - name: Montar o instalador (sem assinar nem publicar)
+        working-directory: desktop
+        run: npx electron-builder --win nsis --publish never -c.extraMetadata.version=0.0.1
+
+      - name: Instalar em silêncio e conferir
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem desktop/dist/Resenha-Setup-*.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP 'ResenhaCI'
+          Write-Host "Instalador: $($setup.Name) ($([math]::Round($setup.Length / 1MB, 2)) MB)"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/S', "/D=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "o instalador saiu com o código $($p.ExitCode)" }
+          $faltam = @('Resenha.exe', 'resources/app.asar', 'resources/lc-audio.exe', 'resources/lc-stream.exe', 'resources/lc-input.exe') | Where-Object { -not (Test-Path (Join-Path $dir $_)) }
+          if ($faltam) { throw "faltam na instalação: $($faltam -join ', ')" }
+          $mb = [math]::Round(((Get-ChildItem $dir -Recurse | Measure-Object Length -Sum).Sum) / 1MB, 1)
+          Write-Host "Instalado em $dir : $mb MB"
+          # os nativos instalados (os mesmos que o app usa) também respondem
+          $env:EXE_DIR = Join-Path $dir 'resources'
+          node scripts/win-native-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'os nativos instalados não responderam' }
