@@ -25,6 +25,7 @@ try {
   await p.waitForFunction(() => document.querySelectorAll('#msgs .msg').length > 10 && !!document.querySelector('#members .mem'), { timeout: 15000 });
   await p.evaluate(() => { window.__old = { members: new WeakRef(document.querySelector('#members')), chat: new WeakRef(document.querySelector('#msgs')) }; });
   await p.evaluate(() => window.__lc.go('@me', 'discover')); await p.waitForFunction(() => !!document.querySelector('#discoverview'), { timeout: 15000 }); await sleep(1500);
+  const secs1 = await p.evaluate(() => document.querySelectorAll('#discoverview .dhsec').length); // quantas a 1ª visita mostrou (as de notícias e torneios dependem da internet)
   await gc();
   const r1 = await p.evaluate(() => ({ members: !!window.__old.members.deref(), chat: !!window.__old.chat.deref() }));
   if (process.env.SNAP) { const fs = await import('node:fs'); const out = []; cdp.on('HeapProfiler.addHeapSnapshotChunk', (e) => out.push(e.chunk)); await cdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false }); fs.writeFileSync(process.env.SNAP, out.join('')); }
@@ -36,7 +37,8 @@ try {
   ok(!(await p.evaluate(() => !!window.__old.disc.deref())), 'saiu do Descobrir: a tela antiga é solta');
   // 3) voltar ao Descobrir continua funcionando (dados guardados)
   await p.evaluate(() => window.__lc.go('@me', 'discover')); await p.waitForFunction(() => !!document.querySelector('#discoverview .dhsec'), { timeout: 15000 });
-  ok(await p.evaluate(() => document.querySelectorAll('#discoverview .dhsec').length >= 5), 'voltar ao Descobrir mostra as seções de novo');
+  const secs2 = await p.waitForFunction((n) => document.querySelectorAll('#discoverview .dhsec').length >= n && document.querySelectorAll('#discoverview .dhsec').length, { timeout: 5000 }, secs1).then(r => r.jsonValue(), () => p.evaluate(() => document.querySelectorAll('#discoverview .dhsec').length));
+  ok(secs1 >= 3 && secs2 >= secs1, 'voltar ao Descobrir mostra as seções de novo', { primeira: secs1, volta: secs2 });
   await p.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, ch.id); await p.waitForFunction(() => !!document.querySelector('#members .mem'), { timeout: 15000 });
   ok(await p.evaluate(() => document.querySelectorAll('#members .mem').length) >= 2, 'lista de membros volta com as pessoas');
   // 4) telas que outra sessão real mostrou presas (heap + timeline, 2026-11-12): galeria de clipes, Arquivos, Amigos e o
