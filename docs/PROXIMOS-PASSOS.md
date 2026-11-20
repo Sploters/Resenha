@@ -63,6 +63,77 @@ transmissão, esqueletos e barra de atualização, aviso `away` e `pause_produce
 instalador menor (já na v1.0.54), modo reserva do Windows 10 (`lc-audio` novo + `appaudio.js`/`main.js`/`preload.js`),
 atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 
+## Chamada e transmissão: quedas e "sair e entrar" (nov/2026, 2ª passagem)
+
+Pedido: o prompt 2 de [PROMPTS.md](PROMPTS.md) (gastar menos e se recuperar melhor, sem perder qualidade). Branch
+`claude/jolly-galileo-cin4x4`. Comparações com o código de partida (`81489a8`) numa worktree, na mesma máquina
+(container, 4 núcleos, Chromium 1243 sem janela, sem GPU).
+
+**O que os números de partida já diziam:** os alvos de thread principal (`call3` ≤ 10%, `watching` ≤ 16%, `streamer`
+≤ 16%) já estavam batidos antes de mexer: 1,7%, 2,2% e 4,2%. O custo de verdade é codificar e decodificar o vídeo no
+Chromium (navegador inteiro, roteiro de 10 min: quem transmite 1080p ~70% de um núcleo, quem assiste ~30%), que no app
+desktop vai para a placa de vídeo ou para o `lc-stream`. Nada foi mexido no caminho da mídia: a prioridade 1 era não
+piorar qualidade.
+
+| Commit | O quê | Antes → depois (medido) |
+|---|---|---|
+| `e066e3e` | `perf-roteiro.mjs`: roteiro fixo de 10 min (3 navegadores, 1080p60, 2 assistindo, mudo/desmudo a cada 20 s, relé UDP derrubando a rede do servidor 8 s e a de quem transmite 15 s) | — (ferramenta) |
+| `3d1d2d5` | **Sair e entrar na mesma sala** (o `rejoin()` da recuperação faz isso): o aviso atrasado da própria saída tirava da entrada nova (`ownLeaveEcho`); passando do limite de entradas por segundo o servidor ignorava o `VOICE_JOIN` sem resposta e o app ficava "conectando" para sempre (agora `WS_KEEP`: guarda e aplica quando sobra ficha; `VOICE_LEAVE` cancela; `VOICE_STATE` espera a entrada); a mídia cancelada da entrada anterior virava "Falha ao conectar a voz" e `voice_fail` | Sonda de 40 ciclos: 20 ruins → 0. `voice-join-race-test`: antigo 15 de 30 ruins e o erro na tela; novo 0. `perf-stress` `joinLeave15`: 1.484 → 689 ms por ciclo (2 de 15 ciclos travavam 10 s) |
+| `3d1d2d5` | **Queda de rede de até 15 s**: em chamada, no máximo ~2 s entre tentativas de reconectar (era até 10 s ±50%); a conferência da sessão (`GET /users/0`) não segura mais a reconexão; tentativa que não abre em 6 s é refeita; evento `online` reconecta na hora; tolerância do servidor 15 → 20 s | `voice-outage-test` (15 s sem rede, tolerância padrão): antigo falha em 5 itens (sai da sala para os outros, transmissão para); novo reconecta 1,3 s depois de a rede voltar. Roteiro de 10 min: antigo, os 2 que assistiam viram quem transmite sair e a transmissão terminou parada; novo, ninguém saiu e a transmissão seguiu |
+| `8b8d654` | Testes: queda simulada por `/gateway-sem-rede` (outra porta a CSP bloqueia e a tentativa nunca avisa que fechou); cenários do selo AO VIVO no `perf-anim` | — |
+
+**Roteiro de 10 min, mesmo trecho nas duas rodadas (0–385 s, antes da queda de quem transmite)** — CPU em % de um
+núcleo do navegador inteiro (média / p99 / máximo) e áudio inventado para tapar buraco (inclui a queda de 8 s do servidor):
+
+| | Antes | Depois |
+|---|---|---|
+| Quem transmite (fala + 1080p60) | 71,9 / 91,0 / 91,9 | 68,7 / 84,9 / 90,1 |
+| Quem assiste (Bruno) | 32,7 / 38,4 / 45,7 | 31,3 / 39,1 / 47,1 |
+| Quem assiste (Carla, muda/desmuta) | 30,7 / 37,6 / 41,7 | 29,5 / 37,2 / 44,5 |
+| Áudio tapado (Bruno / Carla / quem transmite) | 2,04 / 2,00 / 2,14% | 2,06 / 2,01 / 2,13% |
+| Vídeo recebido (10 min inteiros) | 1080p, 19,5 FPS, 0% perdido, 3 congelamentos (1,0 s) | 1080p, 19,7 FPS, 0% perdido, 0–1 congelamento (0–0,6 s) |
+| Viu alguém sair / transmissão no fim | 2 viram / parada | 0 / no ar |
+
+Ou seja: CPU e qualidade iguais dentro do ruído (nada mudou na mídia); a diferença é a queda. O container não codifica
+1080p60 por software: ~20 FPS chegam a quem assiste nas duas versões. Os ~8 s "sem imagem" são as duas quedas (a de 8 s
+do servidor é sem rede para todos).
+
+**Não atingido:** `joinLeave15` ≤ 400 ms. Entrar leva 40–80 ms (sonda, com 3 pessoas e RNNoise); o `perf-stress` sai e
+entra mais de uma vez por segundo e bate no limite contra abuso do `VOICE_JOIN` (rajada de 5, depois 1 por segundo,
+`WS_RATE` em `server/index.js`). Antes a entrada passando do limite se perdia (ciclo de 10 s); agora espera a vez
+(~1 s). Chegar a 400 ms exige afrouxar esse limite: **decisão do dono**.
+
+**Medido, causa não achada:** com a pessoa transmitindo e olhando a sala, **toda** animação da página roda na thread
+principal (o selo "AO VIVO", `livePulse`, faz 61 recálculos de estilo/s e ~3,4% da thread principal). Isolada, a mesma
+animação fica no compositor (0/s); na página inicial, transmitindo, também. Esconder a sala, `#app` inteiro ou qualquer
+quadro não muda; não há `<video>` no documento; não é o detector de tela preta nem o buffer de clipes (desligado por
+padrão para a própria transmissão). Próximo passo: trace com `cc` e `viz` (`disabled-by-default-cc.debug`) para ver o
+que pede um quadro principal a cada vsync, ou bissecar o que `stage.js` monta só com a própria transmissão no ar.
+
+**Orçamento (`perf-budget --base`)**: três itens apareceram como "piorou" na primeira rodada e eram ruído, conferido
+alternando as duas versões na mesma máquina (5 pares; 2 com a ordem invertida, porque o 2º de cada par saía pior):
+abertura (thread principal, ms) antigo 223/413/323/265/349 × novo 369/440/379/283/329; mensagens enviadas no
+`perf-stress` (`muteSpam/wsOutTotal`, é o total desde a abertura da página, não só do teste) antigo 1.738/2.412/2.086 ×
+novo 2.734/2.145/2.416; quem transmite no `perf-audit` (janela de 5 s) antigo 4,2/7,7/5,7/5,7/6,1 × novo
+9,4/10,1/6,5/6,5/7,0 — com o `perf-streamer` (janelas de 15 s, alternando): antigo 4,75/5,07% da thread principal e
+46,9/49,3% do navegador × novo 4,31/4,44% e 46,0/46,6%. `perf-soak` de 10 min (tendência por hora): memória JS
+1,72 → 1,94 MB/h, navegador 65,5 → 44,2 MB/h, servidor 61,1 → 54,1 MB/h, consumidores sobrando no SFU 0 → 0.
+`idleChat/layoutsPerS` e `stylePerS` (2,3/s) já estouravam o orçamento antes, igual nas duas versões.
+
+### O que medir no Windows (dono)
+Precisa só atualizar o servidor (`sh deploy/umbrel.sh`): tudo desta passagem está em `public/` e `server/`; o app
+desktop pega a interface nova sozinho.
+1. **Queda de verdade no meio da chamada, transmitindo**: em chamada com alguém assistindo, desligue o Wi-Fi (ou tire o
+   cabo, ou desconecte a VPN) por ~10 s e religue. Esperado: ninguém vê você sair, a transmissão volta sozinha em
+   poucos segundos. Depois, no servidor:
+   `docker logs resenha 2>&1 | grep "\[voz\] conexão de quem está em chamada caiu"` — deve aparecer "aguardando 20 s".
+2. **Mesmo teste com 25 s de queda**: aí deve sair da sala (passa da tolerância) e voltar sozinho quando a rede voltar.
+3. **Consumo transmitindo, antes e depois de atualizar** (nada mudou na mídia; serve para confirmar que não piorou):
+   `powershell -ExecutionPolicy Bypass -File medir-resenha.ps1 -Label transmitindo -Secs 120`, transmitindo um jogo
+   com alguém assistindo, nas duas versões.
+4. **Decidir o limite de entradas por segundo** (`VOICE_JOIN: [1, 5]` em `server/index.js`): hoje, passando de 5
+   entradas seguidas, cada uma espera ~1 s. Para gente de verdade não faz diferença; só o `perf-stress` sente.
+
 ## Como medir (ferramentas em `scripts/`)
 
 | Ferramenta | Mede |
@@ -75,6 +146,7 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 | `perf-anim.mjs` | Uma animação sozinha na tela: recálculos de estilo/s, layouts/s, % da thread principal |
 | `perf-open.mjs` | Abertura: tempo até pronto, thread por tipo, bytes, cobertura de JS/CSS (`CPU=4`, `BLOCK=` experimento) |
 | `perf-clip-own.mjs` | CPU de quem transmite com os próprios clipes: sem clipes × MediaRecorder × quadros enviados |
+| `perf-roteiro.mjs` | Roteiro fixo de 10 min (`MIN=`): 3 navegadores, 1080p60, quedas de rede pelo relé UDP; CPU e memória por papel (média, p99, máximo), o que cada um recebe (getStats a cada 1 s), quem viu alguém sair |
 | `medir-resenha.ps1` | **No Windows do dono**: CPU, memória privada, GPU e VRAM por processo do Resenha (`-Label modo -Secs 60`, grava CSV) |
 
 - **Voz de verdade no microfone falso:** baixe `https://raw.githubusercontent.com/microsoft/MS-SNSD/master/clean_test/clnsp1.wav`,
@@ -127,6 +199,16 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
   "Disco quase cheio" da máquina de nuvem vira notificação no meio do teste), 1ª tentativa do `focus-fly-test` ("Até eu
   desligar" já ligado) e `screen-release-test` ("voltar ao Descobrir mostra as seções"). No CI do GitHub passam. Testes que já falhavam neste ambiente:
   [AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md#testes-que-já-falham-no-código-original-neste-ambiente).
+
+- **Simular queda de rede na página** mandando a reconexão para outra porta (`127.0.0.1:9`) não serve: a CSP bloqueia e
+  a tentativa bloqueada nunca dispara `close`, então o app parece não reconectar. Use um caminho que o servidor derruba
+  (`/gateway-sem-rede`).
+- **Comparar duas versões sempre na mesma ordem engana:** nos 3 primeiros pares o 2º saía pior em abertura e em quem
+  transmite. Inverta a ordem em metade dos pares; para quem transmite use o `perf-streamer` (janela de 15 s), não o
+  `perf-audit` (5 s).
+- **`muteSpam/wsOutTotal` do `perf-stress` é o total desde a abertura da página**, não só do teste de mudo: o limite
+  de 120 do orçamento nunca bateu.
+- **`joinLeave15` mede o limite contra abuso**, não o tempo de entrar (40–80 ms): o teste entra mais de 1 vez/s.
 
 ## Roadmap
 
@@ -200,6 +282,8 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
 5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
+7. Chamada e transmissão (nov/2026, 2ª passagem): o teste de queda de verdade e a decisão do limite de entradas por
+   segundo, em [O que medir no Windows](#o-que-medir-no-windows-dono).
 
 ## Referências
 
