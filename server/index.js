@@ -1013,6 +1013,9 @@ wss.on('connection', (ws) => {
           sfuLeave(c, uid);
           sfuJoin(c, uid, sfuNotify(c, uid)).then(sfu => {
             if (voice.get(c)?.get(uid) !== st) return sfuLeave(c, uid);
+            // o par do SFU é novo: o mudo/surdo da moderação (e a falta de "Falar") vale de novo. Sem isto, refazer a mídia
+            // devolvia a voz a quem foi mutado
+            if (st.modMute || st.modDeaf || st.noSpeak) sfuModerate(c, uid, { mute: st.modMute || st.noSpeak, deaf: st.modDeaf });
             send(ws, 'VOICE_JOINED', { channel_id: c, peers: [...voice.get(c).keys()].filter(x => x !== uid), sfu, rejoin: true });
           }).catch(e => { console.error('sfu rejoin', e.message); if (voice.get(c)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: c, reason: 'rejoin_failed' }); });
           break;
@@ -1235,7 +1238,10 @@ function voiceSnapshot() {
 }
 if (sfuSplit) {
   let lastSnap = '';
-  setInterval(() => { const s = voiceSnapshot(), k = JSON.stringify(s); if (k === lastSnap) return; lastSnap = k; sfuSnapshot(s).catch(() => { lastSnap = ''; }); }, 3000).unref();
+  // mesmo sem mudança, um retrato a cada 20 s: o processo de voz só limpa quem sobrou na sala com um retrato recente (< 30 s),
+  // e numa chamada parada o retrato envelhecia e a limpeza nunca rodava
+  let snapAt = 0;
+  setInterval(() => { const s = voiceSnapshot(), k = JSON.stringify(s); if (k === lastSnap && Date.now() - snapAt < 20e3) return; lastSnap = k; snapAt = Date.now(); sfuSnapshot(s).catch(() => { lastSnap = ''; }); }, 3000).unref();
 }
 async function restoreVoice() {
   if (!sfuSplit) return;

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 
 const PORT = Number(process.env.RTC_PORT || 40000);
 const SOURCES = ['mic', 'cam', 'screen', 'screenaudio'];
+const KIND_OF = { mic: 'audio', screenaudio: 'audio', cam: 'video', screen: 'video' }; // a fonte define o tipo (permissões de vídeo e mudo valem por fonte)
 // pedidos de quadro-chave dos clipes (case 'keyframe'): producer -> hora do último
 const KEY_GAP_MS = Number(process.env.CLIP_KEY_GAP_MS || 4000), keyAsked = new Map();
 const MEDIA_CODECS = [
@@ -140,7 +141,8 @@ async function roomFor(cid) {
     const w = pickWorker(); if (!w) throw new Error('SFU indisponível');
     r = { router: null, peers: new Map(), ready: null, w };
     rooms.set(cid, r);
-    r.ready = w.worker.createRouter({ mediaCodecs: MEDIA_CODECS }).then(router => (r.router = router));
+    // falhou ao criar o roteador: a sala sai do mapa (senão toda entrada seguinte esperava a mesma falha até reiniciar)
+    r.ready = w.worker.createRouter({ mediaCodecs: MEDIA_CODECS }).then(router => (r.router = router), (e) => { if (rooms.get(cid) === r) rooms.delete(cid); throw e; });
   }
   await r.ready;
   return r;
@@ -225,9 +227,12 @@ export async function sfuAttachRtp(cid, uid) {
   if (!peer) throw new Error('fora da sala');
   const t = await r.router.createPlainTransport({ listenInfo: { protocol: 'udp', ip: '127.0.0.1' }, rtcpMux: true, comedia: true });
   const ssrc = 1000000 + Math.floor(Math.random() * 1e8);
-  const p = await t.produce({ kind: 'audio', appData: { source: 'mic' }, rtpParameters: {
-    codecs: [{ mimeType: 'audio/opus', payloadType: 101, clockRate: 48000, channels: 2, parameters: { useinbandfec: 1, 'sprop-stereo': 1 } }],
-    encodings: [{ ssrc }] } });
+  let p;
+  try {
+    p = await t.produce({ kind: 'audio', appData: { source: 'mic' }, rtpParameters: {
+      codecs: [{ mimeType: 'audio/opus', payloadType: 101, clockRate: 48000, channels: 2, parameters: { useinbandfec: 1, 'sprop-stereo': 1 } }],
+      encodings: [{ ssrc }] } });
+  } catch (e) { t.close(); throw e; } // sem isto o transporte ficava aberto (porta UDP presa) até o roteador fechar
   peer.transports.set(t.id, t);
   t.observer.on('close', () => peer.transports.delete(t.id));
   registerProducer(r, peer, 'mic', p);
@@ -288,7 +293,7 @@ export async function sfuRequest(cid, uid, op, d) {
     case 'restart_ice': { const t = transport(); return { iceParameters: await t.restartIce() }; }
     case 'produce': {
       const t = transport(), source = String(d.source);
-      if (t.appData.dir !== 'send' || !SOURCES.includes(source)) throw new Error('produção inválida');
+      if (t.appData.dir !== 'send' || !SOURCES.includes(source) || d.kind !== KIND_OF[source]) throw new Error('produção inválida');
       const p = await t.produce({ kind: d.kind, rtpParameters: d.rtpParameters, appData: { source } });
       registerProducer(r, peer, source, p);
       return { id: p.id };
@@ -324,7 +329,7 @@ export async function sfuRequest(cid, uid, op, d) {
       for (const o of r.peers.values()) for (const p of o.producers.values()) if (p.id === pid) c.appData.source = p.appData.source;
       const drop = () => { if (peer.consumers.delete(c.id)) peer.notify('SFU_CONSUMER_CLOSED', { consumer_id: c.id }); };
       c.on('producerclose', drop); c.on('transportclose', () => peer.consumers.delete(c.id));
-      return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters };
+      return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters, producerPaused: c.producerPaused };
     }
     case 'levels': { // quer saber quem fala pelo servidor (ensurdecido): já recebe a lista de agora
       peer.wantLevels = !!d.on; if (peer.wantLevels) await levelsFor(r);
