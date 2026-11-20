@@ -12,7 +12,7 @@ export const PERM_LABELS = [
   [PERM.MANAGE_CHANNELS, 'Gerenciar canais', 'Criar, editar e excluir canais.'],
   [PERM.MANAGE_MESSAGES, 'Gerenciar mensagens', 'Excluir mensagens de outros e fixar mensagens.'],
   [PERM.KICK, 'Expulsar membros', 'Remover membros do servidor.'],
-  [PERM.CREATE_INVITE, 'Criar convite', 'Gerar links de convite.'],
+  [PERM.CREATE_INVITE, 'Criar convite', 'Gerar links de convite e chamar pessoas de fora para as salas. Só faz diferença com "Membros sem cargo podem convidar" desligado (Configurações do servidor › Convites).'],
   [PERM.MANAGE_ROLES, 'Gerenciar cargos', 'Criar cargos e atribuí-los a membros.'],
   [PERM.BAN, 'Banir membros', 'Banir e desbanir membros do servidor.'],
   [PERM.MODERATE, 'Castigar membros', 'Impedir temporariamente que alguém fale, reaja ou entre em voz.'],
@@ -298,6 +298,8 @@ export function perms(gid) {
   return p & PERM.ADMIN ? 0xffffff : p;
 }
 export const can = (gid, bit) => (perms(gid) & bit) !== 0;
+// pode convidar para o servidor: "Criar convite" (dono e administradores sempre) ou a opção "membros sem cargo podem convidar" (padrão)
+export const canInvite = (g) => !!g && (can(g.id, PERM.CREATE_INVITE) || g.invite_all !== 0);
 // hierarquia de cargos (espelho de rankOf em server/index.js): vale o cargo mais alto; o dono fica acima de todos
 export function rankOf(gid, uid) {
   const g = guild(gid); if (!g) return 0;

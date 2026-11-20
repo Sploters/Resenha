@@ -73,6 +73,7 @@ addCol('users', 'name_style', 'TEXT'); // estilo do nome: JSON { font, effect, c
 addCol('guilds', 'banner', 'TEXT');
 addCol('guilds', 'description', "TEXT DEFAULT ''");
 addCol('guilds', 'accent', 'TEXT');
+addCol('guilds', 'invite_all', 'INTEGER DEFAULT 1'); // membros sem cargo podem convidar (server/routes/invites.js); 0 = só com "Criar convite"
 addCol('messages', 'type', 'INTEGER DEFAULT 0');
 addCol('messages', 'fwd', 'TEXT'); // encaminhada: de onde veio (JSON: canal, servidor, mensagem, data, rótulo)
 addCol('messages', 'spoiler_by', 'TEXT'); // marcada como spoiler (por quem): conteúdo e anexos escondidos até clicar

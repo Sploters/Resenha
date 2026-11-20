@@ -2,7 +2,7 @@
 // servidor, convidar e criar/entrar em servidor.
 import { openMyMessages } from './mymessages.js';
 import { h, icon, avatar, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, member, nameOf, can, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs } from './state.js';
+import { S, api, tryApi, user, member, nameOf, can, canInvite, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs } from './state.js';
 import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
 import { setLfgGuild } from './lfg.js';
@@ -141,7 +141,7 @@ export function friendsInServer(g) {
     }) : [h('div.dm-empty', list.length ? 'Nenhum amigo com esse nome' : 'Nenhum amigo seu está neste servidor ainda.')])); };
   q.oninput = () => { clr.hidden = !q.value; draw(); }; q.onkeydown = (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); e.preventDefault(); q.value = ''; clr.hidden = true; draw(); } }; draw();
   modal(`Amigos em ${g.name}`, list.length ? `${list.length} ${list.length === 1 ? 'amigo seu está' : 'amigos seus estão'} neste servidor` : '', h('div.fis', list.length > 6 && qbox, box),
-    [list.length ? null : { label: 'Convidar amigos', fn: () => inviteModal(g) }, { label: 'Fechar', cls: 'grey' }].filter(Boolean), { width: '460px' });
+    [list.length || !canInvite(g) ? null : { label: 'Convidar amigos', fn: () => inviteModal(g) }, { label: 'Fechar', cls: 'grey' }].filter(Boolean), { width: '460px' });
   setTimeout(() => q.focus());
 }
 const closeModals = () => document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
@@ -156,7 +156,7 @@ export function guildMenu(e, g) {
     isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
   ].filter(Boolean);
   menu(e, [
-    { label: 'Convidar pessoas', fn: () => inviteModal(g) },
+    canInvite(g) && { label: 'Convidar pessoas', fn: () => inviteModal(g) },
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Procurar jogadores neste servidor', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
     { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },

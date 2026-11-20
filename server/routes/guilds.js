@@ -36,9 +36,10 @@ export function mountGuilds(app, d) {
     const b = req.body, file = (v, old) => v === undefined ? old : (isFileUrl(v) ? v : null);
     run('UPDATE guilds SET name=?,icon=?,banner=?,description=?,accent=? WHERE id=?', clean(b.name, 100) || g.name, file(b.icon, g.icon), file(b.banner, g.banner),
       b.description !== undefined ? clean(b.description, 300) : g.description, b.accent !== undefined ? cssColor(b.accent) ?? g.accent : g.accent, g.id);
+    if (b.invite_all !== undefined) run('UPDATE guilds SET invite_all=? WHERE id=?', b.invite_all ? 1 : 0, g.id); // membros sem cargo podem convidar
     const n = get('SELECT * FROM guilds WHERE id=?', g.id);
     audit(g.id, req.uid, req.body.owner_id !== undefined ? 'guild_transfer' : 'guild_update', req.body.owner_id !== undefined ? String(req.body.owner_id) : null, n.name);
-    dispatch(guildMemberIds(g.id), 'GUILD_UPDATE', { id: n.id, name: n.name, icon: n.icon, banner: n.banner, description: n.description, accent: n.accent, owner_id: n.owner_id });
+    dispatch(guildMemberIds(g.id), 'GUILD_UPDATE', { id: n.id, name: n.name, icon: n.icon, banner: n.banner, description: n.description, accent: n.accent, owner_id: n.owner_id, invite_all: n.invite_all });
     res.json({});
   }));
   app.delete('/api/guilds/:id', auth, wrap((req, res) => {

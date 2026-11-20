@@ -1,7 +1,7 @@
 // Barra lateral: lista de canais do servidor, conversas diretas, quem está em cada sala de voz e mover arrastando.
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
-import { S, user, guild, channelById, nameOf, can, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh } from './state.js';
+import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh } from './state.js';
 import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -60,7 +60,7 @@ export function renderSide() {
     head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
       g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
-        h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
+        canInvite(g) && h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       srvGames(g),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
     const cats = g.channels.filter(c => c.type === 4), byParent = new Map();

@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 export const CALL_INVITE_TTL = +process.env.CALL_INVITE_TTL_MS || 5 * 60 * 1000; // CALL_INVITE_TTL_MS: só para testes
 const RESEND_MS = 20 * 1000; // o mesmo convite pendente não é reenviado (nem toca de novo) antes disso
 
-export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, isBanned, isBlocked, joinGuild, guildFull = () => null, userPub, dispatch, postDm, canCall = () => true, onState = () => { }, now = () => Date.now() }) {
+export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isMember, canInvite = () => true, isBanned, isBlocked, joinGuild, guildFull = () => null, userPub, dispatch, postDm, canCall = () => true, onState = () => { }, now = () => Date.now() }) {
   const invites = new Map(); // id -> { id, from, to, guild_id, channel_id, created, expires, state }
 
   const stateOf = (i) => (i.state === 'pending' && now() > i.expires ? 'expired' : i.state);
@@ -35,6 +35,8 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     // opts.trusted: a própria pessoa pediu para entrar (anúncio do "Procurar jogadores" com a sala combinada)
     if (!opts.trusted && !isFriend(from, to) && !isMember(ch.guild_id, to)) return { error: 'Só dá para convidar amigos ou membros deste servidor', status: 403 };
     if (!opts.trusted && !canCall(from, to)) return { error: 'Essa pessoa não está aceitando chamadas', status: 403, code: 'calls_off' };
+    // trazer quem não é membro para a sala também o põe no servidor: precisa poder convidar ("Criar convite" ou a opção do servidor)
+    if (!opts.trusted && !isMember(ch.guild_id, to) && !canInvite(ch.guild_id, from)) return { error: 'Você não pode convidar pessoas de fora para este servidor', status: 403, code: 'no_invite' };
     if (isBanned(ch.guild_id, to)) return { error: 'Esta pessoa foi banida deste servidor', status: 403 };
     // aceitar põe a pessoa no servidor: quem já está no máximo de servidores não teria como entrar (server/limits.js)
     if (!isMember(ch.guild_id, to)) { const why = guildFull(to, true); if (why) return { error: why, status: 409, code: 'guild_limit' }; }

@@ -29,6 +29,23 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   db.ban = true; ok(inv.create('a', 'c').status === 403, 'módulo: membro banido não pode ser convidado');
 }
 
+// ---------- 1b) quem não pode criar convite não traz gente de fora pela chamada (opção "membros sem cargo podem convidar") ----------
+{
+  let allow = false; const joined = [];
+  const db = { channels: { v: { id: 'v', guild_id: 'g', type: 2, name: 'Sala' } }, users: { a: 1, b: 1, c: 1 } };
+  const inv = createCallInvites({
+    get: (sql, id) => (sql.includes('FROM channels') ? db.channels[id] : sql.includes('FROM users') ? (db.users[id] && { x: 1 }) : null),
+    voiceChannelOf: (u) => (u === 'a' ? 'v' : null), roomSize: () => 1,
+    isFriend: (x, y) => x === 'a' && y === 'b', isMember: (g, u) => u === 'a' || u === 'c' || joined.includes(u), canInvite: () => allow, isBanned: () => false,
+    isBlocked: () => false, joinGuild: (g, u) => joined.push(u), userPub: (id) => ({ id, display_name: id }), dispatch: () => { }, postDm: () => { },
+  });
+  const r = inv.create('a', 'b');
+  ok(r.status === 403 && r.code === 'no_invite' && !joined.includes('b'), 'módulo: sem poder convidar, não chama amigo de fora do servidor para a sala', r);
+  ok(inv.create('a', 'c').invite?.state === 'pending', 'módulo: sem poder convidar, ainda chama quem já é membro');
+  ok(inv.create('a', 'b', { trusted: true }).invite?.state === 'pending', 'módulo: a própria pessoa pediu (Procurar jogadores): segue valendo');
+  allow = true; ok(inv.create('a', 'b').invite?.state === 'pending', 'módulo: podendo convidar, chama o amigo de fora');
+}
+
 // ---------- 2) servidor real + navegador ----------
 fs.rmSync('.testdata7', { recursive: true, force: true }); fs.mkdirSync(SHOTS, { recursive: true });
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata7' }, stdio: 'ignore' });

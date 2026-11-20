@@ -6,9 +6,14 @@ import { createCallInvites } from '../callinvites.js';
 
 export function mountInvites(app, d) {
   const { auth, wrap, bad, all, get, run, lim, P, can, audit, dispatch, userPub, pubUser, statusFor, platformsFor, conns, voice, sessions, privacy, social, joinGuild, postDm } = d;
+  // Quem convida: o cargo com "Criar convite" (dono e administradores sempre) ou, com a opção do servidor "membros sem cargo
+  // podem convidar" ligada (o padrão, guilds.invite_all), qualquer membro. Vale para o link e para chamar um não membro
+  // para uma sala de voz do servidor (o convite para a chamada também o põe no servidor).
+  const canInvite = (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid)
+    && (can(gid, uid, P.CREATE_INVITE) || get('SELECT invite_all FROM guilds WHERE id=?', gid)?.invite_all !== 0);
   // Invites
   app.post('/api/guilds/:id/invites', auth, wrap((req, res) => {
-    if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', req.params.id, req.uid)) return bad(res, 'Sem permissão', 403);
+    if (!canInvite(req.params.id, req.uid)) return bad(res, 'Sem permissão para criar convites neste servidor', 403);
     // "Convidar pessoas" reaproveita o último convite que a pessoa criou neste servidor (como no Discord): abrir o
     // convite várias vezes não enche o servidor de códigos. Código novo só pedindo ({ new: true }, em Configurações › Convites)
     if (req.body?.new !== true) { const old = get('SELECT code FROM invites WHERE guild_id=? AND creator_id=? ORDER BY created_at DESC LIMIT 1', req.params.id, req.uid); if (old) return res.json({ code: old.code }); }
@@ -60,6 +65,7 @@ export function mountInvites(app, d) {
     roomSize: (cid) => voice.get(cid)?.size || 0,
     isFriend: (a, b) => !!get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=1', a, b),
     isMember: (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid),
+    canInvite,
     isBanned: (gid, uid) => !!get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', gid, uid),
     isBlocked: (a, b) => !!get('SELECT 1 x FROM relationships WHERE ((user_id=? AND other_id=?) OR (user_id=? AND other_id=?)) AND type=2', a, b, b, a),
     joinGuild: (gid, uid) => joinGuild(gid, uid), userPub, dispatch, postDm: (a, b, c) => postDm(a, b, c),

@@ -1144,7 +1144,10 @@ function invitesPage(gid) {
     if (!list.length) box.append(note('Nenhum convite ativo.'));
   };
   draw();
-  return h('div', h('h2', 'Convites'), h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`, { new: true }); draw(); } }, 'Criar convite'), box);
+  const g = S.guilds.get(gid);
+  const who = card(row('Membros sem cargo podem convidar', 'Ligado (o padrão), qualquer membro cria convites e chama pessoas de fora para as salas de voz. Desligado, só quem tem um cargo com "Criar convite" (e o dono e os administradores).',
+    toggle(g?.invite_all !== 0, async (v) => { if (await tryApi('PATCH', `/guilds/${gid}`, { invite_all: v })) { if (g) g.invite_all = v ? 1 : 0; toast(v ? 'Qualquer membro pode convidar' : 'Só quem tem "Criar convite" pode convidar'); } })));
+  return h('div', h('h2', 'Convites'), who, h('button.btn', { style: { marginBottom: '16px' }, onclick: async () => { await tryApi('POST', `/guilds/${gid}/invites`, { new: true }); draw(); } }, 'Criar convite'), box);
 }
 const lockedSwitch = (on, title = 'Igual ou acima do seu cargo mais alto') => h('div.switch' + (on ? '.on' : ''), { role: 'switch', 'aria-checked': String(!!on), 'aria-disabled': 'true', title, style: { opacity: '.45', cursor: 'not-allowed' } });
 function rolesPage(gid) {
