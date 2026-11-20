@@ -310,6 +310,9 @@ button.ibtn.busy, button.gstar.busy, button.adel.busy { opacity: .55; transition
 @keyframes skShine { from { transform: translateX(-75%); } to { transform: translateX(25%); } }
 .skeleton { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
 .skeleton i, #boot i, #boot b, #boot em, #boot u, #boot s { display: block; background: var(--bg-mod-hover, rgba(255,255,255,.06)); border-radius: 6px; }
+/* esqueleto da abertura: blocos um pouco mais claros que os do app (o --bg-mod-hover sobre o fundo do chat quase não
+   aparecia, ~1,1:1), na cor do texto para valer em qualquer tema */
+#boot :is(i, b, em, u, s) { background: color-mix(in srgb, var(--text-normal, #dbdee1) 10%, transparent); }
 html.anim :is(.skeleton i, #boot i, #boot em, #boot u) { position: relative; overflow: hidden; }
 html.anim :is(.skeleton i, #boot i, #boot em, #boot u)::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 200%; pointer-events: none;
   background: linear-gradient(90deg, transparent 0, rgba(255,255,255,.05) 40%, transparent 80%); animation: skShine 1.4s ease-in-out infinite; will-change: transform; }
@@ -327,9 +330,10 @@ html.boot #boot { display: flex; }
 #boot .bt-rail i { width: 48px; height: 48px; border-radius: 50%; }
 /* como o app: os 2 primeiros do trilho são ícones (mensagens, busca), depois os servidores; a aba aberta na faixa de
    cima e a barra do perfil embaixo à esquerda (sobre o trilho e a lateral) */
-#boot .bt-rail { padding-top: 50px; gap: 12px; } #boot .bt-rail i:nth-child(-n+2) { width: 26px; height: 26px; border-radius: 7px; margin-bottom: 18px; }
+#boot .bt-rail { padding-top: 50px; gap: 12px; } #boot .bt-rail i:is(:nth-child(-n+2), :nth-child(5)) { width: 26px; height: 26px; border-radius: 7px; margin: 0 0 18px; } #boot .bt-rail i:nth-child(5) { margin: 10px 0 0; }
 #boot .bt-tab { position: absolute; left: 72px; top: 4px; width: 240px; height: 32px; border-radius: 8px; background: var(--bg-sec, #2b2d31); }
-#boot .bt-user { position: absolute; left: 8px; bottom: 8px; width: 354px; height: 60px; border-radius: 12px; background: var(--bg-user, #232428); }
+#boot .bt-user { position: absolute; left: 8px; bottom: 8px; width: 354px; height: 60px; display: flex; align-items: center; gap: 16px; }
+#boot .bt-user i { width: 48px; height: 48px; border-radius: 50%; flex: none; } #boot .bt-user b { flex: 1; height: 60px; border-radius: 12px; }
 #boot .bt-side { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-top-left-radius: 12px; margin-top: 40px; }
 #boot .bt-side b { height: 34px; margin-bottom: 8px; } #boot .bt-side i { height: 26px; width: 80%; } #boot .bt-side i:nth-child(odd) { width: 62%; }
 #boot .bt-main { flex: 1; min-width: 0; background: var(--bg-pri, #313338); display: flex; flex-direction: column; margin-top: 40px; }
@@ -337,7 +341,7 @@ html.boot #boot { display: flex; }
 /* esqueleto na forma do app: faixa das abas em cima (40 px, as colunas começam abaixo dela) e a coluna da direita (membros /
    Ativo agora), que some em tela estreita como a de verdade. Antes o app entrava ~32 px mais baixo e com uma coluna a mais */
 #boot .bt-mem { width: 300px; flex: none; background: var(--bg-sec, #2b2d31); margin-top: 40px; display: flex; flex-direction: column; gap: 14px; padding: 20px 14px; }
-#boot .bt-mem i { height: 32px; width: 85%; } #boot .bt-mem i:nth-child(odd) { width: 70%; }
+#boot .bt-mem > b { height: 30px; border-radius: 8px; margin-bottom: 8px; } #boot .bt-mem p i { width: 32px; height: 32px; } #boot .bt-mem p span { justify-content: center; padding: 0; } #boot .bt-mem p em { width: 45%; }
 @media (max-width: 1100px) { #boot .bt-mem { display: none; } }
 #boot .bt-msgs { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 30px; padding: 16px; }
 #boot p { display: flex; gap: 14px; margin: 0; } #boot p i { width: 40px; height: 40px; border-radius: 50%; flex: none; }

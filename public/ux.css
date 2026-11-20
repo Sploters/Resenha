@@ -258,7 +258,8 @@ button.mgroup .mg-n::before { content: '— '; }
 /* grudada no topo e parada: some (antes ficava sempre por cima da 1ª mensagem visível, cobrindo o texto). Volta ao rolar
    (chat.js threadWatch → .rolando). Navegador sem scroll-state: fica como antes */
 #msgs .daysep { container-type: scroll-state; }
-#msgs .daysep span { transition: opacity .25s var(--ease-out, ease-out); }
+/* o fade só depois da 1ª rolagem da pessoa (.rolou): ao abrir o chat a data grudada aparecia e sumia sobre a 1ª mensagem */
+#msgs.rolou .daysep span { transition: opacity .25s var(--ease-out, ease-out); }
 @container scroll-state(stuck: top) { #msgs:not(.rolando) .daysep span { opacity: 0; } }
 
 /* ---------- painel de perfil na conversa: cartão arredondado, em comum abaixo do nome, "Ver perfil completo" no rodapé ---------- */
@@ -267,6 +268,13 @@ button.mgroup .mg-n::before { content: '— '; }
 #dmpanel .dmp-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 #dmpanel .dmp-card { position: static; width: 100%; max-width: none; margin: 0; border-radius: 0; box-shadow: none; animation: none; background: none; }
 #dmpanel .dmp-card > .pcard { border-radius: 0; background: none; }
+/* o cartão entra pronto (sem os filhos subindo um a um: banner, avatar e botão "brotavam" juntos depois do painel) */
+html.anim #dmpanel .pcard > * { animation: none; }
+#dmpanel .dmp-sk { padding: 0 0 16px; gap: 10px; } #dmpanel .dmp-sk .dsk-ban { height: 120px; border-radius: 0; }
+#dmpanel .dmp-sk .dsk-av { width: 92px; height: 92px; border-radius: 50%; margin: -52px 0 6px 16px; box-shadow: 0 0 0 6px var(--bg-float); }
+#dmpanel .dmp-sk .dsk-name { height: 18px; width: 45%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l { height: 12px; width: 70%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l.s { width: 40%; }
+/* esqueleto do chat no pé da lista, onde as mensagens entram (o chat se ancora embaixo) */
+#msgs > .skeleton.sk-msgs { margin-top: auto; }
 #dmpanel .dmp-card > .pcard .banner { border-radius: 0; }
 #dmpanel .dmp-foot { flex: none; display: flex; justify-content: center; padding: 12px; }
 /* segue o tema: no AMOLED/escuros fica num tom acima do fundo do cartão (antes era o cinza fixo #4e5058, claro demais) */
@@ -627,6 +635,7 @@ body:has(> #layer > .gf-popout:not(.leaving)) .rail-wrap:has([data-fly="g"])[dat
 #totop-btn { position: absolute; right: 28px; bottom: 100%; margin-bottom: 8px; z-index: 6; width: 40px; height: 40px; border: 1px solid var(--divider); border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--bg-float, var(--bg-sec)); color: var(--interactive); box-shadow: 0 4px 12px rgba(0,0,0,.3); cursor: pointer; transition: opacity .15s, transform .15s, color .12s; }
 #totop-btn:hover { color: var(--header); background: var(--bg-mod-hover); }
 #totop-btn .icon { fill: currentColor; }
+#totop-btn.nofade { transition: none; }
 #totop-btn.hidden { display: flex !important; opacity: 0; transform: translateY(6px); pointer-events: none; }
 /* painel de perfil da DM: título "Na Resenha desde" (e os demais títulos do cartão) menor */
 #dmpanel .pcard .pb h4 { font-size: 9px; letter-spacing: .04em; margin-bottom: 2px; color: var(--text-muted); }

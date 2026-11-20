@@ -164,7 +164,10 @@ async function renderDmPanel(uid) {
   const known = dmFull.get(uid), req = api('GET', `/users/${uid}`).catch(() => null);
   let drawn = known ? JSON.stringify(known) : null;
   if (known) draw(known);
-  else { const quick = await Promise.race([req, new Promise(r => setTimeout(r, 400))]); if ($('#dmpanel') !== box) return; if (!quick) draw(user(uid)); }
+  else {
+    // enquanto isso, o esqueleto do cartão (faixa, avatar, nome e linhas) no lugar do painel vazio
+    box.replaceChildren(h('div.dmp-wrap', h('div.dmp-scroll', h('div.skeleton.dmp-sk', h('i.dsk-ban'), h('i.dsk-av'), h('i.dsk-name'), h('i.dsk-l'), h('i.dsk-l.s')))));
+    const quick = await Promise.race([req, new Promise(r => setTimeout(r, 400))]); if ($('#dmpanel') !== box) return; if (!quick) draw(user(uid)); }
   const full = await req;
   if (!full || $('#dmpanel') !== box) return;
   mergeUser(full); dmFull.set(uid, full);

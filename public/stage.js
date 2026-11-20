@@ -21,7 +21,7 @@ import { watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry } fr
 import { toggle as uiToggle } from './ui.js';
 import { styleName } from './themes.js';
 import { activityOf, refreshFeedView } from './activity.js';
-import { swapIcon } from './motion.js';
+import { swapIcon, animOn } from './motion.js';
 import { voice, $, gwSend, roomVoice } from './gateway.js';
 import { musicOn, botTile } from './botmusic.js';
 import { appBadge } from './appver.js';
@@ -59,7 +59,7 @@ function videoFor(key, stream, muted = true) {
     const had = v && !v.classList.contains('nofr');
     if (v) v.srcObject = null; v = h('video' + (had ? '' : '.nofr'), { autoplay: true, playsInline: true, muted }); v.srcObject = stream; vidCache.set(key, v); v.play?.().catch(() => { });
     // até o 1º quadro o vídeo fica transparente e o quadro mostra o avatar (câmera) ou "conectando" (transmissão), não preto
-    const shown = v, ready = () => { if (had) return; shown.classList.remove('nofr'); const t = shown.closest('.tile'); if (t) { t.classList.remove('waitvid'); t.querySelectorAll(':scope > .vwait, :scope > .vwait-av').forEach(e => e.remove()); } };
+    const shown = v, ready = () => { if (had) return; shown.classList.remove('nofr'); const t = shown.closest('.tile'); if (t) { t.classList.remove('waitvid'); t.classList.add('vidin'); setTimeout(() => t.querySelectorAll(':scope > .vwait, :scope > .vwait-av').forEach(e => e.remove()), 260); } }; // depois do fade do vídeo (features.css)
     if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(ready); else v.addEventListener('loadeddata', ready, { once: true });
   }
   else if (v.paused) v.play?.().catch(() => { }); // o navegador pausa <video> removido da tela; ao voltar à sala ele ficava congelado
@@ -380,12 +380,28 @@ export function renderVoiceUI(speakOnly) {
   for (const t of screens) { const sid = t.dataset.sid; if (sid && sid !== S.me.id) voice.setStreamLayer(sid, focusTile && t !== focusTile ? 0 : screens.length > 2 && !focusTile ? 1 : 2); } // miniaturas e grades cheias pedem a camada menor
   const rest = focusTile ? tiles.filter(t => t !== focusTile) : tiles;
   const empty = !tiles.length; // sala vazia: o botão de entrar fica junto do texto, no meio (como no Discord)
+  // quadros que entram ou saem (alguém entrou, transmissão começou): cada quadro desliza do lugar antigo para o novo e o
+  // novo surge, em vez de a grade inteira saltar (FLIP, só transform/opacity). Só quando o número de quadros muda
+  const flipFrom = animOn() && stage.isConnected ? new Map([...stage.querySelectorAll('.tile[data-key]')].map(t => [t.dataset.key, t.getBoundingClientRect()])) : null;
   keepEditorFocus(() => stage.replaceChildren(...[
     !empty ? (focusTile ? (layout === 'cinema' ? [h('div.spot', focusTile)] : layout === 'sidebar' ? [h('div.splitwrap', h('div.spot', focusTile), h('div.strip', rest))] : [h('div.spot', focusTile), h('div.strip', rest)]) : layout === 'side' && tiles.length > 1 ? h('div.grid.sidebyside', tiles) : (() => { const gr = h('div.grid.fit', tiles); if (lastTw) gr.style.setProperty('--tw', lastTw); return gr; })()) : h('div.grid', h('div.empty', { style: { color: '#fff' } }, h('h2', dm ? 'Chamada' : chName(ch)), h('p', dm ? 'Ninguém está na chamada.' : 'Ninguém está nesta sala de voz ainda.'), !inRoom && bar)),
     voice.error && inRoom && h('div.verr', voice.error),
     !(empty && !inRoom) && bar].flat().filter(Boolean)));
   watchStage(); observeTiles(); markNarrow();
+  if (flipFrom?.size) flipTiles(stage, flipFrom);
   watchVoiceChanged();
+}
+function flipTiles(stage, from) {
+  const now = [...stage.querySelectorAll('.tile[data-key]')];
+  if (now.length === from.size && now.every(t => from.has(t.dataset.key))) return; // mesmos quadros: nada mudou de lugar
+  const ease = 'cubic-bezier(.2, .8, .2, 1)';
+  for (const t of now) {
+    const a = from.get(t.dataset.key), b = t.getBoundingClientRect(); if (!b.width) continue;
+    if (!a) { t.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: ease }); continue; }
+    const dx = a.left - b.left, dy = a.top - b.top, sx = a.width / b.width, sy = a.height / b.height;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < .01 && Math.abs(sy - 1) < .01) continue;
+    t.animate([{ transformOrigin: '0 0', transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` }, { transformOrigin: '0 0', transform: 'none' }], { duration: 260, easing: ease });
+  }
 }
 // atalho de clipe: salva os últimos segundos da transmissão em destaque (ou da primeira que está sendo gravada)
 export const hasScreenOf = (key) => !!S.voice.get(key.slice(2))?.screen;

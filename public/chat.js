@@ -128,7 +128,7 @@ export function threadWatch(box) {
   for (const ev of ['wheel', 'touchmove', 'keydown', 'pointerdown']) box.addEventListener(ev, mark, { passive: true });
   box.addEventListener('scroll', () => {
     if (performance.now() - intent > 1500) return;
-    if (!box.classList.contains('rolando')) box.classList.add('rolando');
+    if (!box.classList.contains('rolando')) box.classList.add('rolando', 'rolou'); // .rolou: a data grudada só ganha o fade depois da 1ª rolagem
     clearTimeout(idle); idle = setTimeout(() => box.classList.remove('rolando'), 1200);
   }, { passive: true });
   return box;

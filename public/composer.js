@@ -83,6 +83,9 @@ export function composer(ch, label) {
   // ir para a primeira mensagem: canto de baixo, logo acima do campo; só aparece depois de rolar para cima
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
   wrap.append(topBtn);
+  // ao abrir o chat ele aparece de uma vez (o fade de entrada aparecia pela metade logo depois da tela montar); o fade fica
+  // para quando a pessoa rola
+  topBtn.classList.add('nofade'); setTimeout(() => topBtn.classList.remove('nofade'), 1500);
   setTimeout(() => {
     renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); ta.setSelectionRange(ta.value.length, ta.value.length); }
     // sala de voz: o chat não pega o foco sozinho, senão a tecla de push-to-talk (uma letra, por padrão V) vira texto
