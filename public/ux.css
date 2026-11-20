@@ -269,7 +269,7 @@ button.mgroup .mg-n::before { content: '— '; }
 #dmpanel .dmp-card { position: static; width: 100%; max-width: none; margin: 0; border-radius: 0; box-shadow: none; animation: none; background: none; }
 #dmpanel .dmp-card > .pcard { border-radius: 0; background: none; }
 /* o cartão entra pronto (sem os filhos subindo um a um: banner, avatar e botão "brotavam" juntos depois do painel) */
-html.anim #dmpanel .pcard > * { animation: none; }
+html.anim #dmpanel .pcard, html.anim #dmpanel .pcard > * { animation: none; }
 #dmpanel .dmp-sk { padding: 0 0 16px; gap: 10px; } #dmpanel .dmp-sk .dsk-ban { height: 120px; border-radius: 0; }
 #dmpanel .dmp-sk .dsk-av { width: 92px; height: 92px; border-radius: 50%; margin: -52px 0 6px 16px; box-shadow: 0 0 0 6px var(--bg-float); }
 #dmpanel .dmp-sk .dsk-name { height: 18px; width: 45%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l { height: 12px; width: 70%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l.s { width: 40%; }
