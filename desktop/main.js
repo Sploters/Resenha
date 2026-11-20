@@ -224,6 +224,9 @@ function createWindow(forceShow) {
   win.on('close', (e) => {
     cfg.bounds = win.isMaximized() ? cfg.bounds : win.getBounds(); saveCfg();
     if (!quitting && cfg.closeToTray) { e.preventDefault(); win.hide(); }
+    // "Fechar para a bandeja" desligado: o X encerra o app. Antes a janela era destruída mas o app seguia vivo só na bandeja
+    // (o window-all-closed só sai com quitting) e clicar no ícone dava "Object has been destroyed"
+    else quitting = true;
   });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   const sameServer = (url) => { try { return new URL(url).origin === new URL(cfg.server).origin; } catch { return false; } };
@@ -246,13 +249,14 @@ function createWindow(forceShow) {
 // (a janelinha "Iniciando…" saiu: a janela principal já abre na hora)
 let splash = null;
 function closeSplash() { if (splash && !splash.isDestroyed()) splash.destroy(); splash = null; }
-function showWin() { if (!win) return; win.show(); win.focus(); }
+const liveWin = () => (win && !win.isDestroyed() ? win : null); // janela já fechada (destruída) não pode ser usada
+function showWin() { const w = liveWin(); if (!w) return; w.show(); w.focus(); }
 
 // ---------- bandeja / badge / atalhos ----------
 function buildTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'tray.png')));
   tray.setToolTip('Resenha');
-  const send = (k) => win?.webContents.send('hotkey', k);
+  const send = (k) => liveWin()?.webContents.send('hotkey', k);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir a Resenha', click: showWin },
     { label: 'Silenciar / ativar microfone', click: () => send('mute') },
@@ -262,12 +266,12 @@ function buildTray() {
     { label: 'Trocar servidor…', click: () => { showWin(); showConnect(); } },
     { label: 'Sair', click: () => { quitting = true; app.quit(); } },
   ]));
-  tray.on('click', () => (win?.isVisible() ? win.focus() : showWin()));
+  tray.on('click', () => (liveWin()?.isVisible() ? win.focus() : showWin()));
 }
 function registerHotkeys() {
   globalShortcut.unregisterAll();
   if (!cfg.globalHotkeys) return;
-  const send = (k) => win?.webContents.send('hotkey', k);
+  const send = (k) => liveWin()?.webContents.send('hotkey', k);
   // atalhos salvos por versões antigas com o nome da tecla (ex.: CommandOrControl+Backslash): troca pelo caractere
   const KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`' };
   const fix = (acc) => String(acc || '').split('+').map(p => KEYS[p] || p).join('+');
