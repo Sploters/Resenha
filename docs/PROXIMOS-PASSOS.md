@@ -82,6 +82,11 @@ instalador menor.
 - **Memória que cresce e volta com `Memory.simulatePressureNotification`** é cache, não vazamento. Desenhar quadros de
   vídeo num canvas 2D (por `<video>`, `ImageBitmap` ou `VideoFrame`, com ou sem `willReadFrequently`) enche um cache do
   Chromium até ~470 MB. Ler o `VideoFrame` com `copyTo` não enche.
+- **A CSP do servidor também vale nos testes:** `addScriptTag({ content })` não roda. Use `page.setBypassCSP(true)` na
+  página do teste, sem desligar a CSP do servidor.
+- **O microfone falso do Chromium manda de ~30 a ~6.000 bytes/s** (bipe + porta por voz + DTX). Teste de "ouve a voz"
+  compara enviado × recebido na mesma janela, não um número fixo.
+- **`track()` descarta evento com a janela oculta** sem `{ bg: true }`: evento de chamada ou transmissão precisa dele.
 - **Renderizar o `AudioContext` sem dispositivo** (`setSinkId({ type: 'none' })`) custa o mesmo. Já foi testado.
 - **Teste offline (`OfflineAudioContext`) não serve** para mudo/desmudo (desconectar e reconectar a fonte): use tempo real.
 - **Servidor de teste órfão:** teste que cai pode deixar `node server/index.js` vivo na porta fixa, e o próximo falha
@@ -105,15 +110,18 @@ instalador menor.
    de conexão: o ajuste é lá, não no app. Pergunte se o servidor usa VPN (Tailscale, ZeroTier, Radmin) ou túnel.
 3. **Permissão "Criar convite"** não é conferida pelo servidor (`POST /api/guilds/:id/invites` em
    `server/routes/invites.js`): qualquer membro convida. Falha de segurança à espera da decisão do dono.
-4. **Testes da minificação** que não terminaram: `ui-test ux-test chat-rich e2ee-test mymessages clips-test vadgate-chain
-   noise-env appaudio-worklet voicefx watch-test tab-lifecycle pwa` (`STATIC_MINIFY=0` desliga).
-5. **Primeira release com os `.exe` compilados no GitHub**: ainda não conferida.
+4. ~~Testes da minificação~~ **feito**: os 13 passam com a minificação ligada (o `ux-test` falhava pela CSP, item 7).
+5. ~~Primeira release com os `.exe` compilados~~ **conferida**: v1.0.54 (CI Windows, "Compilar os programas nativos"
+   ok). Setup 122,69 → 113,39 MB e Portátil 111,31 → 103,11 MB em relação à v1.0.53 (tamanho real dos arquivos).
 6. **Juntar a cópia local do dono** (música) com o remoto, sem perder nada.
-7. Consertar os testes instáveis acima.
+7. ~~Consertar os testes instáveis~~ **feito**: `ux-test` e `freeze-report-test` (a CSP bloqueava o `<script>` inline que
+   eles injetam; o CI da `main` ficava vermelho por isso), `call-restart-test` (compara enviado × recebido em vez de um
+   número fixo de bytes), `voice-network-test` (envio atrasado depois de fechar o socket) e `black-capture-test`
+   (servidor órfão). Ainda instáveis no CI: `reconnect-storm-test` e `watch-test` (passam na 2ª tentativa).
 
 ### 2. Curto prazo (pequeno e seguro)
-- **Contar reconexões de mídia nas estatísticas**: `voice_reconnect` e `voice_recovered` são descartados pela lista
-  de eventos aceitos em `server/ux.js`. Liberar mostra as quedas de todos, não só de quem copiar o diagnóstico.
+- ~~Contar reconexões de mídia nas estatísticas~~ **feito** (`f3902a1`): quadro "Mídia da chamada" no painel; conta
+  também com o app minimizado.
 - **Modo reserva do Windows 10** (Chromium captura o monitor quando o nativo não roda): o Alt+Tab ainda mostra outras
   janelas. Aplicar a mesma regra do DXGI (`covered` em `native/lc-stream/src/capture.rs`), por exemplo pelo
   `sourceState` do app.
