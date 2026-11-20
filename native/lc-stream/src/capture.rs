@@ -39,7 +39,7 @@ use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemIntero
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Shell::SHQueryUserNotificationState;
-use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, IsIconic, IsWindow, GA_ROOT};
+use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetClassNameW, GetForegroundWindow, GetWindow, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, GA_ROOT, GW_HWNDPREV};
 
 // ------------------------------------------------------------------------------------------------------------ limites
 /// DXGI: tempo máximo tentando recriar a duplicação (Ctrl+Alt+Del, UAC, troca de resolução) antes de desistir do método
@@ -103,6 +103,31 @@ fn window_rect(h: HWND) -> Option<RECT> {
     let mut r = RECT::default();
     unsafe { DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as _, std::mem::size_of::<RECT>() as u32) }.ok()?;
     Some(r)
+}
+/// A janela em primeiro plano é de outro programa, está ACIMA da transmitida na ordem das janelas e cobre parte dela
+/// (Alt+Tab para o navegador ou para a Resenha com o jogo em "janela sem bordas", que não minimiza). O DXGI recorta o
+/// monitor: sem isso, quem assiste via a janela da frente no lugar do jogo. Fora da conta: a área de trabalho e a barra
+/// de tarefas (ficam abaixo do jogo ou só na borda) e janelas do próprio jogo (mesmo processo).
+fn covered(h: HWND) -> bool {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() || fg == h { return false; }
+        let fg = { let r = GetAncestor(fg, GA_ROOT); if r.0.is_null() { fg } else { r } };
+        if fg == h || IsIconic(fg).as_bool() || !IsWindowVisible(fg).as_bool() { return false; }
+        let (mut pf, mut ph) = (0u32, 0u32);
+        GetWindowThreadProcessId(fg, Some(&mut pf)); GetWindowThreadProcessId(h, Some(&mut ph));
+        if pf != 0 && pf == ph { return false; }
+        let mut cls = [0u16; 64]; let n = GetClassNameW(fg, &mut cls).max(0) as usize;
+        let cls = String::from_utf16_lossy(&cls[..n]);
+        if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") { return false; }
+        // a da frente está acima da transmitida? (sobe a partir dela na ordem das janelas; um jogo "sempre por cima"
+        // continua visível mesmo sem estar em primeiro plano)
+        let mut w = h; let mut above = false;
+        for _ in 0..4096 { w = match GetWindow(w, GW_HWNDPREV) { Ok(x) if !x.0.is_null() => x, _ => break }; if w == fg { above = true; break; } }
+        if !above { return false; }
+        let (Some(a), Some(b)) = (window_rect(fg), window_rect(h)) else { return false };
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+    }
 }
 const CLOSED: &str = "a janela transmitida foi fechada";
 
@@ -292,8 +317,8 @@ impl Src for Dxgi {
         self.mw = td.Width; self.mh = td.Height;
         let src = match self.target {
             Target::Window(h) => {
-                self.hidden = unsafe { IsIconic(h) }.as_bool();
-                if self.hidden { return Ok(None); } // minimizada: repete o último quadro
+                self.hidden = unsafe { IsIconic(h) }.as_bool() || covered(h);
+                if self.hidden { return Ok(None); } // minimizada ou coberta por outra janela: repete o último quadro
                 match self.crop_of(h) { Some(c) => { self.crop = Some(c); c } None => { self.hidden = true; return Ok(None); } }
             }
             Target::Monitor(_) => RECT { left: 0, top: 0, right: td.Width as i32, bottom: td.Height as i32 },
@@ -496,6 +521,7 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
     let mut history: Vec<Value> = vec![json!({ "at": 0, "from": null, "m": active.method().id(), "why": if open_errors.is_empty() { format!("primeira opção: {}", sel.plan_why) } else { "a primeira opção não abriu".into() }, "ms": started_ms.round() })];
     out(o, json!({ "t": "method", "m": active.method().id(), "from": null, "why": history[0]["why"], "ms": started_ms.round(), "auto": !sel.forced(), "at": 0 }));
     // troca pendente: quando a nova fonte entregar o 1º quadro, mede a latência e pede quadro-chave
+    let mut was_hidden = false; // janela coberta (covered): avisa só nas mudanças
     let mut pending_switch: Option<(f64, Method, String, Method, f64)> = None; // (início, de, motivo, para, ms comparando lado a lado)
 
     let (mut blt_err, mut in_err) = (None::<String>, None::<String>);
@@ -566,7 +592,11 @@ fn run_inner(o: &Opts, mode: Mode, build_hint: u32) -> R<()> {
             let fr = active.take_frames(); cap_total.0 += fr;
             let (b, li, ch) = probe.take();
             // janela minimizada: nenhum método entrega imagem dela, e isso não é defeito do método (repete o último quadro)
+            // coberta (DXGI repete o último quadro, ver covered): idem, não é defeito do método
             let iconic = matches!(t, Target::Window(hw) if unsafe { IsIconic(hw) }.as_bool());
+            let hid = iconic || (active.method() == Method::Dxgi && matches!(t, Target::Window(hw) if covered(hw)));
+            if hid != was_hidden && !iconic { was_hidden = hid; out(o, json!({ "t": "capnote", "at": r1(now), "msg": if hid { "janela transmitida coberta por outra: quem assiste vê o último quadro do jogo" } else { "janela transmitida de volta à frente" } })); }
+            let iconic = hid;
             let h = Health { frames: if iconic { fr.max(1) } else { fr }, black: b, lit: li, changed: ch, expect_motion: fs.1 && !iconic, exclusive: fs.0 == 3 };
             let mut act = sel.tick(now, &h);
             if let Some((cs, cp, _)) = &mut cand {
