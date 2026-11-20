@@ -77,7 +77,7 @@ export function renderMain() {
         : post ? [h('button.ibtn.fo-back', { title: 'Voltar ao fórum', 'aria-label': 'Voltar ao fórum', onclick: () => go(ch.guild_id, ch.parent_id) }, icon('arrowr', 20)), h('span.hash', icon('forum', 22)),
           h('button.fo-crumb', { onclick: () => go(ch.guild_id, ch.parent_id) }, forumOfPost(ch) ? chName(forumOfPost(ch)) : 'Fórum'), h('span.fo-crumbsep', '›'), h('span.fo-crumbt', { title: ch.name }, ch.name)]
         : [h('span.hash', chIcon(ch, 24)), h('span', { title: ch.name }, chName(ch)),
-          vc && voice.channelId !== ch.id && h('button.btn.green.sm.vc-join-top', { title: chCan(ch, CH.CONNECT) ? 'Entrar na sala de voz' : 'Você não tem permissão para entrar nesta sala', disabled: !chCan(ch, CH.CONNECT), onclick: () => joinVoice(ch.id) }, icon('voice', 14), 'Entrar'),
+          vc && voice.channelId !== ch.id && h('button.btn.green.sm.vc-join-top.hidden', { title: chCan(ch, CH.CONNECT) ? 'Entrar na sala de voz' : 'Você não tem permissão para entrar nesta sala', disabled: !chCan(ch, CH.CONNECT), onclick: () => joinVoice(ch.id) }, icon('voice', 14), 'Entrar'),
           ch.topic && h('span.topic', ch.topic)],
       h('div.spacer'),
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat

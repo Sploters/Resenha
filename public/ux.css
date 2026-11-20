@@ -275,6 +275,7 @@ html.anim #dmpanel .pcard, html.anim #dmpanel .pcard > * { animation: none; }
 #dmpanel .dmp-sk .dsk-name { height: 18px; width: 45%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l { height: 12px; width: 70%; margin-left: 16px; } #dmpanel .dmp-sk .dsk-l.s { width: 40%; }
 /* esqueleto do chat no pé da lista, onde as mensagens entram (o chat se ancora embaixo) */
 #msgs > .skeleton.sk-msgs { margin-top: auto; }
+#msgs > .sk-dm .sk-welcome { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; } #msgs > .sk-dm .sk-av.big { width: 80px; height: 80px; } #msgs > .sk-dm .sk-wname { height: 24px; width: 180px; }
 #dmpanel .dmp-card > .pcard .banner { border-radius: 0; }
 #dmpanel .dmp-foot { flex: none; display: flex; justify-content: center; padding: 12px; }
 /* segue o tema: no AMOLED/escuros fica num tom acima do fundo do cartão (antes era o cinza fixo #4e5058, claro demais) */

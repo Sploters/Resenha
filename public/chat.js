@@ -60,7 +60,9 @@ export async function loadChannel(cid) {
   if (cached && cached.length > OPEN_KEEP + 30) { cached.splice(0, cached.length - OPEN_KEEP); S.loaded.set(cid, false); }
   let netMs = 0; // telemetria: quanto da troca foi esperando o servidor
   if (!S.messages.has(cid)) {
-    box.replaceChildren(skeleton('msgs', 9));
+    // conversa direta: o início dela (avatar grande e nome) costuma estar à vista, com poucas mensagens embaixo
+    const dmSk = channelById(cid)?.type === 1;
+    box.replaceChildren(dmSk ? h('div.skeleton.sk-msgs.sk-dm', h('div.sk-welcome', h('i.sk-av.big'), h('i.sk-bar.sk-wname')), ...skeleton('msgs', 4).children) : skeleton('msgs', 9));
     // mensagens que chegam ao vivo enquanto a lista vem do servidor: sem lista ainda, onMessage as descartava, e a resposta
     // (montada antes delas) também não as trazia. Sumiam até reabrir o canal. Agora ficam guardadas e entram no fim.
     const early = []; arriving.set(cid, early);

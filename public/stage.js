@@ -372,7 +372,9 @@ export function renderVoiceUI(speakOnly) {
   ] : !dm && !chCan(ch, CH.CONNECT) ? h('div.vc-noconnect', icon('lock', 16), 'Você não tem permissão para entrar nesta sala')
     : S.prefs.joinBtn === 'compact' ? h('button.btn.green.sm.join-compact', { onclick: () => joinVoice(ch.id) }, icon(dm ? 'callstart' : 'voice', 16), dm ? 'Atender' : 'Entrar')
     : h('button.btn.green', { style: { minWidth: '220px', minHeight: '46px', fontSize: '16px' }, onclick: () => joinVoice(ch.id) }, dm ? 'Atender / entrar na chamada' : 'Entrar na sala de voz'));
-  document.querySelector('.vc-join-top')?.classList.toggle('hidden', !!inRoom); // dentro da sala: some o "Entrar" do topo
+  // "Entrar" do topo só quando o palco não mostra o dele (Watch Together cobrindo a barra); dentro da sala, nunca. Os dois
+  // juntos eram a mesma ação repetida
+  document.querySelector('.vc-join-top')?.classList.toggle('hidden', !!inRoom || !stage.classList.contains('wt-cover'));
   // botão de layout no topo do palco (à direita): mostra o layout atual e abre o painel com as miniaturas
   const slot = document.getElementById('vc-layout-slot');
   if (slot) slot.replaceChildren(...(inRoom && allTiles > 1 ? [h('button#vc-layout' + (document.querySelector('.layoutpop') ? '.open' : ''), { title: 'Mudar o layout do palco', onclick: layoutMenu }, icon('layout', 18), h('span', STAGE_LAYOUTS.find(l => l.id === layout).label), icon('chevdown', 14))] : []));
@@ -382,6 +384,7 @@ export function renderVoiceUI(speakOnly) {
   const empty = !tiles.length; // sala vazia: o botão de entrar fica junto do texto, no meio (como no Discord)
   // quadros que entram ou saem (alguém entrou, transmissão começou): cada quadro desliza do lugar antigo para o novo e o
   // novo surge, em vez de a grade inteira saltar (FLIP, só transform/opacity). Só quando o número de quadros muda
+  const wasJoin = !!stage.querySelector('.bar.joinbar'); // fora da sala (o Entrar, no pé do palco ou no meio da sala vazia)
   const flipFrom = animOn() && stage.isConnected ? new Map([...stage.querySelectorAll('.tile[data-key]')].map(t => [t.dataset.key, t.getBoundingClientRect()])) : null;
   keepEditorFocus(() => stage.replaceChildren(...[
     !empty ? (focusTile ? (layout === 'cinema' ? [h('div.spot', focusTile)] : layout === 'sidebar' ? [h('div.splitwrap', h('div.spot', focusTile), h('div.strip', rest))] : [h('div.spot', focusTile), h('div.strip', rest)]) : layout === 'side' && tiles.length > 1 ? h('div.grid.sidebyside', tiles) : (() => { const gr = h('div.grid.fit', tiles); if (lastTw) gr.style.setProperty('--tw', lastTw); return gr; })()) : h('div.grid', h('div.empty', { style: { color: '#fff' } }, h('h2', dm ? 'Chamada' : chName(ch)), h('p', dm ? 'Ninguém está na chamada.' : 'Ninguém está nesta sala de voz ainda.'), !inRoom && bar)),
@@ -389,6 +392,7 @@ export function renderVoiceUI(speakOnly) {
     !(empty && !inRoom) && bar].flat().filter(Boolean)));
   watchStage(); observeTiles(); markNarrow();
   if (flipFrom?.size) flipTiles(stage, flipFrom);
+  if (inRoom && wasJoin && animOn()) stage.querySelector(':scope > .bar')?.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' }); // acabou de entrar: os controles sobem no lugar do Entrar
   watchVoiceChanged();
 }
 function flipTiles(stage, from) {
