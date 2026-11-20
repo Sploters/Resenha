@@ -81,6 +81,8 @@ for (const f of files) {
   results.push(r);
   console.log(r.ok ? `ok (${r.secs} s)${r.flaky ? ' — passou na 2ª tentativa' : ''}` : `FALHOU (${r.secs} s)`);
   if (!r.ok) console.log(failView(r.out).replace(/^/gm, '    '));
+  // instável: mostra por que a 1ª tentativa falhou (sem isso o motivo some e não dá para consertar pelo log do GitHub)
+  else if (r.flaky) console.log(('--- 1ª tentativa (falhou) ---\n' + failView(r.first.out, 15)).replace(/^/gm, '    '));
 }
 
 const bad = results.filter(r => !r.ok), flaky = results.filter(r => r.flaky), total = results.reduce((a, r) => a + r.secs, 0);
@@ -89,7 +91,8 @@ if (opt('--json')) fs.writeFileSync(opt('--json'), JSON.stringify(results.map(({
 if (process.env.GITHUB_STEP_SUMMARY) {
   const row = (r) => `| ${r.ok ? (r.flaky ? '⚠️ instável' : '✅') : '❌'} | \`${r.f.replace(/\.mjs$/, '')}\` | ${r.secs} s | ${r.ok ? '' : (r.fails ? r.fails + ' verificação(ões) falharam' : r.out.includes('[tempo limite') ? 'tempo limite' : 'código ' + r.code)} |`;
   const md = [`### Testes${shard ? ` — parte ${shard}` : ''}: ${results.length - bad.length} de ${results.length} passaram`, '', '| | Teste | Tempo | |', '|---|---|---|---|', ...[...bad, ...flaky, ...results.filter(r => r.ok && !r.flaky)].map(row), '',
-    ...bad.map(r => `<details><summary>❌ ${r.f}</summary>\n\n\`\`\`\n${failView(r.out, 40).replace(/```/g, "'''")}\n\`\`\`\n</details>`)].join('\n');
+    ...bad.map(r => `<details><summary>❌ ${r.f}</summary>\n\n\`\`\`\n${failView(r.out, 40).replace(/```/g, "'''")}\n\`\`\`\n</details>`),
+    ...flaky.map(r => `<details><summary>⚠️ ${r.f} (1ª tentativa)</summary>\n\n\`\`\`\n${failView(r.first.out, 40).replace(/```/g, "'''")}\n\`\`\`\n</details>`)].join('\n');
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
 }
 process.exit(bad.length ? 1 : 0);

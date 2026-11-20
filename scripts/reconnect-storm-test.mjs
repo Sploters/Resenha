@@ -75,7 +75,7 @@ try {
     const cpu1 = cpuOf();
     // quantos chegaram no mesmo instante: maior número de READY dentro de uma janela de 100 ms
     const at = [...m.readyAt].sort((a, b) => a - b); let burst = 0; for (let a = 0, b = 0; b < at.length; b++) { while (at[b] - at[a] > 100) a++; burst = Math.max(burst, b - a + 1); }
-    results[policy] = { todos_de_volta_ms: all, ready_p50: q(m.ready, .5), ready_p95: q(m.ready, .95), ready_max: q(m.ready, 1), pico_100ms: burst,
+    results[policy] = { todos_de_volta_ms: all, volta_p95_ms: q(m.readyAt.map(t => t - tUp), .95), ready_p50: q(m.ready, .5), ready_p95: q(m.ready, .95), ready_max: q(m.ready, 1), pico_100ms: burst,
       tentativas: m.attempts, recusadas: m.refused, cpu_servidor_ms: cpu1 != null && cpu0 != null ? cpu1 - cpu0 : null,
       api_p95: q(probe, .95), api_max: q(probe, 1), fora_ms: Math.round(tUp - tDown) };
     console.log(`  [${policy}]`, JSON.stringify(results[policy]));
@@ -84,7 +84,13 @@ try {
   }
   if (results.new) {
     ok(results.new.pico_100ms < N / 2, 'nova espera: a volta se espalha (menos da metade no mesmo 1/10 de segundo)', results.new.pico_100ms);
-    ok(results.new.todos_de_volta_ms != null && results.new.todos_de_volta_ms < 6000, 'nova espera: todos de volta em menos de 6 s depois que o servidor sobe', results.new.todos_de_volta_ms);
+    // o último a voltar depende do sorteio: quem tentou um instante antes de o servidor subir espera a próxima tentativa
+    // inteira (até 10 s × 1,5). Com 500 pessoas ele cai em qualquer ponto entre ~5 e ~12 s, então "todos em 6 s" passava ou
+    // não por sorte. O que importa: quase todos voltam rápido, e ninguém espera mais que o teto do sorteio (+ o READY).
+    // p95 medido: ~5 s com o servidor fora por 3,5 s (container de 4 núcleos); 8 s dá folga para máquina mais lenta e ainda
+    // pega uma espera sem teto (15–30 s)
+    ok(results.new.volta_p95_ms != null && results.new.volta_p95_ms < 8000, 'nova espera: 95% de volta em menos de 8 s depois que o servidor sobe', results.new.volta_p95_ms);
+    ok(results.new.todos_de_volta_ms != null && results.new.todos_de_volta_ms < 15000 + 1500, 'nova espera: ninguém espera mais que o teto do sorteio (15 s + o READY)', results.new.todos_de_volta_ms);
   }
   if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify(results, null, 2));
 } catch (e) { console.log('ERRO', e); fails++; }
