@@ -21,8 +21,8 @@ o que aprendeu e o que falta (roadmap em ordem). **Leia antes de começar.**
 - Branch de trabalho: `claude/hopeful-johnson-0xr9us`. Tudo abaixo já está nela.
 - **A cópia local do dono** (`/home/user/Discord`, mesma branch) tem **alterações de música não commitadas**
   (`server/music.js`, `public/music.js`, `public/music.css`, `docs/MUSICA.md`, `public/changelog.js`, CSS...) e está
-  ~205 commits atrás do remoto. **Não mexa nela sem pedir.** Esta sessão trabalhou numa worktree separada
-  (`git worktree add`) e mandou para o remoto de lá (`git push origin <local>:claude/hopeful-johnson-0xr9us`).
+  ~225 commits atrás do remoto. **Não mexa nela sem pedir.** As sessões trabalham na worktree `/home/user/audit`
+  (`git worktree add`) e mandam para o remoto de lá (`git push origin <local>:claude/hopeful-johnson-0xr9us`).
 - Testes de ponta a ponta usam portas fixas: **um por vez**, `flock /tmp/resenha-tests.lock node scripts/run-tests.mjs <nomes>`.
 
 ## O que foi feito (commits, do mais antigo ao mais novo)
@@ -140,6 +140,101 @@ desktop pega a interface nova sozinho.
 4. **Decidir o limite de entradas por segundo** (`VOICE_JOIN: [1, 5]` em `server/index.js`): hoje, passando de 5
    entradas seguidas, cada uma espera ~1 s. Para gente de verdade não faz diferença; só o `perf-stress` sente.
 
+## Acabamento e pendências (nov/2026, 3ª passagem)
+
+Pedido: fechar as pendências conhecidas (visual que o crítico ainda reprovava, lint, testes que falhavam neste ambiente e
+uma varredura de bugs), sem recurso novo e sem mexer no que espera dados ([PROXIMAS-CORRECOES.md](PROXIMAS-CORRECOES.md)).
+
+**Limpeza.** `npm run lint`: 58 avisos → **0** (só o que estava mesmo sem uso; a busca antiga de `inbox.js` não era mais
+chamada). Os 3 testes que falhavam aqui passam, mexendo só nos testes: alertas de saúde da máquina desligados no servidor de
+teste (`test-server.mjs`, 35 testes, e `community-test`) e `screen-release-test` comparando com as seções da 1ª visita ao
+Descobrir (as de notícias e torneios vêm da internet).
+
+**Visual (5 rodadas do crítico, o limite).** Entrar na chamada: o próprio quadro entra no clique (`roomVoice`, estado
+local até o do servidor), quem já transmite tem o quadro reservado desde a prévia, os quadros deslizam quando alguém
+entra ou sai (FLIP, só transform/opacity), vídeo sem o 1º quadro mostra o avatar ou "conectando" em vez de preto, os
+controles e o "Voz conectada" sobem ao entrar e há um "Entrar" só. Abrir o app: o esqueleto tem o CSS inline no
+`index.html` (os CSS vieram para o `<body>`, depois dele: pinta antes deles), a forma da tela real, e só sai quando a 1ª
+tela está inteira (mensagens, avatares e imagens à vista; teto 1,5 s), de uma vez. Médios: perfil da DM com esqueleto e
+guardado; "Administração" perguntada logo depois da abertura; setas de cargo desativadas com contorno; avatar sem círculo
+vazio quando outro tamanho da mesma foto já carregou; lateral sem a transição de `padding-left` (o texto deslizava).
+
+**O que o último crítico (rodada 5) ainda aponta**, com o motivo de ter ficado:
+- corte seco ao abrir/fechar as configurações e trocar de tela: regra do dono (fade entre telas rejeitado; a 5ª rodada
+  confirmou o motivo: o fade de saída do esqueleto deixava as barras por cima do texto, desfeito);
+- microfone e câmera fora da barra da chamada (ficam no painel da esquerda): decisão de design anterior;
+- rastros no vídeo transmitido e o "falando" piscando: o codificador por software do container e o bipe do microfone
+  falso do teste, não o app;
+- 600 ms de tela lisa no começo: o tempo de a página chegar (era ~900 ms);
+- esqueleto da abertura com a forma exata do canal que vai abrir: exigiria montar o esqueleto a partir do canal (recurso
+  novo). O de agora é o de uma tela típica (imagem e enquete);
+- menores: "RE" × "RdG" no cartão "Em chamada", "ana, bruno e mai…" cortado, cores de botão principal (verde × índigo),
+  abas de computador no celular, larguras dos botões "Alterar"/"Editar" na conta.
+Depois da rodada 5 foram corrigidos, conferidos só nas capturas (sem 6ª rodada, a pedido do dono): troca seca do
+esqueleto, `box-sizing` do esqueleto (as colunas saltavam 32 px), vídeo trocando com o aviso no mesmo quadro, medidas do
+esqueleto do perfil da DM, um "Entrar" só, controles subindo, esqueleto do chat da DM.
+
+**Bugs achados e corrigidos** (cada um com teste que falha no código antigo):
+
+| Commit | Bug | Teste |
+|---|---|---|
+| `032fcbc` | Aba de canal: o ponto de não lida ficava na aba aberta depois de lida, e a aba de outro canal não ganhava ponto nem número (a barra só era redesenhada ao navegar). **Não era da janela sem foco do teste** | `tab-unread-test` (antigo 4 de 5 falham) |
+| `e564087` | Servidor: `SFU_REJOIN` devolvia a voz a quem foi mutado ou ensurdecido pela moderação | `sfu-guard-test` (`producerPaused` false no antigo) |
+| `e564087` | Servidor: vídeo marcado como `mic` (e áudio como `cam`) passava pela permissão Vídeo da sala | `sfu-guard-test` |
+| `e564087` | Servidor (sem teste: exigem falha do mediasoup ou um par perdido por 3 min): roteador que falhou ficava preso na sala; transporte RTP do bot de música vazava se o produce falhasse; retrato da chamada para o processo de voz só ia quando mudava, e a limpeza de pares fantasmas nunca rodava em chamada parada | — |
+| `fac7fcb` | Gateway: a rede voltando enquanto o socket antigo fechava deixava 2 conexões abertas (cada evento tratado 2 vezes) | `ws-dup-test` |
+| `da41eff` | Preferências com o armazenamento do navegador cheio ou bloqueado: a exceção parava antes do envio à conta | `prefs-storage-test` |
+
+**Achados duvidosos (não mexidos):**
+- servidor: duas entradas seguidas na mesma sala tirando o par da 2ª do SFU (`sfuLeave` no `then` da 1ª) — não se
+  reproduziu com 2 `VOICE_JOIN` seguidos (`sfu-guard-test` cobre o caso e passa);
+- servidor: entrada no meio da morte de um worker fica numa sala órfã sem `SFU_RESET` (corrida estreita);
+- servidor: o bot de música não volta depois que um worker do mediasoup morre (o `notify` dele é vazio);
+- servidor: moderador tira o surdo e o servidor retoma consumidores de microfone que o app pausou (ensurdecido por conta
+  própria): só banda, o app silencia na saída;
+- `desktop/main.js`: `download()` não fecha o arquivo nos caminhos de erro (no Windows o `.part` pode ficar preso até
+  reabrir o app) — só dá para ver no Windows;
+- `desktop/main.js`: `set-settings` com `null` lança (o app sempre manda um objeto).
+
+**Desempenho** (`perf-audit`, container, alternando as duas versões na mesma máquina; antigo = `b150ac0`):
+
+| Medida | Antes | Depois |
+|---|---|---|
+| Abertura: thread principal (ms, 3 pares) | 206 / 191 / 234 | 204 / 190 / 197 |
+| Abertura: até pronto (ms) | 1.202 / 1.195 / 1.212 | 1.076 / 1.060 / 1.191 |
+| Abertura: KB baixados | 568 | 573 |
+| Chat parado: CPU | 0,4% | 0,3% |
+| Chamada com 3: CPU / layouts por s | 1,4% / 1 | 1,4% / 1 |
+| Assistindo / transmitindo: CPU | 1,2% / 3,4% | 1,3% / 2,8% |
+| Vazamento em 60 s (nós, listeners, heap) | 0 / 0 / +0,03 MB | 0 / 0 / +0,03 MB |
+
+`perf-budget --base`: nada piorou de verdade; a 1ª rodada marcou "+55%" na thread principal da abertura (328 ms) e era
+ruído (os 3 pares acima). `idleChat/layoutsPerS` e `stylePerS` (2,3/s) continuam acima do orçamento, iguais antes e depois.
+
+**Bateria completa nesta máquina:** (em andamento; resultado no próximo commit)
+
+**Lição:** o banco preparado `.testdata-churn` é alterado pelo `perf-churn`/`perf-inp` rodados à mão (eles usam a pasta
+direto) e o `namefx-emoji-test` passa a falhar ("Waiting for selector .cx-opt[title=Emoji]"). Apagar a pasta e deixar o
+`run-tests` preparar de novo resolve.
+
+### O que testar no Windows (dono)
+Tudo desta passagem está em `public/` e `server/`: basta atualizar o servidor (`sh deploy/umbrel.sh`); o app desktop pega
+a interface nova sozinho. Nada mudou em `desktop/` nem nos nativos.
+1. **Abrir o app** (fechado de vez, pela bandeja → Sair, e aberto de novo): o esqueleto aparece logo, com a forma da tela,
+   e troca de uma vez pela tela inteira (sem mensagem sem foto nem imagem vazia aparecendo depois). Com a internet lenta,
+   no máximo 1,5 s de esqueleto.
+2. **Entrar numa sala com alguém transmitindo e alguém de câmera:** a grade monta uma vez (seu quadro junto), o quadro da
+   transmissão mostra "Conectando…" até a imagem chegar e o da câmera mostra o avatar, nunca preto. Só um botão "Entrar".
+3. **Moderação:** com outra conta, mute alguém pelo menu do participante (Mutar no servidor); essa pessoa desliga o Wi-Fi
+   por ~5 s e religa. Esperado: continua mutada (ninguém a ouve). No servidor:
+   `docker logs resenha 2>&1 | grep "sfu rejoin"` não deve mostrar erro.
+4. **Abas:** deixe duas abas abertas (botão + na barra de abas), uma em cada canal. Mensagem no canal da outra aba: o ponto
+   aparece nela; uma @menção vira número; ao abrir a aba, some. A aba do canal aberto nunca fica com ponto.
+5. **Wi-Fi caindo e voltando** (troca de rede): depois de voltar, cada mensagem nova aparece uma vez só (antes podia
+   aparecer duplicada, com som duplo).
+6. Consumo (só para conferir que não piorou): `powershell -ExecutionPolicy Bypass -File medir-resenha.ps1 -Label chat -Secs 60`
+   parado no chat, antes e depois de atualizar o servidor.
+
 ## Como medir (ferramentas em `scripts/`)
 
 | Ferramenta | Mede |
@@ -241,7 +336,8 @@ desktop pega a interface nova sozinho.
    número fixo de bytes), `voice-network-test` (envio atrasado depois de fechar o socket) e `black-capture-test`
    (servidor órfão). 2ª passagem (nov/2026): `reconnect-storm-test`, `voice-recovery-test`, `callinvite-test` e servidor
    de teste que se encerra sozinho (ver "Lições"). Sem instável reproduzível aqui; o log do CI mostra o motivo do próximo.
-8. **Acabamento visual com crítico cego** (nov/2026, `scripts/critico-capturas.mjs`, 5 rodadas): feito o que segue em
+8. ~~Acabamento visual: o que o crítico ainda apontava~~ **feito na 3ª passagem** ([Acabamento e pendências](#acabamento-e-pendências-nov2026-3ª-passagem)); o que sobrou está lá.
+   Histórico (2026-11-20-1, 1ª passagem com crítico cego, `scripts/critico-capturas.mjs`, 5 rodadas): feito o que segue em
    `public/changelog.js` (2026-11-20-1). O que o último crítico ainda aponta como grave, para uma próxima passagem:
    - **entrar na chamada:** a grade se reorganiza 3 vezes em ~1,5 s (2×2 → 2+2+1 → 2×3, os quadros trocam de lugar) e os
      quadros de vídeo/transmissão ficam pretos ~0,5 s até o 1º quadro chegar (sem avatar nem "conectando");
@@ -302,6 +398,7 @@ desktop pega a interface nova sozinho.
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
 5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
+8. Acabamento e pendências (nov/2026, 3ª passagem): os 6 itens de [O que testar no Windows](#o-que-testar-no-windows-dono).
 7. Chamada e transmissão (nov/2026, 2ª passagem): o teste de queda de verdade e a decisão do limite de entradas por
    segundo, em [O que medir no Windows](#o-que-medir-no-windows-dono).
 
