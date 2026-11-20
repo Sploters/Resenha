@@ -120,6 +120,12 @@ novo 2.734/2.145/2.416; quem transmite no `perf-audit` (janela de 5 s) antigo 4,
 1,72 → 1,94 MB/h, navegador 65,5 → 44,2 MB/h, servidor 61,1 → 54,1 MB/h, consumidores sobrando no SFU 0 → 0.
 `idleChat/layoutsPerS` e `stylePerS` (2,3/s) já estouravam o orçamento antes, igual nas duas versões.
 
+**Testes** (um por vez, `run-tests.mjs`): `check` 405 arquivos ok, lint 0 erros, rápidos 6 de 6; de ponta a ponta da
+área (voz, chamada, transmissão, recuperação, `gateway-limits`, `account-security`, `ui-test`): **36 de 38**, com
+`callinvite-test` instável (passou na 2ª). Os 2 que falham falham igual no código de partida: `screen-release-test`
+("voltar ao Descobrir mostra as seções", já listado abaixo) e `reconnect-storm-test` ("todos de volta em menos de 6 s":
+antigo 11.654 ms, novo 11.617 ms; usa `reconnectDelay` sem o teto novo, a mesma conta de antes).
+
 ### O que medir no Windows (dono)
 Precisa só atualizar o servidor (`sh deploy/umbrel.sh`): tudo desta passagem está em `public/` e `server/`; o app
 desktop pega a interface nova sozinho.
