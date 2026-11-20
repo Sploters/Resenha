@@ -49,6 +49,9 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // ---------- 2) servidor real + navegador ----------
 fs.rmSync('.testdata7', { recursive: true, force: true }); fs.mkdirSync(SHOTS, { recursive: true });
 const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata7' }, stdio: 'ignore' });
+// o servidor morre junto com o teste, mesmo se ele cair no meio (antes ficava de pé na porta e as rodadas seguintes falavam
+// com ele, com os dados da rodada anterior: "Waiting for selector #rail .rail-wrap")
+process.on('exit', () => { try { srv.kill('SIGKILL'); } catch { } });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
 const reg = async (name) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', {}); return { tok: r.token, id: me.id }; };

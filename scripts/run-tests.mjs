@@ -47,11 +47,13 @@ const failView = (s, n = 25) => { const L = s.split('\n').filter(Boolean), last 
 function runOne(f) {
   return new Promise((resolve) => {
     const t0 = Date.now(); let out = '';
-    // grupo de processos próprio: no tempo limite, derruba também o servidor e o navegador que o teste abriu
+    // grupo de processos próprio: no tempo limite, derruba também o servidor e o navegador que o teste abriu.
+    // EXIT_WITH_PARENT: o servidor que o teste abre se encerra sozinho se o teste morrer (server/parentwatch.js; no Windows
+    // o kill do grupo não funciona)
     // testes que abrem janela de verdade (Electron, navegador sem "headless"): no Linux sem tela, numa tela virtual (xvfb-run)
     const needX = (cfg.xvfb || []).includes(f.replace(/\.mjs$/, '')) && process.platform === 'linux' && !process.env.DISPLAY && HAS_XVFB;
     const [cmd, argv] = needX ? ['xvfb-run', ['-a', process.execPath, path.join('scripts', f)]] : [process.execPath, [path.join('scripts', f)]];
-    const p = spawn(cmd, argv, { env: { ...process.env, NODE_NO_WARNINGS: '1' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(cmd, argv, { env: { ...process.env, NODE_NO_WARNINGS: '1', EXIT_WITH_PARENT: '1' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { out += d; });
     const kill = () => { try { process.kill(-p.pid, 'SIGKILL'); } catch { } };
     const timer = setTimeout(() => { out += `\n[tempo limite de ${TIMEOUT / 1000} s]`; kill(); }, TIMEOUT);

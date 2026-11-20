@@ -12,6 +12,7 @@
 // Conversa com o filho (IPC, server/sfuproxy.js): pedidos { id, call, args } -> { re: id, data | error }; avisos daqui
 // para lá: notify (eventos do SFU para uma pessoa), info (estado para as consultas síncronas), sfu_event, native_closed.
 import { fork } from 'node:child_process';
+import './parentwatch.js'; // testes: encerra junto com quem abriu (EXIT_WITH_PARENT)
 import { fileURLToPath } from 'node:url';
 import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuRooms, sfuLastVoices } from './sfu.js';
 

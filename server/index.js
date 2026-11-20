@@ -8,6 +8,7 @@ import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
+import './parentwatch.js'; // testes: encerra junto com quem abriu (EXIT_WITH_PARENT)
 // SFU no processo da voz (server/voz.js, quando o app roda como filho dele) ou neste mesmo processo: server/sfuapi.js
 import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuLastVoice, sfuSplit, sfuRestore, sfuAdopt, sfuSnapshot } from './sfuapi.js';
 import { mountHealth } from './health.js';

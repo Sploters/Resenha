@@ -35,16 +35,33 @@ const audioIn = (p, ms = 2000) => p.evaluate(async (ms) => {
   const snap = async () => { let b = 0; for (const r of recv) (await r.getStats()).forEach(x => { if (x.type === 'inbound-rtp' && x.kind === 'audio') b += x.bytesReceived || 0; }); return b; };
   const a = await snap(); await new Promise(r => setTimeout(r, ms)); return (await snap()) - a;
 }, ms);
-// a voz volta a chegar em até `ms`
-const hearsAgain = async (p, ms = 20000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await audioIn(p, 1000) > 1000) return Date.now() - t0; await sleep(300); } return null; };
+// voz que sai do microfone de `p` nos próximos `ms` (0 enquanto a mídia está sendo refeita)
+const audioOut = (p, ms = 2000) => p.evaluate(async (ms) => {
+  const snap = async () => { let b = 0; (await window.__lc.voice.sfu?.producers.mic?.rtpSender?.getStats())?.forEach(x => { if (x.type === 'outbound-rtp' && x.kind === 'audio') b += x.bytesSent || 0; }); return b; };
+  const a = await snap(); await new Promise(r => setTimeout(r, ms)); return (await snap()) - a;
+}, ms);
+const other = new Map(); // quem fala para cada página (preenchido quando as duas abrem)
+// a voz volta a chegar em `p` em até `ms`. Não dá para exigir só um número fixo de bytes: o microfone falso é um bipe e a
+// porta por voz e o DTX do Opus fazem o outro mandar de ~30 a ~6.000 bytes/s (no CI e aqui caiu abaixo de 1.000 bytes
+// com a voz chegando normal). Vale: chegou bastante, ou chegou quase tudo o que o outro mandou na mesma janela
+const hearsAgain = async (p, ms = 20000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const [recv, sent] = await Promise.all([audioIn(p, 1000), audioOut(other.get(p), 1000)]);
+    if (recv > 1000 || (sent >= 200 && recv >= sent * 0.7)) return Date.now() - t0;
+    await sleep(300);
+  }
+  return null;
+};
 try {
   const ra = await api('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' }), rb = await api('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const g = await api(ra.token, 'POST', '/guilds', { name: 'Turma' }); await api(rb.token, 'POST', '/invites/' + (await api(ra.token, 'POST', `/guilds/${g.id}/invites`)).code);
   const [A, B] = [await person(ra.token), await person(rb.token)];
+  other.set(A, B).set(B, A);
   const vc = await A.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(x => x.type === 2).id, g.id);
   for (const p of [A, B]) await p.evaluate(async (vc) => { await window.__lc.voice.join(vc); for (let i = 0; i < 100 && !window.__lc.voice.sfu?.ready; i++) await new Promise(r => setTimeout(r, 100)); }, vc);
   await sleep(2500);
-  ok(await audioIn(B) > 2000 && await audioIn(A) > 2000, 'antes: as duas se ouvem');
+  ok(await hearsAgain(B, 10000) != null && await hearsAgain(A, 10000) != null, 'antes: as duas se ouvem');
   const idA = await A.evaluate(() => window.__lc.S.me.id);
   // o bruno conta quantas vezes a alice "saiu" da sala (VOICE_STATE sem canal): não pode acontecer
   await B.evaluate((idA) => { const S = window.__lc.S, orig = S.voice.delete.bind(S.voice); S.voice.delete = (k) => { if (k === idA) window.__leaves++; return orig(k); }; }, idA);
