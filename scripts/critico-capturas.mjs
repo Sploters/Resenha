@@ -41,7 +41,9 @@ fs.rmSync(DATA, { recursive: true, force: true });
 fs.rmSync(OUT, { recursive: true, force: true });
 for (const d of ['telas', 'movimento', 'critico/telas', 'critico/movimento']) fs.mkdirSync(path.join(OUT, d), { recursive: true });
 
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA }, stdio: 'ignore' });
+// alertas de saúde desligados: dependem da máquina que captura (ex.: disco quase cheio no container) e entravam na tela
+// como um aviso que muda de uma rodada para outra
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: DATA, HEALTH_DISK_PCT: '0', HEALTH_MEM_PCT: '0', HEALTH_CPU_PCT: '101' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = async (tok, m, p, b) => {
   const r = await fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined });
@@ -50,7 +52,9 @@ const call = async (tok, m, p, b) => {
 
 const exe = acharNavegador();
 if (!exe) { console.log('Nenhum navegador encontrado: defina BROWSER'); srv.kill(); process.exit(1); }
-const browser = await puppeteer.launch({ executablePath: exe, headless: 'new', args: ['--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars=false', '--font-render-hinting=none'] });
+const browser = await puppeteer.launch({ executablePath: exe, headless: 'new', args: ['--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars=false', '--font-render-hinting=none',
+  // janela do tamanho da tela emulada: sem isto o screencast dos movimentos saía só com o canto de cima à esquerda (780×493)
+  `--window-size=${W * ESCALA},${H * ESCALA}`] });
 
 // tela compartilhada falsa e sempre igual (mesmo desenho a cada rodada)
 const telaFalsa = () => {
@@ -108,6 +112,12 @@ async function movimento(pg, nome, acao, { depoisMs = 1200 } = {}) {
     quadros.push({ arq, ms: Math.round(t - t0) }); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => { });
   });
   try {
+    // janela no tamanho da tela antes de gravar (depois da tela cheia da etapa 3 ela voltava menor: quadros de 1920×993)
+    try {
+      const bs = await browser.target().createCDPSession(), { windowId } = await bs.send('Browser.getWindowForTarget', { targetId: pg.target()._targetId });
+      await bs.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } }); await bs.send('Browser.setWindowBounds', { windowId, bounds: { width: W * ESCALA, height: H * ESCALA } });
+      await pg.setViewport({ width: pg.viewport().width, height: pg.viewport().height, deviceScaleFactor: ESCALA }); await bs.detach();
+    } catch (e) { relatorio.erros.push(`janela de ${nome}: ${e.message}`); }
     await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1, maxWidth: W * ESCALA, maxHeight: H * ESCALA });
     await sleep(300); const ini = Date.now(); await acao(); const dur = Date.now() - ini; await sleep(depoisMs);
     await cdp.send('Page.stopScreencast'); await sleep(200);
@@ -144,7 +154,7 @@ try {
   const g = await call(voce.tok, 'POST', '/guilds', { name: 'Resenha da Galera' });
   const inv = await call(voce.tok, 'POST', `/guilds/${g.id}/invites`);
   for (const o of outros) await call(o.tok, 'POST', `/invites/${inv.code}`);
-  for (const [name, color] of [['Moderação', 0xe67e22], ['Veteranos', 0x3498db], ['Convidados', 0x95a5a6]]) { try { await call(voce.tok, 'POST', `/guilds/${g.id}/roles`, { name, color }); } catch (e) { relatorio.erros.push('cargo: ' + e.message); } }
+  for (const [name, color] of [['Moderação', '#e67e22'], ['Veteranos', '#3498db'], ['Convidados', '#95a5a6']]) { try { await call(voce.tok, 'POST', `/guilds/${g.id}/roles`, { name, color }); } catch (e) { relatorio.erros.push('cargo: ' + e.message); } }
   try { await call(voce.tok, 'POST', `/guilds/${g.id}/channels`, { name: 'clipes', type: 0 }); await call(voce.tok, 'POST', `/guilds/${g.id}/channels`, { name: 'jogatina', type: 2 }); } catch (e) { relatorio.erros.push('canais: ' + e.message); }
   const pg = await abrir(voce);
   const canais = await pg.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.map(c => ({ id: c.id, type: c.type, name: c.name })), g.id);
@@ -163,10 +173,12 @@ try {
   const dm = await call(voce.tok, 'POST', '/dms', { user_id: ana.id });
   for (const [p, t] of [[ana, 'ei, vai no campeonato?'], [voce, 'vou sim, levo o headset novo'], [ana, 'boa! te chamo na voz às 20h50']]) await call(p.tok, 'POST', `/channels/${dm.id}/messages`, { content: t });
 
+  // os outros 4 ficam conectados até o fim (antes saíam antes dos movimentos e iam ficando offline durante a gravação:
+  // a lista de amigos e a de membros trocavam de estado no meio do roteiro)
+  const naChamada = [];
   if (SO !== 'movimento') {
     console.log('Telas…');
     // os outros 4 abertos antes (aparecem online na lista de membros)
-    const naChamada = [];
     for (const p of [ana, bruno, carla, diego]) naChamada.push(await abrir(p, 1280, 720));
     // 1. chat com histórico rico
     await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); await tela(pg, '1-chat');
@@ -190,7 +202,6 @@ try {
     await pg.evaluate(() => window.__lc.openSettings('server')); await sleep(800);
     await clicarTexto(pg, '.settings nav *, .sidebar *, [class*=nav] *', /^Cargos$/); await sleep(800); await tela(pg, '5-cargos');
     await pg.keyboard.press('Escape'); await sleep(400);
-    for (const q of naChamada) await q.browserContext().close().catch(() => { });
     // 6. chat no celular
     const cel = await abrir(voce, MW, MH); await cel.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); await tela(cel, '6-chat-celular');
     await cel.browserContext().close();
@@ -198,16 +209,25 @@ try {
 
   if (SO !== 'telas') {
     console.log('Movimento…');
+    if (!naChamada.length) for (const p of [ana, bruno, carla, diego]) naChamada.push(await abrir(p, 1280, 720));
     // abrir o app: do primeiro pixel até o chat assentado (página nova, sem esperar o carregamento antes de gravar)
     const nova = await abrir(voce, W, H, { esperar: false });
-    await movimento(nova, 'abrir-app', async () => { await nova.goto(BASE, { waitUntil: 'domcontentloaded' }); await nova.waitForSelector('#rail .rail-wrap', { timeout: 30000 }); await nova.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); }, { depoisMs: 2000 });
+    // a página vazia antes do app imita a janela do app desktop (backgroundColor #1e1f22 em desktop/main.js): sem isso os
+    // primeiros quadros saíam brancos, do about:blank do navegador de teste, e pareciam um clarão do app
+    await nova.setContent('<html style="background:#1e1f22"><body></body></html>').catch(() => { }); await sleep(100);
+    // abre direto no #geral (o link do canal, como quem reabre o app onde estava). Antes abria em Amigos e o roteiro mandava
+    // para o #geral logo depois, e a gravação mostrava as duas telas
+    await movimento(nova, 'abrir-app', async () => { await nova.goto(`${BASE}/#/${g.id}/${texto.id}`, { waitUntil: 'domcontentloaded' }); await nova.waitForSelector('#rail .rail-wrap', { timeout: 30000 }); }, { depoisMs: 2500 });
     await nova.browserContext().close();
     await pg.evaluate(() => window.__lc.go('@me', null)); await sleep(800);
     await movimento(pg, 'trocar-canal', async () => { await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); await sleep(600); await pg.evaluate((c) => window.__lc.go('@me', c), dm.id); await sleep(600); await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); });
     await movimento(pg, 'entrar-chamada', async () => { await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, voz.id); await sleep(300); await clicarTexto(pg, '#stage .btn', /Entrar/); await sleep(1500); }, { depoisMs: 1500 });
     await pg.evaluate(() => window.__lc.voice?.leave?.()).catch(() => { });
     await pg.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, texto.id); await sleep(600);
-    await movimento(pg, 'abrir-fechar-modal', async () => { await pg.evaluate(() => window.__lc.openSettings('account')); await sleep(900); await pg.keyboard.press('Escape'); await sleep(600); });
+    await movimento(pg, 'abrir-fechar-modal', async () => { await pg.evaluate(() => window.__lc.openSettings('account')); await sleep(900); await pg.keyboard.press('Escape'); await sleep(600);
+      // Esc não fechou: guarda no relatório o que estava aberto (o fechamento das configurações ignora o Esc com menu/janela aberta)
+      const preso = await pg.evaluate(() => document.getElementById('settings') && [...document.querySelectorAll('.backdrop:not(.leaving),.popout,.menu,.emoji-picker,#tedit')].map(e => e.id || e.className).join(' | '));
+      if (preso) relatorio.erros.push('abrir-fechar-modal: Esc não fechou as configurações; aberto: ' + preso); });
   }
 } catch (e) { relatorio.erros.push('geral: ' + (e.stack || e.message)); console.log('ERRO', e); }
 finally {
