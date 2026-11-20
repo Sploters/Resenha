@@ -188,6 +188,29 @@ export async function createMic(prefs, ctx) {
 }
 export const newAudioContext = () => new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: 'interactive' });
 
+// Canal de cor mais claro (0–255) de um quadro de vídeo já copiado (VideoFrame.copyTo), olhando uma grade de 32x18 pontos:
+// o mesmo critério da captura preta de antes (quadro reduzido a 32x18). RGB direto; YUV convertido para RGB no ponto.
+// Formato desconhecido: null.
+export function frameMax(f, buf, layout) {
+  const W = f.visibleRect?.width || f.codedWidth, H = f.visibleRect?.height || f.codedHeight, fmt = f.format || '';
+  if (!W || !H || !layout?.length) return null;
+  const full = !!f.colorSpace?.fullRange, yuv = /^(I420A?|I422A?|I444A?|NV12)/.test(fmt), rgb = /^(RGB|BGR)[AX]$/.test(fmt);
+  if (!yuv && !rgb) return null;
+  const sx = /^(I420|NV12)/.test(fmt) || /^I422/.test(fmt) ? 2 : 1, sy = /^(I420|NV12)/.test(fmt) ? 2 : 1;
+  let mx = 0;
+  for (let j = 0; j < 18; j++) for (let i = 0; i < 32; i++) {
+    const x = Math.floor((i + 0.5) * W / 32), y = Math.floor((j + 0.5) * H / 18);
+    if (rgb) { const o = layout[0].offset + y * layout[0].stride + x * 4; mx = Math.max(mx, buf[o], buf[o + 1], buf[o + 2]); continue; }
+    const Y = buf[layout[0].offset + y * layout[0].stride], cx = Math.floor(x / sx), cy = Math.floor(y / sy);
+    let U, V;
+    if (fmt.startsWith('NV12')) { const o = layout[1].offset + cy * layout[1].stride + cx * 2; U = buf[o]; V = buf[o + 1]; }
+    else { U = buf[layout[1].offset + cy * layout[1].stride + cx]; V = buf[layout[2].offset + cy * layout[2].stride + cx]; }
+    const l = full ? Y : 1.164 * (Y - 16), u = U - 128, v = V - 128, k = full ? 1 : 1.14;
+    mx = Math.max(mx, l + 1.402 * k * v, l - 0.344 * k * u - 0.714 * k * v, l + 1.772 * k * u);
+  }
+  return Math.max(0, Math.min(255, Math.round(mx)));
+}
+
 export class Voice {
   constructor({ send, ice, myId, onUpdate, prefs }) {
     this.send = send; this.ice = ice; this.myId = myId; this.onUpdate = onUpdate; this.prefs = prefs;
@@ -624,8 +647,37 @@ export class Voice {
       },
     };
   }
+  // Captura saindo preta (tela cheia exclusiva, anti-cheat): a cada 2 s olha UM quadro da trilha numa grade de 32x18
+  // pontos; tudo preto 3 vezes seguidas = aviso. Lê os pixels direto do quadro (MediaStreamTrackProcessor + copyTo, num
+  // buffer reaproveitado). Antes um <video> fora da página era desenhado num canvas: cada quadro desenhado ia para um
+  // cache do Chromium que só esvazia quando falta memória (+~3,7 MB a cada 2 s transmitindo, até centenas de MB), e o
+  // <video> decodificava e compunha a transmissão inteira o tempo todo. Sem o processador (navegador antigo): como antes.
   meterBlack() {
     clearInterval(this._bk); this.captureBlack = false; let n = 0, src = null;
+    const verdict = (mx) => {
+      n = mx <= 6 ? n + 1 : 0;
+      const black = n >= 3;
+      if (black !== this.captureBlack) { this.captureBlack = black; this.onBlackCapture?.(black); this.onUpdate?.(); }
+    };
+    if (typeof MediaStreamTrackProcessor === 'function') {
+      let track = null, reader = null, buf = null, busy = false;
+      const close = () => { try { reader?.cancel(); } catch { } reader = null; track = null; };
+      this._bk = setInterval(async () => {
+        const st = this.screen; if (!st) { clearInterval(this._bk); close(); return; }
+        if (src !== st) { src = st; n = 0; }
+        const t = st.getVideoTracks()[0];
+        if (t !== track) { close(); if (!t || t.readyState !== 'live') return; track = t; try { reader = new MediaStreamTrackProcessor({ track: t }).readable.getReader(); } catch { reader = null; } }
+        if (!reader || busy) return;
+        busy = true; let f = null;
+        try {
+          f = (await reader.read()).value; if (!f || this.screen !== st) return; // sem quadro agora (janela minimizada)
+          const size = f.allocationSize(); if (!buf || buf.length < size) buf = new Uint8Array(size);
+          const layout = await f.copyTo(buf), mx = frameMax(f, buf, layout);
+          if (mx != null) verdict(mx);
+        } catch { /* quadro inválido: tenta no próximo */ } finally { f?.close(); busy = false; }
+      }, 2000);
+      return;
+    }
     const v = document.createElement('video'); v.muted = true; v.playsInline = true;
     const c = document.createElement('canvas'); c.width = 32; c.height = 18; const x = c.getContext('2d', { willReadFrequently: true });
     this._bk = setInterval(() => {
@@ -634,9 +686,7 @@ export class Voice {
       if (v.readyState < 2 || !v.videoWidth) return; // ainda sem quadro
       let mx = 0;
       try { x.drawImage(v, 0, 0, 32, 18); const d = x.getImageData(0, 0, 32, 18).data; for (let i = 0; i < d.length; i += 4) mx = Math.max(mx, d[i], d[i + 1], d[i + 2]); } catch { return; }
-      n = mx <= 6 ? n + 1 : 0;
-      const black = n >= 3;
-      if (black !== this.captureBlack) { this.captureBlack = black; this.onBlackCapture?.(black); this.onUpdate?.(); }
+      verdict(mx);
     }, 2000);
   }
   // janela transmitida minimizada ou fechada (app desktop): o Windows para de entregar quadros e quem assiste via a imagem

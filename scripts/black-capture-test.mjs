@@ -32,6 +32,22 @@ try {
   await sleep(9000); s = await st(); ok(s.black === false, 'cena escura com conteúdo (cinza #303030) NÃO dispara o aviso');
   await p.evaluate(() => { window.__lc.voice.screen = null; }); await sleep(2600);
   ok((await st()).black === false, 'sem transmissão, aviso desligado');
+  // a leitura do quadro (voice.js frameMax) nos formatos que a captura entrega: preto, cinza escuro e azul escuro (luma de
+  // quase preto, mas não é preto) em YUV (faixa limitada, I420 e NV12) e RGB
+  const fm = await p.evaluate(async () => {
+    const { frameMax } = await import('/voice.js'), W = 64, H = 36;
+    const yuv = (fmt, Y, U, V) => { const n = W * H, c = (W / 2) * (H / 2), d = new Uint8Array(n + 2 * c); d.fill(Y, 0, n);
+      if (fmt === 'NV12') for (let i = 0; i < c; i++) { d[n + 2 * i] = U; d[n + 2 * i + 1] = V; } else { d.fill(U, n, n + c); d.fill(V, n + c); }
+      return new VideoFrame(d, { format: fmt, codedWidth: W, codedHeight: H, timestamp: 0, colorSpace: { fullRange: false, matrix: 'bt709', primaries: 'bt709', transfer: 'bt709' } }); };
+    const rgba = (r, g, b) => { const d = new Uint8Array(W * H * 4); for (let i = 0; i < W * H; i++) d.set([r, g, b, 255], i * 4); return new VideoFrame(d, { format: 'RGBA', codedWidth: W, codedHeight: H, timestamp: 0 }); };
+    const read = async (f) => { const b = new Uint8Array(f.allocationSize()), l = await f.copyTo(b), m = frameMax(f, b, l); f.close(); return m; };
+    const out = {};
+    for (const fmt of ['I420', 'NV12']) { out[fmt + ' preto'] = await read(yuv(fmt, 16, 128, 128)); out[fmt + ' cinza'] = await read(yuv(fmt, 60, 128, 128)); out[fmt + ' azul escuro'] = await read(yuv(fmt, 20, 146, 125)); }
+    out['RGBA preto'] = await read(rgba(0, 0, 0)); out['RGBA azul escuro'] = await read(rgba(0, 0, 40));
+    return out;
+  });
+  ok(fm['I420 preto'] <= 6 && fm['NV12 preto'] <= 6 && fm['RGBA preto'] <= 6, 'leitura do quadro: preto é preto (YUV e RGB) ' + JSON.stringify(fm));
+  ok(fm['I420 cinza'] > 40 && fm['NV12 cinza'] > 40 && fm['I420 azul escuro'] > 30 && fm['NV12 azul escuro'] > 30 && fm['RGBA azul escuro'] === 40, 'leitura do quadro: cinza e azul escuros não são preto');
 } catch (e) { console.log('  EXCEÇÃO', e.message); fails++; }
 console.log(fails ? `\n${fails} FALHA(S)` : '\nCAPTURA PRETA OK');
 await b.close(); try { execSync(`taskkill /pid ${srv.pid} /T /F`, { stdio: 'ignore' }); } catch { }
