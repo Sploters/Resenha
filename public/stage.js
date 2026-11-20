@@ -22,7 +22,7 @@ import { toggle as uiToggle } from './ui.js';
 import { styleName } from './themes.js';
 import { activityOf, refreshFeedView } from './activity.js';
 import { swapIcon } from './motion.js';
-import { voice, $, gwSend } from './gateway.js';
+import { voice, $, gwSend, roomVoice } from './gateway.js';
 import { musicOn, botTile } from './botmusic.js';
 import { appBadge } from './appver.js';
 import { openSettings, ctxSettings } from './nav.js';
@@ -50,10 +50,18 @@ export function fullscreenStream(stream, clip) { // clip { key, who }: botão de
   document.body.append(box); v.play?.().catch(() => { });
   box.requestFullscreen?.().catch(() => gone());
 }
+const waitAvatar = (u) => { const a = avatar(u, 96, { status: false }); a.classList.add('vwait-av'); return a; }; // câmera ligando: o avatar até o 1º quadro
 const vidCache = new Map(); // reaproveita <video> para não piscar a cada atualização
 function videoFor(key, stream, muted = true) {
   let v = vidCache.get(key);
-  if (!v || v.srcObject !== stream) { if (v) v.srcObject = null; v = h('video', { autoplay: true, playsInline: true, muted }); v.srcObject = stream; vidCache.set(key, v); v.play?.().catch(() => { }); }
+  if (!v || v.srcObject !== stream) {
+    // fluxo trocado no mesmo quadro (câmera renegociada): já tinha imagem, não volta ao avatar
+    const had = v && !v.classList.contains('nofr');
+    if (v) v.srcObject = null; v = h('video' + (had ? '' : '.nofr'), { autoplay: true, playsInline: true, muted }); v.srcObject = stream; vidCache.set(key, v); v.play?.().catch(() => { });
+    // até o 1º quadro o vídeo fica transparente e o quadro mostra o avatar (câmera) ou "conectando" (transmissão), não preto
+    const shown = v, ready = () => { if (had) return; shown.classList.remove('nofr'); const t = shown.closest('.tile'); if (t) { t.classList.remove('waitvid'); t.querySelectorAll(':scope > .vwait, :scope > .vwait-av').forEach(e => e.remove()); } };
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(ready); else v.addEventListener('loadeddata', ready, { once: true });
+  }
   else if (v.paused) v.play?.().catch(() => { }); // o navegador pausa <video> removido da tela; ao voltar à sala ele ficava congelado
   return v;
 }
@@ -265,7 +273,7 @@ export function renderVoiceUI(speakOnly) {
   const stage = $('#stage'); if (!stage) return syncWatching(null);
   const ch = channelById(S.view.cid); if (!ch || ![1, 2].includes(ch.type)) return syncWatching(null);
   const dm = ch.type === 1, gid = ch.guild_id;
-  const members = [...S.voice.values()].filter(v => v.channel_id === ch.id);
+  const members = roomVoice(ch.id);
   const inRoom = voice.channelId === ch.id;
   const tiles = [], live = new Set();
   const nm = (uid) => dm ? user(uid).display_name : nameOf(uid, gid);
@@ -294,14 +302,20 @@ export function renderVoiceUI(speakOnly) {
             tiles.push(h('div.tile.screen' + (S.focus === key ? '.focus' : '') + (S.annot === key ? '.annotating' : '') + (remoteControlling(uid) ? '.controlling' : '') + (S.room?.cid === voice.channelId && S.room.spot === key ? '.spotlit' : ''), { 'data-key': key, 'data-sid': uid, 'data-uid': uid, onclick: () => { S.focus = S.focus === key ? null : key; renderVoiceUI(); },
               // duplo clique: tela cheia (no 1º teste, cliques repetidos no vídeo procuravam isso)
               ondblclick: (e) => { if (S.annot === key || e.target.closest('button, input, .sctl, .annot-bar, .snote')) return; fullscreenStream(scr, inRoom ? { key, who: nm(uid) } : null); },
-              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : v.screen_note === 'away' ? 'O jogo não está na tela' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : v.screen_note === 'away' ? `A imagem volta quando ${nm(uid)} voltar para o jogo.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', annotTools('s:' + uid, () => { S.annot = null; renderVoiceUI(); })), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
+              oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, vid.classList.contains('nofr') && h('div.vwait', icon('screen', 28), h('span', mine ? 'Iniciando a prévia…' : `Conectando à transmissão de ${nm(uid)}…`)), !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : v.screen_note === 'away' ? 'O jogo não está na tela' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : v.screen_note === 'away' ? `A imagem volta quando ${nm(uid)} voltar para o jogo.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', annotTools('s:' + uid, () => { S.annot = null; renderVoiceUI(); })), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
         h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
+    } else if (v.screen && !mine && (!inRoom || !voice.closedStreams.has(uid))) {
+      // transmitindo, mas o vídeo ainda não chegou (fora da sala ou entrando agora): o quadro já entra no lugar dele, para a
+      // grade montar uma vez só (antes ela pulava de 2+2+1 para 2×3 quando o vídeo chegava)
+      tiles.push(h('div.tile.screen.waitvid', { 'data-key': 's:' + uid, 'data-uid': uid }, h('div.vwait', icon('screen', 28), h('span', inRoom ? `Conectando à transmissão de ${nm(uid)}…` : `${nm(uid)} está transmitindo`)),
+        h('div.label', icon('screen', 14), `${nm(uid)} — tela`)));
     }
     const ckey = 'c:' + uid;
     if (cam && v.video) live.add(ckey);
     const mirrored = cam && v.video && (mine ? !!S.prefs.camMirror : !!v.mirror); // "Inverter a imagem" de quem liga a câmera vale para todos
-    const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (mirrored ? '.mirrored' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
-      cam && v.video ? videoFor(ckey, cam) : avatar(user(uid), 96, { status: false }),
+    const camVid = cam && v.video ? videoFor(ckey, cam) : null;
+    const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (camVid?.classList.contains('nofr') ? '.waitvid' : '') + (mirrored ? '.mirrored' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
+      ...(cam && v.video ? [camVid, camVid.classList.contains('nofr') && waitAvatar(user(uid))] : [avatar(user(uid), 96, { status: false })]),
       h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v), v.hold && h('span.vu-hold', 'Em espera')),
       // opções do participante à vista (antes só no clique direito): volume, silenciar, desativar vídeo, parar de assistir
       inRoom && h('button.tmore', { title: 'Opções de ' + nm(uid), 'aria-label': 'Opções de ' + nm(uid), onclick: (e) => { e.stopPropagation(); userMenu(e, uid, gid); } }, icon('more', 16)));

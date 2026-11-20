@@ -285,10 +285,22 @@ export function imgUrl(url, size) {
 // foto no tamanho de verdade (com o zoom do enquadramento); sem foto, a inicial do nome
 // nome do status no passar do mouse (a forma da bolinha já diferencia sem depender da cor)
 const STATUS_LABEL = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', offline: 'Offline', invisible: 'Invisível' };
+// foto do avatar sem o círculo vazio enquanto carrega: se outro tamanho da mesma foto já carregou (lista, chat), ele entra na
+// hora — o maior já basta; o menor fica até o do tamanho certo chegar (o navegador só troca a imagem quando a nova está pronta)
+const avBest = new Map(); // foto -> { src, px } do maior tamanho já carregado
+const pxOf = (src) => +(/\/s(\d+)\/|[?&]s=(\d+)/.exec(src) || []).slice(1).find(Boolean) || 0;
+const avLoaded = (key, src) => { const px = pxOf(src), b = avBest.get(key); if (!b || px > b.px) avBest.set(key, { src, px }); };
+function avatarImg(key, want) {
+  const b = avBest.get(key), wpx = pxOf(want);
+  if (b && (b.src === want || (wpx && b.px >= wpx))) return h('img', { src: b.src, alt: '' });
+  const img = h('img', { src: b ? b.src : want, alt: '', loading: 'lazy', onload: () => avLoaded(key, img.currentSrc || img.src) });
+  if (b) { const pre = new Image(); pre.src = want; pre.decode().then(() => { avLoaded(key, want); img.src = want; }, () => { }); }
+  return img;
+}
 export function avatar(u, size = 40, opts = {}) {
   if (u?.bot) return h('div.avatar.botav', { style: { width: size + 'px', height: size + 'px' }, title: 'Bot de música' }, icon('musicbot', Math.round(size * .56)));
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.avatar ? 'var(--bg-mod-hover, #35373c)' : u?.color || '#5865f2' } }); // com foto: fundo neutro até ela carregar (antes piscava a cor da pessoa)
-  if (u?.avatar) el.append(framePos(h('img', { src: imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), alt: '', loading: 'lazy' }), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
+  if (u?.avatar) el.append(framePos(avatarImg(u.avatar, imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z)))), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { title: STATUS_LABEL[u.status] || 'Offline', style: opts.ring ? { borderColor: opts.ring, '--st-hole': opts.ring } : null }));
   return el;
 }

@@ -12,7 +12,7 @@ import { openIntentModal } from './intents.js';
 import { styleName } from './themes.js';
 import { canMoveVoice, canMoveTo, moveVoice } from './mod.js';
 import { activityOf, sameGameAs, gameIcon, voiceGameIcon } from './activity.js';
-import { voice, $, syncView, deferRender } from './gateway.js';
+import { voice, $, syncView, deferRender, roomVoice } from './gateway.js';
 import { botRow } from './botmusic.js';
 import { appBadge } from './appver.js';
 import { go } from './nav.js';
@@ -68,7 +68,7 @@ export function renderSide() {
     const kids = (pid) => byParent.get(pid) || [];
     if (sideCats.gid !== g.id) { sideCats.gid = g.id; sideCats.open.clear(); }
     const chRow = (c) => {
-      const vs = c.type === 2 ? [...S.voice.values()].filter(v => v.channel_id === c.id) : [];
+      const vs = c.type === 2 ? roomVoice(c.id) : [];
       const pol = isChatCh(c) ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
       return h('div', voiceDropHooks(g, c), h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },

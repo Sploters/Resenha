@@ -91,6 +91,34 @@ export const deferRender = (fn) => {
   return true;
 };
 
+// quem está numa sala de voz. Ao entrar, o próprio estado só volta do servidor ~0,3–1 s depois: até lá entra o local
+// (no fim, onde o do servidor cai), para o palco e a lista montarem uma vez só na posição final
+export function roomVoice(cid) {
+  const list = [...S.voice.values()].filter(v => v.channel_id === cid);
+  if (voice?.channelId === cid && S.me && !list.some(v => v.user_id === S.me.id)) list.push({ user_id: S.me.id, channel_id: cid, mute: !!voice.muted, deaf: !!voice.deafened, video: false, screen: false, local: true });
+  return list;
+}
+// esqueleto do index.html: fica na frente até a 1ª tela estar inteira (mensagens montadas, avatares e imagens à vista
+// carregados) e sai de uma vez, sem a tela ir aparecendo em pedaços. Teto de 1,5 s: rede lenta não segura o app.
+// Embaixo dele o app já funciona (pointer-events: none no #boot): clique ou tecla não esperam por ele.
+function bootReady() {
+  if ($('#app .skeleton, #app .sk-screen')) return false;
+  const vh = innerHeight, vw = innerWidth;
+  for (const img of document.querySelectorAll('#app img')) {
+    if (img.complete) continue;
+    const r = img.getBoundingClientRect(); if (r.width && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw) return false;
+  }
+  return true;
+}
+function releaseBoot() {
+  const boot = document.getElementById('boot');
+  const done = () => { boot?.remove(); document.documentElement.classList.remove('boot'); };
+  if (!boot || !document.documentElement.classList.contains('boot')) return done();
+  const t0 = performance.now();
+  const tick = () => { if (!boot.isConnected) return; if (performance.now() - t0 > 1500 || bootReady()) done(); else requestAnimationFrame(tick); };
+  requestAnimationFrame(tick); // o 1º quadro já com a casca montada (mensagens e membros entram nos próximos)
+  setTimeout(done, 2000); // janela escondida (abertura do app desktop sem mostrar): sem quadros, o tick não roda
+}
 // =============== Autenticação ===============
 // tela de entrar / criar conta (public/auth.js); o celular que abriu /qr/<código> aprova o login de outro aparelho
 const qrCode = qrCodeInUrl();
@@ -227,10 +255,12 @@ export function onEvent(t, d) {
       e2eeLoad(true);
       if (!ready) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
-      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot'); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
+      $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); releaseBoot(); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
       loadIntents(); // "A fim de jogar": minha intenção e os convites que chegaram enquanto estava fora (public/intents.js)
+      // administrador da instalação? As configurações mostram a seção "Administração" na hora (antes ela entrava depois de abrir)
+      if (S.uxAdmin === undefined) (window.requestIdleCallback || setTimeout)(() => { if (S.uxAdmin === undefined) api('GET', '/ux/access').then(r => { S.uxAdmin ??= !!r?.admin; }, () => { }); }, { timeout: 3000 });
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
       if (!S.synced) Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()]).then(([r]) => { // sincroniza preferências entre dispositivos
         resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
