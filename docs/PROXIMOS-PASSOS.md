@@ -42,15 +42,26 @@ Números em % de **um núcleo** (Xeon 2,1 GHz, 4 núcleos, sem GPU, Chromium 124
 | `a454209` | `lc-stream` DXGI: janela do jogo coberta por outra (Alt+Tab em "janela sem bordas") repete o último quadro em vez de mostrar a janela da frente | Não executado no Windows |
 | `68bf041` | App desktop: versão baixada em segundo plano é instalada na próxima abertura (`desktop/updready.js`) | Não executado no Windows |
 | `327ed9d` | **Queda do WebSocket não tira mais da chamada**: o servidor segura a sala 15 s (`holdVoice`, `VOICE_GRACE_MS`) e o app retoma (`VOICE_RESUME`, `voice.resume()`); a transmissão continua | Teste: com o código antigo o outro vê sair e a transmissão para; com o novo, nada |
-| (este) | Ferramentas de medição em `scripts/` e este documento | — |
+| `c6034af` | Ferramentas de medição em `scripts/` e este documento | — |
+| `5aa525b` `2977d97` | Testes: `ux-test`/`freeze-report-test` (CSP), `call-restart-test`, `voice-network-test`, `black-capture-test` | CI da `main` vermelho por eles → passam (rodando direto: `call-restart` 3 de 4 abaixo do limite antigo → 5 de 5 ok) |
+| `f3902a1` | Estatísticas: quedas da mídia da chamada (`voice_reconnect`/`voice_recovered`) contadas, também minimizado | Eventos descartados → contados por motivo |
+| `cccf096` | Modo reserva do Windows 10: Alt+Tab não mostra a janela da frente (`lc-audio` `over` + envio sem trilha) | Teste: 0 quadros para quem assiste com o jogo fora; não executado no Windows |
+| `91b0a78` | Atualização numa abertura escondida reabre escondida | Não executado no Windows |
+| `b43f82c` | `skShine` e `uoSlide` no compositor | Esqueletos 5,79% → 0,10% e barra 5,04% → 0,09% da thread principal |
+| `b7eec79` | "Quem fala" dos outros pelo nível dos pacotes (sem Analyser por pessoa) | Por pessoa remota: Padrão 9,78% → 8,37%; RNNoise 11,43% → 10,73% |
+| `2c676a7` | Clipes da própria transmissão pelo Chromium com os quadros do enviador (sem MediaRecorder) | Custo dos clipes: 1080p30 +14,9 → +0,5 ponto; 720p30 +10,1 → +4,6 |
+| `e45e515` | Estatísticas: consumo real do app desktop por modo (faixas, a cada 5 min) | — (telemetria nova) |
+| `a5b4714` | CI no Windows: nativos de verdade, atualização e instalador instalado em silêncio | Ainda não rodou (só depois do push) |
 
 Testes novos: `mute-idle-test`, `emchamada-test`, `voice-resume-test`, `updready-test`, a leitura YUV/RGB no
 `black-capture-test` e `janela_wgc_que_congela_nao_fica_trocando` no `lc-stream` (`cargo test`). Cada um falha no
 código antigo.
 
 **Precisa só atualizar o servidor:** mudo/PTT, animações, memória da transmissão, diagnóstico, `em-chamada.json`,
-retomada da voz. **Precisa de nova versão do app desktop:** troca WGC/DXGI, janela coberta, atualização na abertura,
-instalador menor.
+retomada da voz, quedas de mídia e consumo real nas estatísticas, "quem fala" pelos pacotes, clipes da própria
+transmissão, esqueletos e barra de atualização, aviso `away` e `pause_producer` no servidor. **Precisa de nova versão do app desktop:** troca WGC/DXGI, janela coberta, atualização na abertura,
+instalador menor (já na v1.0.54), modo reserva do Windows 10 (`lc-audio` novo + `appaudio.js`/`main.js`/`preload.js`),
+atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
 
 ## Como medir (ferramentas em `scripts/`)
 
@@ -106,8 +117,12 @@ instalador menor.
 - **A CSP do servidor bloqueia `new Function`** em experimentos na página: suba o servidor com `CSP=off`.
 - **Processo Node que mantém um servidor filho** não termina sozinho e perde a saída se for morto pelo `timeout`: use
   `process.exit` no fim.
-- Testes instáveis conhecidos: `call-restart-test` (limite de 2.000 bytes de voz no passo "antes", deu 1.998 uma vez) e
-  `black-capture-test` (deixa o servidor dele vivo quando falha). Testes que já falhavam neste ambiente:
+- Testes instáveis conhecidos: `reconnect-storm-test` e `watch-test` (passam na 2ª tentativa no CI). Corrigidos nesta
+  passagem: `call-restart-test`, `black-capture-test`, `voice-network-test`, `ux-test` e `freeze-report-test`.
+- **Bateria completa nesta máquina (nov/2026, depois desta passagem): 131 de 134.** Os 3 que falham falham igual no
+  código de antes (`c6034af`, conferido numa worktree): `community-test` e a 2ª tentativa do `focus-fly-test` (o alerta
+  "Disco quase cheio" da máquina de nuvem vira notificação no meio do teste), 1ª tentativa do `focus-fly-test` ("Até eu
+  desligar" já ligado) e `screen-release-test` ("voltar ao Descobrir mostra as seções"). No CI do GitHub passam. Testes que já falhavam neste ambiente:
   [AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md#testes-que-já-falham-no-código-original-neste-ambiente).
 
 ## Roadmap
@@ -162,12 +177,25 @@ instalador menor.
 - **`dxcompiler.dll`** (25,8 MB; WebGPU não é usado): só com teste no Windows, porque o Chromium pode tentar carregá-la.
 
 ### 4. Grandes atualizações
-- **Atualização por diferença:** hoje cada versão baixa ~117 MB, sendo que o app (`app.asar`) tem 174 KB e os nativos
-  ~5 MB. Baixar só o que mudou deixaria a maioria das atualizações em poucos MB. Mexe no atualizador próprio
-  (`desktop/main.js`, `updready.js`) e na assinatura (`updatekey.js`).
-- **Telemetria de desempenho real:** o "Consumo agora" do Modo leve agregado nas estatísticas por modo (ocioso, voz,
-  transmitindo), para otimizar a partir do PC de quem usa.
-- **Teste automático no Windows** (runner Windows no GitHub) para captura, atualização e instalador.
+- **Atualização por diferença:** **depende do dono** (teste no Windows). Hoje cada versão baixa ~113 MB (v1.0.54), sendo
+  que o app (`app.asar`) tem 174 KB e os nativos ~5 MB. Um atualizador que falhe deixa todo mundo sem as próximas
+  versões (inclusive a que o corrigiria): só com o ciclo baixar → conferir assinatura → trocar → reabrir testado no
+  Windows 10 e 11. Mexe em `desktop/main.js`, `updready.js` e na assinatura (`updatekey.js`).
+- ~~Telemetria de desempenho real~~ **feito** (`e45e515`): quadro "Consumo real do app desktop" (metade e 90% por modo).
+- ~~Teste automático no Windows~~ **preparado** (`a5b4714`, `windows-testes.yml`): roda no GitHub depois do push; o
+  primeiro resultado precisa ser conferido. Não cobre captura de verdade nem GPU (a máquina do GitHub não tem).
+
+### O que depende do dono (resumo)
+1. Windows 10 e 11 com a próxima versão do app: transmitir 5 min e ficar mutado em chamada com o `medir-resenha.ps1`
+   (antes e depois); Alt+Tab com jogo em "janela sem bordas" (DXGI) e em tela cheia no Windows 10 (modo reserva: quem
+   assiste deve ver a última imagem e o aviso "O jogo não está na tela"); iniciar com o Windows com uma versão baixada
+   (deve continuar escondido); GPU e VRAM.
+2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
+3. "Criar convite": exigir a permissão / opção por servidor "membros sem cargo podem convidar" ligada por padrão
+   (recomendado) / tirar a permissão da lista. Hoje não existe permissão de servidor para quem não tem cargo.
+4. Música da cópia local: se já pode virar commit (7 arquivos conflitam com o remoto; `util.js` e `server/music.js` não).
+5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
+6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
 
 ## Referências
 
