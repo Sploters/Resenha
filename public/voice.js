@@ -41,6 +41,8 @@ export const SCREEN_PRESETS = {
 // que os pacotes dele estão chegando antes de voltar ao Chromium
 export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
 // reinício automático do programa nativo (nativeRestart): até 3 tentativas em 30 s, 1 s depois da falha
+// "quem fala" pelo nível dos pacotes (watch): limiar, folga e idade máxima do último pacote
+const SSRC_LOUD = .015, SSRC_HOLD_MS = 400, SSRC_FRESH_MS = 250;
 export const FSE_TICK = 3000, FSE_CONFIRM_TICKS = 2, FSE_FROZEN_TICKS = 4; // aviso de tela cheia exclusiva: a cada 3 s; 2 leituras com as duas evidências; 12 s sem quadro = "congelada"
 export const GOV_TICK = 2000, GOV_BAD = 3, GOV_VIEWERS_MS = 10e3; // controle da transmissão (govTick): leitura a cada 2 s, 6 s ruins para descer
 export const NATIVE_RESTARTS = 3, NATIVE_RESTART_WIN = 30e3, NATIVE_RESTART_DELAY = 1000;
@@ -972,7 +974,7 @@ export class Voice {
       const p = this.ensurePeer(user_id), stream = new MediaStream([c.track]);
       s.consumers.set(c.id, { c, uid: user_id, source, tap });
       p.consumers.set(c.id, source); p.layer = undefined;
-      if (source === 'mic') this.attachAudio(p, stream, 'mic');
+      if (source === 'mic') this.attachAudio(p, stream, 'mic', c.rtpReceiver);
       else if (source === 'screenaudio') this.attachAudio(p, stream, 'screen');
       else { p.streams[source] = stream; c.track.onmute = c.track.onunmute = () => this.onUpdate(); }
       if (source === 'cam') await this.sfuReq('layers', { consumer_id: c.id, spatial: p.camLayer ?? 1 }).catch(() => { }); // antes do 1º quadro: sem isso chegava a camada cheia
@@ -1031,7 +1033,7 @@ export class Voice {
     pc.ontrack = (e) => {
       this.e2eeAttach(e.receiver, 'dec');
       const stream = e.streams[0] || new MediaStream([e.track]);
-      if (e.track.kind === 'audio') this.attachAudio(p, stream, p.meta[stream.id] === 'screen' ? 'screen' : 'mic');
+      if (e.track.kind === 'audio') this.attachAudio(p, stream, p.meta[stream.id] === 'screen' ? 'screen' : 'mic', e.receiver);
       else {
         const kind = p.meta[stream.id] || 'cam';
         p.streams[kind] = stream;
@@ -1148,13 +1150,13 @@ export class Voice {
     this.peers.delete(uid);
   }
 
-  attachAudio(p, stream, kind) {
+  attachAudio(p, stream, kind, rx) {
     const key = kind === 'screen' ? 'screenAudioEl' : 'audioEl';
     p[key]?.remove(); this.unboost(p, key);
     const a = document.createElement('audio'); a.autoplay = true; a.srcObject = stream; a.style.display = 'none'; a.raw = stream;
     if (this.prefs.outputId && a.setSinkId) a.setSinkId(this.prefs.outputId).catch(() => { });
     document.body.append(a); p[key] = a; this.applyVolume(p.uid); a.play?.().catch(() => { });
-    if (kind === 'mic') this.watch(p.uid, stream);
+    if (kind === 'mic') this.watch(p.uid, stream, rx);
   }
   closeStream(uid) { this.autoPaused?.delete(uid); this.closedStreams.add(uid); this.applyVolume(uid); this.flow(uid, true); }
   openStream(uid) { this.autoPaused?.delete(uid); this.closedStreams.delete(uid); this.applyVolume(uid); this.flow(uid, false); }
@@ -1336,9 +1338,15 @@ export class Voice {
     if (v === 100) delete this.volumes[uid]; else this.volumes[uid] = v; this.applyVolume(uid);
   }
   setStreamVolume(uid, v) { if (v === 100) delete this.streamVolumes[uid]; else this.streamVolumes[uid] = v; this.applyVolume(uid); }
-  watch(uid, stream) {
+  // "Quem fala" dos outros: pelo nível que vem em cada pacote de voz (extensão ssrc-audio-level, calculado por quem fala;
+  // getSynchronizationSources, sem custo). Antes era um MediaStreamSource + Analyser por pessoa no AudioContext: ~2,5 pontos
+  // de CPU por pessoa na sala (scripts/perf-call-states.mjs). O nível é a média do pacote (não o pico do medidor), por
+  // isso limiar e folga próprios (SSRC_LOUD, SSRC_HOLD_MS: ~92% das amostras iguais ao medidor antigo com voz real).
+  // Receptor sem isso (navegador antigo): o medidor de antes.
+  watch(uid, stream, rx) {
     try {
       this.analysers.get(uid)?.src.disconnect(); // áudio da pessoa religado (reconexão/troca de trilha): o medidor antigo não fica pendurado no grafo
+      if (rx && typeof rx.getSynchronizationSources === 'function') { this.analysers.set(uid, { src: { disconnect() { } }, rx, level: 0 }); return; }
       const ctx = this.getCtx(), src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
       an.fftSize = 512; src.connect(an); this.analysers.set(uid, { src, an, buf: new Uint8Array(an.fftSize), level: 0 });
     } catch { }
@@ -1353,13 +1361,18 @@ export class Voice {
     if (srv) for (const uid of srv) if (uid !== this.myId && !this.speaking.has(uid) && this.analysers.has(uid)) { this.speaking.add(uid); changed = true; }
     for (const [uid, a] of this.analysers) {
       if (srv && uid !== this.myId) continue;
-      a.an.getByteTimeDomainData(a.buf);
-      let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
-      a.level = peak / 128;
+      if (a.rx) { // nível do último pacote; sem pacote recente (mutou, saiu, DTX) = silêncio
+        const s = a.rx.getSynchronizationSources()[0];
+        a.level = s && performance.timeOrigin + performance.now() - s.timestamp < SSRC_FRESH_MS ? s.audioLevel : 0;
+      } else {
+        a.an.getByteTimeDomainData(a.buf);
+        let peak = 0; for (const v of a.buf) peak = Math.max(peak, Math.abs(v - 128));
+        a.level = peak / 128;
+      }
       const mine = uid === this.myId;
-      const loud = a.level > (mine ? .03 : .04) && !(mine && (this.muted || this.deafened || this.modMute || this.modDeaf || !this.micEnabled()));
+      const loud = a.level > (mine ? .03 : a.rx ? SSRC_LOUD : .04) && !(mine && (this.muted || this.deafened || this.modMute || this.modDeaf || !this.micEnabled()));
       const now = performance.now(); if (loud) a.at = now;
-      const on = loud || (a.at > 0 && now - a.at < 300 && !(mine && (this.muted || this.deafened)));
+      const on = loud || (a.at > 0 && now - a.at < (a.rx ? SSRC_HOLD_MS : 300) && !(mine && (this.muted || this.deafened)));
       if (on !== this.speaking.has(uid)) { on ? this.speaking.add(uid) : this.speaking.delete(uid); changed = true; }
     }
     if (changed) this.onUpdate(true);
