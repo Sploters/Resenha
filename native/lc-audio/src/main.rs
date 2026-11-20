@@ -168,6 +168,14 @@ mod sys {
         let on = std::env::var_os("LC_FRONT_TEST").and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim() == "1").unwrap_or(false);
         if on { serde_json::json!({ "covered": true, "pid": 42, "exe": "C:\\Games\\Teste\\teste.exe" }) } else { serde_json::json!({ "covered": false }) }
     }
+    /// teste: LC_OVER_TEST com "min" (jogo minimizado), "1" (outra janela por cima) ou outra coisa (jogo na tela)
+    pub fn over(_hwnd: isize) -> serde_json::Value {
+        match std::env::var_os("LC_OVER_TEST").and_then(|p| std::fs::read_to_string(p).ok()).as_deref().map(str::trim) {
+            Some("min") => serde_json::json!({ "covered": true, "why": "min" }),
+            Some("1") => serde_json::json!({ "covered": true, "why": "front", "pid": 7 }),
+            _ => serde_json::json!({ "covered": false }),
+        }
+    }
     /// tom de teste (440 Hz, -12 dB) no mesmo formato da captura real, em tempo real
     pub fn capture(_pid: u32, _include: bool, stop: Arc<AtomicBool>) -> Result<(), String> {
         emit_err(serde_json::json!({ "t": "started", "rate": RATE, "channels": CH }));
@@ -328,6 +336,43 @@ mod sys {
             let m = mi.rcMonitor;
             if r.left > m.left || r.top > m.top || r.right < m.right || r.bottom < m.bottom { return no; }
             serde_json::json!({ "covered": true, "pid": pf, "exe": exe_of(pf) })
+        }
+    }
+
+    // ---------- o jogo sumiu do monitor dele? ----------
+    // Para a transmissão que captura o MONITOR do jogo (modo reserva do Windows 10, jogo em tela cheia): no Alt+Tab quem
+    // assiste veria a janela da frente. Mesma regra do DXGI do lc-stream (covered em native/lc-stream/src/capture.rs): a
+    // janela da frente é de outro programa, está ACIMA do jogo na ordem das janelas e aparece no monitor dele. Jogo
+    // minimizado (tela cheia exclusiva no Alt+Tab) também. Fora da conta: área de trabalho, barra de tarefas e janelas do
+    // próprio jogo (mesmo processo).
+    pub fn over(game: isize) -> serde_json::Value {
+        let no = serde_json::json!({ "covered": false });
+        if game == 0 { return no; }
+        unsafe {
+            let h = HWND(game as *mut core::ffi::c_void);
+            if !IsWindow(Some(h)).as_bool() { return no; }
+            if IsIconic(h).as_bool() { return serde_json::json!({ "covered": true, "why": "min" }); }
+            let fg = GetForegroundWindow();
+            if fg.is_invalid() || fg == h { return no; }
+            let fg = { let r = GetAncestor(fg, GA_ROOT); if r.is_invalid() { fg } else { r } };
+            if fg == h || IsIconic(fg).as_bool() || !IsWindowVisible(fg).as_bool() { return no; }
+            let (mut pf, mut pg) = (0u32, 0u32);
+            GetWindowThreadProcessId(fg, Some(&mut pf)); GetWindowThreadProcessId(h, Some(&mut pg));
+            if pf == 0 || pf == pg { return no; }
+            let mut c = [0u16; 64]; let n = GetClassNameW(fg, &mut c); let cls = String::from_utf16_lossy(&c[..n.max(0) as usize]);
+            if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") { return no; }
+            let mut cloaked = 0u32;
+            if DwmGetWindowAttribute(fg, DWMWA_CLOAKED, &mut cloaked as *mut _ as *mut _, 4).is_ok() && cloaked != 0 { return no; }
+            // acima do jogo? (sobe a partir dele na ordem das janelas; jogo "sempre por cima" continua visível)
+            let mut w = h; let mut above = false;
+            for _ in 0..4096 { w = match GetWindow(w, GW_HWNDPREV) { Ok(x) if !x.is_invalid() => x, _ => break }; if w == fg { above = true; break; } }
+            if !above { return no; }
+            // aparece no monitor do jogo (o que é transmitido)
+            let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let mut r = RECT::default();
+            if !GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() || GetWindowRect(fg, &mut r).is_err() { return no; }
+            let m = mi.rcMonitor;
+            if r.left < m.right && m.left < r.right && r.top < m.bottom && m.top < r.bottom { serde_json::json!({ "covered": true, "why": "front", "pid": pf }) } else { no }
         }
     }
 

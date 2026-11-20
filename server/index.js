@@ -1096,7 +1096,7 @@ wss.on('connection', (ws) => {
           const c = currentVoice(uid); if (!c) return;
           const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
           for (const k of ['mute', 'deaf', 'video', 'screen', 'hold', 'mirror']) if (typeof d[k] === 'boolean') st[k] = d[k]; if (st.noVideo) st.video = st.screen = false;
-          st.screenNote = st.screen && ['min', 'closed'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada (aviso para quem assiste)
+          st.screenNote = st.screen && ['min', 'closed', 'away'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada/jogo fora da tela (aviso para quem assiste)
           // efeito de voz: só nomes conhecidos e no máximo 1 troca a cada 0,5 s (quem ouve aplica; ver public/voicefx.js)
           if (d.fx !== undefined && Date.now() - (st.fxAt || 0) > 500) { const fx = VOICE_FX.has(d.fx) ? d.fx : null; if (fx !== (st.fx || null)) { st.fx = fx; st.fxAt = Date.now(); } }
           if (!st.screen && acts.get(c)?.boards['s:' + uid]) { delete acts.get(c).boards['s:' + uid]; roomSend(c, 'ROOM_DRAW', { channel_id: c, board: 's:' + uid, op: 'clear', user_id: uid }); }

@@ -291,6 +291,10 @@ export async function sfuRequest(cid, uid, op, d) {
       return { id: p.id };
     }
     case 'close_producer': { const p = peer.producers.get(String(d.source)); p?.close(); return {}; }
+    // vídeo da transmissão pausado por quem transmite (o jogo saiu do monitor capturado, ver voice.js applyOver): os
+    // consumidores ficam pausados de verdade (sem cair a nota da conexão de quem assiste) e, ao voltar, o mediasoup pede um
+    // quadro-chave. Só o vídeo: o áudio do jogo continua
+    case 'pause_producer': { const p = peer.producers.get('screen'); if (d.source !== 'screen' || !p || p.closed) return {}; await (d.paused ? p.pause() : p.resume()); return {}; }
     case 'producers': { // o que já está sendo transmitido na sala
       const out = [];
       for (const o of r.peers.values()) if (o !== peer) for (const p of o.producers.values()) out.push(producerInfo(p, o.uid));

@@ -425,6 +425,8 @@ ipcMain.on('app-audio-stop', () => appAudio.stop());
 appAudio.setEventSink((ev) => { if (win && !win.isDestroyed()) win.webContents.send('app-audio-event', ev); });
 ipcMain.handle('source-state', () => appAudio.sourceState(pickedSource).catch(() => ({ kind: 'unknown' })));
 ipcMain.handle('fse-state', () => appAudio.fseState(pickedSource).catch(() => ({ available: false })));
+// jogo transmitido pelo monitor (modo reserva do Windows 10): avisa quando ele some da tela. id da janela do jogo, ou null
+ipcMain.handle('source-over', (_e, id) => appAudio.watchOver(typeof id === 'string' ? id : null, (s) => { if (win && !win.isDestroyed()) win.webContents.send('source-over', s); }).catch(() => false));
 // jogo aberto agora (mesma detecção da transmissão): vira a atividade "Jogando X" para os amigos
 ipcMain.handle('detect-game', () => appAudio.detectGame().catch(() => null));
 // avisos do programa nativo quando a lista de janelas muda (eventos do Windows): o "Jogando X" aparece em 1 a 2 s em vez

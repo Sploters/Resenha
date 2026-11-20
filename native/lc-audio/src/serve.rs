@@ -12,6 +12,8 @@
 //!                          "d3d_fullscreen" = algum app Direct3D em tela cheia exclusiva, sem confirmação) e a janela da frente
 //!   icon {exe}             o mesmo que --icon
 //!   front {hwnd}           passa a vigiar se a janela `hwnd` está coberta (0 para parar); avisa {"ev":"front","covered",...}
+//!   over {hwnd}            passa a vigiar se o jogo `hwnd` sumiu do monitor dele (minimizado ou outra janela por cima;
+//!                          0 para parar); avisa {"ev":"over","covered",...}. Para a transmissão que captura o monitor
 //!   watch {on}             liga/desliga o aviso {"ev":"windows","list":[...]} quando a lista de janelas muda
 //!   toast {ok,kind,title,sub}  aviso de clipe por cima do jogo, numa janela nativa (ver toast.rs); responde {"ms"} quando aparece
 //!
@@ -24,8 +26,10 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Mutex;
 
 pub static FRONT_HWND: AtomicIsize = AtomicIsize::new(0);
+pub static OVER_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static WATCH_WINDOWS: AtomicBool = AtomicBool::new(false);
 static LAST_FRONT: Mutex<String> = Mutex::new(String::new());
+static LAST_OVER: Mutex<String> = Mutex::new(String::new());
 static LAST_WINDOWS: Mutex<String> = Mutex::new(String::new());
 
 /// uma linha na saída; a leitura do app fechou = o app fechou
@@ -38,15 +42,19 @@ fn reply(id: &Value, r: Result<Value, String>) {
 }
 
 /// confere a janela da frente e avisa se mudou (chamado pelo vigia de eventos)
+/// (e a do jogo transmitido pelo monitor, `over`): os dois mudam com os mesmos eventos
 pub fn check_front() {
     let h = FRONT_HWND.load(Ordering::SeqCst);
-    if h == 0 { return; }
-    let mut v = crate::sys::front(h);
+    if h != 0 { notify("front", crate::sys::front(h), &LAST_FRONT); }
+    let g = OVER_HWND.load(Ordering::SeqCst);
+    if g != 0 { notify("over", crate::sys::over(g), &LAST_OVER); }
+}
+fn notify(ev: &str, mut v: Value, last: &Mutex<String>) {
     let s = v.to_string();
-    let mut last = LAST_FRONT.lock().unwrap();
+    let mut last = last.lock().unwrap();
     if *last == s { return; }
     *last = s;
-    v["ev"] = json!("front");
+    v["ev"] = json!(ev);
     send(&v);
 }
 /// lista as janelas e avisa se mudou; devolve os hwnd (para o vigia saber quais janelas fechadas importam)
@@ -74,7 +82,7 @@ pub fn run() {
         let Ok(req) = serde_json::from_str::<Value>(line) else { continue };
         let id = req["id"].clone();
         match req["op"].as_str().unwrap_or("") {
-            "hello" => reply(&id, Ok(json!({ "v": 1, "events": crate::events::NATIVE, "toast": crate::toast::available(), "fse": true }))),
+            "hello" => reply(&id, Ok(json!({ "v": 1, "events": crate::events::NATIVE, "toast": crate::toast::available(), "fse": true, "over": true }))),
             "probe" => reply(&id, Ok(crate::sys::probe())),
             "windows" => reply(&id, Ok(crate::sys::windows())),
             "fse" => reply(&id, Ok(crate::sys::fse())),
@@ -89,6 +97,12 @@ pub fn run() {
             "front" => {
                 FRONT_HWND.store(hwnd_of(&req["hwnd"]), Ordering::SeqCst);
                 LAST_FRONT.lock().unwrap().clear(); // reavisa o estado atual
+                crate::events::poke_front();
+                reply(&id, Ok(json!(true)));
+            }
+            "over" => {
+                OVER_HWND.store(hwnd_of(&req["hwnd"]), Ordering::SeqCst);
+                LAST_OVER.lock().unwrap().clear(); // reavisa o estado atual
                 crate::events::poke_front();
                 reply(&id, Ok(json!(true)));
             }

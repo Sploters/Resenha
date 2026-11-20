@@ -94,7 +94,7 @@ mod win {
                     win_due = None; win_next = now + win_every;
                 }
                 // dorme até o próximo prazo (ou até chegar um evento / pedido)
-                let watching_front = crate::serve::FRONT_HWND.load(Ordering::SeqCst) != 0;
+                let watching_front = crate::serve::FRONT_HWND.load(Ordering::SeqCst) != 0 || crate::serve::OVER_HWND.load(Ordering::SeqCst) != 0;
                 let watching_win = crate::serve::WATCH_WINDOWS.load(Ordering::SeqCst);
                 let mut next = now + Duration::from_secs(60);
                 if watching_front { next = next.min(front_next); }

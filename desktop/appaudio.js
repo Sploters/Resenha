@@ -369,6 +369,22 @@ async function sourceState(sourceId, list) {
   return { kind: 'window', exists: !!w, minimized: !!w?.minimized, title: w?.title || '' };
 }
 
+// ---------- jogo fora do monitor capturado (modo reserva do Windows 10) ----------
+// A transmissão captura o MONITOR do jogo (public/voice.js chromiumOnWindow): o programa nativo avisa quando o jogo some
+// dele (minimizado ou outra janela por cima; lc-audio 'over', pelos eventos do Windows). sourceId "window:<hwnd>:0" do jogo
+// ou null para parar. Devolve true se está vigiando (sem o programa, ou versão sem 'over': false, e nada muda)
+let overOff = null;
+async function watchOver(sourceId, cb) {
+  const h = process.platform === 'win32' ? getHelper() : null, m = /^window:(\d+):/.exec(String(sourceId || ''));
+  overOff?.(); overOff = null;
+  if (!h) return false;
+  h.drop('over');
+  if (!m || !cb) { if (h.up) h.call('over', { hwnd: '0' }).catch(() => { }); return false; }
+  if ((await h.open())?.over !== true) return false;
+  overOff = h.on('over', (j) => cb({ covered: !!j.covered, why: j.why || null }));
+  return (await h.keep('over', { hwnd: m[1] })) === true;
+}
+
 // ---------- tela cheia exclusiva (aviso da transmissão) ----------
 // O que o Windows diz (SHQueryUserNotificationState, o mesmo critério do Discord) e se a janela da frente é a transmitida.
 // Só um indício: quem decide se avisa é o app, cruzando com a captura (public/voice.js watchFse). Sem o programa (ou
@@ -387,4 +403,4 @@ async function fseState(sourceId) {
 
 function shutdown() { stop(); helper?.stop(); helper = null; winCache = null; }
 
-module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, startScreen, screenPids, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, fseState, _tick: tick, _state: () => cur };
+module.exports = { helperPath, getHelper, capable, listWindows, watchWindows, detectGame, start, startScreen, screenPids, stop, shutdown, isGame, cleanTitle, steamAppId, gameIcon, setEventSink, sourceState, fseState, watchOver, _tick: tick, _state: () => cur };

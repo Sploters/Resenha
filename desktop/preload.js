@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   appAudioStop: () => ipcRenderer.send('app-audio-stop'),
   onAppAudioEvent: (() => { let cb = null; ipcRenderer.on('app-audio-event', (_e, ev) => cb?.(ev)); return (f) => { cb = f; }; })(), // { t: 'waiting' | 'reattached', name }
   sourceState: () => ipcRenderer.invoke('source-state'), // janela transmitida: { kind, exists, minimized, title }
+  watchSourceOver: (id) => ipcRenderer.invoke('source-over', id || null), // vigia se o jogo (window:<hwnd>:0) sumiu do monitor; null para
+  onSourceOver: (() => { let cb = null; ipcRenderer.on('source-over', (_e, s) => cb?.(s)); return (f) => { cb = f; }; })(), // { covered, why: 'min' | 'front' }
   fseState: () => ipcRenderer.invoke('fse-state'), // { available, state ('d3d_fullscreen'...), fgIsSource, kind }: indício de tela cheia exclusiva
   detectGame: () => ipcRenderer.invoke('detect-game'), // { id, title } | null (desde a 1.0.24)
   // avisos do programa nativo, na hora em que a lista de janelas muda (sem esperar a próxima consulta)

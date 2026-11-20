@@ -717,12 +717,45 @@ export class Voice {
   // avisa quem transmite (onScreenNote). Tela inteira não tem esse problema. O app também avisa na hora em que a janela
   // muda (onSourceState: eventos do Windows); a consulta de 3 s fica de garantia (com o programa nativo aberto ela não
   // abre processo nenhum).
+  // Modo reserva do Windows 10 (jogo em tela cheia, nativo fora): o Chromium manda o MONITOR do jogo (chromiumOnWindow), e
+  // no Alt+Tab quem assiste veria a janela da frente (navegador, conversa...). O app avisa quando o jogo some do monitor
+  // (lc-audio 'over': minimizado ou outra janela por cima, a mesma regra do DXGI do lc-stream) e o vídeo da transmissão
+  // pausa: nada sai do PC, quem assiste fica com a última imagem do jogo e o aviso "O jogo não está na tela". Volta
+  // sozinho com o jogo. Só vale enquanto o Chromium manda o monitor no lugar da janela: com o nativo ou com a captura da
+  // janela, nada muda. App ou programa nativo sem 'over': nunca avisa (como antes).
+  watchOver() {
+    this._overOn = false; this._overHid = false;
+    const d = window.lcDesktop, id = this._natWinId;
+    if (!d?.watchSourceOver || !id) return;
+    d.onSourceOver?.((s) => { this._overOn = !!s?.covered; this._overWhy = s?.why || null; this.applyOver(); });
+    d.watchSourceOver(id).catch(() => { });
+  }
+  // o Chromium está mandando o monitor do jogo (não a janela, nem o nativo)?
+  monForGame() { return !!this._natWinId && !this.native && !!this.screen; }
+  applyOver() {
+    const want = !!this._overOn && this.monForGame(), p = this.sfu?.producers.screen;
+    // sem quadros saindo: o rtpSender fica sem trilha (não p.pause(): com disableTrackOnPause ele desliga a trilha, que vira
+    // quadros pretos e apaga a prévia de quem transmite). A trilha continua viva; ao voltar, a mesma trilha volta ao envio
+    if (p && !p.closed && !!p.lcHidden !== want) {
+      p.lcHidden = want;
+      p.rtpSender?.replaceTrack(want ? null : (p.track || this.screen?.getVideoTracks()[0] || null)).catch(() => { });
+      this.sfuReq('pause_producer', { source: 'screen', paused: want }).catch(() => { }); // servidor antigo: só a pausa daqui
+    }
+    if (want === this._overHid) return;
+    this._overHid = want;
+    this.capLog({ t: 'capnote', msg: want ? `jogo fora do monitor capturado (${this._overWhy === 'min' ? 'minimizado' : 'outra janela na frente'}): vídeo pausado, quem assiste vê a última imagem` : 'jogo de volta na tela: vídeo retomado' });
+    const keep = this.screenNote === 'min' || this.screenNote === 'closed'; // aviso mais específico fica
+    const note = want ? (keep ? this.screenNote : 'away') : (this.screenNote === 'away' ? null : this.screenNote);
+    if (note !== this.screenNote) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); }
+    this.onUpdate();
+  }
   watchSource() {
     clearInterval(this._src); this.screenNote = null;
     const d = window.lcDesktop; if (!d?.sourceState) return;
     const apply = (st) => {
       if (!this.screen) return;
-      const note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
+      let note = st?.kind === 'window' ? (st.exists === false ? 'closed' : st.minimized ? 'min' : null) : null;
+      if (!note && this._overHid) note = 'away'; // jogo fora do monitor capturado (applyOver)
       if (note !== this.screenNote) { this.screenNote = note; this.sendState(); this.onScreenNote?.(note); this.onUpdate(); }
     };
     d.onSourceState?.(apply);
@@ -742,6 +775,7 @@ export class Voice {
     const fps = this.captureFps ?? top?.fps ?? null;
     if (this.screenNote === 'min') items.push(['bad', 'Janela minimizada: quem assiste vê a imagem parada. Restaure a janela (ou transmita a tela inteira).']);
     if (this.screenNote === 'closed') items.push(['bad', 'A janela transmitida foi fechada. Escolha outra fonte.']);
+    if (this.screenNote === 'away') items.push(['warn', 'O jogo saiu da tela: quem assiste vê a última imagem do jogo (e não a janela da frente) até você voltar para ele.']);
     if (this.fse?.state === 'confirmed') items.push(['bad', 'O jogo parece estar em tela cheia exclusiva: a captura não recebe a imagem. Mude o jogo para "Janela sem bordas" (a transmissão continua).']);
     else if (this.captureBlack) items.push(['bad', 'A imagem está saindo preta (tela cheia exclusiva ou anti-cheat). Use "Janela sem bordas".']);
     if (this.appAudio?.state === 'waiting') items.push(['bad', `${this.appAudio.name || 'O jogo'} fechou: o áudio volta sozinho quando ele abrir de novo.`]);
@@ -1450,7 +1484,7 @@ export class Voice {
     if (!this.screen) return; // parou enquanto preparava o áudio
     const nat = await this.wantNative(opts);
     if (nat) { this.native = { pending: true }; this.previewOnly(vt, true); }
-    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource(); this.watchFse();
+    this.publish('screen', this.screen); playSound('selfStreamStart'); this.watchScreen(); this.meterCapture(); this.meterBlack(); this.watchSource(); this.watchFse(); this.watchOver();
     if (nat) this.startNative().catch(() => { });
   }
 
@@ -1504,7 +1538,7 @@ export class Voice {
       const ns = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
       const vt = ns.getVideoTracks()[0];
       if (!this.screen) { vt.stop(); return false; }
-      this._natWinId = null;
+      this._natWinId = null; this.applyOver(); // agora é a janela: nada a esconder
       if (old) { old.onended = null; this.screen.removeTrack(old); old.stop(); }
       vt.contentHint = o.hint; vt.onended = () => this.stopLocal('screen');
       this.screen.addTrack(vt);
@@ -1725,7 +1759,7 @@ export class Voice {
       const vt = okw && this.screen?.getVideoTracks()[0];
       if (!vt || this.native) return;
       this.previewOnly(vt, false);
-      if (this.sfu) this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      if (this.sfu) this.sfuProduce('screen', vt).then(() => this.applyOver(), e => console.warn('produce', e));
       this.error = 'Transmissão pela placa de vídeo indisponível (' + why + '). Continuando pelo modo normal (até ~48 FPS).';
       this.onNativeFail?.(this.error); this.onUpdate();
     });
@@ -1745,7 +1779,7 @@ export class Voice {
     if (!nat) { this.onFse?.(this.fse); return; }
     this._natRestarts = []; this._natRetry = 0;
     this.sfuStop('screen'); this.native = { pending: true }; this.previewOnly(vt, true); this.startNative().catch(() => { });
-    this.onUpdate();
+    this.applyOver(); this.onUpdate();
   }
   // método de captura trocado nas configurações com a transmissão no ar: reinicia só o vídeo (1-2 s), voz e sala seguem
   async applyCaptureMode() {
@@ -1761,6 +1795,7 @@ export class Voice {
       const vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
       this.previewOnly(vt, false);
       if (this.sfu && !this.sfu.producers.screen) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      this.applyOver();
       this.capLog({ t: 'method', m: 'chromium', from: null, why: this._natWhy === 'forced' ? 'forçado nas configurações' : 'nativo indisponível: ' + (this._natWhyText || this._natWhy || '?'), auto: this._natWhy !== 'forced' });
     }
     this.onUpdate();
@@ -1782,6 +1817,7 @@ export class Voice {
       if (!(await this.chromiumOnWindow())) return;
       vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
       this.previewOnly(vt, false); if (this.sfu) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      this.applyOver();
     }
     const c = { frameRate: capFps(o.fps) };
     if (o.res !== 'source') { c.height = { ideal: +o.res, max: +o.res }; c.width = { ideal: Math.round(+o.res * 16 / 9) }; }
@@ -1805,7 +1841,7 @@ export class Voice {
     const s = this[kind]; if (!s) return;
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
+    if (kind === 'screen') { if (this._overOn != null) window.lcDesktop?.watchSourceOver?.(null)?.catch?.(() => { }); this._overOn = null; this._overHid = false; this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();
