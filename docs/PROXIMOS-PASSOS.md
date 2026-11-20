@@ -169,8 +169,10 @@ atualização escondida (`main.js`/`updready.js`/`updsplash.js`).
   −10 ms de estilo a 4x, dentro do ruído. Dividir por tela só com teste visual de todas as telas.
 - ~~"Quem fala" pelo nível dos pacotes~~ **feito** (`b7eec79`): sem Analyser por pessoa no AudioContext; −1,4 ponto
   (Padrão) e −0,7 (RNNoise) por pessoa remota, alternando na mesma chamada. Teste `speaking-ssrc-test`.
-  **Falta** o microfone sem Web Audio no modo "Padrão" (teto ~2,5 pontos só nesse modo, que não é o padrão: mexe no
-  volume de entrada, teste de microfone, efeitos de voz; o "falando" próprio iria para `getStats`).
+  Microfone sem Web Audio no modo "Padrão": **medido, não aplicado**. Com o "quem fala" dos outros já fora do
+  AudioContext, o teto (microfone cru direto no envio e o contexto suspenso) é 8,6% → 8,0% (3 x 20 s alternando na
+  mesma chamada; numa rodada o direto ficou acima), e com o `getStats` a cada 100 ms para o "falando" próprio, 8,0%:
+  dentro do ruído, sem compensar mexer no volume de entrada, teste de microfone e efeitos de voz.
 - ~~Buffer de clipe da própria transmissão~~ **feito** (`2c676a7`): pelo Chromium, os quadros saem do enviador para o
   buffer (`perf-clip-own.mjs`: custo dos clipes em 1080p30 +14,9 → +0,5 ponto; 720p30 +10,1 → +4,6). Pelo programa
   nativo já era o buffer nativo. Teste `clip-own-tap-test`.
