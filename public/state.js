@@ -117,7 +117,8 @@ window.addEventListener('storage', (e) => {
   document.dispatchEvent(new Event('prefs-changed-elsewhere'));
 });
 export const savePrefs = () => {
-  localStorage.setItem('lc_prefs', JSON.stringify(S.prefs));
+  // armazenamento cheio ou bloqueado: a gravação local falha, mas o envio à conta segue (antes a exceção parava tudo aqui)
+  try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch (e) { console.warn('preferências não gravadas no navegador', e.name); }
   backupDevicePrefs();
   clearTimeout(syncTimer); syncTimer = null;
   if (S.token && S.synced) { try { localStorage.setItem(DIRTY, '1'); } catch { } syncTimer = setTimeout(() => { syncTimer = null; pushPrefs(); }, 1200); }
@@ -128,7 +129,7 @@ export async function restoreDevicePrefs() {
   const d = (await desktop.getSettings().catch(() => null))?.devicePrefs;
   if (!d || typeof d !== 'object') return false;
   for (const k of DEVICE_KEYS) if (d[k] !== undefined && (S.prefs[k] === undefined || S.prefs[k] === '')) S.prefs[k] = d[k];
-  localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); return true;
+  try { localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); } catch { } return true;
 }
 // dispositivo salvo pelo id; se o id mudou (driver atualizado, outra porta USB, atualização do app/Windows), acha o mesmo
 // aparelho pelo nome em vez de cair no padrão do sistema. Desconectado agora: mantém o escolhido (volta quando religar).
