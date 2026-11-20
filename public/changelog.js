@@ -6,6 +6,17 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-20-2', title: 'Abrir e entrar na chamada sem pedaços',
+    items: [
+      { i: 'eye', t: 'Abre de uma vez', d: 'O esqueleto de carregamento aparece mais cedo, tem a forma da tela de verdade e só sai quando tudo já está pronto: nada de mensagem sem foto ou imagem vazia aparecendo aos poucos.' },
+      { i: 'voice', t: 'Chamada que monta uma vez', d: 'Ao entrar, seu quadro já entra junto e quem está transmitindo já tem o lugar reservado: a grade não se rearruma várias vezes, e os quadros deslizam quando alguém entra ou sai.' },
+      { i: 'screen', t: 'Sem quadro preto', d: 'Enquanto o vídeo não chega, o quadro mostra o avatar (câmera) ou "conectando" (transmissão), em vez de ficar preto.' },
+      { i: 'bell', t: 'Abas certas', d: 'O ponto de não lida da aba some quando você lê o canal e aparece na aba de outro canal quando chega mensagem lá.' },
+      { i: 'lock', t: 'Moderação de voz mais firme', d: 'Quem foi mutado pela moderação continua mutado mesmo se a conexão de voz cair e voltar.' },
+      { i: 'edit', t: 'Detalhes', d: 'O perfil ao lado da conversa não nasce vazio, a seção Administração aparece junto com as outras nas configurações e as setas de cargo desativadas ficaram visíveis.' },
+    ],
+  },
+  {
     id: '2026-11-20-1', title: 'Visual mais caprichado',
     items: [
       { i: 'sparkle', t: 'Troca de canal limpa', d: 'Trocar de canal, de conversa ou abrir as configurações acontece na hora, sem as duas telas aparecendo misturadas por um instante.' },
