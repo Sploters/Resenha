@@ -61,6 +61,9 @@ instalador menor.
 | `perf-stream-memory.mjs` | Memória por ciclo de transmissão, com bisseção (`NOMETERS`), memória por alocador (`DUMP=1`), heap snapshot e pressão de memória simulada |
 | `perf-modes.mjs` | Os modos da auditoria (ocioso, servidor, voz, transmitindo, assistindo, depois de sair) |
 | `noise-cpu.mjs`, `media-cpu.mjs`, `perf-audit.mjs`, `proc-cpu.mjs` | Já existiam (IA de ruído, clipes/E2EE, abertura e telas) |
+| `perf-anim.mjs` | Uma animação sozinha na tela: recálculos de estilo/s, layouts/s, % da thread principal |
+| `perf-open.mjs` | Abertura: tempo até pronto, thread por tipo, bytes, cobertura de JS/CSS (`CPU=4`, `BLOCK=` experimento) |
+| `perf-clip-own.mjs` | CPU de quem transmite com os próprios clipes: sem clipes × MediaRecorder × quadros enviados |
 | `medir-resenha.ps1` | **No Windows do dono**: CPU, memória privada, GPU e VRAM por processo do Resenha (`-Label modo -Secs 60`, grava CSV) |
 
 - **Voz de verdade no microfone falso:** baixe `https://raw.githubusercontent.com/microsoft/MS-SNSD/master/clean_test/clnsp1.wav`,
@@ -87,6 +90,14 @@ instalador menor.
 - **O microfone falso do Chromium manda de ~30 a ~6.000 bytes/s** (bipe + porta por voz + DTX). Teste de "ouve a voz"
   compara enviado × recebido na mesma janela, não um número fixo.
 - **`track()` descarta evento com a janela oculta** sem `{ bg: true }`: evento de chamada ou transmissão precisa dele.
+- **Medir abertura pelo tempo até "pronto" engana** para efeitos de ~40 ms: a mesma versão varia 1,2–1,4 s entre
+  rodadas. Use o profiler (tempo próprio por arquivo/linha, `positionTicks`) ou alterne na mesma sessão.
+- **A 1ª criação de qualquer `Intl`** custa ~40 ms a 4x (ICU): adiar um não ganha nada se outro roda na abertura.
+- **CPU entre sessões varia muito** (o mesmo código: 8–13% numa chamada): compare alternando os estados na mesma
+  chamada (`perf-call-states` com estados próprios).
+- **`producer.pause()` do mediasoup-client desliga a trilha** (`disableTrackOnPause`): vira quadro preto e apaga a
+  prévia. Para parar o envio sem mexer na trilha: `rtpSender.replaceTrack(null)`.
+- **O palco cria o buffer do clipe no 1º desenho**: o que fica pronto depois (encaixe no enviador) precisa redesenhar.
 - **Renderizar o `AudioContext` sem dispositivo** (`setSinkId({ type: 'none' })`) custa o mesmo. Já foi testado.
 - **Teste offline (`OfflineAudioContext`) não serve** para mudo/desmudo (desconectar e reconectar a fonte): use tempo real.
 - **Servidor de teste órfão:** teste que cai pode deixar `node server/index.js` vivo na porta fixa, e o próximo falha
@@ -122,22 +133,32 @@ instalador menor.
 ### 2. Curto prazo (pequeno e seguro)
 - ~~Contar reconexões de mídia nas estatísticas~~ **feito** (`f3902a1`): quadro "Mídia da chamada" no painel; conta
   também com o app minimizado.
-- **Modo reserva do Windows 10** (Chromium captura o monitor quando o nativo não roda): o Alt+Tab ainda mostra outras
-  janelas. Aplicar a mesma regra do DXGI (`covered` em `native/lc-stream/src/capture.rs`), por exemplo pelo
-  `sourceState` do app.
-- **Atualização ao iniciar com o Windows** (`--hidden`): depois de instalar, reabre visível. Repassar o argumento.
-- **Animações que restam**: `uoSlide` (anima `left`), `skShine` e `ns-shimmer` (`background-position`). Mesma técnica.
-- **GPU e VRAM no Windows** com o `medir-resenha.ps1`.
+- ~~Modo reserva do Windows 10~~ **feito** (`cccf096`): `lc-audio` ganhou o vigia `over` (mesma regra do `covered`) e o
+  vídeo fica sem trilha no envio enquanto o jogo está fora do monitor (quem assiste fica com a última imagem e o aviso
+  "O jogo não está na tela"). Teste `screen-over-test`. **Não executado no Windows** (precisa de nova versão do app).
+- ~~Atualização ao iniciar com o Windows~~ **feito** (`91b0a78`): a reabertura até 5 min depois de instalar numa
+  abertura escondida continua escondida, sem a janelinha. **Não executado no Windows.**
+- ~~Animações que restam~~ **feito** (`b43f82c`): `skShine` e `uoSlide` por `transform` (`perf-anim.mjs`: esqueletos
+  5,79% → 0,10% da thread principal; barra 5,04% → 0,09%). `ns-shimmer` fica: é fundo recortado no texto
+  (`background-clip: text`), que não vai para o compositor sem mudar o visual; já só anima com o mouse em cima.
+- **GPU e VRAM no Windows** com o `medir-resenha.ps1`: depende do dono.
 
 ### 3. Médio prazo (medir antes e depois; risco médio)
-- **Pausar o GTCRN em silêncio longo** (porta fechada há muito tempo). Teto de ~6–7 pontos para quem usa GTCRN. Risco
-  de cortar o começo das palavras: só com teste de escuta e voz real. O GTCRN é da biblioteca
-  (`public/vendor/ns/gtcrn`), e a porta por voz é nossa (`public/vadgate-worklet.js`).
-- **Carregar sob demanda** o JS e o CSS que a abertura não usa (76% do JS e 96% do CSS numa conta nova). Manter o
-  pré-carregamento do `mediasoup-client` (é proposital). A divisão do `app.js` já piorou a abertura sem medir: medir.
-- **Modo de ruído "Padrão" sem Web Audio** (ganho 100%) e "quem fala" pelo `RTCRtpReceiver.getSynchronizationSources()`:
-  teto de ~12 pontos por chamada nesse modo (contexto suspenso: 20,2% → 7,9%).
-- **Buffer de clipe da própria transmissão** (+18% de CPU quando `clipsOn`): levar ao caminho nativo, sem recomprimir.
+- **Pausar o GTCRN em silêncio longo**: **depende do dono** (teste de escuta). O GTCRN é opcional ("Máxima"; o padrão é
+  o RNNoise) e minificado (`public/vendor/ns/gtcrn`): pausar exige tirar e recolocar o nó no grafo no começo da fala,
+  com o estado do modelo velho e a troca de atraso (~30 ms). Teto de ~6–7 pontos só para quem escolheu o GTCRN.
+- ~~Carregar sob demanda~~ **medido, não aplicado** (`perf-open.mjs`, CPU 4x mais lenta: pronto em ~1,2–1,4 s). O JS
+  executa pouco na abertura; o maior item ("topo" do `util.js`, ~50 ms a 4x) é a 1ª inicialização do ICU, que qualquer
+  `Intl` paga (adiar o `RelativeTimeFormat` não mudou nada: desfeito). CSS: teto de −15% sem os 6 arquivos pouco usados
+  (estilo 143 → 44 ms), mas a abertura usa um pedaço de cada; sem só os 2 com 0% de uso (`watch.css`, `extra.css`):
+  −10 ms de estilo a 4x, dentro do ruído. Dividir por tela só com teste visual de todas as telas.
+- ~~"Quem fala" pelo nível dos pacotes~~ **feito** (`b7eec79`): sem Analyser por pessoa no AudioContext; −1,4 ponto
+  (Padrão) e −0,7 (RNNoise) por pessoa remota, alternando na mesma chamada. Teste `speaking-ssrc-test`.
+  **Falta** o microfone sem Web Audio no modo "Padrão" (teto ~2,5 pontos só nesse modo, que não é o padrão: mexe no
+  volume de entrada, teste de microfone, efeitos de voz; o "falando" próprio iria para `getStats`).
+- ~~Buffer de clipe da própria transmissão~~ **feito** (`2c676a7`): pelo Chromium, os quadros saem do enviador para o
+  buffer (`perf-clip-own.mjs`: custo dos clipes em 1080p30 +14,9 → +0,5 ponto; 720p30 +10,1 → +4,6). Pelo programa
+  nativo já era o buffer nativo. Teste `clip-own-tap-test`.
 - **`dxcompiler.dll`** (25,8 MB; WebGPU não é usado): só com teste no Windows, porque o Chromium pode tentar carregá-la.
 
 ### 4. Grandes atualizações
