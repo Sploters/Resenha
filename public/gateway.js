@@ -152,11 +152,11 @@ export function connect() {
     if (ready && !offlineSince) offlineSince = Date.now();
     if (ready && !$('#reconnect')) document.body.append(h('div#reconnect', { style: { position: 'fixed', top: 0, left: 0, right: 0, background: '#f0b232', color: '#000', textAlign: 'center', padding: '4px', zIndex: 300, fontWeight: 600 } }, restarting ? 'Servidor atualizando. Volta em alguns segundos…' : 'Conexão perdida. Reconectando…'));
     // com sorteio: num reinício, não voltam todos juntos. Em chamada, no máximo ~2 s entre tentativas (o servidor segura a
-    // sala só 15 s: com 10 s entre tentativas, a rede voltava aos 14 s e a próxima tentativa vinha aos ~25 s, tarde demais)
+    // sala por 20 s, VOICE_GRACE_MS: com 10 s entre tentativas, a rede voltava aos 14 s e a próxima tentativa vinha aos ~25 s, tarde demais)
     clearTimeout(connect.t); connect.t = setTimeout(connect, reconnectDelay(retry++, voice?.channelId ? 2000 : 10000));
     // sessão encerrada (senha trocada, saiu em outro aparelho): volta ao login. Em paralelo e sem esperar: numa queda de
     // rede este pedido pode ficar pendurado por minutos, e antes a reconexão só era agendada depois dele
-    api('GET', '/users/0').catch((e) => { if (e.status === 401 && S.token) { clearTimeout(connect.t); clearTimeout(connect.open); localStorage.removeItem('lc_token'); S.token = null; showAuth(); } });
+    api('GET', '/users/0').catch((e) => { if (e.status === 401 && S.token) { clearTimeout(connect.t); clearTimeout(connect.open); $('#reconnect')?.remove(); localStorage.removeItem('lc_token'); S.token = null; showAuth(); } });
   };
 }
 
