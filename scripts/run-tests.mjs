@@ -53,7 +53,9 @@ function runOne(f) {
     // testes que abrem janela de verdade (Electron, navegador sem "headless"): no Linux sem tela, numa tela virtual (xvfb-run)
     const needX = (cfg.xvfb || []).includes(f.replace(/\.mjs$/, '')) && process.platform === 'linux' && !process.env.DISPLAY && HAS_XVFB;
     const [cmd, argv] = needX ? ['xvfb-run', ['-a', process.execPath, path.join('scripts', f)]] : [process.execPath, [path.join('scripts', f)]];
-    const p = spawn(cmd, argv, { env: { ...process.env, NODE_NO_WARNINGS: '1', EXIT_WITH_PARENT: '1' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // HEALTH_DISK_PCT=0: sem o alerta "Disco quase cheio" da máquina de teste (com menos de 10% livre, ele virava aviso
+    // na tela do administrador no meio do teste e cobria menus e botões: gifs, community2, focus-fly). O limite de 2 GB fica.
+    const p = spawn(cmd, argv, { env: { ...process.env, NODE_NO_WARNINGS: '1', EXIT_WITH_PARENT: '1', HEALTH_DISK_PCT: process.env.HEALTH_DISK_PCT ?? '0' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { out += d; });
     const kill = () => { try { process.kill(-p.pid, 'SIGKILL'); } catch { } };
     const timer = setTimeout(() => { out += `\n[tempo limite de ${TIMEOUT / 1000} s]`; kill(); }, TIMEOUT);
