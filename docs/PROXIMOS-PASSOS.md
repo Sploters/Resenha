@@ -238,6 +238,41 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
 6. Consumo (só para conferir que não piorou): `powershell -ExecutionPolicy Bypass -File medir-resenha.ps1 -Label chat -Secs 60`
    parado no chat, antes e depois de atualizar o servidor.
 
+## Relatos dos amigos e "jogar junto" (nov/2026, depois da 3ª passagem)
+
+- **Fechar pelo X com "Fechar para a bandeja" desligado** (`15cc853`): a janela era destruída mas o app seguia vivo só na
+  bandeja (o `window-all-closed` só encerra com `quitting`), e clicar no ícone dava "TypeError: Object has been destroyed"
+  (`main.js:265`). Agora o X encerra o app nesse caso; bandeja e atalhos conferem se a janela existe. Precisa de nova
+  versão do app. **Não executado no Windows.**
+- **Bot de música demorando, principalmente em playlist** (`677ec0c`): lista, áudio da 1ª faixa e entrada do bot agora
+  correm juntos. `music-start-test` (yt-dlp falso, 2 s por chamada): até tocar 4.219 → 2.167 ms. Só servidor.
+- **Transmissão preta/congelada no Windows 11 que volta reiniciando o app**: **não corrigido** (sem como reproduzir). O
+  programa nativo já reconstrói tudo quando a placa de vídeo é perdida e recria o DXGI em troca de resolução/tela cheia; no
+  caminho do Chromium a recuperação automática só existe para tela cheia exclusiva confirmada. Próxima vez, antes de
+  reiniciar: botão de transmissão → "Diagnóstico da captura" → copiar; trocar o método de captura ali (reinicia só o vídeo,
+  serve de contorno); e o `%APPDATA%\Resenha\main.log`.
+- **Jogar junto** (pedido do dono, estilo Remote Play Together/Parsec): quem assiste entra como **jogador 2, 3 ou 4** com
+  o próprio controle (Xbox, DualSense…, pela Gamepad API); no PC de quem transmite cada um vira um controle de Xbox 360
+  virtual (ViGEmBus), o dono continua o jogador 1. Pedido + aceite, "aceitar os próximos nesta chamada", lista de jogadores
+  no aviso com o botão de tirar, só controle (nunca mouse/teclado). O driver é instalado pelo app: instalador oficial
+  v1.22.0 (último; projeto arquivado em 2023) conferido por SHA-256 e pela assinatura "Nefarius Software Solutions e.U."
+  antes de abrir com o UAC. Peças: `server/remote.js` (kind `pad`, vagas), `native/lc-input` (vagas 0..3, `padoff`,
+  `padcheck`), `desktop/remote.js` (várias sessões, instalação), `public/remote.js` e `share.js`. Testes: `remote-test`
+  (+23 verificações) e `cargo test` do `lc-input` (12); `cargo check --target x86_64-pc-windows-gnu` passa. Precisa de
+  nova versão do app desktop (o `lc-input.exe` e o `desktop/`). **Não executado no Windows.**
+
+### O que testar no Windows (jogar junto e bandeja)
+1. **Bandeja:** desmarque "Fechar para a bandeja", clique no X: o ícone some e `Resenha.exe` sai do Gerenciador de Tarefas.
+2. **Driver:** num PC sem o ViGEmBus, transmita um jogo; outra pessoa pede "Entrar como jogador". No pedido, "Instalar o
+   driver": o Windows pede permissão, o instalador abre; ao terminar, o pedido libera "Deixar jogar" (sem reiniciar o app).
+   Conferir no `main.log` que não aparece "ViGEmBus recusado".
+3. **Jogadores:** com o seu controle ligado (jogador 1), aceite dois amigos: no jogo devem aparecer os jogadores 2 e 3
+   (`joy.cpl` no Executar mostra os controles de Xbox 360 a mais). Testar com um controle de Xbox e um DualSense do lado de
+   quem joga (pelo app ou pelo Chrome/Edge).
+4. **Tirar e sair:** tirar um jogador pelo aviso, e um jogador sair por "Sair do jogo": o controle dele some no `joy.cpl`
+   e o do outro continua. `Ctrl+Alt+Shift+Q` tira todos.
+5. **Latência:** os comandos passam pelo servidor (WebSocket). Medir com um jogo de ritmo rápido se o atraso incomoda.
+
 ## Como medir (ferramentas em `scripts/`)
 
 | Ferramenta | Mede |

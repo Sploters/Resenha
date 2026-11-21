@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-21-1', title: 'Jogar junto com o seu controle',
+    items: [
+      { i: 'gamepad', t: 'Entre como jogador 2, 3 ou 4', d: 'Na transmissão de um jogo, abra o menu (ou o botão do controle no quadro) e escolha "Entrar como jogador". Quem transmite aceita e o seu controle (Xbox, DualSense…) vira mais um controle no PC dele. O dele continua sendo o jogador 1.' },
+      { i: 'check', t: 'Aceitar os próximos', d: 'Quem transmite pode aceitar os próximos pedidos da chamada de uma vez, ver quem é cada jogador no aviso e tirar alguém quando quiser.' },
+      { i: 'dl', t: 'Driver instalado pelo app', d: 'O controle virtual precisa de um driver no PC de quem transmite. O app baixa o instalador oficial, confere se é ele mesmo e abre; o Windows pede permissão uma vez.' },
+      { i: 'shield', t: 'Correções', d: 'Com "Fechar para a bandeja" desligado, o X fecha o app de verdade (antes ficava na bandeja e dava erro ao abrir). E o bot de música começa a tocar playlists mais rápido.' },
+    ],
+  },
+  {
     id: '2026-11-20-2', title: 'Abrir e entrar na chamada sem pedaços',
     items: [
       { i: 'eye', t: 'Abre de uma vez', d: 'O esqueleto de carregamento aparece mais cedo, tem a forma da tela de verdade e só sai quando tudo já está pronto: nada de mensagem sem foto ou imagem vazia aparecendo aos poucos.' },
