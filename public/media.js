@@ -6,6 +6,7 @@
 //   vídeos em pé da conversa em tela cheia, um por vez, deslizando (ou rolando / ↑ ↓) para o próximo, como nos apps
 //   dessas redes. Só o vídeo da vez fica carregado.
 import { h, icon, fsVideo } from './util.js';
+import { vrrSource, vrrPoke } from './vrrfix.js';
 
 const NAMES = { youtube: 'YouTube', shorts: 'YouTube Shorts', tiktok: 'TikTok', instagram: 'Instagram' };
 
@@ -43,6 +44,11 @@ export function videoLink(url) {
   return null;
 }
 
+// app desktop: o player do site é um iframe (o <video> dele não é desta página), então as correções de piscada do app não
+// o alcançavam e o vídeo do YouTube ficava com a tela preta piscando. O iframe recebe filter: opacity(.999) no CSS
+// (html.lc-desk, igual aos <video> e ao Watch Together) e, enquanto há um player aberto, avisa o ponto anti-VRR
+// (public/vrrfix.js). O iframe só existe depois do play e some ao fechar, então "aberto" = tocando.
+vrrSource(() => !!document.querySelector('.sembed.on iframe, #shorts .sh-media iframe'));
 const frame = (v) => h('iframe', { src: v.embed, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write', allowFullscreen: true,
   referrerPolicy: 'strict-origin-when-cross-origin', loading: 'eager', title: NAMES[v.kind] }); // o YouTube recusa o player sem a origem
 
@@ -62,7 +68,7 @@ export function socialCard(url) {
       v.vertical && h('button.se-btn', { type: 'button', title: 'Tela vertical (deslize para o próximo)', onclick: (e) => { e.stopPropagation(); openShorts(card); } }, icon('expand', 16)),
       h('a.se-btn', { href: v.href, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no site', onclick: (e) => e.stopPropagation() }, icon('external', 16))));
   card._video = v;
-  const play = () => { if (card.classList.contains('on')) return; card.classList.add('on'); cover.replaceChildren(frame(v)); };
+  const play = () => { if (card.classList.contains('on')) return; card.classList.add('on'); cover.replaceChildren(frame(v)); vrrPoke(); };
   cover.onclick = play;
   return card;
 }
@@ -91,7 +97,7 @@ export function openShorts(start) {
   const close = () => {
     if (!open) return; open = null;
     for (const s of slides) unload(s);
-    removeEventListener('keydown', onKey, true); obs.disconnect(); el.remove();
+    removeEventListener('keydown', onKey, true); obs.disconnect(); el.remove(); vrrPoke();
     try { prevActive?.focus?.(); } catch { }
   };
   const go = (i) => { i = Math.max(0, Math.min(items.length - 1, i)); slides[i].scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
@@ -106,14 +112,14 @@ export function openShorts(start) {
   function load(s) {
     const i = +s.dataset.i, src = items[i], box = s.firstChild;
     if (box.firstChild) return;
-    if (src._video) box.append(frame(src._video), h('a.sh-site', { href: src._video.href, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 14), 'Abrir no ' + NAMES[src._video.kind].replace(' Shorts', '')));
+    if (src._video) { box.append(frame(src._video), h('a.sh-site', { href: src._video.href, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 14), 'Abrir no ' + NAMES[src._video.kind].replace(' Shorts', ''))); vrrPoke(); }
     else {
       const v0 = src.querySelector('video'), url = v0?.currentSrc || v0?.getAttribute('src');
       const vb = fsVideo({ src: url, autoplay: true, loop: true, preload: 'auto', poster: v0?.getAttribute('poster') || undefined }, '.sh-vid');
       box.append(vb); vb.video.play?.().catch(() => { });
     }
   }
-  function unload(s) { const box = s.firstChild; box.querySelector('video')?.pause(); box.replaceChildren(); }
+  function unload(s) { const box = s.firstChild; box.querySelector('video')?.pause(); box.replaceChildren(); vrrPoke(); }
   const obs = new IntersectionObserver((ents) => {
     for (const e of ents) {
       if (e.isIntersecting && e.intersectionRatio >= 0.6) { cur = +e.target.dataset.i; count.textContent = `${cur + 1} / ${items.length}`; load(e.target); }

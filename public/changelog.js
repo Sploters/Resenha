@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-21-2', title: 'Valorant sem bordas e YouTube sem piscar',
+    items: [
+      { i: 'screen', t: 'Jogo em "Janela sem bordas"', d: 'Transmitindo um jogo em janela sem bordas (como o Valorant), quem assistia às vezes via a janela que estava atrás do jogo. Agora, quando o jogo cobre a tela, a transmissão pega a imagem da tela do jogo, que sempre mostra o jogo. Se você der Alt+Tab, a imagem pausa e quem assiste vê "O jogo não está na tela" em vez da sua área de trabalho.' },
+      { i: 'play', t: 'YouTube no chat sem tela preta', d: 'No app para computador, o vídeo do YouTube (e TikTok/Instagram) aberto pelo link no chat ficava piscando preto. Ele agora recebe as mesmas correções que já valiam para clipes, transmissões e o Watch Together, inclusive em tela cheia.' },
+    ],
+  },
+  {
     id: '2026-11-21-1', title: 'Jogar junto com o seu controle',
     items: [
       { i: 'gamepad', t: 'Entre como jogador 2, 3 ou 4', d: 'Na transmissão de um jogo, abra o menu (ou o botão do controle no quadro) e escolha "Entrar como jogador". Quem transmite aceita e o seu controle (Xbox, DualSense…) vira mais um controle no PC dele. O dele continua sendo o jogador 1.' },

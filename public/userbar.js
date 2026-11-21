@@ -56,7 +56,7 @@ function sbButton() {
   return b;
 }
 // o que a transmissão precisa saber da fonte escolhida (jogo em tela cheia no Windows 10 vai pelo nativo: voice.js wantNative)
-export const srcInfo = (src) => (src ? { id: src.id, name: src.name, type: src.type, game: !!src.game, fullscreen: !!src.fullscreen, minimized: !!src.minimized, screenId: src.screenId || null } : null);
+export const srcInfo = (src) => (src ? { id: src.id, name: src.name, type: src.type, game: !!src.game, fullscreen: !!src.fullscreen, nearFull: !!src.nearFull, minimized: !!src.minimized, screenId: src.screenId || null } : null);
 export const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
 export const newsActions = {

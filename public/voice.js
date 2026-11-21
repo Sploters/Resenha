@@ -68,6 +68,11 @@ const opusHi = (sdp) => {
 // nada antes do intervalo (16,1 ms < 16,7 ms; 32,2 ms < 33,3 ms): pedindo 60 saíam ~32 fps e pedindo 30, ~21 (medido).
 // Com 25% de folga no teto passam os quadros da grade, e o limite exato fica com o codificador (maxFramerate, sfuTuneScreen).
 // motivo (código curto) do "não" do app desktop para o programa nativo; o app novo manda `code`, os antigos só o texto
+// jogo que cobre o monitor dele: tela cheia, ou "janela sem bordas" com alguns pixels a menos (nearFull, app novo). Nesse
+// caso a tela do monitor é a mesma imagem que a janela, e a captura de JANELA do Chromium falha com jogos: no Windows 10
+// borda amarela, mouse atrasado e imagem congelada; com "janela sem bordas" mostra a janela de BAIXO do jogo (relato com
+// Valorant). O monitor (DXGI no Windows 10, WGC de monitor no 11) pega o jogo.
+const gameCoversMon = (si) => !!si && si.type === 'window' && (!!si.fullscreen || !!(si.game && si.nearFull));
 const nativeWhy = (c) => c.code || (/Só no app/.test(c.reason || '') ? 'web' : /Windows 10.*borda|borda amarela/.test(c.reason || '') ? 'win10'
   : /não encontrado/.test(c.reason || '') ? 'noexe' : /captura de tela necessária/.test(c.reason || '') ? 'nocap' : /codificador/.test(c.reason || '') ? 'nohw' : 'other');
 export const capFps = (fps) => ({ ideal: +fps, max: Math.ceil(+fps * 1.25) });
@@ -557,6 +562,10 @@ export class Voice {
     // MediaRecorder comprimir a tela de novo. Entra antes do 1º quadro (depois o encaixe não recebe nada)
     if (source === 'screen' && !this.e2ee && this.prefs?.clipsOn === true) opts.onRtpSender = (sender) => { this._ownTap?.close(); this._ownTap = attachTap(sender, '', { send: true }); };
     if (this.e2ee) { delete opts.codec; opts.onRtpSender = (sender) => this.e2eeAttach(sender, 'enc'); } // protegida: só VP8 (o H.264 não aceita quadro cifrado); a cifra entra antes do primeiro quadro sair
+    // jogo mandado pelo monitor (monForGame) e fora da tela agora (Resenha na frente ao começar): nasce sem trilha no
+    // envio, nenhum quadro da tela sai; applyOver devolve a trilha quando o jogo voltar para a frente
+    const hide = source === 'screen' && !!this._overOn && this.monForGame();
+    if (hide) { const prev = opts.onRtpSender; opts.onRtpSender = (snd) => { prev?.(snd); snd.replaceTrack(null).catch(() => { }); }; }
     let p;
     try { p = await s.send.produce(opts); }
     catch (e) { // codec/camadas recusados: tenta de novo no padrão
@@ -571,6 +580,7 @@ export class Voice {
       else { this._ownTap.close(); this._ownTap = null; }
     }
     if (source === 'screen') { this.sfuTuneScreen(); if (opts.codec) setTimeout(() => this.checkHwEncoder(), 3500); }
+    if (hide) { p.lcHidden = true; this.sfuReq('pause_producer', { source: 'screen', paused: true }).catch(() => { }); this.applyOver(); }
   }
   async sfuPublishScreen() {
     const vt = this.screen?.getVideoTracks()[0], at = this.screen?.getAudioTracks()[0];
@@ -751,8 +761,12 @@ export class Voice {
     this._overOn = false; this._overHid = false;
     const d = window.lcDesktop, id = this._natWinId;
     if (!d?.watchSourceOver || !id) return;
-    d.onSourceOver?.((s) => { this._overOn = !!s?.covered; this._overWhy = s?.why || null; this.applyOver(); });
-    d.watchSourceOver(id).catch(() => { });
+    // até o 1º aviso chegar (vem logo, o programa reavisa o estado atual) conta como fora da tela: ao começar, a Resenha
+    // costuma estar na frente do jogo e o monitor mostraria ela. Sem o aviso nesta versão do app, volta ao normal.
+    this._overOn = true; this._overWhy = 'front';
+    let got = false;
+    d.onSourceOver?.((s) => { got = true; this._overOn = !!s?.covered; this._overWhy = s?.why || null; this.applyOver(); });
+    d.watchSourceOver(id).then((ok) => { if (!ok && !got && this._natWinId === id) { this._overOn = false; this.applyOver(); } }, () => { if (!got) { this._overOn = false; this.applyOver(); } });
   }
   // o Chromium está mandando o monitor do jogo (não a janela, nem o nativo)?
   monForGame() { return !!this._natWinId && !this.native && !!this.screen; }
@@ -1520,7 +1534,7 @@ export class Voice {
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
     this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false;
-    if (this._swapWhy) this.capLog({ t: 'capnote', msg: 'captura reserva do Chromium (Windows 10): ' + this._swapWhy });
+    if (this._swapWhy) this.capLog({ t: 'capnote', msg: 'captura do Chromium para jogo: ' + this._swapWhy });
     this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
     if (opts.audio && opts.appAudio && window.lcDesktop?.appAudioStart) await this.useAppAudio(opts.appAudio);
@@ -1531,9 +1545,13 @@ export class Voice {
     if (nat) this.startNative().catch(() => { });
   }
 
-  // Windows 10, jogo pela captura nativa: o Chromium (prévia e reserva) captura a TELA, não a janela. A captura de janela do
-  // Chromium no Windows 10 é a WGC, que some com o cursor do jogo para quem joga enquanto está aberta (confirmado: com a
-  // tela inteira o cursor aparece e volta ao parar). O nativo recebe a janela pelo id (recorte da janela no DXGI).
+  // Jogo: o Chromium (prévia, reserva ou a própria transmissão) captura a TELA do monitor do jogo, não a janela, em dois casos:
+  // - Windows 10 com a captura nativa: a captura de janela do Chromium lá é a WGC, que some com o cursor do jogo para quem
+  //   joga enquanto está aberta (confirmado: com a tela inteira o cursor aparece e volta ao parar). O nativo recebe a
+  //   janela pelo id (recorte da janela no DXGI).
+  // - jogo cobrindo o monitor (tela cheia ou janela sem bordas, gameCoversMon), com ou sem o nativo, Windows 10 ou 11: a
+  //   captura de janela do Chromium mostrava a janela de baixo do jogo. Sem o nativo é o Chromium que manda o vídeo, então
+  //   só troca se o app avisa quando o jogo sai da frente (watchOver): no Alt+Tab o vídeo pausa em vez de mostrar a tela.
   // Com vários monitores, a tela do jogo vem do app (screenId, pelo monitor da janela); app antigo: só com um monitor.
   // Devolve o id da janela ou null.
   async gameWindowViaScreen(o) {
@@ -1546,32 +1564,37 @@ export class Voice {
     if (!/^window:/.test(si.id || '')) return why('sem id da janela');
     if (!d?.selectSource || !d.getSources) return why('app sem suporte');
     try {
-      const c = await this.nativeCapable(captureMode(this.prefs));
-      if (!c.ok) return why('nativo indisponível: ' + (c.code || c.reason || '?'));
-      if (!(+c.os > 0)) return why('app não informa o Windows');
-      if (+c.os >= 22000) return why('Windows 11');
-      if (!(await this.wantNative(o))) return why('não vai pelo nativo: ' + (this._natWhy || '?'));
+      const cover = gameCoversMon(si);
+      const c = await this.nativeCapable(captureMode(this.prefs)).catch(() => ({}));
+      const nat = !!c.ok && await this.wantNative(o);
+      const win10nat = nat && +c.os > 0 && +c.os < 22000;
+      if (!win10nat) {
+        if (!cover) return why(!nat ? 'não vai pelo nativo: ' + (this._natWhy || c.code || c.reason || '?') : +c.os > 0 ? 'Windows 11, janela não cobre o monitor' : 'app não informa o Windows');
+        // o Chromium vai mandar o monitor: sem o aviso de "jogo fora da tela", o Alt+Tab mostraria a tela para quem assiste
+        if (!nat && !this.sfu?.ready) return why('sem SFU (na malha P2P o vídeo não pausa no Alt+Tab)');
+        if (!nat && !(await d.watchSourceOver?.(si.id).catch(() => false))) return why('app sem o aviso de jogo fora da tela (atualize o app)');
+      }
       const screens = (await d.getSources()).filter(x => x.type === 'screen');
       // a tela do monitor do jogo: o app diz qual é (desde a versão que manda screenId); com um monitor só, é ela
       const scr = screens.find(x => si.screenId && x.id === si.screenId) || (screens.length === 1 ? screens[0] : null);
       if (!scr) return why(screens.length + ' monitores e o app não diz em qual está o jogo (atualize o app)');
       if (!(await d.selectSource(scr.id, scr.name))) return why('selectSource falhou');
-      this._swapWhy = 'ok: Chromium na tela, nativo na janela';
+      this._swapWhy = nat ? 'ok: Chromium na tela, nativo na janela' : 'ok: jogo cobre o monitor, Chromium na tela do jogo';
       return si.id;
     } catch (e) { return why('erro: ' + (e.message || e)); }
   }
   // antes de mandar o vídeo pelo Chromium: se ele estava na tela só para a prévia (acima), volta para a JANELA do jogo
   // (nunca transmitir a tela inteira no lugar da janela escolhida). Sem conseguir, para a transmissão.
-  // Exceção: jogo em TELA CHEIA no Windows 10. Lá a captura de janela do Chromium é a WGC: borda amarela, o jogo deixa de
-  // ser apresentado direto (mouse com atraso para quem joga, cursor some) e a imagem congela ou mostra a janela de baixo
-  // (relato com Valorant). A tela do monitor do jogo é a mesma imagem (o jogo cobre o monitor) e vai pelo DXGI, sem nada
-  // disso: fica nela.
+  // Exceção: jogo cobrindo o monitor (tela cheia ou janela sem bordas, gameCoversMon). A captura de janela do Chromium
+  // mostra a janela de baixo do jogo (relato com Valorant) e, no Windows 10, é a WGC: borda amarela, o jogo deixa de ser
+  // apresentado direto (mouse com atraso, cursor some) e a imagem congela. A tela do monitor do jogo é a mesma imagem e
+  // não tem nada disso: fica nela (o Alt+Tab pausa o vídeo, watchOver).
   async chromiumOnWindow() {
     const id = this._natWinId; if (!id || !this.screen) return true;
     const d = window.lcDesktop, old = this.screen.getVideoTracks()[0], o = this.screenOpts || {};
     const si = o.srcInfo || {}; // minimizado = jogo em tela cheia depois do Alt+Tab (ex.: 4:3 esticado, que não mede o monitor todo)
-    if ((si.fullscreen || si.game && si.minimized) && old?.readyState === 'live') {
-      this.capLog({ t: 'capnote', msg: 'jogo em tela cheia no Windows 10: o modo normal segue na tela do monitor do jogo (sem a captura de janela, que tem borda amarela e atrasa o jogo)' });
+    if ((gameCoversMon(si) || si.game && si.minimized) && old?.readyState === 'live') {
+      this.capLog({ t: 'capnote', msg: 'jogo cobrindo o monitor (tela cheia ou janela sem bordas): o modo normal segue na tela do monitor do jogo (a captura de janela mostra a janela de baixo, tem borda amarela no Windows 10 e atrasa o jogo)' });
       return true;
     }
     try {

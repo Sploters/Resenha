@@ -261,6 +261,22 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
   (+23 verificações) e `cargo test` do `lc-input` (12); `cargo check --target x86_64-pc-windows-gnu` passa. Precisa de
   nova versão do app desktop (o `lc-input.exe` e o `desktop/`). **Não executado no Windows.**
 
+- **Valorant em "janela sem bordas" mostrando a janela de baixo** (relato do dono): a captura de JANELA do Chromium
+  falha com jogo sem bordas. A correção de antes (`chromiumOnWindow`) só valia para tela cheia exclusiva com a captura
+  nativa no Windows 10; a 30 FPS (padrão) no Windows 11 a transmissão ia direto pela captura de janela. Agora, jogo que
+  cobre o monitor (`fullscreen`, ou o novo `nearFull` do `lc-audio --windows`: até 32 px a menos de cada lado, a mesma
+  regra do recorte do DXGI) vai pela TELA do monitor do jogo também sem o nativo e no Windows 11, desde que o app tenha
+  o vigia `over` (senão continua na janela) e haja SFU. A transmissão nasce sem trilha no envio até o 1º aviso do vigia
+  (a Resenha costuma estar na frente ao começar) e pausa no Alt+Tab. Peças: `public/voice.js` (`gameCoversMon`,
+  `gameWindowViaScreen`, `watchOver`, `sfuProduce`), `native/lc-audio` (`nearFull`), `desktop/main.js`,
+  `public/userbar.js`. Teste: `borderless-test` (+ `screen-over-test`, `gameshare-test`). O `nearFull` precisa da nova
+  versão do app; com o app atual já vale para jogo detectado como tela cheia. **Não executado no Windows.**
+- **Vídeo do YouTube do chat piscando preto no app** (relato do dono): o player é um iframe, e as correções de piscada
+  (`filter: opacity(.999)` e o ponto anti-VRR de `vrrfix.js`) só alcançavam `<video>` da página e o Watch Together. O
+  iframe do cartão e da tela vertical recebem o filtro (`features.css`) e avisam o anti-VRR (`media.js`); com o próprio
+  iframe em tela cheia o ponto sobe para a camada do topo (popover), já que dentro do iframe ele não é desenhado. Só
+  servidor. Teste: `borderless-test`. **Não executado no Windows.**
+
 ### O que testar no Windows (jogar junto e bandeja)
 1. **Bandeja:** desmarque "Fechar para a bandeja", clique no X: o ícone some e `Resenha.exe` sai do Gerenciador de Tarefas.
 2. **Driver:** num PC sem o ViGEmBus, transmita um jogo; outra pessoa pede "Entrar como jogador". No pedido, "Instalar o

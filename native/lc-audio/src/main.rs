@@ -7,7 +7,7 @@
 //!   --probe     {"ok":bool,"build":n}  (o loopback por processo existe neste Windows?)
 //!   --fse [s]   uma linha JSON por segundo, por `s` segundos: {"t","state","code","fg":{hwnd,pid,title,exe,fullscreen}}
 //!               (SHQueryUserNotificationState e a janela da frente; kit de testes de tela cheia exclusiva)
-//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","mon":[l,t,r,b],"anc":[pid...]}...] (uma linha JSON;
+//!   --windows   [{"hwnd","pid","title","exe","minimized","fullscreen","nearFull","mon":[l,t,r,b],"anc":[pid...]}...] (uma linha JSON;
 //!               mon = monitor da janela em pixels reais e anc = pai, avô... do processo, para o áudio "só desta tela")
 //!   --front <hwnd> [ms]  vigia a janela da frente a cada `ms` (padrão 1000): uma linha JSON quando muda,
 //!               {"covered":bool,"pid"?,"exe"?}. covered = outra janela (de outro programa) está em primeiro plano cobrindo
@@ -156,7 +156,7 @@ mod sys {
         if let Some(t) = std::env::var_os("LC_WINDOWS_TEST").and_then(|p| std::fs::read_to_string(p).ok()) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) { return v; }
         }
-        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "mon": [0, 0, 1920, 1080], "anc": [] }])
+        serde_json::json!([{ "hwnd": 1234, "pid": 42, "title": "Jogo de Teste", "exe": "C:\\Games\\Teste\\teste.exe", "minimized": true, "fullscreen": true, "nearFull": false, "mon": [0, 0, 1920, 1080], "anc": [] }])
     }
     pub fn dpi_aware() {}
     /// teste: o conteúdo de LC_FSE_TEST (JSON) ou "nada em tela cheia"
@@ -277,10 +277,17 @@ mod sys {
         let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         // (compara o tamanho, não a posição: a posição "normal" vem em coordenadas da área de trabalho, deslocada pela barra de tarefas)
         let fullscreen = GetMonitorInfoW(mon, &mut mi).as_bool() && r.right - r.left >= mi.rcMonitor.right - mi.rcMonitor.left && r.bottom - r.top >= mi.rcMonitor.bottom - mi.rcMonitor.top;
+        // quase tela cheia: janela sem bordas que cobre o monitor com alguns pixels a menos (visto 1914x1080 num monitor de
+        // 1920) — no máximo 32 px de cada lado de fora, a mesma regra do recorte do DXGI no lc-stream. Só da janela na tela
+        // (minimizada não conta). O app usa, em jogo, para o Chromium capturar o monitor em vez da janela.
+        let near_full = !minimized && GetMonitorInfoW(mon, &mut mi).as_bool() && {
+            let m = mi.rcMonitor;
+            r.left - m.left <= 32 && r.top - m.top <= 32 && m.right - r.right <= 32 && m.bottom - r.bottom <= 32 && r.right > r.left && r.bottom > r.top
+        };
         if std::env::var_os("LC_DEBUG").is_some() { eprintln!("{title}: rect {:?} monitor {:?}", (r.left, r.top, r.right, r.bottom), (mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom)); }
         // monitor da janela (o da maior parte dela), em pixels reais: o app junta os programas de uma tela para o áudio "só desta tela"
         let m = mi.rcMonitor;
-        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen, "mon": [m.left, m.top, m.right, m.bottom], "anc": ancestors(pid, &en.par) }));
+        out.push(serde_json::json!({ "hwnd": hwnd.0 as isize, "pid": pid, "title": title, "exe": exe_of(pid), "minimized": minimized, "fullscreen": fullscreen, "nearFull": near_full, "mon": [m.left, m.top, m.right, m.bottom], "anc": ancestors(pid, &en.par) }));
         true.into()
     }
     pub fn windows() -> serde_json::Value {

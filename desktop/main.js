@@ -366,7 +366,7 @@ ipcMain.handle('get-sources', async () => {
   const [list, wins] = await Promise.all([desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true }), appAudio.listWindows().catch(() => [])]);
   const byHwnd = new Map(wins.map(w => [String(w.hwnd), w]));
   const screens = list.filter(x => x.id.startsWith('screen:'));
-  const extra = (w) => (w ? { pid: w.pid, exe: w.exe, game: !!w.game, minimized: !!w.minimized, fullscreen: !!w.fullscreen, screenId: screenOfMon(w.mon, screens) } : {});
+  const extra = (w) => (w ? { pid: w.pid, exe: w.exe, game: !!w.game, minimized: !!w.minimized, fullscreen: !!w.fullscreen, nearFull: !!w.nearFull, screenId: screenOfMon(w.mon, screens) } : {});
   const now = Date.now(), out = [];
   for (const s of list) {
     if (s.name === 'Resenha' || /NVIDIA GeForce Overlay/i.test(s.name)) continue; // o overlay da NVIDIA só aparece preto
@@ -398,7 +398,7 @@ ipcMain.handle('foreground-source', async () => {
   const w = wins.find(x => !x.minimized && !NOT_FRONT.test(String(x.title || '').trim()));
   if (w && !/^Program Manager$/i.test(w.title)) { // "Program Manager" = a área de trabalho na frente: vai a tela
     const screens = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
-    return { id: `window:${w.hwnd}:0`, name: w.game ? appAudio.cleanTitle(w.title) : w.title, type: 'window', pid: w.pid, exe: w.exe, game: !!w.game, fullscreen: !!w.fullscreen, screenId: screenOfMon(w.mon, screens) };
+    return { id: `window:${w.hwnd}:0`, name: w.game ? appAudio.cleanTitle(w.title) : w.title, type: 'window', pid: w.pid, exe: w.exe, game: !!w.game, fullscreen: !!w.fullscreen, nearFull: !!w.nearFull, screenId: screenOfMon(w.mon, screens) };
   }
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const ss = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);

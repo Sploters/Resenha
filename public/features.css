@@ -1418,6 +1418,8 @@ html.anim .spoiler.shown { -webkit-mask-image: linear-gradient(90deg, #000 45%, 
 .sembed.se-instagram .se-cover { background: linear-gradient(160deg, #f58529aa, #dd2a7b88 45%, #515bd4aa); }
 .sembed .se-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sembed .se-cover iframe { width: 100%; height: 100%; border: 0; display: block; }
+/* app desktop: o player do site desenhado pela página, sem alternar com a sobreposição da placa (piscava preto; public/media.js) */
+html.lc-desk .sembed .se-cover iframe, html.lc-desk #shorts .sh-media iframe { filter: opacity(.999); }
 .sembed .se-play { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .15s, background .15s; }
 .sembed .se-play svg { fill: currentColor; margin-left: 3px; }
 .sembed .se-play:hover { transform: scale(1.06); background: rgba(0,0,0,.75); }

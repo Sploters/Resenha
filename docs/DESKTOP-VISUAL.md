@@ -102,3 +102,12 @@ mais por vídeo. No navegador nada muda.
 mouse em cima ou não, saindo e voltando para a sala rápido ou devagar. Não dá para dizer qual das três resolveu
 sozinha; a do filtro é a que tira a alternância de caminho, que explica todos os sintomas. Não remover sem testar
 nesse PC.
+
+## YouTube/TikTok/Instagram do chat piscando preto (nov/2026)
+
+O cartão de vídeo do chat toca pelo player do site num iframe, cujo `<video>` não é da página: nem o
+`filter: opacity(.999)` de `html.lc-desk video` nem o ponto anti-VRR (que procura `<video>` tocando) o alcançavam, e o
+vídeo piscava preto como os clipes antes da correção. Agora o iframe do cartão e o da tela vertical recebem o filtro
+(`public/features.css`) e registram um `vrrSource` (`public/media.js`: player aberto = tocando, porque o iframe só existe
+depois do play). Com o iframe em tela cheia pelo botão do próprio player, o ponto vai para a camada do topo (popover), já
+que um iframe não desenha filhos (`public/vrrfix.js`). Teste: `scripts/borderless-test.mjs`.

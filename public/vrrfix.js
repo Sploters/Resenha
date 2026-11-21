@@ -16,16 +16,23 @@ const sources = new Set();
 export function vrrSource(fn) { sources.add(fn); return () => sources.delete(fn); }
 export const vrrPoke = () => { if (inited) soon(); };
 const playing = () => [...document.querySelectorAll('video')].some(v => v.isConnected && !v.paused && !v.ended && v.readyState >= 2) || [...sources].some(f => { try { return f(); } catch { return false; } });
-// em tela cheia só o elemento em tela cheia é desenhado: o ponto vai junto, senão fica escondido e não gera quadros
-const host = () => document.fullscreenElement || document.body;
+// em tela cheia só o elemento em tela cheia é desenhado: o ponto vai junto, senão fica escondido e não gera quadros.
+// Elemento que não desenha filhos (o iframe do YouTube em tela cheia pelo botão do próprio player, um <video>): o ponto
+// fica no body e sobe para a camada do topo (popover), por cima do que está em tela cheia.
+const fsEl = () => document.fullscreenElement;
+const host = () => { const f = fsEl(); return f && !/^(IFRAME|VIDEO|IMG|CANVAS)$/.test(f.tagName) ? f : document.body; };
+const topLayer = () => { const f = fsEl(); return !!f && host() === document.body; };
 
 function start() {
   if (!dot) dot = Object.assign(document.createElement('div'), { className: 'lc-vrr', ariaHidden: 'true' });
-  dot.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;background:#000;opacity:.01;pointer-events:none;z-index:2147483647;contain:strict';
-  if (dot.parentNode !== host()) { host().append(dot); anim?.cancel(); anim = null; }
+  dot.style.cssText = 'position:fixed;left:0;bottom:0;top:auto;right:auto;margin:0;padding:0;border:0;overflow:hidden;width:2px;height:2px;background:#000;opacity:.01;pointer-events:none;z-index:2147483647;contain:strict';
+  if (dot.parentNode !== host()) { unTop(); host().append(dot); anim?.cancel(); anim = null; }
+  if (topLayer()) { if (!dot.popover) dot.popover = 'manual'; try { if (!dot.matches(':popover-open')) dot.showPopover(); } catch { /* sem popover */ } }
+  else unTop();
   if (!anim || anim.playState !== 'running') anim = dot.animate([{ opacity: .01 }, { opacity: .02 }], { duration: 1000, iterations: Infinity, direction: 'alternate' });
 }
-function stop() { anim?.cancel(); anim = null; dot?.remove(); }
+function unTop() { try { if (dot?.popover && dot.matches(':popover-open')) dot.hidePopover(); } catch { } if (dot) dot.popover = null; }
+function stop() { anim?.cancel(); anim = null; unTop(); dot?.remove(); }
 
 function check() {
   clearTimeout(timer); timer = 0;
