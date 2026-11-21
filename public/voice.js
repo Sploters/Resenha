@@ -7,6 +7,7 @@ import { createFx, loadFx, FX_IDS } from './voicefx.js';
 import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 import { attachTap } from './clipbuf.js';
+import { newMicWatch, micWatchStep } from './micwatch.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -162,6 +163,11 @@ export async function createMic(prefs, ctx) {
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
   const out = { raw, nodes, error: null, processed: false };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
+  // nível do microfone CRU (antes de filtro, porta e mudo) para o vigia da captura (public/micwatch.js)
+  const rawAn = ctx.createAnalyser(); rawAn.fftSize = 16384; src.connect(rawAn); nodes.push(rawAn); // ~340 ms: lido a cada 250 ms, cobre o tempo todo
+  const rawBuf = new Float32Array(rawAn.fftSize);
+  out.rawPeak = () => { rawAn.getFloatTimeDomainData(rawBuf); let m = 0; for (const v of rawBuf) { const a = v < 0 ? -v : v; if (a > m) m = a; } return m; };
+  out.rawTrack = raw.getAudioTracks()[0];
   const { first: f0 } = await buildChain(ctx, src, prefs, out);
   let last = out.last, first = f0;
   const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
@@ -231,7 +237,14 @@ export class Voice {
     window.addEventListener('online', () => { const s = this.sfu; if (s?.ready) for (const t of [s.send, s.recv]) if (t && t.connectionState !== 'connected') this.iceRestart(t, s); });
   }
   get active() { return !!this.channelId; }
-  getCtx() { this.ctx ||= newAudioContext(); this.ctx.resume?.(); return this.ctx; }
+  getCtx() {
+    if (!this.ctx) {
+      this.ctx = newAudioContext();
+      // o sistema parou o áudio (troca de dispositivo, outro programa, "interrompido"): na chamada, pede para voltar na hora
+      this.ctx.addEventListener?.('statechange', () => { const c = this.ctx; if (c && c.state !== 'running' && c.state !== 'closed' && (this.channelId || this._joinTo)) c.resume().catch(() => { }); });
+    }
+    this.ctx.resume?.(); return this.ctx;
+  }
 
   async buildMic() {
     const gen = (this._micGen = (this._micGen || 0) + 1);
@@ -242,9 +255,33 @@ export class Voice {
     // (antes ficava ligada, com a IA de ruído processando à toa, e o áudio ia acumulando atraso)
     if (gen !== this._micGen) { g.dispose(); return false; }
     this.micGraph = g; this.mic = g.stream; this.updateMonitor?.();
+    g.id = gen;
+    // a captura terminou (dispositivo desconectado ou reiniciado pelo sistema) ou um filtro travou: monta de novo na hora
+    if (g.rawTrack) g.rawTrack.addEventListener('ended', () => { if (this.micGraph === g) this.micRecover('ended'); });
+    for (const n of g.nodes) if (n instanceof AudioWorkletNode) n.onprocessorerror = () => { console.warn('filtro do microfone travou', n); if (this.micGraph === g) this.micRecover('worklet'); };
     this.error = g.error;
     this.analysers.set(this.myId, { src: { disconnect() { } }, an: g.analyser, buf: new Uint8Array(g.analyser.fftSize), level: 0 });
     this.applyMute();
+  }
+  // Vigia (a cada 1 s na chamada; o nível é lido a cada 250 ms para não perder som curto): a captura do microfone morreu sem aviso (zero absoluto, trilha muda, motor de áudio
+  // parado)? Monta o microfone de novo sem sair da sala. Regras em public/micwatch.js.
+  micWatch() {
+    const g = this.micGraph, w = this._mw; if (!g || !w || !this.channelId || this._rb) return;
+    const t = g.rawTrack, ctx = this.ctx, ended = t?.readyState === 'ended';
+    if (w.g !== g.id) { w.g = g.id; w.pk = null; w.n = 0; }
+    try { const v = g.rawPeak?.(); if (v != null) w.pk = Math.max(w.pk ?? 0, v); } catch { }
+    if (++w.n < 4 && !ended) return;
+    const peak = w.pk; w.pk = null; w.n = 0;
+    const r = micWatchStep(w, { graph: g.id, ended, muted: !!t?.muted, ctxRunning: ctx?.state === 'running', peak });
+    if (r === 'resume') ctx?.resume?.().catch(() => { });
+    else if (r?.rebuild) this.micRecover(r.rebuild);
+  }
+  micRecover(why) {
+    if (!this.channelId) return;
+    console.warn('microfone: captura parou (' + why + '), montando de novo');
+    track('mic_recover', why);
+    this.ctx?.resume?.().catch(() => { });
+    return this.rebuildMic();
   }
   // Troca a cadeia de áudio (ex.: mudou o modo de ruído) sem reconectar
   // vários pedidos seguidos viram um só: espera a montagem atual terminar e monta de novo uma vez, com as opções mais novas
@@ -332,6 +369,7 @@ export class Voice {
     })();
     this.channelId = channelId; this.joinedAt = Date.now();
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
+    this._mw = newMicWatch(); clearInterval(this._mwT); this._mwT = setInterval(() => this.micWatch(), 250); // vigia da captura do microfone
     this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
     this._jt = { sent: performance.now() }; this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
@@ -349,6 +387,7 @@ export class Voice {
     // qualidade técnica da chamada que acabou: vai para a telemetria em faixas e junto do aviso (a avaliação cruza com ela)
     const ms = Date.now() - (this.joinedAt || Date.now());
     clearInterval(this._cqT); this._cqT = null; let quality = null;
+    clearInterval(this._mwT); this._mwT = null; this._mw = null;
     try { quality = this._cq?.summary(ms) || null; recordCallQuality(quality); } catch (e) { console.warn('qualidade da chamada', e); }
     this._cq = null;
     // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou, em que sala e como a rede estava

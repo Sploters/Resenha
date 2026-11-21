@@ -6,6 +6,12 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-21-5', title: 'Sua voz não some mais no meio da chamada',
+    items: [
+      { i: 'mic', t: 'Microfone se recupera sozinho', d: 'Quando o Windows ou o driver reinicia o microfone no meio da chamada (outro programa ou jogo pegou o dispositivo, o USB economizou energia, o fone trocou de modo), a sua voz parava de sair até você sair e entrar na sala. Agora a Resenha percebe em poucos segundos e liga o microfone de novo, sem tirar você da chamada.' },
+    ],
+  },
+  {
     id: '2026-11-21-4', title: 'Watch Together: playlists e correções',
     items: [
       { i: 'tv', t: 'Playlists do YouTube', d: 'Cole o link de uma playlist do YouTube na busca do Watch Together e todos os vídeos entram na fila (até 100). Se o link for de um vídeo aberto dentro da playlist, você escolhe: só ele ou a playlist inteira, começando por ele.' },

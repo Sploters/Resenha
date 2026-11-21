@@ -176,6 +176,8 @@
     "watch-unit-test": 8,
     "voice-drag-test": 15,
     "clipstats-test": 50,
-    "clipstats-unit-test": 1
+    "clipstats-unit-test": 1,
+    "micwatch-unit-test": 1,
+    "mic-dead-test": 75
   }
 }
