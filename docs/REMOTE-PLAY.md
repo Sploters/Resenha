@@ -249,3 +249,36 @@ só conta como resolvida depois do teste com 2 PCs, nos dois sentidos e em redes
 
 Limitações honestas desta medição: tudo no mesmo PC, sem GPU (VP8 por software), sem o `lc-stream` e o `lc-input` reais,
 rede simulada sem perda de TCP. O ganho real no Windows precisa do teste com 2 PCs e do painel.
+
+## 8. Validação com 2 PCs reais (dono)
+
+A latência só conta como resolvida depois disto. Tudo que está em `public/` e `server/` chega com a atualização do
+servidor (`sh deploy/umbrel.sh`); o **mouse travado** precisa da nova versão do app desktop (o `lc-input.exe` e o
+`desktop/remote.js`); o resto funciona com o app atual.
+
+**Condições** (fazer todas nos **dois sentidos**: A transmite e B joga, depois B transmite e A joga):
+1. Os dois na mesma rede (casa).
+2. Quem joga em outra rede (ex.: roteador do celular 4G/5G), quem transmite em casa.
+3. Se der: um amigo de outra cidade jogando.
+
+**Em cada condição (≈ 5 min):**
+1. Quem transmite abre um jogo com controle (ex.: Rocket League, Cuphead, Overcooked) e transmite. Quem joga clica
+   **Pedir para jogar**; quem transmite aceita na janela **Jogadores** (só Controle). Conferir: o aviso "Perfil de jogo:
+   60 FPS"; quem joga vê "Player 2"; o controle responde.
+2. Os dois abrem **Desempenho** no menu da transmissão. Jogar 2 min. Anotar a sensação (atraso perceptível? travadas?).
+3. Liberar **Teclado** e **Mouse** na janela; quem joga clica na transmissão e usa. Com o app novo e um jogo 3D (câmera
+   no mouse): **Mouse travado** no aviso, clicar no jogo, mexer a câmera, Esc solta.
+4. Passar o mouse para outro jogador (se houver um 3º), **Revogar tudo** (nada mais responde), devolver o Controle.
+5. Quem joga desliga o Wi-Fi ~5 s e religa: volta como Player 2, controle funcionando.
+6. **Exportar** nos dois painéis (gera `resenha-desempenho-*.json`) e mandar os arquivos.
+
+**O que olhar no painel de quem joga:** Comando ida e volta (p50/p95), RTT ao servidor, FPS exibidos, Captura → exibição
+(mínimo), perda, transporte; e em "Quem transmite": caminho (nativo ou Chromium), FPS enviados, codificação.
+
+**Quando partir para a etapa 7 (comandos por DataChannel/UDP):** só se, com a rede estável, o p95 do "Comando ida e
+volta" ficar bem acima de RTT de quem joga + RTT de quem transmite (ex.: picos de 100+ ms enquanto os RTTs ficam
+parados), principalmente com perda acima de 0. Isso é o TCP segurando comandos atrás de um pacote perdido. Se o comando
+acompanhar os RTTs, o transporte atual não é o problema e a etapa 7 não entra.
+
+**Medição opcional de "comando → tela" de verdade:** filmar com o celular em câmera lenta (240 FPS) a tela de quem joga
+com o controle/mouse no quadro, e contar os quadros entre apertar e a reação aparecer (1 quadro = 4,2 ms).

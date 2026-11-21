@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-21-3', title: 'Jogar junto, do jeito certo',
+    items: [
+      { i: 'gamepad', t: 'Um botão só: "Pedir para jogar"', d: 'Na transmissão de um jogo, peça para jogar. Quem transmite escolhe o que você pode usar (controle, teclado e/ou mouse) e pode mudar ou tirar na hora. Você vê no topo qual Player é e o que está liberado.' },
+      { i: 'users', t: 'Janela Jogadores', d: 'Quem transmite abre "Jogadores" no menu da própria transmissão: até 4 no total (você é o Player 1), pedidos com Aceitar e Recusar, convite para quem está na sala, permissões de cada um, Revogar tudo e Tirar. O mouse fica com um jogador por vez.' },
+      { i: 'bolt', t: 'Mais resposta', d: 'Cliques, teclas e o controle saem na hora (antes esperavam uma fila), e com alguém jogando a transmissão vai a 60 FPS sozinha, voltando ao que era quando o último sai.' },
+      { i: 'gauge', t: 'Painel Desempenho', d: 'Para testes: "Desempenho" no menu da transmissão mostra latência dos comandos, FPS, rede e o que quem transmite está enviando, dizendo o que é medido e o que é estimado. Dá para copiar ou exportar.' },
+    ],
+  },
+  {
     id: '2026-11-21-2', title: 'Valorant sem bordas e YouTube sem piscar',
     items: [
       { i: 'screen', t: 'Jogo em "Janela sem bordas"', d: 'Transmitindo um jogo em janela sem bordas (como o Valorant), quem assistia às vezes via a janela que estava atrás do jogo. Agora, quando o jogo cobre a tela, a transmissão pega a imagem da tela do jogo, que sempre mostra o jogo. Se você der Alt+Tab, a imagem pausa e quem assiste vê "O jogo não está na tela" em vez da sua área de trabalho.' },
