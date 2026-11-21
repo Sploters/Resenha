@@ -129,9 +129,12 @@ try {
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`)?.click(), a.id);
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"] video`)?.videoWidth > 0, { timeout: 15000 }, a.id);
   await B.evaluate((uid) => { window.__lc.S.focus = 's:' + uid; }, a.id);
-  const ctlBtn = (P, uid) => P.evaluate((uid) => { const t = document.querySelector(`.tile.screen[data-sid="${uid}"]`); const b = t?.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return !![...document.querySelectorAll('.menu .it')].find(x => /controle/i.test(x.textContent)); }, uid); // fica no "⋯" do quadro
-  ok(await ctlBtn(B, a.id), 'quem assiste vê o botão "Pedir controle" na transmissão');
-  const clickCtl = (P) => P.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle|Parar controle/.test(x.textContent))?.click());
+  // o menu tem só "Pedir para jogar" (public/players.js; scripts/remote-play-ui-test.mjs). Aqui o fluxo antigo ("Pedir controle",
+  // kind 'control', e "Entrar como jogador", kind 'pad') é pedido como faria uma página aberta antes da atualização: quem
+  // transmite (página nova) continua atendendo esses pedidos
+  const menuHas = (P, re) => P.evaluate((re) => { document.querySelector('.sctl button[title="Mais opções"]')?.click(); const l = [...document.querySelectorAll('.menu .it')].map(x => x.textContent); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return l.some(x => new RegExp(re).test(x)); }, re);
+  ok(await menuHas(B, 'Pedir para jogar') && !(await menuHas(B, 'Pedir controle|Entrar como jogador')), 'menu da transmissão: só "Pedir para jogar"');
+  const clickCtl = (P) => P.evaluate(async () => { const m = await window.__lc.import('remote.js'), uid = document.querySelector('.tile.screen.focus, .tile.screen')?.dataset.sid; const s = window.__lc.S.remote; if (s) m.stopControl(); else m.requestControl(uid); });
 
   // pedido -> alice vê o diálogo, libera só o mouse
   await clickCtl(B);
@@ -238,7 +241,7 @@ try {
   // ---- jogar junto: bob e carol entram como jogadores 2 e 3, só com o controle ----
   await A.evaluate(() => { window.__pad = false; window.__ri = []; window.__rs = []; window.__rstopIds = []; });
   const menuPick = (P, re) => P.evaluate((re) => { document.querySelector('.sctl button[title="Mais opções"]')?.click(); const it = [...document.querySelectorAll('.menu .it')].find(x => new RegExp(re).test(x.textContent)); it?.click(); return !!it; }, re);
-  ok(await menuPick(B, 'Entrar como jogador'), 'quem assiste vê "Entrar como jogador" no menu da transmissão');
+  await B.evaluate(async (uid) => (await window.__lc.import('remote.js')).requestKind(uid, 'pad'), a.id); // página antiga: "Entrar como jogador"
   await A.waitForFunction(() => /quer jogar junto/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
   const askP = await A.evaluate(() => ({ install: [...document.querySelectorAll('.modal .rmdrv .btn')].some(x => /Instalar o driver/.test(x.textContent)), noMouse: !/Mouse/.test([...document.querySelectorAll('.modal .rmopt b')].map(x => x.textContent).join()) }));
   ok(askP.install && askP.noMouse, 'pedido para jogar: sem o driver, o botão de instalar; sem opção de mouse e teclado', askP);
@@ -255,13 +258,17 @@ try {
   const evB = await A.evaluate(() => window.__ri.slice());
   ok(evB.some(e => e.k === 'g' && e.b === 1 && e.ax[2] === 0.6 && e._id === rsB.id) && evB.every(e => e.k === 'g'), 'o controle do bob chega na sessão dele (vaga 2); o clique não', evB.slice(0, 3));
   // carol pede pelo atalho do módulo: "aceitar os próximos" aceita sozinho, como jogador 3
-  await C.evaluate(async (uid) => { const b = (on) => ({ pressed: on, value: on ? 1 : 0 }); window.__gp = { mapping: 'standard', buttons: Array.from({ length: 17 }, () => b(false)), axes: [0, 0, 0, 0] }; navigator.getGamepads = () => [window.__gp]; (await window.__lc.import('remote.js')).requestPlay(uid); }, a.id);
+  await C.evaluate(async (uid) => { const b = (on) => ({ pressed: on, value: on ? 1 : 0 }); window.__gp = { mapping: 'standard', buttons: Array.from({ length: 17 }, () => b(false)), axes: [0, 0, 0, 0] }; navigator.getGamepads = () => [window.__gp]; (await window.__lc.import('remote.js')).requestKind(uid, 'pad'); }, a.id);
   ok(await toastOf(C, 'jogador 3'), 'aceitar os próximos: carol entra sozinha como jogador 3, sem nova pergunta à alice');
   const chip = await A.evaluate(() => [...document.querySelectorAll('#remote-chip .rplayer')].map(x => x.textContent));
-  ok(chip.length === 2 && /^2bob/.test(chip[0]) && /^3carol/.test(chip[1]), 'alice vê os jogadores no aviso (2 bob, 3 carol)', chip);
-  await A.evaluate(() => [...document.querySelectorAll('#remote-chip .rplayer')][1].querySelector('button').click());
+  ok(chip.length === 2 && /^P2bob/.test(chip[0]) && /^P3carol/.test(chip[1]), 'alice vê os jogadores no aviso (P2 bob, P3 carol)', chip);
+  // tirar: pela janela Jogadores (botão "Jogadores" do aviso)
+  await A.evaluate(() => [...document.querySelectorAll('#remote-chip .btn')].find(b => b.textContent === 'Jogadores').click());
+  await A.waitForSelector('.playersdlg .pl-row', { timeout: 5000 });
+  await A.evaluate(() => { const r = [...document.querySelectorAll('.playersdlg .pl-row')].find(r => /carol/.test(r.innerText)); [...r.querySelectorAll('.btn')].find(b => b.textContent === 'Tirar').click(); });
   ok(await toastOf(C, 'tirou você do jogo'), 'alice tira a carol do jogo: ela é avisada');
   ok(await A.evaluate((id) => window.__rstopIds.length === 1 && window.__rstopIds[0] !== id, rsB.id), 'só o controle virtual da carol é desligado', await A.evaluate(() => window.__rstopIds));
+  await A.evaluate(() => [...document.querySelectorAll('.playersdlg .btn')].find(b => b.textContent === 'Fechar')?.click());
   await B.evaluate(() => [...document.querySelectorAll('#remote-chip .btn')].find(x => /Sair do jogo/.test(x.textContent)).click());
   ok(await toastOf(A, 'bob saiu do jogo'), 'bob sai pelo aviso: alice é avisada');
   ok(await A.evaluate((id) => window.__rstopIds.includes(id) && !document.getElementById('remote-chip'), rsB.id), 'controle virtual do bob desligado; sem jogadores, o aviso some');
@@ -273,7 +280,7 @@ try {
   await B.waitForFunction((uid) => !!document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`), { timeout: 15000 }, c.id);
   await B.evaluate((uid) => document.querySelector(`.tile.cstream[data-key="s:${uid}"] .btn`).click(), c.id); await sleep(800);
   await B.evaluate((uid) => { if (window.__lc.S.focus !== 's:' + uid) document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.click(); }, c.id); await sleep(400); // destaca a transmissão da carol (os botões valem para a destacada); o clique alterna, então só se ainda não estiver
-  await B.evaluate(() => (() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); return [...document.querySelectorAll('.menu .it')]; })().find(x => /Pedir controle/.test(x.textContent))?.click());
+  await B.evaluate(async (uid) => (await window.__lc.import('remote.js')).requestControl(uid), c.id);
   ok(await toastOf(B, 'carol não pode ser controlad'), 'navegador comum: pedido recusado automaticamente com explicação');
   ok(!(await C.evaluate(() => !!document.querySelector('.modal .rmask'))), 'carol (sem o app) nem vê diálogo de consentimento');
 

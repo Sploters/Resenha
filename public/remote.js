@@ -13,22 +13,55 @@ let ctx = {}; // injetado por app.js: send(t, d), name(uid), rerender()
 export const initRemote = (c) => { ctx = c; };
 const REASON = { declined: 'recusou o pedido de controle', unsupported: 'não pode ser controlado (só pelo app para Windows)', stream_ended: 'parou de transmitir', left: 'saiu da sala', expired: 'não respondeu ao pedido de controle', panic: 'parou o controle remoto', stopped: 'encerrou o controle remoto' };
 export const session = () => S.remote || null;
-export const controlling = (uid) => { const s = S.remote; return !!s && s.state === 'active' && s.controller === S.me.id && s.owner === uid; };
+// sessão em que EU controlo com mouse/teclado: a antiga (S.remote, "Pedir controle") ou a de jogador ('play')
+export const ctlSess = () => { const s = S.remote; if (s?.state === 'active' && s.controller === S.me.id) return s; const p = myPlay(); return p?.state === 'active' && p.kind === 'play' ? p : null; };
+// o quadro da transmissão de uid captura mouse/teclado (borda e cursor de controle)?
+export const controlling = (uid) => { const s = ctlSess(); return !!s && s.owner === uid && (s.kind !== 'play' || s.perms.mouse || s.perms.keyboard); };
 // "mouse e teclado", "mouse, teclado e controle", "controle"…
 export const permsText = (p) => { const l = [p.mouse && 'mouse', p.keyboard && 'teclado', p.gamepad && 'controle'].filter(Boolean); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l.at(-1) : l[0] || 'nada'; };
 export const pendingFor = (uid) => { const s = S.remote; return !!s && s.state === 'pending' && s.controller === S.me.id && s.owner === uid; };
-// ---------- "jogar junto" (kind 'pad'): entrar como jogador 2, 3 ou 4 com o próprio controle ----------
-// S.pads: id -> sessão. Quem transmite pode ter até 3; quem joga, uma.
+// ---------- jogar junto ("Pedir para jogar", kind 'play'; o antigo 'pad' ainda chega de páginas velhas) ----------
+// Player 2, 3 ou 4 na transmissão de alguém (o dono é o Player 1). Permissões independentes (controle, teclado, mouse),
+// escolhidas e alteráveis pelo dono na janela Jogadores (public/players.js). S.pads: id -> sessão (pedido, convite ou ativa).
 const pads = () => (S.pads ||= new Map());
 export const myPlay = (uid) => [...pads().values()].find(s => s.controller === S.me.id && (!uid || s.owner === uid)) || null;
 export const playersOf = (uid) => [...pads().values()].filter(s => s.owner === uid && s.state === 'active').sort((a, b) => a.slot - b.slot);
+export const playRequests = () => [...pads().values()].filter(s => s.owner === S.me.id && s.state === 'pending' && !s.invite);
+export const sentInvites = () => [...pads().values()].filter(s => s.owner === S.me.id && s.state === 'pending' && s.invite);
+let playersHook = null; export const onPlayersChange = (f) => { playersHook = f; };
+const playersChanged = () => { try { playersHook?.(); } catch { } };
 export function requestPlay(uid) {
   const cur = myPlay();
-  if (cur) return cur.owner === uid ? ctx.send('REMOTE_STOP', { id: cur.id }) : toast(`Você já está jogando na transmissão de ${ctx.name(cur.owner)}. Saia de lá antes.`, true);
-  if (!navigator.getGamepads) return toast('Este navegador não lê controles de videogame.', true);
-  if (![...(navigator.getGamepads() || [])].some(Boolean)) toast('Ligue o controle (Xbox, DualSense…) neste PC e aperte um botão para ele ser reconhecido.');
-  ctx.send('REMOTE_REQUEST', { to: uid, kind: 'pad' });
+  if (cur) return cur.owner === uid ? (cur.state === 'active' ? leavePlay(uid) : ctx.send('REMOTE_STOP', { id: cur.id })) : toast(`Você já está jogando na transmissão de ${ctx.name(cur.owner)}. Saia de lá antes.`, true);
+  if (S.remote) return toast('Pare o controle remoto antes de pedir para jogar.', true);
+  const who = ctx.name(uid), go = () => ctx.send('REMOTE_REQUEST', { to: uid, kind: 'play' });
+  if (S.prefs.remoteIntroSeen) return go();
+  modal('Pedir para jogar', null, h('div.rmask',
+    h('p', `Você vai pedir para jogar na transmissão de ${who}. ${who} escolhe o que você pode usar (controle, teclado ou mouse) e pode mudar ou tirar a qualquer momento.`),
+    antiCheatWarning([]), limitations()),
+    [{ label: 'Cancelar', cls: 'grey' }, { label: 'Pedir para jogar', fn: () => { S.prefs.remoteIntroSeen = true; ctx.savePrefs?.(); go(); } }]);
 }
+// ---------- quem transmite: ações da janela Jogadores ----------
+export const acceptPlay = (id, perms) => ctx.send('REMOTE_ANSWER', { id, accept: true, capable: true, mouse: !!perms.mouse, keyboard: !!perms.keyboard, gamepad: !!perms.gamepad });
+export const declinePlay = (id) => ctx.send('REMOTE_ANSWER', { id, accept: false, capable: true });
+export const setPlayPerms = (id, perms) => ctx.send('REMOTE_PERMS', { id, mouse: !!perms.mouse, keyboard: !!perms.keyboard, gamepad: !!perms.gamepad });
+export const invitePlayer = (uid, perms = { gamepad: true }) => ctx.send('REMOTE_INVITE', { to: uid, ...perms });
+export const revokeAll = () => { for (const p of playersOf(S.me.id)) if (p.kind === 'play' && (p.perms.mouse || p.perms.keyboard || p.perms.gamepad)) setPlayPerms(p.id, {}); };
+export const autoAccept = { get on() { return !!autoPlay && autoPlay === ctx.channelId?.(); }, set on(v) { autoPlay = v ? ctx.channelId?.() || null : null; playersChanged(); } };
+let capCache = null;
+export async function ownerCap(fresh) {
+  if (!fresh && capCache && Date.now() - capCache.t < 15000) return capCache.v;
+  const v = desktop?.remoteCapable ? await desktop.remoteCapable().catch(() => ({ ok: false, reason: 'O app não respondeu.' })) : { ok: false, reason: 'Jogar junto só funciona com quem transmite pelo app Resenha para Windows.' };
+  capCache = { t: Date.now(), v }; return v;
+}
+export async function installPadDriver() {
+  const r = await desktop?.padDriverInstall?.().catch(err => ({ ok: false, reason: err.message })) || { ok: false, reason: 'Atualize o app Resenha.' };
+  if (r.ok) { capCache = null; for (const p of playersOf(S.me.id)) if (p.kind === 'play') syncBridge(p); }
+  return r;
+}
+export const openPlayers = (o) => import('./players.js').then(m => m.openPlayers(o));
+// pedido do tipo antigo ('control' ou 'pad'), como uma página aberta antes da atualização (scripts/remote-test.mjs)
+export const requestKind = (uid, kind) => ctx.send('REMOTE_REQUEST', { to: uid, kind });
 export const stopPlay = (uid) => { const s = myPlay(uid); if (s) ctx.send('REMOTE_STOP', { id: s.id }); };
 
 // ---------- quem assiste ----------
@@ -72,7 +105,7 @@ const push = (e) => {
 };
 function flush() {
   flushTimer = 0; lastSent = performance.now(); if (lastMove) { queue.push(lastMove); lastMove = null; }
-  const s = S.remote; if (!s || s.state !== 'active' || !queue.length) { queue = []; return; }
+  const s = ctlSess(); if (!s || !queue.length) { queue = []; return; }
   while (queue.length) ctx.send('REMOTE_INPUT', { id: s.id, ev: queue.splice(0, 64) });
 }
 // ponto do vídeo (0..1) sob o cursor, descontando as faixas pretas do object-fit: contain
@@ -92,12 +125,12 @@ function setKb(on) {
 }
 // tudo no modo captura: o clique dentro do quadro não troca o foco nem abre menus da página
 const opts = { capture: true, passive: false };
-addEventListener('pointermove', (e) => { const t = ownerTile(e.target); if (!t || !S.remote?.perms.mouse) return; const p = norm(videoOf(t), e.clientX, e.clientY); if (p) push({ k: 'm', ...p }); }, opts);
+addEventListener('pointermove', (e) => { const t = ownerTile(e.target); if (!t || !ctlSess()?.perms.mouse) return; const p = norm(videoOf(t), e.clientX, e.clientY); if (p) push({ k: 'm', ...p }); }, opts);
 addEventListener('pointerdown', (e) => {
   const t = ownerTile(e.target); if (!t) { setKb(false); return; }
   if (e.target.closest('.tctl, .remote-chip, button')) return; // botões do próprio quadro continuam funcionando
   e.preventDefault(); e.stopPropagation(); setKb(true);
-  if (!S.remote.perms.mouse || e.button > 2) return;
+  if (!ctlSess()?.perms.mouse || e.button > 2) return;
   const p = norm(videoOf(t), e.clientX, e.clientY); if (!p) return;
   push({ k: 'm', ...p }); push({ k: 'd', b: e.button }); btnsDown.add(e.button);
 }, opts);
@@ -106,22 +139,21 @@ addEventListener('click', (e) => { if (ownerTile(e.target) && !e.target.closest(
 addEventListener('dblclick', (e) => { if (ownerTile(e.target)) { e.preventDefault(); e.stopPropagation(); } }, opts);
 addEventListener('contextmenu', (e) => { if (ownerTile(e.target)) { e.preventDefault(); e.stopPropagation(); } }, opts);
 addEventListener('wheel', (e) => {
-  const t = ownerTile(e.target); if (!t || !S.remote?.perms.mouse) return;
+  const t = ownerTile(e.target); if (!t || !ctlSess()?.perms.mouse) return;
   e.preventDefault(); e.stopPropagation();
   const f = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1.2; // pixels/linhas/páginas -> unidades do Windows (120 por "dente")
   const cl = (v) => Math.max(-2400, Math.min(2400, Math.round(v * f)));
   if (e.deltaX || e.deltaY) push({ k: 'w', dx: cl(e.deltaX), dy: cl(e.deltaY) });
 }, opts);
 const keyHandler = (down) => (e) => {
-  if (!kbOn || !S.remote || S.remote.state !== 'active' || S.remote.controller !== S.me.id) return;
-  if (!S.remote.perms.keyboard || !e.code) return;
+  const cs = ctlSess(); if (!kbOn || !cs || !cs.perms.keyboard || !e.code) return;
   e.preventDefault(); e.stopPropagation();
   if (down) { if (e.repeat && keysDown.has(e.code)) { push({ k: 'kd', c: e.code }); return; } keysDown.add(e.code); push({ k: 'kd', c: e.code }); }
   else if (keysDown.delete(e.code)) push({ k: 'ku', c: e.code });
 };
 addEventListener('keydown', keyHandler(true), true);
 addEventListener('keyup', keyHandler(false), true);
-addEventListener('blur', () => { if (S.remote) { setKb(false); releaseAll(); padNeutral(); flush(); } });
+addEventListener('blur', () => { if (S.remote || myPlay()) { setKb(false); releaseAll(); padNeutral(); flush(); } });
 
 // controle de videogame de quem controla (Gamepad API): lê ~60 vezes por segundo e manda o estado inteiro só quando muda.
 // Sem foco na janela o navegador para de atualizar o controle: manda tudo solto para nada ficar apertado no PC do dono.
@@ -136,10 +168,10 @@ function readPad() {
   return { k: 'g', b, ax, lt: Math.round((g.buttons[6]?.value || 0) * 1e3) / 1e3, rt: Math.round((g.buttons[7]?.value || 0) * 1e3) / 1e3 };
 }
 // para onde vai o controle: a sessão de jogador (jogar junto) ou a de controle remoto com o controle liberado
-const padTarget = () => { const p = myPlay(); if (p?.state === 'active') return p; const s = S.remote; return s && s.state === 'active' && s.controller === S.me.id && s.perms.gamepad ? s : null; };
+const padTarget = () => { const p = myPlay(); if (p?.state === 'active' && (p.kind === 'pad' || p.perms.gamepad)) return p; const s = S.remote; return s && s.state === 'active' && s.controller === S.me.id && s.perms.gamepad ? s : null; };
 const NEUTRAL = { k: 'g', b: 0, ax: [0, 0, 0, 0], lt: 0, rt: 0 };
 // jogador: manda direto (só o estado que mudou, ~60/s no máximo); controle remoto: pela fila junto com mouse e teclado
-function padSend(st, s = padTarget()) { if (!s) return; if (s.kind === 'pad') ctx.send('REMOTE_INPUT', { id: s.id, ev: [st || NEUTRAL] }); else push(st || NEUTRAL); }
+function padSend(st, s = padTarget()) { if (!s) return; if (s.kind === 'pad' || s.kind === 'play') ctx.send('REMOTE_INPUT', { id: s.id, ev: [st || NEUTRAL] }); else push(st || NEUTRAL); }
 function padNeutral() { if (padLast && padLast !== '0') { padLast = '0'; padSend(null); } }
 function padTick() {
   const s = padTarget();
@@ -213,7 +245,8 @@ async function onPadRequest(s) {
   whenGone(dlg.el, () => { if (!dlg.quiet) answer(false); });
   setTimeout(() => { if (!answered) { answered = true; dlg.quiet = true; dlg.close(); padAsks.delete(s.id); } }, 30000);
 }
-export const kickPlayer = (id) => ctx.send('REMOTE_STOP', { id });
+const kicked = new Set(); // tirados por mim: o fim vem com 'stopped', igual a quando o jogador sai sozinho
+export const kickPlayer = (id) => { kicked.add(id); ctx.send('REMOTE_STOP', { id }); };
 desktop?.onRemoteEvent?.((k) => {
   if (k === 'panic') for (const p of playersOf(S.me.id)) ctx.send('REMOTE_STOP', { id: p.id, reason: 'panic' }); // atalho de emergência: todo mundo sai
   if (k === 'panic' && S.remote?.owner === S.me.id) ctx.send('REMOTE_STOP', { id: S.remote.id, reason: 'panic' });
@@ -246,11 +279,11 @@ export function limitations() {
 // ---------- eventos do servidor ----------
 let pendingTimer = 0;
 export function onRemoteEvent(t, d) {
-  if (t === 'REMOTE_REQUEST') return d.kind === 'pad' ? onPadRequest(d) : onRequest(d);
+  if (t === 'REMOTE_REQUEST') return d.kind === 'pad' ? onPadRequest(d) : d.kind === 'play' ? onPlayRequest(d) : onRequest(d);
   if (t === 'REMOTE_ERROR') return toast(d.error, true);
-  if (t === 'REMOTE_INPUT') { if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) desktop?.remoteInput?.(d.ev, d.id); return; }
+  if (t === 'REMOTE_INPUT') { if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) routeInput(pads().get(d.id), d.ev); return; }
   if (t !== 'REMOTE_STATE') return;
-  if (d.kind === 'pad') return padState(d);
+  if (d.kind === 'pad' || d.kind === 'play') return padState(d);
   const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner);
   if (d.state === 'ended') {
     const was = S.remote; S.remote = null; setKb(false); queue = []; lastMove = null;
@@ -277,39 +310,120 @@ export function onRemoteEvent(t, d) {
   }
   paintChip(); ctx.rerender();
 }
-const PLAY_END = { declined: 'recusou', unsupported: 'não pode receber jogadores (só pelo app para Windows)', expired: 'não respondeu', stream_ended: 'parou de transmitir', left: 'saiu da sala', full: 'já tem 4 jogadores', panic: 'tirou todos os jogadores' };
+const PLAY_END = { declined: 'recusou', unsupported: 'não pode receber jogadores (só pelo app para Windows)', expired: 'não respondeu', stream_ended: 'parou de transmitir', left: 'saiu da sala', full: 'já tem 4 jogadores', panic: 'tirou todos os jogadores', cancelled: 'cancelou o convite' };
+// ponte com o app desktop de quem transmite. Funciona com o app que as pessoas já têm: o controle do jogador vai numa
+// entrada 'pad' (vaga = Player N) e o mouse/teclado numa 'control' à parte (id + ':kb'); muda conforme as permissões
+const bridge = new Map(); // id -> { pad, kb, m, k }
+const bridgeQ = new Map(); // id -> promessa (as mudanças de uma pessoa em ordem)
+function syncBridge(s) {
+  const run = async () => {
+    const cur = bridge.get(s.id) || { pad: false, kb: false }, live = pads().get(s.id);
+    const p = live?.state === 'active' ? live.perms : { mouse: false, keyboard: false, gamepad: false }, who = ctx.name(s.controller);
+    const next = { ...cur };
+    if (p.gamepad && !cur.pad) { const r = await desktop?.remoteStart?.({ id: s.id, who, kind: 'pad', slot: live.slot }); next.pad = !!r?.ok; if (!r?.ok) toast(r?.reason || `O controle de ${who} não ligou neste PC`, true); }
+    if (!p.gamepad && cur.pad) { desktop?.remoteStop?.(s.id); next.pad = false; }
+    const kb = !!(p.mouse || p.keyboard);
+    if (kb && (!cur.kb || cur.m !== p.mouse || cur.k !== p.keyboard)) { const r = await desktop?.remoteStart?.({ id: s.id + ':kb', who, kind: 'control', perms: { mouse: p.mouse, keyboard: p.keyboard, gamepad: false } }); next.kb = !!r?.ok; next.m = p.mouse; next.k = p.keyboard; if (!r?.ok) toast(r?.reason || 'Não foi possível ligar o mouse/teclado', true); }
+    if (!kb && cur.kb) { desktop?.remoteStop?.(s.id + ':kb'); next.kb = false; }
+    if (next.pad || next.kb) bridge.set(s.id, next); else bridge.delete(s.id);
+  };
+  const q = (bridgeQ.get(s.id) || Promise.resolve()).then(run, run); bridgeQ.set(s.id, q); q.finally(() => { if (bridgeQ.get(s.id) === q) bridgeQ.delete(s.id); });
+  return q;
+}
+function routeInput(s, ev) {
+  if (s.kind === 'pad') return desktop?.remoteInput?.(ev, s.id);
+  const b = bridge.get(s.id); if (!b) return;
+  const g = ev.filter(e => e.k === 'g'), o = ev.filter(e => e.k !== 'g');
+  if (g.length && b.pad) desktop?.remoteInput?.(g, s.id);
+  if (o.length && b.kb) desktop?.remoteInput?.(o, s.id + ':kb');
+}
+// reconectou (READY): o servidor manda o estado de novo depois do VOICE_RESUME; até lá, nada fica ligado aqui
+const quiet = new Set(); // ids que voltam sem aviso
+export function remoteReconnected() {
+  for (const s of [...pads().values()]) { quiet.add(s.id); if (s.owner === S.me.id) { if (s.kind === 'pad') desktop?.remoteStop?.(s.id); else { pads().delete(s.id); syncBridge(s); } } pads().delete(s.id); }
+  setTimeout(() => quiet.clear(), 15000);
+  paintChip(); playersChanged();
+}
+const inviteDlgs = new Map();
+async function showInvite(d) {
+  const who = ctx.name(d.owner);
+  playSound('ring');
+  const dlg = modal(`${who} convidou você para jogar`, null, h('div.rmask',
+    h('p', `Você entra na transmissão de ${who} como mais um jogador. Liberado agora: `, h('b', permsText(d.perms)), `. ${who} pode mudar isso a qualquer momento.`),
+    antiCheatWarning([])),
+    [{ label: 'Recusar', cls: 'grey', fn: () => ctx.send('REMOTE_JOIN', { id: d.id, accept: false }) },
+     { label: 'Jogar', fn: () => { ctx.send('REMOTE_JOIN', { id: d.id, accept: true }); import('./share.js').then(m => { m.watchOnly(d.owner); ctx.rerender(); }).catch(() => { }); } }]);
+  inviteDlgs.set(d.id, dlg);
+  whenGone(dlg.el, () => { if (inviteDlgs.get(d.id) === dlg) inviteDlgs.delete(d.id); if (!dlg.quiet && pads().get(d.id)?.state === 'pending') ctx.send('REMOTE_JOIN', { id: d.id, accept: false }); });
+}
 function padState(d) {
-  const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner), before = pads().get(d.id);
+  const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner), before = pads().get(d.id), hush = quiet.has(d.id);
   if (d.state === 'ended') {
     pads().delete(d.id);
-    const dlg = padAsks.get(d.id); if (dlg) { dlg.quiet = true; dlg.close(); padAsks.delete(d.id); }
-    if (mine) { desktop?.remoteStop?.(d.id); if (before?.state === 'active' && d.reason !== 'stream_ended') toast(`${other} saiu do jogo`); if (['stream_ended', 'left', 'panic'].includes(d.reason)) autoPlay = null; }
-    else {
-      const r = d.reason || 'stopped';
-      if (r === 'cancelled' || (r === 'stopped' && before?.state === 'active' && before.controller === S.me.id && padLeaving)) toast(r === 'cancelled' ? 'Pedido para jogar cancelado' : 'Você saiu do jogo');
+    for (const m of [padAsks, inviteDlgs]) { const dlg = m.get(d.id); if (dlg) { dlg.quiet = true; dlg.close(); m.delete(d.id); } }
+    const r = d.reason || 'stopped';
+    if (mine) {
+      if (d.kind === 'pad') desktop?.remoteStop?.(d.id); else syncBridge(d);
+      if (before?.state === 'active' && !kicked.has(d.id) && r !== 'stream_ended' && r !== 'panic') toast(`${other} saiu do jogo`);
+      else if (r === 'invite_declined') toast(`${other} recusou o convite para jogar`);
+      kicked.delete(d.id);
+      if (['stream_ended', 'left', 'panic'].includes(r)) autoPlay = null;
+    } else {
+      if (r === 'cancelled' && before?.invite) toast(`${other} cancelou o convite`);
+      else if (r === 'cancelled' || r === 'invite_declined' || (r === 'stopped' && before?.state === 'active' && padLeaving)) { if (r === 'cancelled') toast('Pedido para jogar cancelado'); else if (r === 'stopped') toast('Você saiu do jogo'); }
       else toast(`${other} ${PLAY_END[r] || (before?.state === 'active' ? 'tirou você do jogo' : 'encerrou o jogo')}`, r !== 'stopped');
-      padLeaving = false;
+      padLeaving = false; if (before?.kind === 'play') { setKb(false); releaseAll(); }
     }
   } else {
     pads().set(d.id, d);
-    if (d.state === 'active' && before?.state !== 'active') {
-      if (mine) desktop?.remoteStart?.({ id: d.id, who: other, kind: 'pad', slot: d.slot }).then(r => { if (!r?.ok) { toast(r?.reason || 'Não foi possível ligar o controle virtual', true); ctx.send('REMOTE_STOP', { id: d.id }); } else toast(`${other} entrou como jogador ${d.slot}`); });
-      else { toast(`Você é o jogador ${d.slot} na transmissão de ${other}. Use o seu controle.`); padStart(); }
+    if (mine) {
+      if (d.state === 'active') {
+        if (d.kind === 'pad') { if (before?.state !== 'active') desktop?.remoteStart?.({ id: d.id, who: other, kind: 'pad', slot: d.slot }).then(r => { if (!r?.ok) { toast(r?.reason || 'Não foi possível ligar o controle virtual', true); ctx.send('REMOTE_STOP', { id: d.id }); } else toast(`${other} entrou como jogador ${d.slot}`); }); }
+        else { syncBridge(d); if (before?.state !== 'active' && !hush) toast(`${other} entrou como Player ${d.slot}`); }
+      }
+    } else if (d.state === 'pending' && d.invite && !before && !hush) showInvite(d);
+    else if (d.state === 'active') {
+      const dlg = inviteDlgs.get(d.id); if (dlg) { dlg.quiet = true; dlg.close(); inviteDlgs.delete(d.id); }
+      const ctl = d.perms.mouse || d.perms.keyboard;
+      if (before?.state !== 'active') { if (!hush) toast(d.kind === 'pad' ? `Você é o jogador ${d.slot} na transmissão de ${other}. Use o seu controle.` : `Você é o Player ${d.slot} de ${other}. Liberado: ${permsText(d.perms)}.${ctl ? ' Clique na transmissão para usar o ' + [d.perms.mouse && 'mouse', d.perms.keyboard && 'teclado'].filter(Boolean).join(' e ') + '.' : ''}`); }
+      else if (JSON.stringify(before.perms) !== JSON.stringify(d.perms)) {
+        toast(d.reason === 'mouse_moved' ? `${other} passou o mouse para outro jogador. Liberado: ${permsText(d.perms)}` : `${other} mudou suas permissões. Liberado: ${permsText(d.perms)}`);
+        if (!d.perms.keyboard || !d.perms.mouse) { if (!d.perms.keyboard) setKb(false); releaseAll(); flush(); }
+      }
+      if (d.kind === 'pad' || d.perms.gamepad) padStart();
     }
   }
-  paintChip(); ctx.rerender();
+  paintChip(); ctx.rerender(); playersChanged();
+}
+// pedido para jogar (novo): sem diálogo bloqueante; a janela Jogadores abre com o pedido (Aceitar já com "Controle")
+async function onPlayRequest(s) {
+  pads().set(s.id, s); playersChanged();
+  const cap = await ownerCap();
+  if (!cap.ok) { pads().delete(s.id); ctx.send('REMOTE_ANSWER', { id: s.id, accept: false, capable: false }); toast(`${ctx.name(s.controller)} pediu para jogar, mas não é possível: ${cap.reason}`, true); playersChanged(); return; }
+  if (autoPlay && autoPlay === s.channel_id) return acceptPlay(s.id, { gamepad: true });
+  playSound('ring');
+  openPlayers({ focus: s.id });
 }
 let padLeaving = false;
 export const leavePlay = (uid) => { padLeaving = true; padSend(null, myPlay(uid)); stopPlay(uid); }; // solta tudo antes de sair
+// três ícones (controle, teclado, mouse): aceso = liberado. withOff: mostra os apagados também (para quem joga)
+export function permIcons(p, withOff = true) {
+  return h('span.rperms', [['gamepad', 'gamepad', 'Controle'], ['keyboard', 'keyboard', 'Teclado'], ['mouse', 'pointer', 'Mouse']].filter(([k]) => withOff || p[k])
+    .map(([k, ic, label]) => h('i.rperm' + (p[k] ? '.on' : ''), { title: `${label}: ${p[k] ? 'liberado' : 'não liberado'}`, 'aria-label': `${label} ${p[k] ? 'liberado' : 'não liberado'}` }, icon(ic, 13))));
+}
 function paintChip() { document.getElementById('remote-chip')?.remove(); const c = remoteBar(); if (c) { c.id = 'remote-chip'; document.body.append(c); } }
 
 // aviso dentro do app (os dois lados); o dono também tem o aviso nativo sempre por cima
 export function remoteBar() {
   const s = S.remote, players = playersOf(S.me.id), me = myPlay();
-  if ((!s || s.state !== 'active') && (players.length || me?.state === 'active')) {
-    if (players.length) return h('div.remote-chip.owner.players', icon('gamepad', 16), h('span', players.length > 1 ? 'Jogadores:' : 'Jogador:'),
-      players.map(p => h('span.rplayer', h('b', p.slot), ctx.name(p.controller), h('button.ibtn', { title: `Tirar ${ctx.name(p.controller)} do jogo`, 'aria-label': `Tirar ${ctx.name(p.controller)} do jogo`, onclick: (e) => { e.stopPropagation(); kickPlayer(p.id); } }, icon('x', 14)))));
-    return h('div.remote-chip.players', icon('gamepad', 16), h('span', `Você é o jogador ${me.slot} de ${ctx.name(me.owner)}`),
+  const asks = playRequests().length;
+  if ((!s || s.state !== 'active') && (players.length || asks || me?.state === 'active')) {
+    if (players.length || asks) return h('div.remote-chip.owner.players', icon('gamepad', 16),
+      players.map(p => h('span.rplayer', { title: `${ctx.name(p.controller)}: ${p.kind === 'pad' ? 'controle' : permsText(p.perms)}` }, h('b', 'P' + p.slot), ctx.name(p.controller), p.kind === 'play' && permIcons(p.perms))),
+      asks ? h('span.rpask', asks > 1 ? `${asks} pedidos para jogar` : '1 pedido para jogar') : null,
+      h('button.btn.sm', { onclick: (e) => { e.stopPropagation(); openPlayers(); } }, 'Jogadores'));
+    return h('div.remote-chip.players', icon('gamepad', 16), h('span', h('b', 'Player ' + me.slot), ` · transmissão de ${ctx.name(me.owner)}`),
+      me.kind === 'play' && permIcons(me.perms, true),
       h('button.btn.sm.grey', { onclick: (e) => { e.stopPropagation(); leavePlay(me.owner); } }, 'Sair do jogo'));
   }
   if (!s || s.state !== 'active') return null;

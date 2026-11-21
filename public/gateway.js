@@ -17,7 +17,7 @@ import { paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { initBoard, boardState, onDraw } from './board.js';
 import { initCode, codeSet, codeReset } from './code.js';
 import { syncThrottle, startUsageWatch, startPressureWatch } from './lite.js';
-import { onRemoteEvent } from './remote.js';
+import { onRemoteEvent, remoteReconnected } from './remote.js';
 import { onLfgEvent, onLfgActivity } from './lfg.js';
 import { loadIntents, onIntentEvent } from './intents.js';
 import { initCallRating } from './callrate.js';
@@ -222,6 +222,7 @@ export function onEvent(t, d) {
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
       if (S.remote) onRemoteEvent('REMOTE_STATE', { ...S.remote, state: 'ended', reason: 'left' }); // reconectou: o servidor já encerrou a sessão
+      if (wasReady) remoteReconnected(); // jogar junto: o estado volta do servidor depois do VOICE_RESUME (sem avisos repetidos)
       for (const u of d.users || []) S.users.set(u.id, u); // pessoas dos servidores, cada uma uma vez
       d.guilds.forEach(ingestGuild);
       for (const v of d.dm_voice || []) S.voice.set(v.user_id, v);

@@ -89,7 +89,7 @@ export { voiceDragging } from './side.js';
 applyTheme();
 
 // gancho de depuração/testes automatizados
-initRemote({ savePrefs, send: gwSend, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
+initRemote({ savePrefs, send: gwSend, channelId: () => voice?.channelId || null, name: (uid) => nameOf(uid, channelById(voice?.channelId)?.guild_id) || user(uid).display_name, rerender: () => renderVoiceUI() });
 initKinds({ go, renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), mdCtx: (gid) => ctxFor(gid), chName, attachEl: (f) => attachEl(f), jumpTo: (mid) => jumpTo(mid),
   react: (m, e, add) => react(m, e, add), reactionFace: (e) => reactionFace(e), galleryChat: (cid, on) => setGalleryChat(cid, on) });
 initForum({ go, isFav: (id) => isFav(id), toggleFavPost: (p) => toggleFavPost(p), favPostChanged: (id, t) => favPostChanged(id, t), renderMain: () => renderMain(), profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), mdCtx: (gid) => ctxFor(gid), attachEl: (f) => attachEl(f), chName });

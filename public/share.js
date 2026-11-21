@@ -5,7 +5,7 @@ import { S, user, channelById, nameOf, dmPeer, toast, modal, menu, desktop, save
 import { CAPTURE_METHODS, captureMode } from './voice.js';
 import { popOut } from './livepip.js';
 import { clipping, saveClip, clipSecs, lenLabel } from './clips.js';
-import { controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl, myPlay, requestPlay, leavePlay } from './remote.js';
+import { controlling as remoteControlling, stopControl, myPlay, requestPlay, leavePlay, playersOf, playRequests, openPlayers } from './remote.js';
 import { yieldStage } from './watch.js';
 import { seg, toggle as uiToggle, qualityPanel, comboLabel, hotkey, NOISE_INFO } from './ui.js';
 import { voice } from './gateway.js';
@@ -336,13 +336,15 @@ export function healthPill() {
 }
 // opções de uma transmissão: as mesmas no botão "Mais opções" e no clique direito no vídeo (antes o clique direito só
 // tinha o volume — 47 de 48 vezes o menu foi fechado sem uso no 1º teste: as pessoas procuravam as opções ali)
-// "jogar junto": entrar como jogador 2, 3 ou 4 com o próprio controle (pedido; quem transmite aceita)
+// jogar junto: um botão só ("Pedir para jogar"); quem transmite decide controle, teclado e mouse na janela Jogadores
 function playItem(uid) {
-  const p = myPlay(uid), on = p?.state === 'active';
-  return { ux: 'jogar', icon: 'gamepad', label: on ? `Sair do jogo (jogador ${p.slot})` : p ? 'Cancelar pedido para jogar' : 'Entrar como jogador', hint: !p ? 'Com o seu controle (Xbox, DualSense…)' : null, fn: () => (on ? leavePlay(uid) : requestPlay(uid)) };
+  const p = myPlay(uid), on = p?.state === 'active', inv = p?.invite && p.state === 'pending';
+  return { ux: 'jogar', icon: 'gamepad', label: on ? `Sair do jogo (Player ${p.slot})` : inv ? 'Recusar convite para jogar' : p ? 'Cancelar pedido para jogar' : 'Pedir para jogar', hint: !p ? 'Controle, teclado ou mouse: quem transmite escolhe' : null, fn: () => (on ? leavePlay(uid) : requestPlay(uid)) };
 }
+const playersItem = () => { const n = playersOf(S.me.id).length, a = playRequests().length;
+  return { ux: 'jogadores', icon: 'gamepad', label: 'Jogadores', hint: a ? `${a} pedido${a > 1 ? 's' : ''} para jogar` : n ? `${n + 1} de 4 jogando` : 'Convidar amigos e escolher o que cada um usa', fn: () => openPlayers() }; };
 export function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
-  const on = remoteControlling(uid), wait = remotePending(uid), sMuted = voice.streamVolumes[uid] === 0;
+  const sMuted = voice.streamVolumes[uid] === 0, legacy = !mine && S.remote?.state === 'active' && S.remote.controller === S.me.id && S.remote.owner === uid; // sessão antiga de "Pedir controle" ainda aberta
   return [
       // opções do participante (como no Discord): parar de assistir, silenciar o som da transmissão ou a voz da pessoa
       !mine && inRoom && { ux: 'pararassistir', icon: 'eyeoff', label: 'Parar de assistir', hint: 'Você continua na chamada', fn: () => { voice.closeStream(uid); if (S.focus === key) S.focus = null; renderVoiceUI(); } },
@@ -354,8 +356,9 @@ export function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
       inRoom && { ux: 'clipes', icon: clipping(key) ? 'clip' : 'clipsparkle', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
       { ux: 'desenhar', icon: S.annot === key ? 'check' : 'edit', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar', hint: 'Todos veem', fn: () => { if (S.annot === key) S.annot = null; else { S.annot = key; S.focus = key; } renderVoiceUI(); } },
       { ux: 'destacar', icon: 'star', label: S.room?.spot === key ? 'Tirar destaque' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
-      !mine && inRoom && playItem(uid),
-      !mine && inRoom && { ux: 'controle', icon: 'pointer', label: on ? 'Parar controle' : wait ? 'Cancelar pedido' : 'Pedir controle', hint: !on && !wait ? 'Mouse, teclado ou controle' : null, fn: () => (on || wait ? stopControl() : requestControl(uid)) },
+      mine && inRoom && playersItem(),
+      !mine && inRoom && !legacy && playItem(uid),
+      legacy && { ux: 'controle', icon: 'pointer', label: 'Parar controle', fn: () => stopControl() },
       !mine && { ux: 'qualidade', icon: 'wifi', label: S.qstats === key ? 'Esconder qualidade' : 'Ver qualidade', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
       { ux: 'flutuante', icon: 'external', label: 'Janela flutuante', hint: 'Por cima de outros apps', fn: () => popOut(scr) },
       { ux: 'telacheia', icon: 'expand', label: 'Tela cheia', hint: 'Ou clique duas vezes', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },
@@ -368,8 +371,11 @@ export function streamControls({ key, uid, mine, scr, inRoom, who }) {
     mine ? h('button.sc-main.sc-stop', { title: 'Parar de compartilhar a tela', onclick: (e) => { e.stopPropagation(); stopSharing(); } }, icon('screenoff', 16), h('span', 'Parar transmissão'))
       : h('button.sc-main', { title: 'Fechar esta transmissão (você continua na chamada)', onclick: stop }, icon('x', 16), h('span', 'Parar de assistir')),
     !mine && inRoom && (() => { const p = myPlay(uid), on = p?.state === 'active';
-      return h('button.sc-ic' + (on ? '.on' : p ? '.wait' : ''), { title: on ? `Você é o jogador ${p.slot}: clique para sair do jogo` : p ? 'Aguardando a resposta… (clique para cancelar)' : 'Entrar como jogador (com o seu controle)', 'aria-label': 'Jogar junto',
+      return h('button.sc-ic' + (on ? '.on' : p ? '.wait' : ''), { title: on ? `Você é o Player ${p.slot}: clique para sair do jogo` : p ? 'Aguardando a resposta… (clique para cancelar)' : 'Pedir para jogar', 'aria-label': on ? 'Sair do jogo' : p ? 'Cancelar pedido para jogar' : 'Pedir para jogar',
         onclick: (e) => { e.stopPropagation(); playItem(uid).fn(); } }, icon('gamepad', 16)); })(),
+    mine && inRoom && (() => { const n = playersOf(S.me.id).length, a = playRequests().length;
+      return h('button.sc-ic' + (n ? '.on' : '') + (a ? '.ask' : ''), { title: a ? `${a} pedido${a > 1 ? 's' : ''} para jogar: abrir Jogadores` : 'Jogadores: convidar e escolher o que cada um usa', 'aria-label': 'Jogadores',
+        onclick: (e) => { e.stopPropagation(); openPlayers(); } }, icon('gamepad', 16), a ? h('b.sc-badge', a) : null); })(),
     inRoom && clipButton(key, who, 'sc-ic sc-clip'),
     h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr, inRoom ? { key, who } : null); } }, icon('expand', 16)),
     h('button.sc-ic', { title: 'Mais opções', onclick: more }, icon('more', 16)));
