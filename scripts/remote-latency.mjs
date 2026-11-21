@@ -138,8 +138,15 @@ try {
   await B.evaluate(() => { const b = document.querySelector('.sctl button[title="Mais opções"]'); b?.click(); });
   await sleep(200);
   await B.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /Pedir controle|Pedir para jogar/.test(x.textContent))?.click());
-  await A.waitForFunction(() => /quer controlar seu PC|quer jogar/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 10000 });
-  await A.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => /Permitir|Deixar jogar|Aceitar/.test(x.textContent)).click());
+  await A.waitForFunction(() => /quer controlar seu PC|quer jogar/i.test(document.querySelector('.modal')?.textContent || ''), { timeout: 10000 });
+  // fluxo novo (janela Jogadores): liberar o Mouse no pedido e Aceitar; fluxo antigo: "Permitir"
+  await A.evaluate(() => { const r = document.querySelector('.playersdlg .pl-row.ask'); if (r) { [...r.querySelectorAll('.pl-perm')].find(b => /Mouse/.test(b.textContent) && !b.classList.contains('on'))?.click(); } });
+  await sleep(200);
+  await A.evaluate(() => { const r = document.querySelector('.playersdlg .pl-row.ask'); (r ? [...r.querySelectorAll('.btn')].find(b => b.textContent === 'Aceitar') : [...document.querySelectorAll('.modal .btn')].find(x => /Permitir|Deixar jogar/.test(x.textContent))).click(); });
+  await sleep(300); await A.evaluate(() => [...document.querySelectorAll('.playersdlg .btn')].find(b => b.textContent === 'Fechar')?.click());
+  // PROFILE=0: sem o perfil de jogo (volta a 30 FPS logo depois do aceite), para comparar alternando na mesma máquina
+  if (process.env.PROFILE === '0') { await sleep(500); await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 30, hint: 'motion' })); }
+  await sleep(1500); // o codificador se ajusta à taxa nova
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.classList.contains('controlling'), { timeout: 10000 }, a.id);
   const box = await B.evaluate((uid) => { const v = document.querySelector(`.tile.screen[data-sid="${uid}"] video`), r = v.getBoundingClientRect(), s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight), w = v.videoWidth * s, hh = v.videoHeight * s; return { x: r.left + (r.width - w) / 2 + w * .6, y: r.top + (r.height - hh) / 2 + hh * .6 }; }, a.id);
   await B.mouse.move(box.x, box.y); await B.mouse.down(); await sleep(150); await B.mouse.up(); await sleep(800); // 1º clique liga a captura
@@ -157,6 +164,8 @@ try {
   const stat = (a) => { const v = a.filter(x => x != null && Number.isFinite(x)).sort((x, y) => x - y); if (!v.length) return null; const q = (p) => +v[Math.min(v.length - 1, Math.floor(p * v.length))].toFixed(1); return { n: v.length, media: +(v.reduce((s, x) => s + x, 0) / v.length).toFixed(1), p50: q(.5), p95: q(.95), max: +v.at(-1).toFixed(1) }; };
   const span = good.length > 1 ? (good.at(-1).shown - good[0].shown) / 1000 : 0;
   const st = await B.evaluate(async (uid) => { const v = window.__lc.voice, p = v.peers.get(uid); let o = {}; for (const [id, src] of p.consumers) if (src === 'screen') { const c = v.sfu.consumers.get(id)?.c; for (const r of (await c.getStats()).values()) if (r.type === 'inbound-rtp' && r.kind === 'video') o = { jbMs: r.jitterBufferEmittedCount ? +(r.jitterBufferDelay / r.jitterBufferEmittedCount * 1000).toFixed(1) : null, jbTargetMs: r.jitterBufferEmittedCount && r.jitterBufferTargetDelay != null ? +(r.jitterBufferTargetDelay / r.jitterBufferEmittedCount * 1000).toFixed(1) : null, decodeMs: r.framesDecoded ? +(r.totalDecodeTime / r.framesDecoded * 1000).toFixed(1) : null, procMs: r.framesDecoded && r.totalProcessingDelay != null ? +(r.totalProcessingDelay / r.framesDecoded * 1000).toFixed(1) : null, decoder: r.decoderImplementation, codec: r.codecId, fps: r.framesPerSecond, w: r.frameWidth, h: r.frameHeight, lost: r.packetsLost, jitterMs: r.jitter != null ? +(r.jitter * 1000).toFixed(1) : null }; } return o; }, a.id);
+  R.fpsTransmissao = await A.evaluate(() => window.__lc.voice.screenOpts?.fps);
+  R.alvoAplicado = await B.evaluate((uid) => [...window.__lc.voice.sfu.consumers.values()].filter(e => e.uid === uid && e.source === 'screen').map(e => e.c.rtpReceiver.jitterBufferTarget), a.id); R.alvoBuffer = st.jbTargetMs;
   Object.assign(R, {
     comandoIda: stat(ida), comandoEsperaNoApp: stat(down.map((t, i) => wsOut[i] != null ? wsOut[i] - t : null)), comandoRedeEServidor: stat(arrive.map((t, i) => wsOut[i] != null ? t - wsOut[i] : null)), comandoParaTela: stat(m2p), capturaParaExibicao: stat(g2g),
     rvfcProcessamentoMs: stat(good.map(f => f.proc)), recebidoParaExibicao: stat(good.map(f => f.rx != null ? f.shown - f.rx : null)),
@@ -164,7 +173,7 @@ try {
     cliquesSemReacao: m2p.filter(x => x == null).length, inbound: st,
   });
   const f = (s) => s ? `média ${s.media} · p50 ${s.p50} · p95 ${s.p95} · máx ${s.max} ms (n=${s.n})` : '—';
-  console.log(`\n[${LABEL}] rede ${NET}`);
+  console.log(`\n[${LABEL}] rede ${NET} · transmissão a ${R.fpsTransmissao} FPS · alvo do buffer ${JSON.stringify(R.alvoAplicado)}`);
   console.log('  comando (clique -> app de quem transmite): ' + f(R.comandoIda));
   console.log('    espera no app de quem joga (clique -> WebSocket): ' + f(R.comandoEsperaNoApp));
   console.log('    WebSocket -> servidor -> app de quem transmite:   ' + f(R.comandoRedeEServidor));

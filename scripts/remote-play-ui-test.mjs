@@ -87,6 +87,9 @@ try {
   await B.waitForFunction(() => /Player 2/.test(document.getElementById('remote-chip')?.innerText || ''), { timeout: 5000 }).catch(() => { });
   ok(/Player 2/.test(await chip(B)) && /Sair do jogo/.test(await chip(B)), 'bob vê "Player 2" e "Sair do jogo"', await chip(B));
   ok(await B.evaluate(() => [...document.querySelectorAll('#remote-chip .rperm')].map(i => i.classList.contains('on')).join()) === 'true,false,false', 'aviso do bob: Controle aceso, Teclado e Mouse apagados');
+  const fps = () => A.evaluate(() => window.__lc.voice.screenOpts?.fps);
+  await A.waitForFunction(() => window.__lc.voice.screenOpts?.fps === 60, { timeout: 5000 }).catch(() => { });
+  ok(await fps() === 60, 'perfil de jogo: com o 1º jogador, a transmissão passa de 30 para 60 FPS', await fps());
   let br = await bridge(A);
   ok(br.starts.length === 1 && br.starts[0].kind === 'pad' && br.starts[0].slot === 2, 'app da alice liga só o controle virtual da vaga 2 (sem mouse/teclado)', br.starts);
   const bid = br.starts[0].id;
@@ -159,7 +162,15 @@ try {
   ok(await toastOf(B, 'Você saiu do jogo'), 'bob sai pelo "Sair do jogo"');
   await sleep(500);
   ok((await dlgRows(A)).filter(r => /P\d/.test(r.text)).length === 2, 'na janela ficam a alice e o dave', (await dlgRows(A)).map(r => r.text.slice(0, 20)));
-  // ---------- parar de transmitir ----------
+  ok(await fps() === 60, 'com um jogador ainda na sessão, continua a 60 FPS');
+  await rowBtn(A, 'dave', 'Tirar');
+  await A.waitForFunction(() => window.__lc.voice.screenOpts?.fps === 30, { timeout: 5000 }).catch(() => { });
+  ok(await fps() === 30, 'o último saiu: a transmissão volta aos 30 FPS de antes', await fps());
+  // ---------- parar de transmitir com alguém jogando ----------
+  await A.evaluate(() => [...document.querySelectorAll('.playersdlg .pl-row.watch')].find(r => /dave/.test(r.innerText))?.querySelector('.btn')?.click());
+  await D.waitForFunction(() => /convidou você/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
+  await D.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Jogar')?.click());
+  await D.waitForFunction(() => /Player/.test(document.getElementById('remote-chip')?.innerText || ''), { timeout: 5000 }).catch(() => { });
   await A.evaluate(() => window.__lc.voice.stopLocal?.('screen'));
   ok(await toastOf(D, 'parou de transmitir', 8000), 'alice para de transmitir: dave sai do jogo');
 } catch (e) { console.log('  FAIL', e.stack || e.message); fails++; }

@@ -122,9 +122,9 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 |---|---|---|---|
 | 0 | Auditoria e linha de base (`remote-latency.mjs`) | tabela acima | **feito** |
 | 1 | Comandos sem a fila de 16 ms (clique, tecla, rolagem e controle na hora; movimento no máximo 1 a cada 8 ms) | `remote-latency` antes × depois | **feito** (seção 7) |
-| 2 | Servidor: participação única (`play`), permissões alteráveis, convite, vagas, compatível com páginas velhas | `remote-test` (isolamento, concessão, revogação, vagas, reconexão) | pendente |
-| 3 | Interface: "Pedir para jogar", janela Jogadores, aviso do jogador | `remote-test` + capturas | pendente |
-| 4 | Receptor em baixa latência enquanto joga (`jitterBufferTarget`) e 60 FPS sugeridos ao aceitar o 1º jogador | `remote-latency` antes × depois (LAN e WAN), travadas | pendente |
+| 2 | Servidor: participação única (`play`), permissões alteráveis, convite, vagas, compatível com páginas velhas | `remote-play-test` (43 verificações) + `remote-test` | **feito** |
+| 3 | Interface: "Pedir para jogar", janela Jogadores, aviso do jogador | `remote-play-ui-test` (4 navegadores) + capturas | **feito** (seção 7) |
+| 4 | Perfil de jogo: 60 FPS com o 1º jogador e volta ao sair o último (4b); receptor com `jitterBufferTarget` 0 (4a) | `remote-latency` alternando com e sem, LAN e WAN | **4b feito; 4a medido sem efeito e desfeito** (seção 7) |
 | 5 | Painel Desempenho + eco de comando + copiar/exportar | teste do painel; valores batem com o `remote-latency` | pendente |
 | 6 | `lc-input`: mouse relativo (pointer lock) e carimbo de tempo | `cargo test`, `cargo check` Windows | pendente (nova versão do app) |
 | 7 | Comandos por DataChannel (se o painel mostrar o TCP segurando comandos no teste real) | painel com 2 PCs | depende da medição |
@@ -151,6 +151,59 @@ antes de um clique. Mesma máquina, mesma ferramenta, 20 cliques por rodada:
   `setNoDelay`; o Chromium também), e com eventos saindo separados a WAN parecia pior (48–54 ms). Corrigido; as duas
   colunas WAN acima são com o proxy corrigido.
 - Regressão: `remote-test`, `borderless-test`, `gameshare-test` passam.
+
+### Etapas 2 e 3: participação única e janela Jogadores
+- Servidor (`server/remote.js`, kind `play`): Player 2–4 (máx. 4 com o dono), permissões independentes alteráveis só pelo
+  dono (`REMOTE_PERMS`), mouse para um só (dar a um tira do outro, avisando), convite (`REMOTE_INVITE`/`REMOTE_JOIN`, 60 s),
+  revogar sem tirar, estado de volta na reconexão (`VOICE_RESUME` → `resync`). `control` e `pad` antigos continuam aceitos.
+- Interface: "Pedir para jogar" (um botão), janela Jogadores (`public/players.js`), aviso fixo com "Player N" e as
+  permissões acesas. Ao aceitar, só o Controle vem marcado.
+- Ponte com o app desktop **atual**: o controle vai numa entrada `pad` da vaga e o mouse/teclado numa `control` à parte
+  (`id:kb`), ligadas e desligadas conforme as permissões. Não exige app novo.
+- Testes: `remote-play-test` (43, regras: vagas, limite de 4, isolamento, só o dono muda permissão, mouse exclusivo,
+  revogar, tirar, convite aceito/recusado/cancelado/expirado, reconexão, saída, fim da transmissão, tipos antigos) e
+  `remote-play-ui-test` (4 navegadores: botão único, pedido com só o Controle, Player 1–4, controle chega e clique/tecla
+  não, liberar teclado e mouse, mouse passa de um para outro, convite, reconexão de quem joga, Revogar tudo, Tirar, Sair,
+  perfil de jogo, fim da transmissão). `remote-test` adaptado: o fluxo antigo pedido como uma página antiga.
+- Capturas: `.testshots/play-pedido.png` (pedido), `play-janela.png` (4/4 com permissões diferentes),
+  `play-jogador.png` (aviso de quem joga).
+
+### Etapa 4: perfil de jogo
+Comparação **alternando com e sem na mesma máquina** (3 pares por rede, 20 cliques cada). Sequências separadas enganam: a
+1ª leitura da 4a parecia −10 ms e era ruído entre sessões.
+
+**4a — receptor com `jitterBufferTarget = 0` (desfeito, sem efeito):** o alvo foi aplicado (`[0]` lido de volta), mas o
+Chromium já usa o menor buffer que a variação permite; o alvo só pede um mínimo.
+
+| WAN 25±5, 0,5% (ms) | sem (3) | com (3) |
+|---|---|---|
+| Comando → tela, média | 120,5 · 124,6 · 123,5 | 122,2 · 120,5 · 123,8 |
+| Captura → exibição, média | 68,8 · 70,4 · 77,0 | 73,2 · 68,7 · 70,1 |
+
+**4b — 60 FPS enquanto houver jogador (mantido):** `public/remote.js gameProfile`. Ao entrar o 1º jogador a transmissão
+vai a 60 FPS (no Windows, isso também leva ao caminho nativo quando disponível); quando o último sai, volta ao que era
+(se a pessoa mudou a qualidade no meio, a escolha dela fica).
+
+| ms (média / p95) | 30 FPS (3 pares) | 60 FPS |
+|---|---|---|
+| LAN: comando → tela | 73,1 / 101,1 · 63,2 / 101,5 · 86,6 / 129,5 | **57,4 / 77,9 · 53,3 / 75,4 · 57,6 / 86,6** |
+| LAN: FPS exibidos | 25,8 · 27,2 · 28,0 | 41,8 · 43,5 · 42,4 (limite do VP8 por software aqui) |
+| WAN: comando → tela | 130,3 / 182,3 · 126,1 / 186,6 · 120,6 / 202,1 | **108,6 / 160,8 · 108,1 / 133,7 · 112,9 / 157,1** |
+| WAN: captura → exibição | 72,0 · 68,8 · 67,0 | 65,0 · 64,6 · 66,4 |
+
+Comprovado: −10 a −30 ms no comando → tela (menor em todos os pares) e p95 −25 a −50 ms. Custa mais CPU/banda em quem
+transmite (o dobro de quadros); no Windows o caminho nativo usa a placa de vídeo.
+
+### Acumulado no container (etapas 1 + 4b), mesma ferramenta
+| ms (média) | Linha de base | Agora |
+|---|---|---|
+| LAN: comando (ida) | 20,9 · 21,8 | 3,5 · 4,1 |
+| LAN: comando → tela | 76,6 · 89,9 | 53,3–57,6 |
+| WAN: comando (ida) | 45,7 · 44,8 (proxy corrigido) | 29,4–29,9 |
+| WAN: comando → tela | 126,5 · 149,2 (proxy corrigido) | 108,1–112,9 |
+
+**Não está validado:** isto é o container (mesmo PC, VP8 por software, sem `lc-stream`/`lc-input` reais). A latência
+só conta como resolvida depois do teste com 2 PCs, nos dois sentidos e em redes diferentes (seção 8).
 
 Limitações honestas desta medição: tudo no mesmo PC, sem GPU (VP8 por software), sem o `lc-stream` e o `lc-input` reais,
 rede simulada sem perda de TCP. O ganho real no Windows precisa do teste com 2 PCs e do painel.

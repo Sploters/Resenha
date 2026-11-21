@@ -393,8 +393,26 @@ function padState(d) {
       if (d.kind === 'pad' || d.perms.gamepad) padStart();
     }
   }
+  gameProfile();
   paintChip(); ctx.rerender(); playersChanged();
 }
+// perfil de jogo (definição do dono do projeto): ao entrar o 1º jogador, quem transmite passa a 60 FPS (o quadro que mostra
+// a reação espera em média meio intervalo: ~17 ms a 30 FPS, ~8 ms a 60; e no Windows, 60 FPS leva ao caminho nativo);
+// quando o último sai, volta ao que era. Se a pessoa mudar a qualidade no meio, a escolha dela fica.
+let profile = null; // { prev: { fps, hint }, set: { fps, hint } }
+function gameProfile() {
+  const v = ctx.voice?.(); if (!v) return;
+  const n = playersOf(S.me.id).length, o = v.screenOpts;
+  if (n && !profile && v.screen && o) {
+    const set = { fps: Math.max(60, +o.fps || 0), hint: 'motion' };
+    profile = { prev: { fps: o.fps, hint: o.hint }, set };
+    if (+o.fps !== set.fps || o.hint !== set.hint) { v.changeScreenQuality(set).catch?.(() => { }); toast(`Perfil de jogo: transmissão a ${set.fps} FPS enquanto houver jogadores`); }
+  } else if (!n && profile) {
+    const p = profile; profile = null;
+    if (v.screen && o && +o.fps === p.set.fps && o.hint === p.set.hint && (+p.prev.fps !== p.set.fps || p.prev.hint !== p.set.hint)) v.changeScreenQuality(p.prev).catch?.(() => { });
+  }
+}
+export const gameProfileState = () => profile && { ...profile }; // para o painel de desempenho e os testes
 // pedido para jogar (novo): sem diálogo bloqueante; a janela Jogadores abre com o pedido (Aceitar já com "Controle")
 async function onPlayRequest(s) {
   pads().set(s.id, s); playersChanged();
