@@ -150,6 +150,16 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     return { sent: out.length, dropped: events.length - out.length };
   }
 
+  // eco para medir o caminho dos comandos (painel Desempenho): REMOTE_PING/REMOTE_PONG entre as duas pontas de uma sessão
+  // ativa, pelo mesmo caminho do REMOTE_INPUT. t: o relógio de quem mediu (volta igual); h: resumo do anfitrião (números do
+  // envio dele, para o painel de quem joga). Nada além disso passa
+  function echo(uid, id, kind, d) {
+    const s = sessions.get(String(id));
+    if (!s || s.state !== 'active' || (s.owner !== uid && s.controller !== uid) || typeof d?.t !== 'number' || !Number.isFinite(d.t)) return { dropped: 1 };
+    const h = d.h && typeof d.h === 'object' && !Array.isArray(d.h) && JSON.stringify(d.h).length <= 800 ? d.h : undefined;
+    sendUser(uid === s.owner ? s.controller : s.owner, kind === 'pong' ? 'REMOTE_PONG' : 'REMOTE_PING', { id: s.id, t: d.t, ...(h && kind === 'pong' ? { h } : {}) });
+    return {};
+  }
   function stop(uid, id, reason = 'stopped') {
     const s = sessions.get(String(id));
     if (!s || (s.owner !== uid && s.controller !== uid)) return { error: 'Sessão não encontrada' };
@@ -160,5 +170,5 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
   function onLeave(uid) { sweep(); for (const s of of(uid)) end(s, 'left'); }
   function onScreenOff(uid) { for (const s of of(uid)) if (s.owner === uid) end(s, 'stream_ended'); }
 
-  return { request, invite, joinInvite, answer, setPerms, resync, input, stop, onLeave, onScreenOff, sweep, _sessions: sessions };
+  return { request, invite, joinInvite, answer, setPerms, resync, input, echo, stop, onLeave, onScreenOff, sweep, _sessions: sessions };
 }

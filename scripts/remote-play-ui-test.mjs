@@ -113,6 +113,22 @@ try {
   br = await bridge(A);
   ok(br.inputs.some(e => e.k === 'd' && e._id === bid + ':kb') && br.inputs.some(e => e.k === 'kd' && e.c === 'KeyW' && e._id === bid + ':kb'), 'liberados: clique e tecla do bob chegam', br.inputs.filter(e => e.k !== 'g').map(e => e.k + (e._id === bid + ':kb' ? '@kb' : '@' + e._id)));
   await B.screenshot({ path: `${SHOTS}/play-jogador.png` });
+  // ---------- painel Desempenho (os dois lados) ----------
+  const openPerf = (P) => P.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]')?.click(); [...document.querySelectorAll('.menu .it')].find(x => /Desempenho/.test(x.textContent))?.click(); });
+  await openPerf(B); await openPerf(A); await sleep(4500);
+  const pv = (P) => P.evaluate(() => Object.fromEntries([...document.querySelectorAll('#perfpanel .pf-row')].map(r => [r.querySelector('.pf-l').textContent, [r.querySelector('.pf-v').textContent, r.querySelector('.pf-t').textContent]])));
+  const pB = await pv(B), pA = await pv(A);
+  ok(/ms/.test(pB['Ida e volta']?.[0] || '') && pB['Ida e volta'][1] === 'medido' && pB['Ida (até quem transmite)']?.[1] === 'estimado', 'painel de quem joga: ida e volta do comando (medido) e ida (estimado)', pB['Ida e volta']);
+  ok(+pB['FPS exibidos']?.[0] > 0 && pB['Transporte']?.[0] && pB['Codificação']?.[1] === 'anfitrião', 'painel de quem joga: FPS exibidos, transporte e os números de quem transmite marcados como "anfitrião"', { fps: pB['FPS exibidos'], via: pB['Transporte'], enc: pB['Codificação'] });
+  ok(/ms/.test(pA['P2 bob · comando']?.[0] || '') && pA['Caminho']?.[0] === 'Chromium' && +pA['FPS enviados']?.[0] > 0, 'painel de quem transmite: caminho, FPS enviados e o comando do Player 2', { cmd: pA['P2 bob · comando'], fps: pA['FPS enviados'] });
+  ok(Object.values(pB).every(([v, t]) => v === '—' || ['medido', 'estimado', 'anfitrião'].includes(t)), 'todo número do painel diz a origem; sem dado, "—"');
+  await B.evaluate(() => { window.__copied = null; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true }); [...document.querySelectorAll('#perfpanel .btn')].find(b => b.textContent === 'Copiar').click(); });
+  await sleep(200);
+  ok(/Resenha · Desempenho/.test(await B.evaluate(() => window.__copied || '')) && /Comando, ida e volta/.test(await B.evaluate(() => window.__copied || '')), 'Copiar: texto com as médias e o p95');
+  const exp = await B.evaluate(() => new Promise((res) => { const o = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { HTMLAnchorElement.prototype.click = o; fetch(this.href).then(r => r.json()).then(j => res({ name: this.download, n: j.amostras.length, resumo: Object.keys(j.resumo) })); }; [...document.querySelectorAll('#perfpanel .btn')].find(b => b.textContent === 'Exportar').click(); }));
+  ok(/^resenha-desempenho-.*\.json$/.test(exp.name) && exp.n >= 3 && exp.resumo.includes('fpsShown'), 'Exportar: JSON com as amostras e o resumo', exp);
+  await B.screenshot({ path: `${SHOTS}/play-painel-jogador.png` }); await A.screenshot({ path: `${SHOTS}/play-painel-anfitriao.png` });
+  for (const P of [A, B]) await P.evaluate(() => document.querySelector('#perfpanel .pf-head button')?.click());
   // ---------- segundo jogador e o mouse para um só ----------
   await askPlay(C);
   await A.waitForFunction(() => [...document.querySelectorAll('.playersdlg .pl-row.ask')].some(r => /carol/.test(r.innerText)), { timeout: 5000 }).catch(() => { });

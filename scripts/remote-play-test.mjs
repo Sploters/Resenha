@@ -75,6 +75,16 @@ ok(R.invite('h', 'x').error, 'não convida quem está em outra sala');
 ok(R.invite('h', 'a').error, 'não convida quem já está jogando');
 ok(R.invite('a', 'd').error, 'quem não transmite não convida');
 
+// ---------- eco do painel Desempenho ----------
+out.length = 0; R.echo('a', pa.id, 'ping', { t: 12.5 });
+ok(last('h', 'REMOTE_PING', pa.id)?.t === 12.5, 'eco: o ping do jogador chega a quem transmite com o mesmo horário');
+R.echo('h', pa.id, 'pong', { t: 12.5, h: { encMs: 4 } });
+ok(last('a', 'REMOTE_PONG', pa.id)?.t === 12.5 && last('a', 'REMOTE_PONG', pa.id)?.h?.encMs === 4, 'eco: a resposta volta com o resumo de quem transmite');
+ok(R.echo('b', pa.id, 'ping', { t: 1 }).dropped && R.echo('x', pa.id, 'ping', { t: 1 }).dropped, 'eco: outro jogador ou alguém de fora não usa a sessão de alguém');
+R.echo('h', pa.id, 'pong', { t: 1, h: { lixo: 'x'.repeat(900) } });
+ok(!last('a', 'REMOTE_PONG', pa.id)?.h || last('a', 'REMOTE_PONG', pa.id).t === 12.5, 'eco: resumo grande demais é descartado');
+ok(R.echo('a', pa.id, 'ping', { t: 'x' }).dropped, 'eco: horário inválido é descartado');
+
 // ---------- reconexão ----------
 out.length = 0; R.resync('a');
 ok(last('a', 'REMOTE_STATE', pa.id)?.state === 'active' && last('a', 'REMOTE_STATE', pa.id)?.slot === 2, 'reconectou: o estado da sessão volta (Player 2, mesmas permissões)');

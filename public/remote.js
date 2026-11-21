@@ -276,12 +276,38 @@ export function limitations() {
       h('li', 'Com vários monitores, só o monitor transmitido é controlado.')));
 }
 
+// ---------- medições para o painel Desempenho (public/perfpanel.js) ----------
+// perf.rtt: id da sessão -> [{ at, ms }] do eco de comando; perf.host: id -> resumo de quem transmite (vem no eco);
+// perf.inputs: id -> comandos por segundo que chegaram aqui (quem transmite)
+export const perf = { rtt: new Map(), host: new Map(), inputs: new Map() };
+export const sessionsForPing = () => { const a = [...pads().values()].filter(s => s.state === 'active' && s.kind === 'play' && (s.owner === S.me.id || s.controller === S.me.id)); if (S.remote?.state === 'active') a.push(S.remote); return a; };
+export const sendPing = (id) => ctx.send('REMOTE_PING', { id, t: performance.now() });
+let hostCache = null, hostAt = 0;
+function onPing(d) {
+  const mineHost = pads().get(d.id)?.owner === S.me.id || S.remote?.id === d.id && S.remote.owner === S.me.id;
+  ctx.send('REMOTE_PONG', { id: d.id, t: d.t, ...(mineHost && hostCache ? { h: hostCache } : {}) }); // responde já (o resumo é o da última leitura)
+  if (mineHost && performance.now() - hostAt > 2000) { hostAt = performance.now(); import('./perfpanel.js').then(m => m.hostSummary()).then(h => { hostCache = h; }, () => { }); }
+}
+function onPong(d) {
+  if (typeof d.t !== 'number') return;
+  const ms = performance.now() - d.t; if (!(ms >= 0 && ms < 30000)) return;
+  const a = perf.rtt.get(d.id) || []; a.push({ at: Date.now(), ms }); if (a.length > 120) a.shift(); perf.rtt.set(d.id, a);
+  if (d.h) perf.host.set(d.id, { at: performance.now(), h: d.h });
+}
+function countInputs(id, n) {
+  const c = perf.inputs.get(id) || { n: 0, t: performance.now(), rate: 0 }; c.n += n;
+  const dt = performance.now() - c.t; if (dt >= 1000) { c.rate = Math.round(c.n * 1000 / dt); c.n = 0; c.t = performance.now(); }
+  perf.inputs.set(id, c);
+}
+export const openPerf = (uid) => import('./perfpanel.js').then(m => m.openPerf(uid));
 // ---------- eventos do servidor ----------
 let pendingTimer = 0;
 export function onRemoteEvent(t, d) {
   if (t === 'REMOTE_REQUEST') return d.kind === 'pad' ? onPadRequest(d) : d.kind === 'play' ? onPlayRequest(d) : onRequest(d);
   if (t === 'REMOTE_ERROR') return toast(d.error, true);
-  if (t === 'REMOTE_INPUT') { if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) routeInput(pads().get(d.id), d.ev); return; }
+  if (t === 'REMOTE_PING') return onPing(d);
+  if (t === 'REMOTE_PONG') return onPong(d);
+  if (t === 'REMOTE_INPUT') { countInputs(d.id, d.ev?.length || 0); if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) routeInput(pads().get(d.id), d.ev); return; }
   if (t !== 'REMOTE_STATE') return;
   if (d.kind === 'pad' || d.kind === 'play') return padState(d);
   const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner);

@@ -2175,3 +2175,19 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 .rperm.on { opacity: 1; color: var(--green, #23a55a); }
 .remote-chip .rpask { padding: 2px 8px; border-radius: 10px; background: var(--brand, #5865f2); color: #fff; font-size: 12px; font-weight: 600; }
 .sctl .sc-ic.ask { position: relative; } .sctl .sc-badge { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red, #f23f43); color: #fff; font-size: 11px; line-height: 16px; }
+/* painel Desempenho (public/perfpanel.js): flutuante, só para quem abriu */
+#perfpanel { position: fixed; right: 16px; top: 60px; z-index: 255; width: 340px; max-width: calc(100vw - 32px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; border-radius: 10px; background: var(--bg-float, var(--bg-sec)); box-shadow: 0 8px 24px rgba(0,0,0,.45); border: 1px solid var(--border, rgba(255,255,255,.08)); font-size: 13px; }
+#perfpanel .pf-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 12px; border-bottom: 1px solid var(--border, rgba(255,255,255,.08)); color: var(--header); }
+#perfpanel .pf-head b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#perfpanel .pf-body { overflow: auto; padding: 6px 12px 8px; }
+#perfpanel .pf-sec h5 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); }
+#perfpanel .pf-row { display: grid; grid-template-columns: 1fr auto 62px; align-items: baseline; gap: 8px; padding: 2px 0; }
+#perfpanel .pf-l { color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#perfpanel .pf-v { color: var(--header); font-variant-numeric: tabular-nums; text-align: right; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#perfpanel .pf-t { font-style: normal; font-size: 10px; text-align: center; padding: 1px 4px; border-radius: 4px; cursor: help; }
+#perfpanel .pf-t.m { background: color-mix(in srgb, var(--green, #23a55a) 20%, transparent); color: var(--header); }
+#perfpanel .pf-t.e { background: color-mix(in srgb, var(--yellow, #f0b232) 22%, transparent); color: var(--header); }
+#perfpanel .pf-t.a { background: color-mix(in srgb, var(--brand, #5865f2) 25%, transparent); color: var(--header); }
+#perfpanel .pf-empty { margin: 4px 0; color: var(--text-muted); font-size: 12px; }
+#perfpanel .pf-foot { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border, rgba(255,255,255,.08)); }
+#perfpanel .pf-foot small { flex: 1; color: var(--text-muted); font-size: 11px; line-height: 1.3; }

@@ -150,6 +150,12 @@ try {
   await B.waitForFunction((uid) => document.querySelector(`.tile.screen[data-sid="${uid}"]`)?.classList.contains('controlling'), { timeout: 10000 }, a.id);
   const box = await B.evaluate((uid) => { const v = document.querySelector(`.tile.screen[data-sid="${uid}"] video`), r = v.getBoundingClientRect(), s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight), w = v.videoWidth * s, hh = v.videoHeight * s; return { x: r.left + (r.width - w) / 2 + w * .6, y: r.top + (r.height - hh) / 2 + hh * .6 }; }, a.id);
   await B.mouse.move(box.x, box.y); await B.mouse.down(); await sleep(150); await B.mouse.up(); await sleep(800); // 1º clique liga a captura
+  // PANEL=1: painel Desempenho aberto dos dois lados durante os cliques; no fim, compara o que ele mostrou com o medido aqui
+  if (process.env.PANEL === '1') {
+    await A.evaluate(async () => (await window.__lc.import('remote.js')).openPerf(window.__lc.S.me.id));
+    await B.evaluate(async (uid) => (await window.__lc.import('remote.js')).openPerf(uid), a.id);
+    await sleep(3000);
+  }
   await B.evaluate(() => { window.__down.length = 0; }); await A.evaluate(() => { window.__arrive.length = 0; });
   const frames0 = await B.evaluate(() => window.__frames.length);
   for (let i = 0; i < CLICKS; i++) { await B.mouse.down(); await sleep(300); await B.mouse.up(); await sleep(400 + Math.random() * 200); }
@@ -183,6 +189,16 @@ try {
   console.log('  decodificação (rVFC processingDuration):    ' + f(R.rvfcProcessamentoMs));
   console.log(`  quadros: ${R.quadrosLidos} lidos (${R.fpsExibidos} FPS exibidos), ${R.quadrosIlegiveis} ilegíveis; cliques sem reação: ${R.cliquesSemReacao}`);
   console.log('  getStats:', JSON.stringify(st));
+  if (process.env.PANEL === '1') {
+    const pb = await B.evaluate(async () => (await window.__lc.import('perfpanel.js')).perfSamples()), pa = await A.evaluate(async () => (await window.__lc.import('perfpanel.js')).perfSamples());
+    const last = (arr, k) => arr.map(x => x[k]).filter(v => v != null && Number.isFinite(v));
+    const mean = (v) => v.length ? +(v.reduce((x, y) => x + y, 0) / v.length).toFixed(1) : null;
+    R.painel = { jogador: { idaEstimada: mean(last(pb, 'cmdRtt').map(v => v / 2)), capturaExibicaoEstimada: mean(last(pb, 'glassEst')), fpsExibidos: mean(last(pb, 'fpsShown')), fpsRecebidos: mean(last(pb, 'fpsIn')), decMs: mean(last(pb, 'decMs')), jbMs: mean(last(pb, 'jbMs')), rtt: mean(last(pb, 'rtt')), via: pb.at(-1)?.via, hostInfo: pb.at(-1)?.hostInfo },
+      anfitriao: { fpsCap: mean(last(pa, 'fpsCap')), fpsOut: mean(last(pa, 'fpsOut')), encMs: mean(last(pa, 'encMs')), players: pa.at(-1)?.players } };
+    console.log('  painel (jogador):  ida estimada ' + R.painel.jogador.idaEstimada + ' ms (medido ' + R.comandoIda?.media + ') · captura->exibição estimada ' + R.painel.jogador.capturaExibicaoEstimada + ' ms (medido ' + R.capturaParaExibicao?.media + ') · FPS exibidos ' + R.painel.jogador.fpsExibidos + ' (medido ' + R.fpsExibidos + ')');
+    console.log('  painel (anfitrião): ' + JSON.stringify(R.painel.anfitriao));
+    await B.screenshot({ path: `.testshots/painel-jogador-${LABEL}.png` }); await A.screenshot({ path: `.testshots/painel-anfitriao-${LABEL}.png` });
+  }
   fs.writeFileSync(`.testshots/remote-latency-${LABEL}.json`, JSON.stringify(R, null, 1));
 } catch (e) { console.log('  ERRO', e.stack || e.message); R.erro = e.message; }
 for (const br of browsers) await br.close().catch(() => { });

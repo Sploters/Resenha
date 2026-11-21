@@ -412,7 +412,7 @@ export function onEvent(t, d) {
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': case 'LFG_MESSAGE': case 'LFG_JOINED': case 'LFG_LEFT': onLfgEvent(t, d); break;
     case 'CLIP_STATS': onClipStats(d); onFeedClipStats(d); break; // visualizações, curtidas, compartilhamentos e retenção mudaram
     case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
-    case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': onRemoteEvent(t, d); break;
+    case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null }; boardState(d.boards);
       if ((d.spot || null) !== prevSpot && S.prefs.followSpot !== false) { // destaque para todos: acompanha, a não ser que tenha desligado

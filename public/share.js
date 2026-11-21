@@ -5,7 +5,7 @@ import { S, user, channelById, nameOf, dmPeer, toast, modal, menu, desktop, save
 import { CAPTURE_METHODS, captureMode } from './voice.js';
 import { popOut } from './livepip.js';
 import { clipping, saveClip, clipSecs, lenLabel } from './clips.js';
-import { controlling as remoteControlling, stopControl, myPlay, requestPlay, leavePlay, playersOf, playRequests, openPlayers } from './remote.js';
+import { controlling as remoteControlling, stopControl, myPlay, requestPlay, leavePlay, playersOf, playRequests, openPlayers, openPerf } from './remote.js';
 import { yieldStage } from './watch.js';
 import { seg, toggle as uiToggle, qualityPanel, comboLabel, hotkey, NOISE_INFO } from './ui.js';
 import { voice } from './gateway.js';
@@ -359,6 +359,7 @@ export function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
       mine && inRoom && playersItem(),
       !mine && inRoom && !legacy && playItem(uid),
       legacy && { ux: 'controle', icon: 'pointer', label: 'Parar controle', fn: () => stopControl() },
+      inRoom && { ux: 'desempenho', icon: 'gauge', label: 'Desempenho', hint: 'Latência, FPS e rede (para testes)', fn: () => openPerf(mine ? S.me.id : uid) },
       !mine && { ux: 'qualidade', icon: 'wifi', label: S.qstats === key ? 'Esconder qualidade' : 'Ver qualidade', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
       { ux: 'flutuante', icon: 'external', label: 'Janela flutuante', hint: 'Por cima de outros apps', fn: () => popOut(scr) },
       { ux: 'telacheia', icon: 'expand', label: 'Tela cheia', hint: 'Ou clique duas vezes', fn: () => fullscreenStream(scr, inRoom ? { key, who } : null) },

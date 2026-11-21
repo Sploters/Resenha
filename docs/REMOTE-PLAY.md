@@ -125,7 +125,7 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 | 2 | Servidor: participação única (`play`), permissões alteráveis, convite, vagas, compatível com páginas velhas | `remote-play-test` (43 verificações) + `remote-test` | **feito** |
 | 3 | Interface: "Pedir para jogar", janela Jogadores, aviso do jogador | `remote-play-ui-test` (4 navegadores) + capturas | **feito** (seção 7) |
 | 4 | Perfil de jogo: 60 FPS com o 1º jogador e volta ao sair o último (4b); receptor com `jitterBufferTarget` 0 (4a) | `remote-latency` alternando com e sem, LAN e WAN | **4b feito; 4a medido sem efeito e desfeito** (seção 7) |
-| 5 | Painel Desempenho + eco de comando + copiar/exportar | teste do painel; valores batem com o `remote-latency` | pendente |
+| 5 | Painel Desempenho + eco de comando + copiar/exportar | `remote-play-ui-test` + `remote-latency PANEL=1` (painel × medido) | **feito** (seção 7) |
 | 6 | `lc-input`: mouse relativo (pointer lock) e carimbo de tempo | `cargo test`, `cargo check` Windows | pendente (nova versão do app) |
 | 7 | Comandos por DataChannel (se o painel mostrar o TCP segurando comandos no teste real) | painel com 2 PCs | depende da medição |
 | 8 | Regressão: bateria completa | `run-tests` | pendente |
@@ -201,6 +201,33 @@ transmite (o dobro de quadros); no Windows o caminho nativo usa a placa de víde
 | LAN: comando → tela | 76,6 · 89,9 | 53,3–57,6 |
 | WAN: comando (ida) | 45,7 · 44,8 (proxy corrigido) | 29,4–29,9 |
 | WAN: comando → tela | 126,5 · 149,2 (proxy corrigido) | 108,1–112,9 |
+
+### Etapa 5: painel Desempenho (`public/perfpanel.js`)
+"Desempenho" no menu da transmissão, dos dois lados (flutuante, só para quem abre). Cada número tem a origem: **medido**
+(contador do navegador/programa ou cronometrado), **estimado** (conta sobre medidos) ou **anfitrião** (medido no PC de
+quem transmite e mandado pelo eco); sem dado, "—". Copiar (texto com média/p50/p95) e Exportar (JSON, 2 min de amostras).
+- Quem joga: comando ida e volta (eco `REMOTE_PING/PONG` pelo mesmo caminho dos comandos, só entre as pontas de uma sessão
+  ativa) e ida = metade; FPS recebidos/decodificados/exibidos (rVFC), decodificação, buffer de jitter, decodificador,
+  codec, resolução, bitrate, RTT ao servidor, jitter, perda, transporte (UDP/TCP, direto/relay); de quem transmite:
+  caminho, FPS capturados/enviados, codificação, codificador, RTT dele. Captura → exibição só como **mínimo estimado**: o
+  `captureTime` do quadro não chega pelo SFU aqui.
+- Quem transmite: caminho (nativo/Chromium), FPS capturados e enviados, codificação (no nativo, o `encMs` do `lc-stream`),
+  codificador (placa/processador), limitação, resolução, bitrate, RTT, transporte e, por jogador, comando ida e volta e
+  comandos por segundo.
+- **Conferido contra a medição independente** (`remote-latency PANEL=1`, mesmo relógio):
+
+| | Painel | Medido de ponta a ponta |
+|---|---|---|
+| LAN: ida do comando | 2,3 ms (estimado) | 4,8 ms (inclui 1,5 ms de espera no app, fora do eco) |
+| WAN: ida do comando | 28,7 ms | 31,5 ms |
+| FPS exibidos (LAN · WAN) | 43,4 · 40,1 | 43,8 · 41,1 |
+| Captura → exibição (LAN · WAN) | 21,8 · 53 ms (mínimo) | 35,8 · 65 ms |
+
+  A estimativa de captura → exibição fica 12–14 ms abaixo do real (não vê a espera da captura nem da tela): por isso o
+  rótulo diz "mínimo".
+- Testes: `remote-play-ui-test` (+6: números com origem, eco dos dois lados, Copiar, Exportar) e `remote-play-test` (+5:
+  eco só entre as pontas da sessão, resumo limitado). Capturas: `.testshots/play-painel-jogador.png`,
+  `play-painel-anfitriao.png`.
 
 **Não está validado:** isto é o container (mesmo PC, VP8 por software, sem `lc-stream`/`lc-input` reais). A latência
 só conta como resolvida depois do teste com 2 PCs, nos dois sentidos e em redes diferentes (seção 8).
