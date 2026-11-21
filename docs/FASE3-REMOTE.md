@@ -1,5 +1,9 @@
 # Fase 3 — Controle remoto (mouse e teclado)
 
+> **Nov/2026:** a experiência foi reformulada (botão único "Pedir para jogar", janela Jogadores, permissões
+> independentes, painel Desempenho, mouse travado). Estado atual e medições em [REMOTE-PLAY.md](REMOTE-PLAY.md); o que
+> segue é o histórico da 1ª versão (os pedidos antigos continuam aceitos de páginas abertas antes da atualização).
+
 Data: 2026-11-03. Escopo desta etapa: **só mouse e teclado**.
 **2026-11-14:** entraram o **controle de videogame** e o controle **transmitindo só uma janela** (seção "Controle de
 videogame e janela", no fim).

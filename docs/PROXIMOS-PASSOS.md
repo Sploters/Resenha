@@ -19,10 +19,9 @@ o que aprendeu e o que falta (roadmap em ordem). **Leia antes de começar.**
 ## Estado do repositório
 
 - Branch de trabalho: `claude/hopeful-johnson-0xr9us`. Tudo abaixo já está nela.
-- **A cópia local do dono** (`/home/user/Discord`, mesma branch) tem **alterações de música não commitadas**
-  (`server/music.js`, `public/music.js`, `public/music.css`, `docs/MUSICA.md`, `public/changelog.js`, CSS...) e está
-  ~225 commits atrás do remoto. **Não mexa nela sem pedir.** As sessões trabalham na worktree `/home/user/audit`
-  (`git worktree add`) e mandam para o remoto de lá (`git push origin <local>:claude/hopeful-johnson-0xr9us`).
+- Desde nov/2026 as sessões trabalham direto em `/home/user/Discord` (nesta branch). As alterações antigas de música do
+  dono, que não estavam em commit, estão guardadas no stash `wip-musica-antigo-local` (**não mexer sem pedir**). A
+  worktree `/home/user/audit` ficou num commit antigo (útil para comparar com o código de antes).
 - Testes de ponta a ponta usam portas fixas: **um por vez**, `flock /tmp/resenha-tests.lock node scripts/run-tests.mjs <nomes>`.
 
 ## O que foi feito (commits, do mais antigo ao mais novo)
@@ -289,6 +288,23 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
    e o do outro continua. `Ctrl+Alt+Shift+Q` tira todos.
 5. **Latência:** os comandos passam pelo servidor (WebSocket). Medir com um jogo de ritmo rápido se o atraso incomoda.
 
+## Jogar junto reformulado e a bateria a 100% (nov/2026, 4ª passagem)
+
+**Plano, medições e checklist completos em [REMOTE-PLAY.md](REMOTE-PLAY.md).** Resumo:
+- Bateria: `gifs-test` e `community2-test` falhavam pelo aviso "Disco quase cheio" desta máquina, que cobria o menu e
+  segurava o clique (`38ad009`): o aviso só de texto deixa o clique passar e o `run-tests` desliga o alerta de disco.
+- Bot de música volta ao SFU depois que o worker do mediasoup morre (`9fbc97f`). **Não testado:**
+  `scripts/music-worker-test.mjs` está escrito mas não rodou (a sessão foi interrompida). Rodar antes de confiar.
+- `captura-metodo-test` passou a falhar no passo 11 ("nativo falhou com jogo em TELA CHEIA → quem assiste vê pelo
+  Chromium"), nas 2 tentativas, depois do `47b22d8` (Valorant sem bordas). **Não investigado.** Comparar com a worktree
+  `/home/user/audit` (commit anterior).
+- Jogar junto (etapas 1–6 de REMOTE-PLAY.md): comandos sem a fila de 16 ms; participação única com permissões
+  independentes e janela Jogadores; perfil de jogo a 60 FPS; painel Desempenho; mouse travado (nova versão do app). O
+  receptor com `jitterBufferTarget = 0` foi medido sem efeito e não entrou. DataChannel: só se o teste com 2 PCs mostrar
+  o TCP segurando comandos (critério em REMOTE-PLAY.md, seção 8).
+- **Falta o dono:** validação com 2 PCs nos dois sentidos e em redes diferentes (REMOTE-PLAY.md, seção 8); nova versão do
+  app desktop para o mouse travado; push e deploy quando autorizar.
+
 ## Como medir (ferramentas em `scripts/`)
 
 | Ferramenta | Mede |
@@ -302,6 +318,7 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
 | `perf-open.mjs` | Abertura: tempo até pronto, thread por tipo, bytes, cobertura de JS/CSS (`CPU=4`, `BLOCK=` experimento) |
 | `perf-clip-own.mjs` | CPU de quem transmite com os próprios clipes: sem clipes × MediaRecorder × quadros enviados |
 | `perf-roteiro.mjs` | Roteiro fixo de 10 min (`MIN=`): 3 navegadores, 1080p60, quedas de rede pelo relé UDP; CPU e memória por papel (média, p99, máximo), o que cada um recebe (getStats a cada 1 s), quem viu alguém sair |
+| `remote-latency.mjs` | Jogar junto: comando (ida), comando → tela e captura → exibição de ponta a ponta, rede simulada (`NET=wan:ms:var:perda`), `PROFILE=0`/`PANEL=1` para comparar |
 | `medir-resenha.ps1` | **No Windows do dono**: CPU, memória privada, GPU e VRAM por processo do Resenha (`-Label modo -Secs 60`, grava CSV) |
 
 - **Voz de verdade no microfone falso:** baixe `https://raw.githubusercontent.com/microsoft/MS-SNSD/master/clean_test/clnsp1.wav`,
