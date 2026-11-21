@@ -220,7 +220,7 @@ async function startSession(guildId, channelId) {
     loop: 'off', autoplay: false, stay: false, feed: null, rtp: null, out: null, timer: null, clock: null, sentSince: 0, idleTimer: null, aloneTimer: null, gen: 0 };
   sessions.set(channelId, s);
   try {
-    await env.joinBot(channelId, botId, { kind: 'music', n, name: n > 1 ? `Música ${n}` : 'Música' }); // entra na sala (voice map + SFU)
+    await env.joinBot(channelId, botId, { kind: 'music', n, name: n > 1 ? `Música ${n}` : 'Música' }, () => sfuReset(s)); // entra na sala (voice map + SFU)
     // um único produtor de áudio por sessão: trocar de faixa, pular para um ponto ou pausar não renegocia nada com quem ouve
     s.rtp = await env.attachRtp(channelId, botId);
     s.out = rtpOut(s.rtp);
@@ -228,6 +228,27 @@ async function startSession(guildId, channelId) {
   } catch (e) { endSession(s); throw e; }
   armIdle(s);
   return s;
+}
+// o worker do mediasoup da sala morreu: a sala some do SFU com o produtor do bot. Quem ouve refaz a mídia sozinho (o app
+// recebe SFU_RESET); o bot entra de novo (num worker vivo ou no recriado, que leva 1 s ou mais) e troca o envio para o
+// produtor novo. A faixa continua de onde estava (o que tocou no intervalo se perde, ~1–2 s).
+function sfuReset(s, attempt = 0) {
+  if (sessions.get(s.channelId) !== s || s.resetting) return;
+  s.resetting = true;
+  setTimeout(async () => {
+    s.resetting = false;
+    if (sessions.get(s.channelId) !== s) return;
+    try {
+      await env.rejoinBotSfu(s.channelId, s.botId, () => sfuReset(s));
+      const rtp = await env.attachRtp(s.channelId, s.botId);
+      if (sessions.get(s.channelId) !== s) { rtp.close(); return; }
+      s.out?.close(); s.rtp = rtp; s.out = rtpOut(rtp);
+      console.log(`[música] bot da sala ${s.channelId} voltou ao SFU depois da queda do worker`);
+    } catch (e) {
+      if (attempt >= 8) return endSession(s, 'O servidor de voz caiu e o bot de música não conseguiu voltar');
+      sfuReset(s, attempt + 1);
+    }
+  }, [1500, 2000, 3000, 5000, 5000, 10000, 10000, 30000, 60000][attempt]).unref?.();
 }
 // ---------- envio RTP no ritmo certo ----------
 function rtpOut(rtp) {

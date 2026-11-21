@@ -758,15 +758,16 @@ function leaveVoice(uid, cid, reason) {
 }
 // Bot de música: participante sem conexão WebSocket (ws "morto" faz send() ser ignorado)
 // bot: { kind: 'music', n, name } — vai no estado de voz para o app desenhá-lo como bot (não é um membro do servidor)
-async function joinBot(cid, botId, bot) {
+// onReset: o worker do mediasoup da sala morreu (SFU_RESET); o bot precisa entrar de novo no SFU e refazer o envio
+async function joinBot(cid, botId, bot, onReset) {
   if (!voice.has(cid)) { voice.set(cid, new Map()); roomStart.set(cid, Date.now()); }
   const st = { ws: { readyState: 0 }, mute: false, deaf: false, video: false, screen: false, bot: bot || { kind: 'music', n: 1, name: 'Música' } };
   voice.get(cid).set(botId, st);
   const ch = get('SELECT * FROM channels WHERE id=?', cid);
   dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, botId, st), guild_id: ch.guild_id });
-  await sfuJoin(cid, botId, () => { });
+  await sfuJoin(cid, botId, (t) => { if (t === 'SFU_RESET') onReset?.(); });
 }
-initMusic({ db, all, get, run, newId, canManage: (gid, uid) => can(gid, uid, P.MANAGE_CHANNELS) || can(gid, uid, P.MANAGE_GUILD), voice, send, dispatch, guildMemberIds, memberObj, userPub, joinBot, leaveBot: (cid, botId) => leaveVoice(botId, cid), attachRtp: sfuAttachRtp, sfuEnabled });
+initMusic({ db, all, get, run, newId, canManage: (gid, uid) => can(gid, uid, P.MANAGE_CHANNELS) || can(gid, uid, P.MANAGE_GUILD), voice, send, dispatch, guildMemberIds, memberObj, userPub, joinBot, rejoinBotSfu: (cid, botId, onReset) => sfuJoin(cid, botId, (t) => { if (t === 'SFU_RESET') onReset?.(); }), leaveBot: (cid, botId) => leaveVoice(botId, cid), attachRtp: sfuAttachRtp, sfuEnabled });
 // Watch Together (server/watch.js): sessão por sala de voz; eventos só para quem está na sala
 const watchDb = () => db.exec(`CREATE TABLE IF NOT EXISTS watch_history(guild_id TEXT NOT NULL, service TEXT NOT NULL, ref TEXT NOT NULL, url TEXT, title TEXT, channel TEXT, thumb TEXT, duration INTEGER, by_id TEXT, at INTEGER, PRIMARY KEY(guild_id, service, ref));
   CREATE INDEX IF NOT EXISTS idx_watch_hist ON watch_history(guild_id, at);`);
