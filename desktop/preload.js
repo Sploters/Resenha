@@ -49,11 +49,14 @@ contextBridge.exposeInMainWorld('lcDesktop', {
   setThrottle: (on) => ipcRenderer.send('set-throttle', !!on),
   // janela minimizada/na bandeja: { hidden } (desde a 1.0.25). Sem desaceleração o Electron não muda document.hidden sozinho
   onWindowState: (() => { let cb = null, last = null; ipcRenderer.on('win-state', (_e, s) => { last = s; cb?.(s); }); return (f) => { cb = f; if (last) f(last); }; })(),
-  // controle remoto: só mouse e teclado, com o programa nativo; ver desktop/remote.js
+  // controle remoto (mouse, teclado, controle) e jogadores do "jogar junto", com o programa nativo; ver desktop/remote.js
   remoteCapable: () => ipcRenderer.invoke('remote-capable'),
   remoteStart: (o) => ipcRenderer.invoke('remote-start', o),
-  remoteInput: (ev) => ipcRenderer.send('remote-input', ev),
-  remoteStop: () => ipcRenderer.send('remote-stop'),
+  remoteInput: (ev, id) => ipcRenderer.send('remote-input', ev, id),
+  remoteStop: (id) => ipcRenderer.send('remote-stop', id),
+  // "jogar junto": o driver do controle virtual responde? instalar (baixa o oficial, confere e abre com o UAC)
+  padCheck: () => ipcRenderer.invoke('pad-check'),
+  padDriverInstall: () => ipcRenderer.invoke('pad-driver-install'),
   onRemoteEvent: (cb) => ipcRenderer.on('remote-event', (_e, k) => cb(k)),
   // transmissão a 120 FPS: programa nativo (captura sem limite + placa de vídeo); ver desktop/native.js
   nativeCapable: (mode) => ipcRenderer.invoke('native-capable', mode),

@@ -6,6 +6,9 @@
 // A injeção em si acontece só no app desktop do dono (programa nativo), nunca no navegador.
 
 export const REMOTE_PENDING_MS = 30 * 1000;
+// "Jogar junto" (kind 'pad'): quem assiste entra como jogador 2, 3 ou 4 só com o próprio controle de videogame (sem mouse
+// nem teclado); várias ao mesmo tempo, ao lado de uma sessão de controle remoto normal (kind 'control')
+export const MAX_PLAYERS = 3, PLAYER_SLOTS = [2, 3, 4];
 const MAX_EVENTS_PER_MSG = 64;
 const RATE = 400, BURST = 800; // eventos por segundo (movimento já chega agrupado ~60/s)
 const KEY_RE = /^[A-Za-z][A-Za-z0-9]{0,23}$/; // KeyboardEvent.code (ex.: KeyA, Digit1, ArrowLeft, F5)
@@ -36,7 +39,7 @@ export function cleanEvent(e, perms) {
 const defaultLater = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; };
 export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId, later = defaultLater }) {
   const sessions = new Map(); // id -> { id, owner, controller, cid, perms, state, created, bucket, last }
-  const pub = (s, reason) => ({ id: s.id, owner: s.owner, controller: s.controller, channel_id: s.cid, perms: s.perms, state: s.state, ...(reason ? { reason } : {}) });
+  const pub = (s, reason) => ({ id: s.id, kind: s.kind, owner: s.owner, controller: s.controller, channel_id: s.cid, perms: s.perms, state: s.state, ...(s.slot ? { slot: s.slot } : {}), ...(reason ? { reason } : {}) });
   const tell = (s, reason) => { const p = pub(s, reason); sendUser(s.owner, 'REMOTE_STATE', p); sendUser(s.controller, 'REMOTE_STATE', p); };
   const live = (s) => s.state === 'pending' ? now() - s.created < REMOTE_PENDING_MS : s.state === 'active';
   const of = (uid) => [...sessions.values()].filter(s => live(s) && (s.owner === uid || s.controller === uid));
@@ -46,15 +49,18 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
   // e quem pediu ficava com a sessão "pendente" na tela até reconectar ("Já existe uma sessão de controle remoto")
   function sweep() { for (const s of [...sessions.values()]) if (!live(s)) { if (s.state === 'pending') end(s, 'expired'); else sessions.delete(s.id); } }
 
-  function request(from, to) {
+  function request(from, to, kind = 'control') {
     sweep();
+    kind = kind === 'pad' ? 'pad' : 'control';
     const a = voiceOf(from), b = voiceOf(to);
     if (!to || to === from) return { error: 'Pedido inválido' };
     if (!a || !b || a.cid !== b.cid) return { error: 'Vocês precisam estar na mesma sala de voz' };
     if (!b.screen) return { error: 'A pessoa precisa estar transmitindo a tela' };
-    if (of(to).length) return { error: 'Essa pessoa já está numa sessão de controle remoto' };
-    if (of(from).length) return { error: 'Você já está numa sessão de controle remoto' };
-    const s = { id: newId(), owner: to, controller: from, cid: a.cid, perms: { mouse: false, keyboard: false, gamepad: false }, state: 'pending', created: now(), bucket: BURST, last: now() };
+    if (of(from).length) return { error: of(from).some(x => x.kind === 'pad' && x.controller === from) ? 'Você já está jogando (ou pediu para jogar) numa transmissão' : 'Você já está numa sessão de controle remoto' };
+    const owned = of(to).filter(x => x.owner === to);
+    if (kind === 'control' && (owned.some(x => x.kind === 'control') || of(to).some(x => x.controller === to))) return { error: 'Essa pessoa já está numa sessão de controle remoto' };
+    if (kind === 'pad' && owned.filter(x => x.kind === 'pad').length >= MAX_PLAYERS) return { error: 'Essa transmissão já tem 4 jogadores' };
+    const s = { id: newId(), kind, owner: to, controller: from, cid: a.cid, perms: { mouse: false, keyboard: false, gamepad: false }, state: 'pending', created: now(), bucket: BURST, last: now() };
     sessions.set(s.id, s);
     sendUser(to, 'REMOTE_REQUEST', pub(s));
     sendUser(from, 'REMOTE_STATE', pub(s));
@@ -68,10 +74,15 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     if (s && s.state === 'pending' && !live(s)) end(s, 'expired');
     if (!s || s.owner !== uid || s.state !== 'pending' || !live(s)) return { error: 'Pedido não encontrado ou expirado' };
     if (!accept) { end(s, capable === false ? 'unsupported' : 'declined'); return {}; }
-    const perms = { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad };
+    // jogador: só o controle, nunca mouse nem teclado (mesmo que o cliente mande)
+    const perms = s.kind === 'pad' ? { mouse: false, keyboard: false, gamepad: true } : { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad };
     if (!perms.mouse && !perms.keyboard && !perms.gamepad) { end(s, 'declined'); return {}; }
     const v = voiceOf(uid);
     if (!v || v.cid !== s.cid || !v.screen) { end(s, 'stream_ended'); return {}; }
+    if (s.kind === 'pad') { // vaga: o menor número livre (quem sai libera a dele)
+      const used = new Set([...sessions.values()].filter(x => x !== s && x.kind === 'pad' && x.owner === uid && x.state === 'active').map(x => x.slot));
+      s.slot = PLAYER_SLOTS.find(n => !used.has(n)); if (!s.slot) { end(s, 'full'); return {}; }
+    }
     s.perms = perms; s.state = 'active'; s.bucket = BURST; s.last = now();
     tell(s);
     return { session: pub(s) };

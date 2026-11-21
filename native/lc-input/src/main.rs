@@ -57,10 +57,11 @@ mod win {
     use windows::Win32::UI::WindowsAndMessaging::*;
 
     type PadDev = vigem_client::Xbox360Wired<vigem_client::Client>;
-    struct State { armed: bool, target: Option<Target>, keys: Vec<(u16, bool)>, buttons: [bool; 3], pad: Option<PadDev>, warned: bool }
+    // pads: um controle virtual por vaga (0 = controle remoto normal; 1..3 = jogadores 2, 3 e 4 do "jogar junto")
+    struct State { armed: bool, target: Option<Target>, keys: Vec<(u16, bool)>, buttons: [bool; 3], pads: [Option<PadDev>; 4], warned: bool }
     // o controle virtual guarda um HANDLE do driver: só esta thread (a da entrada padrão) mexe nele, sempre com o Mutex
     unsafe impl Send for State {}
-    static STATE: Mutex<State> = Mutex::new(State { armed: false, target: None, keys: Vec::new(), buttons: [false; 3], pad: None, warned: false });
+    static STATE: Mutex<State> = Mutex::new(State { armed: false, target: None, keys: Vec::new(), buttons: [false; 3], pads: [None, None, None, None], warned: false });
     static PHYS_CTRL: AtomicBool = AtomicBool::new(false);
     static PHYS_ALT: AtomicBool = AtomicBool::new(false);
     static PHYS_SHIFT: AtomicBool = AtomicBool::new(false);
@@ -115,7 +116,7 @@ mod win {
     fn disarm(st: &mut State) {
         release_all(st); st.armed = false; ARMED.store(false, Ordering::SeqCst); st.target = None; st.warned = false;
         // controle virtual: solta tudo e desconecta (o Windows avisa "controle desconectado" e o jogo pausa, como num cabo solto)
-        if let Some(mut p) = st.pad.take() { let _ = p.update(&vigem_client::XGamepad::default()); let _ = p.unplug(); }
+        for i in 0..st.pads.len() { pad_off(st, i); }
     }
 
     // ---- janela transmitida ----
@@ -146,15 +147,21 @@ mod win {
 
     // ---- controle de videogame ----
     fn pad_available() -> bool { vigem_client::Client::connect().is_ok() }
+    /// desconecta o controle virtual da vaga (o Windows avisa "controle desconectado", como num cabo solto)
+    fn pad_off(st: &mut State, i: usize) {
+        if let Some(mut p) = st.pads.get_mut(i).and_then(|x| x.take()) { let _ = p.update(&vigem_client::XGamepad::default()); let _ = p.unplug(); }
+    }
     fn pad_update(st: &mut State, pad: Pad) -> bool {
-        if st.pad.is_none() {
+        let i = pad.slot as usize; if i >= st.pads.len() { return false; }
+        if st.pads[i].is_none() {
+            // ligado no 1º uso: um controle de Xbox 360 novo, na próxima porta livre do XInput (o do dono continua o 1)
             let Ok(c) = vigem_client::Client::connect() else { return false };
             let mut t = vigem_client::Xbox360Wired::new(c, vigem_client::TargetId::XBOX360_WIRED);
             if t.plugin().is_err() || t.wait_ready().is_err() { return false; }
-            st.pad = Some(t);
+            st.pads[i] = Some(t);
         }
         let g = vigem_client::XGamepad { buttons: vigem_client::XButtons(pad.buttons), left_trigger: pad.lt, right_trigger: pad.rt, thumb_lx: pad.lx, thumb_ly: pad.ly, thumb_rx: pad.rx, thumb_ry: pad.ry };
-        st.pad.as_mut().map_or(false, |p| p.update(&g).is_ok())
+        st.pads[i].as_mut().map_or(false, |p| p.update(&g).is_ok())
     }
 
     fn apply(st: &mut State, a: Action) -> bool {
@@ -265,6 +272,8 @@ mod win {
             match proto::parse(&line) {
                 Cmd::Arm(t) => { st.armed = true; ARMED.store(true, Ordering::SeqCst); st.target = Some(t); st.warned = false; drop(st); emit(r#"{"t":"armed"}"#); }
                 Cmd::Disarm => { disarm(&mut st); drop(st); emit(r#"{"t":"disarmed"}"#); }
+                Cmd::PadOff(p) => { pad_off(&mut st, p as usize); st.warned = false; }
+                Cmd::PadCheck => { drop(st); emit(&format!(r#"{{"t":"pad","ok":{}}}"#, pad_available())); }
                 Cmd::Ptt(k) => { drop(st); set_ptt(k); emit(&format!(r#"{{"t":"ptt-ok","on":{}}}"#, k.is_some())); }
                 Cmd::Events(v) => {
                     let Some(t) = st.target.filter(|_| st.armed) else { continue };

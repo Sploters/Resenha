@@ -5,6 +5,9 @@
 //!   {"t":"ev","ev":[...]}          eventos já validados pelo servidor; validados de novo aqui
 //!   {"t":"ptt","code":"KeyV"}      push-to-talk global: avisa só quando ESTA tecla (ou botão do mouse) desce/sobe
 //!   {"t":"ptt","code":null}        desliga o push-to-talk global
+//!   {"t":"padoff","p":1}           desliga o controle virtual da vaga p (0..3; o jogador saiu)
+//!   {"t":"padcheck"}               confere de novo se o driver do controle virtual responde (depois de instalar)
+//! Evento de controle {"k":"g",...,"p":n}: n = vaga do controle virtual (0..3; sem p = 0, o controle remoto normal).
 //! Nada aqui toca o Windows: só transforma texto em ações (testável em qualquer sistema).
 use crate::keymap::scan_for;
 use serde::Deserialize;
@@ -23,7 +26,9 @@ pub enum Action {
 
 /// Controle no formato do XInput: botões (XINPUT_GAMEPAD_*), gatilhos 0..255 e analógicos -32768..32767 (Y para cima > 0).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Pad { pub buttons: u16, pub lt: u8, pub rt: u8, pub lx: i16, pub ly: i16, pub rx: i16, pub ry: i16 }
+pub struct Pad { pub slot: u8, pub buttons: u16, pub lt: u8, pub rt: u8, pub lx: i16, pub ly: i16, pub rx: i16, pub ry: i16 }
+/// vagas de controle virtual ao mesmo tempo (controle remoto + jogadores 2, 3 e 4)
+pub const PAD_SLOTS: u8 = 4;
 
 /// Botões no "standard mapping" do navegador (Gamepad API, índice = bit) -> bits do XInput.
 /// 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, (6 e 7 são os gatilhos, que vão como eixo), 8 Back, 9 Start, 10 L3, 11 R3,
@@ -39,7 +44,7 @@ fn trig(v: f64) -> u8 { (v.clamp(0.0, 1.0) * 255.0).round() as u8 }
 pub enum Target { Screen(Rect), Window(u64) }
 
 #[derive(Debug, PartialEq)]
-pub enum Cmd { Arm(Target), Disarm, Events(Vec<Raw>), Ptt(Option<PttKey>), Bad }
+pub enum Cmd { Arm(Target), Disarm, Events(Vec<Raw>), Ptt(Option<PttKey>), PadOff(u8), PadCheck, Bad }
 
 /// Tecla do push-to-talk: scancode do teclado (como em `scan_for`) ou botão do mouse
 /// (3 = meio, 4 = lateral de trás / XBUTTON1, 5 = lateral da frente / XBUTTON2). Esquerdo e direito não valem.
@@ -54,7 +59,7 @@ pub fn ptt_key(code: &str) -> Option<PttKey> {
 }
 
 #[derive(Deserialize)]
-struct Line { t: String, rect: Option<[i64; 4]>, hwnd: Option<u64>, ev: Option<Vec<serde_json::Value>>, code: Option<String> }
+struct Line { t: String, rect: Option<[i64; 4]>, hwnd: Option<u64>, ev: Option<Vec<serde_json::Value>>, code: Option<String>, p: Option<u8> }
 
 const MAX_EVENTS: usize = 64;
 
@@ -69,6 +74,8 @@ pub fn parse(line: &str) -> Cmd {
             _ => Cmd::Bad,
         },
         "disarm" => Cmd::Disarm,
+        "padoff" => match l.p { Some(p) if p < PAD_SLOTS => Cmd::PadOff(p), _ => Cmd::Bad },
+        "padcheck" => Cmd::PadCheck,
         "ptt" => match l.code.as_deref() {
             None => Cmd::Ptt(None),
             Some(c) => ptt_key(c).map_or(Cmd::Bad, |k| Cmd::Ptt(Some(k))),
@@ -95,8 +102,9 @@ fn raw_event(v: &serde_json::Value) -> Option<Raw> {
             let ax = v.get("ax")?.as_array()?; if ax.len() != 4 { return None; }
             let a: Vec<f64> = ax.iter().map(|x| x.as_f64().filter(|x| x.is_finite() && (-1.0..=1.0).contains(x))).collect::<Option<_>>()?;
             let (lt, rt) = (f("lt").unwrap_or(0.0), f("rt").unwrap_or(0.0)); if !(0.0..=1.0).contains(&lt) || !(0.0..=1.0).contains(&rt) { return None; }
+            let slot = f("p").unwrap_or(0.0); if !(0.0..PAD_SLOTS as f64).contains(&slot) || slot.fract() != 0.0 { return None; }
             // o navegador dá Y para baixo positivo; o XInput, para cima
-            Some(Raw::Act(Action::Pad(Pad { buttons: pad_buttons(b as u32), lt: trig(lt), rt: trig(rt), lx: axis(a[0]), ly: axis(-a[1]), rx: axis(a[2]), ry: axis(-a[3]) })))
+            Some(Raw::Act(Action::Pad(Pad { slot: slot as u8, buttons: pad_buttons(b as u32), lt: trig(lt), rt: trig(rt), lx: axis(a[0]), ly: axis(-a[1]), rx: axis(a[2]), ry: axis(-a[3]) })))
         }
         _ => None,
     }
@@ -157,12 +165,23 @@ mod tests {
     fn controle_de_videogame() {
         // A + LB + cima + Start; analógico esquerdo todo para cima e à direita; gatilho direito pela metade
         let Cmd::Events(v) = parse(r#"{"t":"ev","ev":[{"k":"g","b":4625,"ax":[1,-1,0,0.5],"lt":0,"rt":0.5}]}"#) else { panic!() };
-        assert_eq!(v[0], Raw::Act(Action::Pad(Pad { buttons: 0x1000 | 0x0100 | 0x0001 | 0x0010, lt: 0, rt: 128, lx: 32767, ly: 32767, rx: 0, ry: -16384 })));
+        assert_eq!(v[0], Raw::Act(Action::Pad(Pad { slot: 0, buttons: 0x1000 | 0x0100 | 0x0001 | 0x0010, lt: 0, rt: 128, lx: 32767, ly: 32767, rx: 0, ry: -16384 })));
         assert_eq!(pad_buttons(1 << 6 | 1 << 7), 0); // gatilhos não viram botão
         assert_eq!(pad_buttons(1 << 16), 0x0400);
         // fora da faixa, eixos faltando ou botões demais: descartado
         let Cmd::Events(v) = parse(r#"{"t":"ev","ev":[{"k":"g","b":0,"ax":[2,0,0,0]},{"k":"g","b":0,"ax":[0,0,0]},{"k":"g","b":131072,"ax":[0,0,0,0]},{"k":"g","b":1.5,"ax":[0,0,0,0]},{"k":"g","b":0,"ax":[0,0,0,0],"rt":3}]}"#) else { panic!() };
         assert!(v.is_empty());
+    }
+    #[test]
+    fn jogadores_em_vagas() {
+        // jogar junto: cada jogador num controle virtual (vaga 0..3); vaga fora da faixa é descartada
+        let Cmd::Events(v) = parse(r#"{"t":"ev","ev":[{"k":"g","b":1,"ax":[0,0,0,0],"p":2},{"k":"g","b":1,"ax":[0,0,0,0],"p":4},{"k":"g","b":1,"ax":[0,0,0,0],"p":1.5}]}"#) else { panic!() };
+        assert_eq!(v.len(), 1);
+        assert!(matches!(v[0], Raw::Act(Action::Pad(Pad { slot: 2, buttons: 0x1000, .. }))));
+        assert_eq!(parse(r#"{"t":"padoff","p":3}"#), Cmd::PadOff(3));
+        assert_eq!(parse(r#"{"t":"padoff","p":4}"#), Cmd::Bad);
+        assert_eq!(parse(r#"{"t":"padoff"}"#), Cmd::Bad);
+        assert_eq!(parse(r#"{"t":"padcheck"}"#), Cmd::PadCheck);
     }
     #[test]
     fn limite_de_eventos_por_linha() {

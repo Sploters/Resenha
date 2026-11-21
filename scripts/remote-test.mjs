@@ -60,6 +60,27 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const s6 = R.request('b', 'c').session; R.answer('c', s6.id, { accept: true, mouse: true }); R.onLeave('b');
   ok(last('c', 'REMOTE_STATE')?.reason === 'left', 'controlador saiu da sala: sessão acaba');
 }
+// ---------- 1b) jogar junto (kind 'pad'): jogadores 2, 3 e 4, só controle, ao lado do controle remoto normal ----------
+{
+  let n = 0; const out = [];
+  const where = { h: { cid: 'v', screen: true }, p1: { cid: 'v' }, p2: { cid: 'v' }, p3: { cid: 'v' }, p4: { cid: 'v' }, k: { cid: 'v' } };
+  const R = createRemote({ newId: () => 'p' + ++n, now: () => 1e12, later: () => { }, voiceOf: (u) => where[u] || null, sendUser: (u, type, d) => out.push({ u, type, d }) });
+  const last = (u, type) => out.filter(o => o.u === u && o.type === type).at(-1)?.d;
+  const join = (u) => { const s = R.request(u, 'h', 'pad').session; if (s) R.answer('h', s.id, { accept: true, mouse: true, keyboard: true, capable: true }); return s; };
+  const a = join('p1'), b = join('p2'), c = join('p3');
+  ok([a, b, c].every(Boolean) && [last('p1', 'REMOTE_STATE'), last('p2', 'REMOTE_STATE'), last('p3', 'REMOTE_STATE')].map(x => x.slot).join() === '2,3,4', 'três jogadores entram como 2, 3 e 4');
+  const s1 = last('p1', 'REMOTE_STATE');
+  ok(s1.kind === 'pad' && s1.perms.gamepad && !s1.perms.mouse && !s1.perms.keyboard, 'jogador: só o controle, mesmo se o dono mandar mouse e teclado', s1.perms);
+  ok(R.request('p4', 'h', 'pad').error, 'o quinto (4 jogadores com o dono) é recusado');
+  ok(R.input('p1', a.id, [{ k: 'm', x: .5, y: .5 }, { k: 'kd', c: 'KeyA' }]).sent === 0, 'jogador não mexe no mouse nem no teclado');
+  ok(R.input('p1', a.id, [{ k: 'g', b: 1, ax: [0, 0, 0, 0] }]).sent === 1 && last('h', 'REMOTE_INPUT').id === a.id, 'o controle do jogador chega ao dono com o id da sessão (a vaga)');
+  const ctl = R.request('k', 'h').session;
+  ok(!!ctl, 'controle remoto normal convive com os jogadores');
+  R.stop('p2', b.id); const d = join('p4');
+  ok(d && last('p4', 'REMOTE_STATE').slot === 3, 'quem sai libera a vaga: o próximo entra como jogador 3', last('p4', 'REMOTE_STATE')?.slot);
+  ok(R.request('p1', 'h', 'pad').error, 'quem já joga não pede de novo');
+  R.onScreenOff('h'); ok(['p1', 'p3', 'p4'].every(u => last(u, 'REMOTE_STATE')?.state === 'ended'), 'dono parou de transmitir: todos os jogadores saem');
+}
 
 // ---------- 2) três navegadores ----------
 fs.rmSync('.testdata8', { recursive: true, force: true }); fs.mkdirSync(SHOTS, { recursive: true });
@@ -81,7 +102,8 @@ async function page(tok, desk) {
       const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { },
         getSources: async () => [{ id: 'screen:1:0', name: 'Tela 1', type: 'screen', thumbnail: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
         remoteCapable: async () => ({ ok: true, antiCheats: window.__ac || [], pad: !!window.__pad, window: !!window.__win }), remoteStart: async (o) => { window.__rs.push(o); return { ok: true }; },
-        remoteInput: (ev) => window.__ri.push(...ev), remoteStop: () => { window.__rstop++; }, onRemoteEvent: (cb) => { window.__remoteCb = cb; } };
+        remoteInput: (ev, id) => window.__ri.push(...ev.map(e => (id ? { ...e, _id: id } : e))), remoteStop: (id) => { window.__rstop++; (window.__rstopIds ||= []).push(id); }, onRemoteEvent: (cb) => { window.__remoteCb = cb; },
+        padDriverInstall: async () => { window.__pad = true; window.__installed = (window.__installed || 0) + 1; return { ok: true }; } };
       window.lcDesktop = new Proxy(fns, { get: (t, k) => (k in t ? t[k] : () => Promise.resolve(true)) });
     }
   }, tok, desk);
@@ -212,6 +234,38 @@ try {
   await B.evaluate(() => document.querySelector('#remote-chip .btn').click());
   await A.waitForFunction(() => !document.getElementById('remote-chip'), { timeout: 5000 }).catch(() => { });
   await A.evaluate(() => { window.__win = false; });
+
+  // ---- jogar junto: bob e carol entram como jogadores 2 e 3, só com o controle ----
+  await A.evaluate(() => { window.__pad = false; window.__ri = []; window.__rs = []; window.__rstopIds = []; });
+  const menuPick = (P, re) => P.evaluate((re) => { document.querySelector('.sctl button[title="Mais opções"]')?.click(); const it = [...document.querySelectorAll('.menu .it')].find(x => new RegExp(re).test(x.textContent)); it?.click(); return !!it; }, re);
+  ok(await menuPick(B, 'Entrar como jogador'), 'quem assiste vê "Entrar como jogador" no menu da transmissão');
+  await A.waitForFunction(() => /quer jogar junto/.test(document.querySelector('.modal')?.textContent || ''), { timeout: 5000 }).catch(() => { });
+  const askP = await A.evaluate(() => ({ install: [...document.querySelectorAll('.modal .rmdrv .btn')].some(x => /Instalar o driver/.test(x.textContent)), noMouse: !/Mouse/.test([...document.querySelectorAll('.modal .rmopt b')].map(x => x.textContent).join()) }));
+  ok(askP.install && askP.noMouse, 'pedido para jogar: sem o driver, o botão de instalar; sem opção de mouse e teclado', askP);
+  await A.evaluate(() => [...document.querySelectorAll('.modal .rmdrv .btn')].find(x => /Instalar/.test(x.textContent)).click()); await sleep(300);
+  ok(await A.evaluate(() => window.__installed === 1 && !document.querySelector('.modal .rmdrv .btn')), 'instalar o driver pelo pedido (o botão some depois)');
+  await A.evaluate(() => { document.querySelector('.modal .rmopt input').click(); [...document.querySelectorAll('.modal .btn')].find(x => x.textContent === 'Deixar jogar').click(); }); // e "aceitar os próximos"
+  ok(await toastOf(B, 'jogador 2'), 'bob fica sabendo que é o jogador 2');
+  const rsB = await A.evaluate(() => window.__rs.at(-1));
+  ok(rsB?.kind === 'pad' && rsB.slot === 2 && rsB.id, 'app da alice liga o controle virtual do jogador 2', rsB);
+  await B.bringToFront();
+  await B.evaluate(() => { const g = window.__gp, b = window.__gpb; g.buttons[0] = b(true); g.axes = [0, 0, 0.6, 0]; }); await sleep(300);
+  await B.evaluate(() => { const g = window.__gp, b = window.__gpb; g.buttons = g.buttons.map(() => b(false)); g.axes = [0, 0, 0, 0]; });
+  await B.mouse.click(box.x, box.y); await sleep(400);
+  const evB = await A.evaluate(() => window.__ri.slice());
+  ok(evB.some(e => e.k === 'g' && e.b === 1 && e.ax[2] === 0.6 && e._id === rsB.id) && evB.every(e => e.k === 'g'), 'o controle do bob chega na sessão dele (vaga 2); o clique não', evB.slice(0, 3));
+  // carol pede pelo atalho do módulo: "aceitar os próximos" aceita sozinho, como jogador 3
+  await C.evaluate(async (uid) => { const b = (on) => ({ pressed: on, value: on ? 1 : 0 }); window.__gp = { mapping: 'standard', buttons: Array.from({ length: 17 }, () => b(false)), axes: [0, 0, 0, 0] }; navigator.getGamepads = () => [window.__gp]; (await window.__lc.import('remote.js')).requestPlay(uid); }, a.id);
+  ok(await toastOf(C, 'jogador 3'), 'aceitar os próximos: carol entra sozinha como jogador 3, sem nova pergunta à alice');
+  const chip = await A.evaluate(() => [...document.querySelectorAll('#remote-chip .rplayer')].map(x => x.textContent));
+  ok(chip.length === 2 && /^2bob/.test(chip[0]) && /^3carol/.test(chip[1]), 'alice vê os jogadores no aviso (2 bob, 3 carol)', chip);
+  await A.evaluate(() => [...document.querySelectorAll('#remote-chip .rplayer')][1].querySelector('button').click());
+  ok(await toastOf(C, 'tirou você do jogo'), 'alice tira a carol do jogo: ela é avisada');
+  ok(await A.evaluate((id) => window.__rstopIds.length === 1 && window.__rstopIds[0] !== id, rsB.id), 'só o controle virtual da carol é desligado', await A.evaluate(() => window.__rstopIds));
+  await B.evaluate(() => [...document.querySelectorAll('#remote-chip .btn')].find(x => /Sair do jogo/.test(x.textContent)).click());
+  ok(await toastOf(A, 'bob saiu do jogo'), 'bob sai pelo aviso: alice é avisada');
+  ok(await A.evaluate((id) => window.__rstopIds.includes(id) && !document.getElementById('remote-chip'), rsB.id), 'controle virtual do bob desligado; sem jogadores, o aviso some');
+  await A.evaluate(() => { window.__pad = true; });
 
   // dono pelo navegador comum (carol): não pode ser controlado
   await C.evaluate(() => [...document.querySelectorAll('.roundbtn')].find(x => x.title.includes('Transmitir')).click()); await sleep(800);

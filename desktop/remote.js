@@ -6,7 +6,10 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null, padOk = false, readyWait = [];
+let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null, padOk = false, readyWait = [], padWait = [];
+// sessões ativas neste PC: id -> { who, perms, kind ('control' | 'pad'), slot }. A injeção fica armada enquanto houver uma;
+// cada uma tem o seu controle virtual (vaga 0 = controle remoto; 1..3 = jogadores 2, 3 e 4 do "jogar junto")
+const active = new Map();
 // push-to-talk global: o mesmo programa (lc-input) vigia só a tecla/botão escolhido; ver setPtt
 let pttCode = null, onPttEvent = () => { }, pttRetry = 0, pttTimer = null, quitting = false, startedAt = 0;
 const log = (...a) => console.log('[remote]', ...a);
@@ -76,14 +79,15 @@ function ensureHelper() {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       let m; try { m = JSON.parse(line); } catch { continue; }
       if (m.t === 'ready') { ready = true; padOk = !!m.pad; readyWait.splice(0).forEach(f => f(true)); }
+      if (m.t === 'pad') { padOk = !!m.ok; padWait.splice(0).forEach(f => f(padOk)); }
       if (m.t === 'ptt') onPttEvent(!!m.down);
-      if (m.t === 'panic') { armed = false; closeIndicator(); onEvent('panic'); }
+      if (m.t === 'panic') { armed = false; active.clear(); closeIndicator(); onEvent('panic'); }
       if (m.t === 'err' && ['blocked', 'covered', 'nopad'].includes(m.msg)) onEvent(m.msg);
       else if (m.t === 'err') log('helper:', m.msg);
     }
   });
   helper.on('exit', (code) => {
-    log('helper saiu', code); const was = armed; helper = null; ready = false; armed = false; closeIndicator(); if (was) onEvent('panic');
+    log('helper saiu', code); const was = armed; helper = null; ready = false; armed = false; active.clear(); closeIndicator(); if (was) onEvent('panic');
     onPttEvent(false); // nunca deixa o microfone aberto se o programa cair com a tecla apertada
     if (Date.now() - startedAt > 30000) pttRetry = 0; // ficou de pé um tempo: a próxima queda recomeça a contagem
     // o PTT global precisa do programa rodando: tenta religar (até 5 vezes seguidas, com espera crescente)
@@ -95,7 +99,15 @@ function ensureHelper() {
 const whenReady = (ms) => (ready ? Promise.resolve(true) : new Promise(res => { readyWait.push(res); setTimeout(() => res(ready), ms); }));
 const write = (o) => { try { helper?.stdin.write(JSON.stringify(o) + '\n'); } catch { } };
 
-function showIndicator(who, perms) {
+// texto do aviso: quem controla o quê e os jogadores (Ana, jogador 2…)
+function indicatorText() {
+  const ctl = [...active.values()].find(x => x.kind !== 'pad'), pads = [...active.values()].filter(x => x.kind === 'pad').sort((a, b) => a.slot - b.slot);
+  const parts = [];
+  if (ctl) parts.push(`${ctl.who} está controlando seu ${permsText(ctl.perms)}`);
+  if (pads.length) parts.push(`${pads.length > 1 ? 'Jogadores' : 'Jogador'}: ${pads.map(x => `${x.who} (${x.slot})`).join(', ')}`);
+  return parts.join(' · ');
+}
+function showIndicator(text) {
   closeIndicator();
   const d = screen.getAllDisplays().find(x => String(x.id) === String(shared?.display_id)) || screen.getPrimaryDisplay();
   const w = 560, h = 46, b = d.workArea || d.bounds;
@@ -107,33 +119,86 @@ function showIndicator(who, perms) {
   indicator.setAlwaysOnTop(true, 'screen-saver'); // por cima de janelas sem borda e da barra de tarefas
   indicator.setVisibleOnAllWorkspaces(true);
   const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const what = permsText(perms);
   const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#1e1f22;color:#f2f3f5;font:13px "Segoe UI",sans-serif;user-select:none;-webkit-app-region:drag}
     body{display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;border:2px solid #f23f43;box-sizing:border-box;border-radius:8px}
     i{width:10px;height:10px;border-radius:50%;background:#f23f43;flex:none}b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}small{color:#b5bac1;white-space:nowrap}span{flex:1}
     a{-webkit-app-region:no-drag;background:#da373c;color:#fff;text-decoration:none;padding:6px 14px;border-radius:4px;font-weight:600}</style>
-    <i></i><b>${esc(who)} está controlando seu ${what}</b><span></span><small>Ctrl+Alt+Shift+Q</small><a href="lc-stop:">Parar</a>`;
+    <i></i><b>${esc(text)}</b><span></span><small>Ctrl+Alt+Shift+Q</small><a href="lc-stop:">Parar</a>`;
   // a página não roda JS: o botão é um link que o processo principal intercepta
   indicator.webContents.on('will-navigate', (e, url) => { e.preventDefault(); if (url.startsWith('lc-stop:')) { stop(); onEvent('panic'); } });
   indicator.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  indicator.on('closed', () => { indicator = null; if (armed) { stop(); onEvent('panic'); } }); // fechar o aviso = parar
+  const me = indicator; // recriado quando um jogador entra ou sai: esse fechamento (quiet) não é "parar"
+  indicator.on('closed', () => { if (me.quiet) return; indicator = null; if (armed) { stop(); onEvent('panic'); } }); // fechar o aviso = parar
   indicator.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   indicator.once('ready-to-show', () => indicator?.showInactive());
 }
-function closeIndicator() { const w = indicator; indicator = null; if (w && !w.isDestroyed()) w.destroy(); }
+function closeIndicator() { const w = indicator; indicator = null; if (w && !w.isDestroyed()) { w.quiet = true; w.destroy(); } }
 
 // "mouse e teclado", "mouse, teclado e controle", "controle"…
 function permsText(p) { const l = [p.mouse && 'mouse', p.keyboard && 'teclado', p.gamepad && 'controle'].filter(Boolean); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l.at(-1) : l[0] || 'nada'; }
 
-async function start({ who, perms }) {
+// id: a sessão (sem id = a de controle remoto, como antes); kind 'pad' + slot 2..4 = jogador do "jogar junto"
+async function start({ id = 'ctl', who, perms, kind = 'control', slot } = {}) {
   const c = await capable(); if (!c.ok) return c;
+  if (kind === 'pad' && !c.pad) return { ok: false, reason: 'O controle de videogame precisa do driver ViGEmBus neste PC.' };
   if (!ensureHelper()) return { ok: false, reason: 'Não foi possível iniciar o componente de controle remoto.' };
-  write({ t: 'arm', ...sharedTarget() }); armed = true;
-  showIndicator(String(who || 'Alguém').slice(0, 40), { mouse: !!perms?.mouse, keyboard: !!perms?.keyboard, gamepad: !!perms?.gamepad });
+  const pad = kind === 'pad';
+  if (pad && !(slot >= 2 && slot <= 4)) return { ok: false, reason: 'Vaga de jogador inválida.' };
+  active.set(String(id), { who: String(who || 'Alguém').slice(0, 40), kind: pad ? 'pad' : 'control', slot: pad ? slot : 0,
+    perms: pad ? { gamepad: true } : { mouse: !!perms?.mouse, keyboard: !!perms?.keyboard, gamepad: !!perms?.gamepad } });
+  if (!armed) { write({ t: 'arm', ...sharedTarget() }); armed = true; }
+  showIndicator(indicatorText());
   return { ok: true };
 }
-function input(ev) { if (armed && Array.isArray(ev) && ev.length <= 64) write({ t: 'ev', ev }); }
-function stop() { if (armed) write({ t: 'disarm' }); armed = false; closeIndicator(); }
+// eventos de uma sessão: o controle de videogame vai para o controle virtual dela (p = vaga); jogador só manda controle
+function input(ev, id = 'ctl') {
+  const a = active.get(String(id)); if (!armed || !a || !Array.isArray(ev) || ev.length > 64) return;
+  const p = a.kind === 'pad' ? a.slot - 1 : 0, out = [];
+  for (const e of ev) { if (e?.k === 'g') out.push({ ...e, p }); else if (a.kind !== 'pad') out.push(e); }
+  if (out.length) write({ t: 'ev', ev: out });
+}
+// sem id: para tudo (atalho de emergência, aviso fechado). Com id: só aquela sessão; sem nenhuma, desarma
+function stop(id) {
+  if (id != null) {
+    const a = active.get(String(id)); if (!a) return; active.delete(String(id));
+    if (armed) write({ t: 'padoff', p: a.kind === 'pad' ? a.slot - 1 : 0 });
+    if (active.size) { showIndicator(indicatorText()); return; }
+  }
+  active.clear(); if (armed) write({ t: 'disarm' }); armed = false; closeIndicator();
+}
+// confere o driver de novo (depois de instalar) sem reiniciar o app
+const padCheck = (ms = 3000) => (!ensureHelper() ? Promise.resolve(false) : new Promise(res => { padWait.push(res); write({ t: 'padcheck' }); setTimeout(() => res(padOk), ms); }));
+
+// ---------- driver do controle virtual (ViGEmBus) ----------
+// Instalador oficial (projeto arquivado em 2023; última versão): conferido pelo hash E pela assinatura digital do autor
+// antes de abrir. O Windows pede permissão de administrador (UAC); o app espera o driver responder.
+const VIGEM = { url: 'https://github.com/nefarius/ViGEmBus/releases/download/v1.22.0/ViGEmBus_1.22.0_x64_x86_arm64.exe',
+  sha256: '89220a7865076b342892f98865f3499fb7c4cfd673159e89d352c360fd014c6a', size: 6278576, signer: 'Nefarius Software Solutions e.U.' };
+let installing = null;
+function installPadDriver({ download, tmpDir, openPath }) {
+  if (process.platform !== 'win32') return Promise.resolve({ ok: false, reason: 'Só no app para Windows.' });
+  if (installing) return installing;
+  return (installing = (async () => {
+    if (await padCheck()) return { ok: true, already: true };
+    const file = path.join(tmpDir, 'ViGEmBus_1.22.0_setup.exe');
+    try { fs.rmSync(file, { force: true }); } catch { }
+    await download(VIGEM.url, file);
+    const buf = fs.readFileSync(file), sha = require('crypto').createHash('sha256').update(buf).digest('hex');
+    if (buf.length !== VIGEM.size || sha !== VIGEM.sha256) { fs.rmSync(file, { force: true }); log('ViGEmBus recusado: hash', sha); return { ok: false, reason: 'O instalador baixado não confere (arquivo diferente do oficial). Nada foi instalado.' }; }
+    const sig = await signerOf(file);
+    if (!sig.valid || !sig.subject.includes(VIGEM.signer)) { fs.rmSync(file, { force: true }); log('ViGEmBus recusado: assinatura', sig); return { ok: false, reason: 'A assinatura digital do instalador não confere. Nada foi instalado.' }; }
+    const err = await openPath(file); // abre pelo Windows (ShellExecute): o UAC aparece
+    if (err) return { ok: false, reason: 'Não consegui abrir o instalador: ' + err };
+    for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 3000)); if (await padCheck()) return { ok: true }; } // até 3 min para a pessoa terminar o instalador
+    return { ok: false, reason: 'O driver ainda não respondeu. Se o instalador terminou, reinicie o app.' };
+  })().finally(() => { installing = null; }));
+}
+// assinatura Authenticode pelo próprio Windows (PowerShell): válida e de quem
+function signerOf(file) {
+  return new Promise((res) => execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+    `$s = Get-AuthenticodeSignature -LiteralPath '${file.replace(/'/g, "''")}'; Write-Output ($s.Status.ToString() + '|' + $s.SignerCertificate.Subject)`],
+  { windowsHide: true, timeout: 20000 }, (e, out) => { const [st, subject = ''] = String(out || '').trim().split('|'); res({ valid: !e && st === 'Valid', subject }); }));
+}
 function shutdown() { quitting = true; stop(); try { helper?.stdin.end(); } catch { } }
 
 // code = KeyboardEvent.code (ex.: KeyV, F13) ou Mouse3/Mouse4/Mouse5; null desliga. Só Windows.
@@ -148,4 +213,4 @@ function setPtt(code) {
   return { ok: true };
 }
 
-module.exports = { setShared, capable, start, input, stop, shutdown, setPtt, onRemoteEvent: (cb) => { onEvent = cb; }, onPtt: (cb) => { onPttEvent = cb; } };
+module.exports = { setShared, capable, start, input, stop, shutdown, setPtt, padCheck, installPadDriver, onRemoteEvent: (cb) => { onEvent = cb; }, onPtt: (cb) => { onPttEvent = cb; } };

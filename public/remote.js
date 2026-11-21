@@ -17,6 +17,19 @@ export const controlling = (uid) => { const s = S.remote; return !!s && s.state 
 // "mouse e teclado", "mouse, teclado e controle", "controle"…
 export const permsText = (p) => { const l = [p.mouse && 'mouse', p.keyboard && 'teclado', p.gamepad && 'controle'].filter(Boolean); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l.at(-1) : l[0] || 'nada'; };
 export const pendingFor = (uid) => { const s = S.remote; return !!s && s.state === 'pending' && s.controller === S.me.id && s.owner === uid; };
+// ---------- "jogar junto" (kind 'pad'): entrar como jogador 2, 3 ou 4 com o próprio controle ----------
+// S.pads: id -> sessão. Quem transmite pode ter até 3; quem joga, uma.
+const pads = () => (S.pads ||= new Map());
+export const myPlay = (uid) => [...pads().values()].find(s => s.controller === S.me.id && (!uid || s.owner === uid)) || null;
+export const playersOf = (uid) => [...pads().values()].filter(s => s.owner === uid && s.state === 'active').sort((a, b) => a.slot - b.slot);
+export function requestPlay(uid) {
+  const cur = myPlay();
+  if (cur) return cur.owner === uid ? ctx.send('REMOTE_STOP', { id: cur.id }) : toast(`Você já está jogando na transmissão de ${ctx.name(cur.owner)}. Saia de lá antes.`, true);
+  if (!navigator.getGamepads) return toast('Este navegador não lê controles de videogame.', true);
+  if (![...(navigator.getGamepads() || [])].some(Boolean)) toast('Ligue o controle (Xbox, DualSense…) neste PC e aperte um botão para ele ser reconhecido.');
+  ctx.send('REMOTE_REQUEST', { to: uid, kind: 'pad' });
+}
+export const stopPlay = (uid) => { const s = myPlay(uid); if (s) ctx.send('REMOTE_STOP', { id: s.id }); };
 
 // ---------- quem assiste ----------
 export function requestControl(uid) {
@@ -110,14 +123,19 @@ function readPad() {
   const ax = [0, 1, 2, 3].map(i => dz(g.axes[i] || 0));
   return { k: 'g', b, ax, lt: Math.round((g.buttons[6]?.value || 0) * 1e3) / 1e3, rt: Math.round((g.buttons[7]?.value || 0) * 1e3) / 1e3 };
 }
-function padNeutral() { if (padLast && padLast !== '0') { padLast = '0'; push({ k: 'g', b: 0, ax: [0, 0, 0, 0], lt: 0, rt: 0 }); } }
+// para onde vai o controle: a sessão de jogador (jogar junto) ou a de controle remoto com o controle liberado
+const padTarget = () => { const p = myPlay(); if (p?.state === 'active') return p; const s = S.remote; return s && s.state === 'active' && s.controller === S.me.id && s.perms.gamepad ? s : null; };
+const NEUTRAL = { k: 'g', b: 0, ax: [0, 0, 0, 0], lt: 0, rt: 0 };
+// jogador: manda direto (só o estado que mudou, ~60/s no máximo); controle remoto: pela fila junto com mouse e teclado
+function padSend(st, s = padTarget()) { if (!s) return; if (s.kind === 'pad') ctx.send('REMOTE_INPUT', { id: s.id, ev: [st || NEUTRAL] }); else push(st || NEUTRAL); }
+function padNeutral() { if (padLast && padLast !== '0') { padLast = '0'; padSend(null); } }
 function padTick() {
-  const s = S.remote;
-  if (!s || s.state !== 'active' || s.controller !== S.me.id || !s.perms.gamepad) { clearInterval(padTimer); padTimer = 0; padLast = ''; return; }
+  const s = padTarget();
+  if (!s) { clearInterval(padTimer); padTimer = 0; padLast = ''; return; }
   if (!document.hasFocus()) return padNeutral();
   const st = readPad(); if (!st) return;
   const key = st.b || st.ax.some(Boolean) || st.lt || st.rt ? JSON.stringify(st) : '0';
-  if (key !== padLast) { padLast = key; push(st); }
+  if (key !== padLast) { padLast = key; padSend(st, s); }
 }
 function padStart() {
   if (padTimer) return;
@@ -154,7 +172,38 @@ async function onRequest(s) {
   const dlg = askDlg; whenGone(dlg.el, () => { if (!dlg.quiet) answer(false); }); // quiet: fechada porque o pedido acabou
   askTimer = setTimeout(() => { answered = true; dlg.close(); if (askDlg === dlg) askDlg = null; }, 30000); // o servidor expira o pedido e avisa
 }
+// pedido para jogar junto: só o controle (nada de mouse/teclado). "Aceitar os próximos nesta chamada" vale até sair da sala.
+// Sem o driver do controle virtual aqui, o botão instala (baixa o oficial, confere e abre com o UAC) e aceita em seguida.
+let autoPlay = null; // id da sala onde os próximos pedidos são aceitos sozinhos
+const padAsks = new Map(); // id do pedido -> janela aberta
+async function onPadRequest(s) {
+  const who = ctx.name(s.controller), say = (accept, capable = true) => ctx.send('REMOTE_ANSWER', { id: s.id, accept, gamepad: accept, capable });
+  let cap = desktop?.remoteCapable ? await desktop.remoteCapable() : { ok: false, reason: 'Jogar junto só funciona com quem transmite pelo app Resenha para Windows.' };
+  if (!cap.ok) { say(false, false); toast(`${who} quis jogar junto, mas não é possível: ${cap.reason}`, true); return; }
+  if (autoPlay && autoPlay === s.channel_id && cap.pad) { say(true); return; }
+  playSound('ring');
+  const auto = h('input', { type: 'checkbox', checked: autoPlay === s.channel_id });
+  const drv = h('div.rmdrv');
+  const paintDrv = () => drv.replaceChildren(...(cap.pad ? [] : [h('p.rmwarn', 'Para o controle de quem joga aparecer aqui, este PC precisa do driver gratuito ViGEmBus (controle virtual de Xbox, o mesmo que o Parsec usava). O Windows vai pedir permissão de administrador uma vez.'),
+    h('button.btn.sm', { onclick: async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Instalando… siga o instalador';
+      const r = await desktop?.padDriverInstall?.().catch(err => ({ ok: false, reason: err.message })) || { ok: false, reason: 'Atualize o app Resenha.' };
+      if (r.ok) { cap = { ...cap, pad: true }; toast('Controles ativados neste PC'); paintDrv(); } else { b.disabled = false; b.textContent = 'Instalar o driver'; toast(r.reason, true); } } }, 'Instalar o driver')]));
+  paintDrv();
+  let answered = false;
+  const answer = (accept) => { if (answered) return; answered = true; padAsks.delete(s.id); if (accept && auto.checked) autoPlay = s.channel_id; say(accept); };
+  const dlg = modal(`${who} quer jogar junto`, null, h('div.rmask',
+    h('p', `${who} vai entrar como mais um jogador, com o próprio controle (Xbox, DualSense…). No seu PC ele aparece como um controle de Xbox 360 a mais; o seu continua sendo o jogador 1. Mouse e teclado ficam só com você.`),
+    drv,
+    h('label.rmopt', auto, h('span', h('b', 'Aceitar os próximos pedidos nesta chamada'), h('small', 'até 3 jogadores; vale até você sair da sala'))),
+    antiCheatWarning(cap.antiCheats || [])),
+    [{ label: 'Recusar', cls: 'grey', fn: () => answer(false) }, { label: 'Deixar jogar', fn: () => { if (!cap.pad) { toast('Instale o driver primeiro (botão acima)', true); return false; } answer(true); } }]);
+  padAsks.set(s.id, dlg);
+  whenGone(dlg.el, () => { if (!dlg.quiet) answer(false); });
+  setTimeout(() => { if (!answered) { answered = true; dlg.quiet = true; dlg.close(); padAsks.delete(s.id); } }, 30000);
+}
+export const kickPlayer = (id) => ctx.send('REMOTE_STOP', { id });
 desktop?.onRemoteEvent?.((k) => {
+  if (k === 'panic') for (const p of playersOf(S.me.id)) ctx.send('REMOTE_STOP', { id: p.id, reason: 'panic' }); // atalho de emergência: todo mundo sai
   if (k === 'panic' && S.remote?.owner === S.me.id) ctx.send('REMOTE_STOP', { id: S.remote.id, reason: 'panic' });
   if (k === 'blocked') toast('O Windows bloqueou o controle: a janela em foco foi aberta como administrador.', true);
   if (k === 'covered') toast('Um comando do controle remoto foi ignorado: a janela transmitida estava coberta, minimizada ou fora de foco.', true);
@@ -185,14 +234,15 @@ export function limitations() {
 // ---------- eventos do servidor ----------
 let pendingTimer = 0;
 export function onRemoteEvent(t, d) {
-  if (t === 'REMOTE_REQUEST') return onRequest(d);
+  if (t === 'REMOTE_REQUEST') return d.kind === 'pad' ? onPadRequest(d) : onRequest(d);
   if (t === 'REMOTE_ERROR') return toast(d.error, true);
-  if (t === 'REMOTE_INPUT') { if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); return; }
+  if (t === 'REMOTE_INPUT') { if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) desktop?.remoteInput?.(d.ev, d.id); return; }
   if (t !== 'REMOTE_STATE') return;
+  if (d.kind === 'pad') return padState(d);
   const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner);
   if (d.state === 'ended') {
     const was = S.remote; S.remote = null; setKb(false); queue = []; lastMove = null;
-    if (mine) { desktop?.remoteStop?.(); if (askDlg) { askDlg.quiet = true; askDlg.close(); } askDlg = null; }
+    if (mine) { desktop?.remoteStop?.('ctl'); if (askDlg) { askDlg.quiet = true; askDlg.close(); } askDlg = null; }
     if (was?.id === d.id || !was) {
       const r = d.reason || 'stopped';
       if (mine) { if (was?.state === 'active') toast('Controle remoto encerrado'); } // recusar/expirar o pedido: quem recusou não precisa de aviso
@@ -215,11 +265,42 @@ export function onRemoteEvent(t, d) {
   }
   paintChip(); ctx.rerender();
 }
+const PLAY_END = { declined: 'recusou', unsupported: 'não pode receber jogadores (só pelo app para Windows)', expired: 'não respondeu', stream_ended: 'parou de transmitir', left: 'saiu da sala', full: 'já tem 4 jogadores', panic: 'tirou todos os jogadores' };
+function padState(d) {
+  const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner), before = pads().get(d.id);
+  if (d.state === 'ended') {
+    pads().delete(d.id);
+    const dlg = padAsks.get(d.id); if (dlg) { dlg.quiet = true; dlg.close(); padAsks.delete(d.id); }
+    if (mine) { desktop?.remoteStop?.(d.id); if (before?.state === 'active' && d.reason !== 'stream_ended') toast(`${other} saiu do jogo`); if (['stream_ended', 'left', 'panic'].includes(d.reason)) autoPlay = null; }
+    else {
+      const r = d.reason || 'stopped';
+      if (r === 'cancelled' || (r === 'stopped' && before?.state === 'active' && before.controller === S.me.id && padLeaving)) toast(r === 'cancelled' ? 'Pedido para jogar cancelado' : 'Você saiu do jogo');
+      else toast(`${other} ${PLAY_END[r] || (before?.state === 'active' ? 'tirou você do jogo' : 'encerrou o jogo')}`, r !== 'stopped');
+      padLeaving = false;
+    }
+  } else {
+    pads().set(d.id, d);
+    if (d.state === 'active' && before?.state !== 'active') {
+      if (mine) desktop?.remoteStart?.({ id: d.id, who: other, kind: 'pad', slot: d.slot }).then(r => { if (!r?.ok) { toast(r?.reason || 'Não foi possível ligar o controle virtual', true); ctx.send('REMOTE_STOP', { id: d.id }); } else toast(`${other} entrou como jogador ${d.slot}`); });
+      else { toast(`Você é o jogador ${d.slot} na transmissão de ${other}. Use o seu controle.`); padStart(); }
+    }
+  }
+  paintChip(); ctx.rerender();
+}
+let padLeaving = false;
+export const leavePlay = (uid) => { padLeaving = true; padSend(null, myPlay(uid)); stopPlay(uid); }; // solta tudo antes de sair
 function paintChip() { document.getElementById('remote-chip')?.remove(); const c = remoteBar(); if (c) { c.id = 'remote-chip'; document.body.append(c); } }
 
 // aviso dentro do app (os dois lados); o dono também tem o aviso nativo sempre por cima
 export function remoteBar() {
-  const s = S.remote; if (!s || s.state !== 'active') return null;
+  const s = S.remote, players = playersOf(S.me.id), me = myPlay();
+  if ((!s || s.state !== 'active') && (players.length || me?.state === 'active')) {
+    if (players.length) return h('div.remote-chip.owner.players', icon('gamepad', 16), h('span', players.length > 1 ? 'Jogadores:' : 'Jogador:'),
+      players.map(p => h('span.rplayer', h('b', p.slot), ctx.name(p.controller), h('button.ibtn', { title: `Tirar ${ctx.name(p.controller)} do jogo`, 'aria-label': `Tirar ${ctx.name(p.controller)} do jogo`, onclick: (e) => { e.stopPropagation(); kickPlayer(p.id); } }, icon('x', 14)))));
+    return h('div.remote-chip.players', icon('gamepad', 16), h('span', `Você é o jogador ${me.slot} de ${ctx.name(me.owner)}`),
+      h('button.btn.sm.grey', { onclick: (e) => { e.stopPropagation(); leavePlay(me.owner); } }, 'Sair do jogo'));
+  }
+  if (!s || s.state !== 'active') return null;
   const mine = s.owner === S.me.id, who = ctx.name(mine ? s.controller : s.owner);
   const what = permsText(s.perms);
   return h('div.remote-chip' + (mine ? '.owner' : ''), h('i'), h('span', mine ? `${who} está controlando seu ${what}` : `Você está controlando o PC de ${who} (${what})`),

@@ -1297,3 +1297,10 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
   #eventsview .ev-acts .ev-ics { flex: 1; justify-content: center; }
   #eventsview .ev-join { flex: 1 1 100%; justify-content: center; }
 }
+
+/* jogar junto (public/remote.js): jogadores no aviso e o botão do controle no quadro da transmissão */
+.remote-chip.players { gap: 8px; } .remote-chip .rplayer { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 6px; border-radius: 6px; background: rgba(255,255,255,.08); }
+.remote-chip .rplayer > b { display: inline-grid; place-items: center; min-width: 18px; height: 18px; border-radius: 50%; background: var(--brand, #5865f2); color: #fff; font-size: 11px; }
+.remote-chip .rplayer .ibtn { width: 20px; height: 20px; }
+.tile .sctl .sc-ic.on { background: var(--brand, #5865f2); color: #fff; } .tile .sctl .sc-ic.wait { opacity: .7; }
+.rmdrv:empty { display: none; } .rmdrv { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin: 8px 0; }

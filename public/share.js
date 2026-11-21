@@ -5,7 +5,7 @@ import { S, user, channelById, nameOf, dmPeer, toast, modal, menu, desktop, save
 import { CAPTURE_METHODS, captureMode } from './voice.js';
 import { popOut } from './livepip.js';
 import { clipping, saveClip, clipSecs, lenLabel } from './clips.js';
-import { controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl } from './remote.js';
+import { controlling as remoteControlling, pendingFor as remotePending, requestControl, stopControl, myPlay, requestPlay, leavePlay } from './remote.js';
 import { yieldStage } from './watch.js';
 import { seg, toggle as uiToggle, qualityPanel, comboLabel, hotkey, NOISE_INFO } from './ui.js';
 import { voice } from './gateway.js';
@@ -336,6 +336,11 @@ export function healthPill() {
 }
 // opções de uma transmissão: as mesmas no botão "Mais opções" e no clique direito no vídeo (antes o clique direito só
 // tinha o volume — 47 de 48 vezes o menu foi fechado sem uso no 1º teste: as pessoas procuravam as opções ali)
+// "jogar junto": entrar como jogador 2, 3 ou 4 com o próprio controle (pedido; quem transmite aceita)
+function playItem(uid) {
+  const p = myPlay(uid), on = p?.state === 'active';
+  return { ux: 'jogar', icon: 'gamepad', label: on ? `Sair do jogo (jogador ${p.slot})` : p ? 'Cancelar pedido para jogar' : 'Entrar como jogador', hint: !p ? 'Com o seu controle (Xbox, DualSense…)' : null, fn: () => (on ? leavePlay(uid) : requestPlay(uid)) };
+}
 export function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
   const on = remoteControlling(uid), wait = remotePending(uid), sMuted = voice.streamVolumes[uid] === 0;
   return [
@@ -349,6 +354,7 @@ export function streamItems({ key, uid, mine, scr, inRoom, who }, e) {
       inRoom && { ux: 'clipes', icon: clipping(key) ? 'clip' : 'clipsparkle', label: clipping(key) ? 'Clipes' : 'Ativar clipes', fn: () => clipMenu(e, key, who) },
       { ux: 'desenhar', icon: S.annot === key ? 'check' : 'edit', label: S.annot === key ? 'Parar de desenhar' : 'Desenhar', hint: 'Todos veem', fn: () => { if (S.annot === key) S.annot = null; else { S.annot = key; S.focus = key; } renderVoiceUI(); } },
       { ux: 'destacar', icon: 'star', label: S.room?.spot === key ? 'Tirar destaque' : 'Destacar para todos', fn: () => voice.send('ROOM_SPOTLIGHT', { key: S.room?.spot === key ? null : key }) },
+      !mine && inRoom && playItem(uid),
       !mine && inRoom && { ux: 'controle', icon: 'pointer', label: on ? 'Parar controle' : wait ? 'Cancelar pedido' : 'Pedir controle', hint: !on && !wait ? 'Mouse, teclado ou controle' : null, fn: () => (on || wait ? stopControl() : requestControl(uid)) },
       !mine && { ux: 'qualidade', icon: 'wifi', label: S.qstats === key ? 'Esconder qualidade' : 'Ver qualidade', fn: () => { S.qstats = S.qstats === key ? null : key; renderVoiceUI(); pollQstats(); } },
       { ux: 'flutuante', icon: 'external', label: 'Janela flutuante', hint: 'Por cima de outros apps', fn: () => popOut(scr) },
@@ -361,6 +367,9 @@ export function streamControls({ key, uid, mine, scr, inRoom, who }) {
   return h('div.sctl', { onclick: (e) => e.stopPropagation() },
     mine ? h('button.sc-main.sc-stop', { title: 'Parar de compartilhar a tela', onclick: (e) => { e.stopPropagation(); stopSharing(); } }, icon('screenoff', 16), h('span', 'Parar transmissão'))
       : h('button.sc-main', { title: 'Fechar esta transmissão (você continua na chamada)', onclick: stop }, icon('x', 16), h('span', 'Parar de assistir')),
+    !mine && inRoom && (() => { const p = myPlay(uid), on = p?.state === 'active';
+      return h('button.sc-ic' + (on ? '.on' : p ? '.wait' : ''), { title: on ? `Você é o jogador ${p.slot}: clique para sair do jogo` : p ? 'Aguardando a resposta… (clique para cancelar)' : 'Entrar como jogador (com o seu controle)', 'aria-label': 'Jogar junto',
+        onclick: (e) => { e.stopPropagation(); playItem(uid).fn(); } }, icon('gamepad', 16)); })(),
     inRoom && clipButton(key, who, 'sc-ic sc-clip'),
     h('button.sc-ic', { title: 'Tela cheia', onclick: (e) => { e.stopPropagation(); fullscreenStream(scr, inRoom ? { key, who } : null); } }, icon('expand', 16)),
     h('button.sc-ic', { title: 'Mais opções', onclick: more }, icon('more', 16)));

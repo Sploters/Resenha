@@ -454,8 +454,12 @@ ipcMain.on('clip-flash', (_e, o) => { if (o && typeof o === 'object') clipFlash.
 const watchWins = require('./watchwin').createWatchWindows({ sendToApp: (m) => { if (win && !win.isDestroyed()) win.webContents.send('watch-event', m); }, log: (...a) => log(...a) });
 ipcMain.handle('remote-capable', () => remote.capable());
 ipcMain.handle('remote-start', (_e, o) => remote.start(o || {}));
-ipcMain.on('remote-input', (_e, ev) => remote.input(ev));
-ipcMain.on('remote-stop', () => remote.stop());
+ipcMain.on('remote-input', (_e, ev, id) => remote.input(ev, typeof id === 'string' ? id : undefined));
+ipcMain.on('remote-stop', (_e, id) => remote.stop(typeof id === 'string' ? id : undefined));
+// "jogar junto": driver do controle virtual (ViGEmBus). Instalar baixa o instalador oficial, confere hash e assinatura e
+// abre pelo Windows (UAC); a página espera a resposta (até ~3 min, o tempo de a pessoa passar pelo instalador)
+ipcMain.handle('pad-check', () => remote.padCheck());
+ipcMain.handle('pad-driver-install', () => remote.installPadDriver({ download: (url, dest) => download(url, dest), tmpDir: app.getPath('temp'), openPath: (f) => shell.openPath(f) }).catch(e => ({ ok: false, reason: e.message })));
 remote.onRemoteEvent((k) => { if (win && !win.isDestroyed()) win.webContents.send('remote-event', k); });
 // push-to-talk global: a página diz a tecla enquanto está numa chamada em modo PTT; segue "Atalhos globais"
 let pttWanted = null;
