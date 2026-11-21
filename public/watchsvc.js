@@ -24,7 +24,7 @@ export const SERVICES = {
   youtube: {
     id: 'youtube', on: 'no YouTube', name: 'YouTube', color: '#ff0033', level: 'embedded', search: true,
     caps: { embed: true, play: true, pause: true, seek: true, next: true, episode: true, volume: true },
-    hint: 'Busque pelo nome ou cole um link do YouTube',
+    hint: 'Busque pelo nome ou cole um link de vídeo ou playlist do YouTube',
     parse(url) {
       const u = parse(url); if (!u) return null;
       const host = hostOf(u), parts = u.pathname.split('/').filter(Boolean);
@@ -105,6 +105,19 @@ export function parseLink(raw, { service, origin } = {}) {
   return null;
 }
 export const itemKey = (it) => it.service + ':' + it.ref; // usado para impedir duplicados na fila
+// playlist do YouTube no link (youtube.com/playlist?list=…, ou um vídeo aberto dentro de uma playlist/mix):
+// { list, url (para listar os vídeos), video (o vídeo do link, se houver) } ou null
+export function ytPlaylist(raw) {
+  let u; try { u = new URL(String(raw || '').trim()); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const host = u.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
+  if (!['youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) return null;
+  const list = u.searchParams.get('list'); if (!/^[\w-]{10,64}$/.test(list || '')) return null;
+  const video = SERVICES.youtube.parse(u.href)?.ref || null;
+  // mix automático (RD…): só existe a partir de um vídeo; a página /playlist dele não abre
+  const url = /^RD/.test(list) && video ? `https://www.youtube.com/watch?v=${video}&list=${list}` : `https://www.youtube.com/playlist?list=${list}`;
+  return { list, url, video };
+}
 
 // nível de integração efetivo neste cliente: os serviços com DRM só passam de "assistido" para "controles" no app
 // desktop com uma janela de serviço que tenha Widevine (o Electron padrão não tem; ver docs/WATCH-TOGETHER.md)

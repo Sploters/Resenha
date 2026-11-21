@@ -44,6 +44,7 @@ export function loadYouTubeApi(timeout = 12000) {
 // qualidades do YouTube, da maior para a menor
 export const QUALITIES = ['highres', 'hd2880', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
 export const QUALITY_LABEL = { highres: '4K+', hd2880: '5K', hd2160: '4K', hd1440: '1440p', hd1080: '1080p', hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p' };
+const YT_STATE = { '-1': 'loading', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'paused' };
 const YT_ERR = { 2: 'not_found', 5: 'html5', 100: 'not_found', 101: 'embed_blocked', 150: 'embed_blocked', 152: 'embed_blocked', 153: 'api_blocked' };
 export class YouTubePlayer extends Base {
   async load(item, { pos = 0, play = false } = {}) {
@@ -52,7 +53,9 @@ export class YouTubePlayer extends Base {
     if (this.dead) return;
     const startAt = Math.floor(pos);
     if (this.p && this.ready) { // mesmo iframe para o próximo vídeo (troca mais rápida, sem recriar)
-      this.lastDur = 0;
+      // até o vídeo novo assumir, o iframe ainda relata o ANTERIOR (posição, duração, "acabou"): esses valores eram
+      // usados como se fossem do novo — a duração do anterior ia para a sala e o tempo de um misturava com o do outro
+      this.lastDur = 0; this.switching = { ref: item.ref, pos, t: performance.now() };
       const q = this.wantQuality();
       play ? this.p.loadVideoById({ videoId: item.ref, startSeconds: pos, suggestedQuality: q }) : this.p.cueVideoById({ videoId: item.ref, startSeconds: pos, suggestedQuality: q });
       this.qKey = '';
@@ -68,7 +71,8 @@ export class YouTubePlayer extends Base {
       events: {
         onReady: () => { this.ready = true; this.applyVol(); this.applyQuality(); this.applyCaptions(this.ccPref, true); if (Math.abs(pos - startAt) > .3) this.p.seekTo(pos, true); if (play) this.p.playVideo(); this.cb.onReady(); this.dur(); },
         onStateChange: (e) => {
-          const m = { '-1': 'loading', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'paused' }[e.data];
+          if (!this.current()) return; // evento ainda do vídeo anterior (troca no mesmo iframe)
+          const m = YT_STATE[e.data];
           if (m) this.set(m);
           if (e.data === 1) this.dur();
           // o YouTube escolhe a qualidade e liga legendas de novo a cada play/carregamento: reaplica as escolhas da sala
@@ -135,11 +139,25 @@ export class YouTubePlayer extends Base {
   qualityFloor() { let avail = []; try { avail = (this.p?.getAvailableQualityLevels?.() || []).filter(q => QUALITIES.includes(q)); } catch { } return avail.length ? Math.max(0, avail.filter(q => QUALITIES.indexOf(q) >= QUALITIES.indexOf('hd1080')).length - 1) : 4; }
   quality() { try { return this.ready ? this.p.getPlaybackQuality?.() || null : null; } catch { return null; } }
   captionTracks() { try { return (this.p.getOption('captions', 'tracklist') || []).length; } catch { return -1; } }
-  dur() { const d = this.duration(); if (d > 0 && d !== this.lastDur) { this.lastDur = d; this.cb.onDuration(d); } }
+  // o iframe já está no vídeo deste item? (getVideoData não existe em todo player: sem ela, confia no evento)
+  current() {
+    const sw = this.switching; if (!sw) return true;
+    let id = null; try { id = this.p?.getVideoData?.()?.video_id; } catch { }
+    if (id === sw.ref || (id === undefined && this.p && !this.p.getVideoData) || performance.now() - sw.t > 10_000) {
+      this.switching = null;
+      // o evento que mudou o estado pode ter chegado antes de o iframe dizer qual vídeo é: estado atual direto do player
+      try { const m = YT_STATE[this.p.getPlayerState?.()]; if (m) this.set(m); } catch { }
+      return true;
+    }
+    return false;
+  }
+  state() { return this.switching && !this.current() ? 'loading' : this.st; }
+  buffering() { const st = this.state(); return st === 'buffering' || st === 'loading'; }
+  dur() { if (!this.current()) return; const d = this.duration(); if (d > 0 && d !== this.lastDur) { this.lastDur = d; this.cb.onDuration(d); } }
   play() { this.ready && this.p.playVideo(); }
   pause() { this.ready && this.p.pauseVideo(); }
-  seek(s) { this.ready && this.p.seekTo(Math.max(0, s), true); }
-  time() { try { return this.ready ? +this.p.getCurrentTime() || 0 : 0; } catch { return 0; } }
+  seek(s) { if (!this.ready) return; if (this.switching) this.switching.pos = Math.max(0, s); this.p.seekTo(Math.max(0, s), true); }
+  time() { if (this.switching && !this.current()) return this.switching.pos; try { return this.ready ? +this.p.getCurrentTime() || 0 : 0; } catch { return 0; } }
   // velocidade fracionada (0,95×, 1,05×…): o YouTube aceita em vários players, mas pode arredondar para as da lista
   // (0,75/1/1,25). Confere logo depois de cada pedido (não só o primeiro: o player pode mudar a lista no meio do
   // vídeo); se não ficou como pedido, desiste e o motor passa a pular
@@ -151,7 +169,7 @@ export class YouTubePlayer extends Base {
       try { const got = +this.p.getPlaybackRate(); if (Math.abs(got - r) > 0.001) { this.rateOk = false; this.p.setPlaybackRate(1); } else this.rateOk = true; } catch { this.rateOk = false; }
     }, 700);
   }
-  duration() { try { return this.ready ? +this.p.getDuration() || 0 : 0; } catch { return 0; } }
+  duration() { if (this.switching && !this.current()) return 0; try { return this.ready ? +this.p.getDuration() || 0 : 0; } catch { return 0; } }
   applyVol() { if (!this.ready) return; this.p.setVolume(this.vol); this.muted ? this.p.mute() : this.p.unMute(); }
   setVolume(v) { this.vol = Math.max(0, Math.min(100, v)); this.applyVol(); }
   setMuted(m) { this.muted = !!m; this.applyVol(); }

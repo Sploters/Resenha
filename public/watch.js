@@ -6,8 +6,8 @@
 // - Comandos só nascem de cliques/atalhos na interface do Resenha; eventos do player viram só relatórios (anti-eco).
 // - A cada 400 ms o motor compara a posição do player com a esperada (estado do servidor + relógio comum) e corrige.
 import { h, icon, avatar } from './util.js';
-import { S, toast, user, nameOf, menu, confirmBox, closeFloating } from './state.js';
-import { SERVICES, SERVICE_IDS, LEVELS, ERRORS, effectiveLevel, parseLink } from './watchsvc.js';
+import { S, toast, user, nameOf, menu, confirmBox, closeFloating, modal } from './state.js';
+import { SERVICES, SERVICE_IDS, LEVELS, ERRORS, effectiveLevel, parseLink, ytPlaylist } from './watchsvc.js';
 import { expectedPos, createClock, decide, syncState, fmtTime, waitingStart, parseTime } from './watchsync.js';
 import { makePlayer, QUALITY_LABEL } from './watchplayers.js';
 import { vrrSource, vrrPoke } from './vrrfix.js';
@@ -68,7 +68,7 @@ let rid = 0; const waiting = new Map();
 export const watchCmd = (op, extra = {}) => new Promise((resolve, reject) => {
   const id = ++rid; waiting.set(id, { resolve, reject });
   ctx.send('WATCH', { rid: id, op, ...extra });
-  setTimeout(() => { if (waiting.delete(id)) reject(new Error('Sem resposta do servidor')); }, op === 'search' || op === 'add' ? 60_000 : 15_000);
+  setTimeout(() => { if (waiting.delete(id)) reject(new Error('Sem resposta do servidor')); }, op === 'search' || op === 'add' || op === 'add_playlist' ? 90_000 : 15_000);
 });
 const act = (op, extra) => watchCmd(op, extra).catch(e => { toast(e.message, true); return null; });
 const fire = (op, extra) => ctx.send('WATCH', { op, ...extra }); // sem resposta (relatórios)
@@ -138,8 +138,10 @@ function loadCurrent() {
       onReady: () => { W.ready = true; applyNow(); paint(); },
       onState: () => { const st = W.player?.state(); if (st === 'playing' && W.autoplayBlocked && navigator.userActivation?.hasBeenActive) tryUnmute(); if (st === 'playing') W.player?.applyCaptions?.(W.cc); if (st === 'buffering') noteStall(); vrrPoke(); report(); paintControls(); },
       onError: (code) => { if (code === 'embed_blocked' && W.sess?.current?.embed_ok) code = 'yt_refused'; if (code === 'autoplay') { W.autoplayBlocked = true; W.player?.setMuted?.(true); W.player?.play?.(); } else W.error = code; report(true); paintOverlay(); },
-      onEnded: () => { const c = W.sess?.current; if (c) fire('ended', { item_id: c.id }); },
-      onDuration: (s) => { const c = W.sess?.current; if (c && !(c.duration > 0) && s > 0) { c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
+      onEnded: () => endedHere(true),
+      // duração do vídeo deste item (o player só relata depois que o vídeo novo assumiu: ver YouTubePlayer.current).
+      // Diferente da que a sala tem (> 3 s) também é relatada: quem controla corrige a da sala
+      onDuration: (s) => { const c = W.sess?.current; if (!c || c.id !== W.itemId || !(s > 0)) return; if (!(c.duration > 0) || (canCtl() && Math.abs(c.duration - s) > 3)) { if (!(c.duration > 0)) c.duration = s; fire('meta', { item_id: c.id, duration: s }); paintControls(); } },
     }, W.env);
     W.player.setVolume(W.vol); W.player.setMuted(W.muted); W.player.ccPref = W.cc; W.player.qDown = W.qDown;
     if (external(it) && desk) W.player.attachBridge?.(bridgeFor(it.service)); // app desktop: janela do serviço (desktop/watchwin.js)
@@ -161,7 +163,13 @@ function tick(force) {
       scheduleStart(pb);
       paintOverlay(); return;
     }
-    if ((st === 'paused' || st === 'idle' || (st === 'ended' && exp < dur - 1)) && !W.autoplayBlocked) p.play();
+    // acabou aqui e a sala ainda acha que está tocando (o servidor ainda não passou para o próximo): espera parado no fim.
+    // Antes o play() era mandado de novo — o YouTube recomeça do zero um vídeo terminado, a correção pulava para o fim,
+    // ele terminava de novo… e ficava voltando ao início até alguém pausar. Conta a duração do PLAYER (a da sala pode
+    // vir arredondada ou errada); só volta a tocar se a sala estiver bem antes do fim (alguém voltou a posição)
+    const pdur = p.duration() || dur;
+    if (st === 'ended' && (!(pdur > 0) || exp >= pdur - 2)) { endedHere(); return paintOverlay(); }
+    if ((st === 'paused' || st === 'idle' || st === 'ended') && !W.autoplayBlocked) p.play();
     // player travado em "não iniciado" com a sala tocando (som automático bloqueado sem aviso, ou o site recusou):
     // 1º tenta sem som (o navegador sempre deixa) e avisa; se continuar parado, explica em vez de ficar preto
     // o YouTube carregado sem tocar fica em "não iniciado" (estado 'loading' aqui): é preciso mandar o play. Antes isso
@@ -193,13 +201,21 @@ function tick(force) {
   W.strikes = r.strikes; W.drift = med;
   if (r.action === 'seek') {
     if (W.rate !== 1) { W.rate = 1; p.setRate(1); }
-    p.seek(r.target); W.lastFix = t; W.fixes++; W.dHist = []; W.settleUntil = t + 450; W.qGrace = t + 2500;
+    const pd = p.duration(); // nunca além do fim do vídeo (o YouTube recomeça ou trava num pulo para depois do fim)
+    p.seek(pd > 0 ? Math.min(r.target, Math.max(0, pd - 0.25)) : r.target); W.lastFix = t; W.fixes++; W.dHist = []; W.settleUntil = t + 450; W.qGrace = t + 2500;
     if (playing) W.residualCheck = t + 1500;
   } else if (r.action === 'rate' || (r.action === 'wait' && W.rate !== 1)) {
     const nr = r.action === 'rate' ? r.rate : 1;
     if (nr !== W.rate) { W.rate = nr; p.setRate(nr); if (nr !== 1) W.nudges++; }
   }
   if (!playing && W.rate !== 1) { W.rate = 1; p.setRate(1); }
+}
+// o vídeo acabou neste player: avisa a sala (que passa para o próximo). Se o servidor recusou (ele achou que ainda não
+// era o fim), avisa de novo a cada 3 s enquanto continuar parado no fim; o temporizador do servidor também resolve
+function endedHere(now) {
+  const c = W.sess?.current, p = W.player; if (!c || c.id !== W.itemId || !p) return;
+  const t = performance.now(); if (!now && t - (W.endedAt || 0) < 3000) return;
+  W.endedAt = t; fire('ended', { item_id: c.id, dur: p.duration() || 0 });
 }
 // começo/play marcado para o instante `at` do servidor: um timer no ponto exato (a conferência periódica a cada 200 ms
 // chegava a começar até 400 ms atrasada, e cada um atrasava diferente)
@@ -302,21 +318,48 @@ function liveBtn() {
   h('span.wt-livedot', 'AO VIVO'), h('span.wt-livel', label));
 }
 let liveKey = '';
-export async function leaveWatch() { await act('leave'); teardown(); ctx.rerender?.(); }
+// sair do Watch Together NÃO é sair da sala: a sessão continua para os outros, e o quadro "Entrar no Watch Together"
+// tem de continuar no palco. Antes o estado inteiro era apagado aqui (teardown): o quadro e a entrada do lançador sumiam
+// e só voltavam saindo e entrando de novo na chamada
+export async function leaveWatch() {
+  const r = await act('leave'); if (!r) return;
+  destroyPlayer(); stopLoops();
+  W.joined = false; W.open = false; W.mini = false; W.qDown = 0; W.stalls = []; W.cc = false; W.reports = {}; W.asks = [];
+  if (W.sess) W.sess = { ...W.sess, members: W.sess.members.filter(m => m.id !== me()) };
+  place(); ctx.rerender?.();
+}
 export const pendingWatch = (cid) => { W.pendingJoin = cid; };
 export const watchActive = () => !!W.sess;
 export const watchJoined = () => W.joined;
 
+// Comando da própria pessoa: aplicado aqui NA HORA (estado provisório), sem esperar a volta do servidor. Antes, entre o
+// clique e a resposta, o motor via o player "fora" do estado antigo da sala e o corrigia de volta: clicar na barra fazia
+// o vídeo (e a barra) voltar para onde estava e só depois ir para o ponto clicado; pausar dava um play de volta.
+// O provisório tem seq + 0,5: qualquer estado mais novo do servidor (seq + 1) o substitui; se o servidor recusar, volta.
+const LEAD = 350; // ms, o mesmo PLAY_LEAD do servidor (server/watch.js): play/pulo marcados um pouco no futuro
+function optimistic(patch, op, extra) {
+  const s = W.sess; if (!s) return;
+  const prev = s.pb, pb = { ...prev, ...patch, seq: Math.floor(prev.seq) + .5, by: me() };
+  s.pb = pb; W.strikes = 0; W.dHist = []; W.lastFix = 0; applyNow(); paint();
+  act(op, extra).then(r => { if (!r && W.sess === s && s.pb === pb) { s.pb = prev; applyNow(); paint(); } });
+}
 function togglePlay() {
   const s = W.sess; if (!s?.current) return;
   if (!canCtl()) return lockedHint();
-  if (s.pb.status === 'playing') { W.player?.pause(); act('pause', { pos: W.player?.time() }); }
-  else act('play');
+  const now = W.clock.now(), embedded = !external(s.current);
+  if (s.pb.status === 'playing') { const pos = W.player?.time(); W.player?.pause(); if (embedded) optimistic({ status: 'paused', pos: pos ?? expectedPos(s.pb, now, s.current.duration), at: now }, 'pause', { pos }); else act('pause', { pos }); }
+  else if (embedded) optimistic({ status: 'playing', pos: s.pb.status === 'ended' ? 0 : expectedPos(s.pb, now, s.current.duration), at: now + LEAD }, 'play');
+  else act('play'); // assistido: o play vem com a contagem do servidor
 }
 function seekTo(pos) {
   if (!canCtl()) return lockedHint();
-  const d = W.sess?.current?.duration || W.player?.duration() || 0; pos = Math.max(0, d ? Math.min(d - .5, pos) : pos);
-  W.player?.seek(pos); act('seek', { pos });
+  const s = W.sess; if (!s?.current) return;
+  const d = s.current.duration || W.player?.duration() || 0; pos = Math.max(0, d ? Math.min(d - .5, pos) : pos);
+  W.player?.seek(pos);
+  W.seekShow = { pos, until: performance.now() + 2500 }; // a barra fica no ponto clicado até o player chegar lá
+  if (external(s.current)) return act('seek', { pos });
+  const playing = s.pb.status === 'playing';
+  optimistic({ pos, at: W.clock.now() + (playing ? LEAD : 0) }, 'seek', { pos });
 }
 const lockedHint = () => toast(`Só ${nm(W.sess.host)} controla o vídeo agora. Use "Pedir controle" para pedir a vez.`);
 async function askControl() { const r = await act('ask'); if (r && !r.already) toast(`Pedido enviado para ${nm(W.sess.host)}`); }
@@ -354,8 +397,22 @@ async function addItem(item, extra = {}) {
   if (r) toast(`Na fila: ${r.item.title}`);
   return r;
 }
+// playlist do YouTube: todos os vídeos entram na fila (até 100). Link de um vídeo aberto dentro da playlist: pergunta
+// se é só o vídeo ou a playlist inteira (começando por ele)
+const plChoice = () => new Promise(res => modal('Esse link é de uma playlist', 'Adicionar só este vídeo ou a playlist inteira à fila?', h('div'), [
+  { label: 'Cancelar', cls: 'link', fn: () => res(null) }, { label: 'Só este vídeo', cls: 'grey', fn: () => res('one') }, { label: 'Playlist inteira', fn: () => res('all') }]));
+async function addPlaylist(url, pl) {
+  const mode = pl.video ? await plChoice() : 'all'; if (!mode) return null;
+  if (mode === 'one') return addLink(url);
+  toast('Carregando a playlist…');
+  const r = await watchCmd('add_playlist', { url }).catch(e => { toast(e.message, true); return null; });
+  if (r) toast(`${r.title ? `"${r.title}"` : 'Playlist'}: ${r.added} ${r.added === 1 ? 'vídeo entrou' : 'vídeos entraram'} na fila` + (r.skipped ? ` (${r.skipped} ${r.skipped === 1 ? 'ficou' : 'ficaram'} de fora: já na fila ou não podem tocar aqui)` : ''));
+  return r;
+}
 async function doSearch(q) {
   q = q.trim(); if (!q) return;
+  const pl = ytPlaylist(q);
+  if (pl) { const r = await addPlaylist(q, pl); if (r && ui) ui.search.value = ''; return; }
   const link = parseLink(q.startsWith(location.origin + '/files/') ? q.slice(location.origin.length) : q);
   if (link) { const r = await addLink(q); if (r && ui) ui.search.value = ''; return; }
   if (!SERVICES[W.svc].search) return toast(`${SERVICES[W.svc].name}: cole um link. ${SERVICES[W.svc].hint}.`, true);
@@ -496,7 +553,7 @@ function paintAsk() {
 let bar = null, holding = false, pendingCtl = false;
 // arrastando a barra do vídeo ou o volume: nada redesenha os controles (redesenhar destruía o controle no meio do
 // arraste, e o volume "fechava" sozinho); o que ficou pendente é aplicado ao soltar
-if (typeof window !== 'undefined') window.addEventListener('pointerup', () => { if (!holding) return; holding = false; ui?.controls.classList.remove('voldrag'); if (pendingCtl) { pendingCtl = false; paintControls(); } }, true);
+if (typeof window !== 'undefined') window.addEventListener('pointerup', () => { if (!holding) return; setTimeout(() => { holding = false; ui?.controls.classList.remove('voldrag'); if (pendingCtl) { pendingCtl = false; paintControls(); } }, 0); }, true);
 function paintControls() {
   if (!ui || !W.sess) return;
   if (holding) { pendingCtl = true; return; }
@@ -562,7 +619,9 @@ function volWheel(e) {
 function paintTime() {
   if (!ui || !W.sess?.current || ui.root.classList.contains('hidden')) return;
   const it = W.sess.current, p = W.player, d = it.duration || p?.duration() || 0;
-  const pos = external(it) && !p?.controllable ? expectedPos(W.sess.pb, W.clock.now(), d) : p?.time() || 0;
+  let pos = external(it) && !p?.controllable ? expectedPos(W.sess.pb, W.clock.now(), d) : p?.time() || 0;
+  // logo depois de clicar na barra o player ainda diz a posição antiga por um instante (o YouTube demora a pular)
+  const sk = W.seekShow; if (sk) { if (performance.now() > sk.until || Math.abs(pos - sk.pos) < 1) W.seekShow = null; else pos = sk.pos; }
   // só escreve o que mudou: cada escrita repinta por cima do vídeo (no app desktop isso já causou piscadas)
   const put = (el, txt) => { if (el && el.textContent !== txt) el.textContent = txt; };
   put(ui.controls.querySelector('.wt-time'), fmtTime(bar?.dragging && d ? +bar.value / 1000 * d : pos));
@@ -756,9 +815,18 @@ export function watchTile() {
       W.joined ? h('button.btn.green', { onclick: openWatch }, icon('expand', 14), 'Abrir') : h('button.btn.green', { onclick: joinWatch }, icon('play', 14), 'Entrar no Watch Together')));
 }
 // chamado pelo app a cada redesenho da chamada: saiu da sala → fecha tudo
+let probed = null;
 export function watchVoiceChanged() {
   const v = ctx.voice();
   if (W.sess && (!v?.channelId || v.channelId !== W.cid)) { teardown(); }
+  // entrou numa sala: pergunta se já tem Watch Together nela. O servidor manda o estado ao entrar, mas ele pode chegar
+  // antes de o app saber em que sala está (e era descartado): o quadro não aparecia e abrir pelo lançador "sumia"
+  if (!v?.channelId) probed = null;
+  else if (probed !== v.channelId && !W.sess) {
+    const cid = probed = v.channelId;
+    setTimeout(() => { if (ctx.voice()?.channelId !== cid || W.sess) return;
+      watchCmd('state').then(r => { if (r && !r.none && r.cid === cid && !W.sess && ctx.voice()?.channelId === cid) onState(r); }, () => { probed = null; }); }, 1500);
+  }
   if (W.joined && ui && (ctx.streams() || []).join(',') !== liveKey) paintHead(); // alguém começou/parou de transmitir
   place();
 }

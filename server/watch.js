@@ -8,7 +8,7 @@
 // Os eventos do player nos clientes NUNCA viram comandos (só relatórios): ver docs/WATCH-TOGETHER.md.
 // Dependências injetadas (para os testes rodarem sem o resto do servidor): ver createWatch.
 import crypto from 'node:crypto';
-import { SERVICES, parseLink, itemKey, ERRORS } from '../public/watchsvc.js';
+import { SERVICES, parseLink, itemKey, ERRORS, ytPlaylist } from '../public/watchsvc.js';
 import { expectedPos, START_LEAD } from '../public/watchsync.js';
 
 const MAX_QUEUE = 200, MAX_HISTORY = 30;
@@ -23,7 +23,7 @@ const cleanStr = (s, n) => String(s ?? '').replace(/[\u0000-\u001f]/g, ' ').trim
 
 export function createWatch({
   inRoom, roomMembers, sendTo, userPub = (id) => ({ id }), guildOf = () => null, now = () => Date.now(),
-  search = async () => [], meta = async () => ({}), remember = () => { }, recent = () => [], origin = null,
+  search = async () => [], meta = async () => ({}), playlist = async () => ({ items: [] }), remember = () => { }, recent = () => [], origin = null,
   hostGraceMs = +process.env.WATCH_HOST_GRACE_MS || 30_000, emptyGraceMs = +process.env.WATCH_EMPTY_GRACE_MS || 120_000,
   fatalSkipMs = 2500, log = () => { }, onChange = () => { },
 }) {
@@ -177,6 +177,36 @@ export function createWatch({
     else broadcast(s, { added: item.id });
     return { item: pubItem(item) };
   }
+  // playlist do YouTube: todos os vídeos entram na fila de uma vez (conta como uma adição só para o limite de ritmo).
+  // Os que já estão na fila, os privados/apagados e os que proíbem incorporação ficam de fora
+  async function addPlaylist(s, uid, d) {
+    const pl = ytPlaylist(d.url); if (!pl) fail('Link de playlist do YouTube não reconhecido', 'bad_link');
+    const t = now(), list = (s.adds.get(uid) || []).filter(x => t - x < ADD_WINDOW);
+    if (list.length >= ADD_MAX) fail('Muitos vídeos em pouco tempo; espere um pouco', 'rate');
+    const room = MAX_QUEUE - s.queue.length; if (room <= 0) fail('A fila está cheia', 'full');
+    s.adds.set(uid, [...list, t]);
+    const r = await playlist(pl, Math.min(100, room + 20));
+    if (sessions.get(s.cid) !== s) fail('A sessão terminou');
+    const have = new Set([...(s.current ? [itemKey(s.current)] : []), ...s.queue.map(itemKey)]);
+    let dup = 0, blocked = 0; const items = [];
+    for (const x of r?.items || []) {
+      const p = SERVICES.youtube.parse(x.url || ''); if (!p) continue;
+      const key = itemKey(p);
+      if (have.has(key)) { dup++; continue; }
+      if (x.embeddable === false) { blocked++; continue; }
+      have.add(key);
+      items.push({ ...p, title: cleanStr(x.title, 160) || 'YouTube — vídeo', channel: cleanStr(x.channel, 80), thumb: /^https:\/\//.test(x.thumb || '') ? String(x.thumb).slice(0, 400) : p.thumb, duration: Math.max(0, Math.round(+x.duration || 0)), embedOk: x.embeddable === true, id: nid(), by: uid, at: now() });
+    }
+    const add = items.slice(0, MAX_QUEUE - s.queue.length);
+    if (!add.length) fail(dup ? 'Todos os vídeos dessa playlist já estão na fila' : 'Nenhum vídeo dessa playlist pode tocar aqui', 'empty_playlist');
+    // "começar por este": o vídeo do link (aberto dentro da playlist) vai na frente
+    const first = pl.video ? add.findIndex(x => x.ref === pl.video) : -1;
+    if (first > 0) add.unshift(...add.splice(first, 1));
+    if (d.next && canControl(s, uid)) s.queue.unshift(...add); else s.queue.push(...add);
+    if (!s.current) advance(s, 'add', uid);
+    else broadcast(s, { added: add[0].id });
+    return { added: add.length, skipped: dup + blocked + (items.length - add.length), title: cleanStr(r?.title, 140), first: pubItem(add[0]) };
+  }
 
   // ---------- comandos ----------
   async function handle(uid, cid, d) {
@@ -208,6 +238,7 @@ export function createWatch({
       }
       case 'suggest': return { results: recent(s.gid).filter(r => !(s.current && itemKey(s.current) === itemKey(r)) && !s.queue.some(q => itemKey(q) === itemKey(r))).slice(0, 12) };
       case 'add': return add(s, uid, d);
+      case 'add_playlist': return addPlaylist(s, uid, d);
       case 'remove': {
         const id = String(d.id || '');
         if (cur?.id === id) { if (!canRemove(s, uid, cur)) fail('No modo Hosting você só remove os vídeos que você adicionou', 'forbidden'); advance(s, 'removed', uid); return {}; }
@@ -278,14 +309,16 @@ export function createWatch({
         if (r.error && cur && r.item_id === cur.id) maybeFatal(s);
         return null; // sem resposta (relatório frequente)
       }
-      case 'meta': { // duração descoberta pelo player (o oEmbed não traz)
-        if (cur && String(d.item_id) === cur.id && !(cur.duration > 0) && +d.duration > 0) { cur.duration = Math.round(+d.duration); armEnd(s); broadcast(s); }
+      case 'meta': { // duração descoberta pelo player (o oEmbed não traz). Quem controla também corrige uma duração
+        // errada (ex.: a do vídeo anterior, gravada por engano em versões antigas e trazida pelos "assistidos recentemente")
+        const nd = Math.round(+d.duration || 0);
+        if (cur && String(d.item_id) === cur.id && nd > 0 && (!(cur.duration > 0) || (canControl(s, uid) && Math.abs(nd - cur.duration) > 3))) { cur.duration = nd; armEnd(s); broadcast(s); }
         return null;
       }
       case 'ended': { // um player chegou ao fim: só vale se o servidor também acha que está no fim
         if (!cur || String(d.item_id) !== cur.id || s.pb.status !== 'playing') return { stale: true };
-        const exp = expectedPos(s.pb, now(), dur);
-        if (dur > 0 ? exp >= dur - 5 : canControl(s, uid)) { advance(s, 'ended'); return {}; }
+        const exp = expectedPos(s.pb, now(), dur), pd = +d.dur > 0 ? +d.dur : 0; // pd: duração no player de quem relatou
+        if (dur > 0 ? exp >= dur - 5 || (pd > 0 && exp >= pd - 3 && canControl(s, uid)) : canControl(s, uid) || (pd > 0 && exp >= pd - 3)) { advance(s, 'ended'); return {}; }
         return { stale: true };
       }
       default: fail('comando desconhecido');

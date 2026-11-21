@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-21-4', title: 'Watch Together: playlists e correções',
+    items: [
+      { i: 'tv', t: 'Playlists do YouTube', d: 'Cole o link de uma playlist do YouTube na busca do Watch Together e todos os vídeos entram na fila (até 100). Se o link for de um vídeo aberto dentro da playlist, você escolhe: só ele ou a playlist inteira, começando por ele.' },
+      { i: 'check', t: 'Barra do vídeo sem pulo para trás', d: 'Ao clicar num ponto da barra, o vídeo vai direto para lá (antes voltava para onde estava e só depois pulava). Pausar também não dá mais um "play" de volta por um instante.' },
+      { i: 'check', t: 'Fim do vídeo e troca de vídeo', d: 'O vídeo que acaba não fica mais voltando para o começo até alguém pausar: passa para o próximo da fila. E o tempo e a duração de um vídeo não se misturam mais com os do anterior.' },
+      { i: 'check', t: 'Sair e entrar no Watch Together', d: 'Sair do Watch Together não faz mais o quadro dele sumir da chamada: dá para entrar de novo na hora, sem sair e voltar da sala de voz.' },
+    ],
+  },
+  {
     id: '2026-11-21-3', title: 'Jogar junto, do jeito certo',
     items: [
       { i: 'gamepad', t: 'Um botão só: "Pedir para jogar"', d: 'Na transmissão de um jogo, peça para jogar. Quem transmite escolhe o que você pode usar (controle, teclado e/ou mouse) e pode mudar ou tirar na hora. Você vê no topo qual Player é e o que está liberado.' },

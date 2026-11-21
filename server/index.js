@@ -46,7 +46,7 @@ import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
 import { createLimits, LIMITS } from './limits.js';
 import { createWatch } from './watch.js';
-import { searchTracks as musicSearch, musicAvailable } from './music.js';
+import { searchTracks as musicSearch, musicAvailable, listPlaylist as musicPlaylist } from './music.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 import { mountAuth } from './routes/auth.js';
 import { mountAccount } from './routes/account.js';
@@ -806,13 +806,41 @@ async function watchSearch(q) {
   const list = await musicSearch(q, 10);
   return list.map(t => { const m = /[?&]v=([\w-]{11})/.exec(t.url || ''); return m && { service: 'youtube', ref: m[1], url: 'https://www.youtube.com/watch?v=' + m[1], title: t.title, channel: t.artist, thumb: t.thumb || `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`, duration: t.duration }; }).filter(Boolean);
 }
+// playlist do YouTube: YouTube Data API v3 se houver YOUTUBE_API_KEY (mixes automáticos "RD…" ela não lista); senão yt-dlp
+async function watchPlaylist(pl, n = 100) {
+  const ytItem = (id, x = {}) => ({ service: 'youtube', ref: id, url: 'https://www.youtube.com/watch?v=' + id, title: x.title || '', channel: x.channel || '', thumb: x.thumb || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, duration: x.duration || 0, embeddable: x.embeddable });
+  if (YT_KEY && !/^RD/.test(pl.list)) {
+    const items = []; let page = '', title = '';
+    for (let i = 0; i < 4 && items.length < n; i++) {
+      const r = await fetchJson(`${YT_API}/playlistItems?part=snippet,status&maxResults=50&playlistId=${encodeURIComponent(pl.list)}${page ? '&pageToken=' + page : ''}&key=${YT_KEY}`);
+      if (r.status === 404) throw new Error('Playlist não encontrada (ela é privada ou foi apagada?)');
+      if (!r.json) throw new Error('O YouTube não respondeu (verifique a YOUTUBE_API_KEY)');
+      for (const x of r.json.items || []) {
+        const id = x.snippet?.resourceId?.videoId; if (!/^[\w-]{11}$/.test(id || '') || x.status?.privacyStatus === 'private' || /^(private|deleted) video$/i.test(x.snippet?.title || '')) continue;
+        items.push(ytItem(id, { title: x.snippet.title, channel: x.snippet.videoOwnerChannelTitle || '', thumb: x.snippet.thumbnails?.high?.url }));
+      }
+      page = r.json.nextPageToken; if (!page) break;
+    }
+    const list = items.slice(0, n);
+    for (let i = 0; i < list.length; i += 50) { // duração e "pode incorporar" (a playlist não traz)
+      const r = await fetchJson(`${YT_API}/videos?part=contentDetails,status&id=${list.slice(i, i + 50).map(x => x.ref).join(',')}&key=${YT_KEY}`).catch(() => null);
+      const by = new Map((r?.json?.items || []).map(v => [v.id, v]));
+      for (const it of list.slice(i, i + 50)) { const v = by.get(it.ref); if (v) { it.duration = isoDur(v.contentDetails?.duration); it.embeddable = v.status?.embeddable !== false; } }
+    }
+    try { const r = await fetchJson(`${YT_API}/playlists?part=snippet&id=${encodeURIComponent(pl.list)}&key=${YT_KEY}`); title = r.json?.items?.[0]?.snippet?.title || ''; } catch { }
+    return { title, items: list };
+  }
+  if (!(await musicAvailable())) throw new Error('Adicionar playlists precisa do yt-dlp no servidor (ou de uma YOUTUBE_API_KEY)');
+  const r = await musicPlaylist(pl.url, n);
+  return { title: r.title, items: r.entries.map(t => { const m = /[?&]v=([\w-]{11})/.exec(t.url || ''); return m && ytItem(m[1], { title: t.title, channel: t.artist, thumb: t.thumb, duration: t.duration }); }).filter(Boolean) };
+}
 const voiceWs = (uid) => { const c = currentVoice(uid), st = c && voice.get(c)?.get(uid); return st?.ws; };
 const watch = createWatch({
   inRoom: (uid, cid) => !!voice.get(cid)?.get(uid) && !voice.get(cid).get(uid).bot,
   roomMembers: (cid) => [...(voice.get(cid) || [])].filter(([, st]) => !st.bot).map(([id]) => id),
   sendTo: (uid, t, d) => { const ws = voiceWs(uid); if (ws) send(ws, t, d); },
   userPub, guildOf: (cid) => get('SELECT guild_id FROM channels WHERE id=?', cid)?.guild_id || null,
-  search: watchSearch, meta: watchMeta,
+  search: watchSearch, meta: watchMeta, playlist: watchPlaylist,
   remember: (gid, it) => { if (gid) run('INSERT OR REPLACE INTO watch_history(guild_id,service,ref,url,title,channel,thumb,duration,by_id,at) VALUES(?,?,?,?,?,?,?,?,?,?)', gid, it.service, it.ref, it.url, it.title, it.channel || '', it.thumb || null, it.duration || 0, it.by, Date.now()); },
   recent: (gid) => gid ? all('SELECT service, ref, url, title, channel, thumb, duration FROM watch_history WHERE guild_id=? ORDER BY at DESC LIMIT 30', gid) : [],
   log: (...a) => console.log(...a),

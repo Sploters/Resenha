@@ -3,7 +3,7 @@
 // Cobre: propagação de comandos, Hosting/Sharing, permissões da fila, duplicados, entrada/saída, troca de anfitrião,
 // reconexão, concorrência, mudança de conteúdo, fim automático, recuperação de erros.
 // Uso: node scripts/watch-unit-test.mjs
-import { SERVICES, parseLink, effectiveLevel, itemKey } from '../public/watchsvc.js';
+import { SERVICES, parseLink, effectiveLevel, itemKey, ytPlaylist } from '../public/watchsvc.js';
 import { expectedPos, createClock, decide, syncState, parseTime, fmtTime, waitingStart, TOLERANCE } from '../public/watchsync.js';
 import { createWatch } from '../server/watch.js';
 
@@ -12,6 +12,7 @@ const ok = (c, m, x) => { n++; console.log((c ? '  ok   ' : '  FAIL ') + m + (x 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const rejects = async (p, code) => { try { await p; return false; } catch (e) { return code ? e.code === code : true; } };
 
+const yt0 = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 console.log('— adaptadores de serviço');
 {
   const y = (u) => parseLink(u)?.ref;
@@ -28,6 +29,10 @@ console.log('— adaptadores de serviço');
   ok(parseLink('/files/abc/video.mp4')?.service === 'file' && parseLink('https://x.com/a/b.webm')?.service === 'file' && !parseLink('/files/a/b.png'), 'link de vídeo (arquivo enviado e .webm)');
   ok(parseLink('http://localhost:3000/files/a/x.mp4', { origin: 'http://localhost:3000' }).ref === '/files/a/x.mp4', 'arquivo do próprio servidor vira caminho relativo');
   ok(effectiveLevel('youtube') === 'embedded' && effectiveLevel('netflix') === 'assisted' && effectiveLevel('netflix', { desktopWindow: true, widevine: false }) === 'assisted' && effectiveLevel('netflix', { desktopWindow: true, widevine: true }) === 'controls', 'nível efetivo: DRM só passa de assistido com janela + Widevine');
+  const pl = ytPlaylist('https://www.youtube.com/playlist?list=PLabcdefghij1234'), pv = ytPlaylist('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabcdefghij1234&index=3');
+  ok(pl?.list === 'PLabcdefghij1234' && !pl.video && pl.url === 'https://www.youtube.com/playlist?list=PLabcdefghij1234', 'playlist do YouTube (link da playlist)', pl);
+  ok(pv?.video === 'dQw4w9WgXcQ' && pv.list === 'PLabcdefghij1234', 'vídeo aberto dentro de uma playlist', pv);
+  ok(ytPlaylist('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ')?.url.includes('watch?v=dQw4w9WgXcQ&list=RD') && !ytPlaylist(yt0) && !ytPlaylist('https://x.com/?list=PLabcdefghij1234'), 'mix automático abre pelo vídeo; sem list= ou fora do YouTube não é playlist');
   ok(Object.values(SERVICES).filter(s => s.drm).every(s => s.level === 'assisted' && s.caps.embed === false), 'nenhum serviço com DRM é marcado como integrado');
 }
 
@@ -87,6 +92,7 @@ const W = createWatch({
   inRoom: (uid, cid) => rooms.get(cid)?.has(uid), roomMembers: (cid) => [...(rooms.get(cid) || [])], sendTo, now, guildOf: () => 'g1',
   userPub: (id) => ({ id, display_name: id[0].toUpperCase() + id.slice(1) }),
   meta: async (it) => { metaCalls.push(it.ref); if (it.ref === 'BLOCKEDxxxx') return { embeddable: false }; if (it.ref === 'MISSINGxxxx') return { notFound: true }; return { title: 'Vídeo ' + it.ref, duration: it.ref === 'SHORTxxxxxx' ? 1 : 0 }; },
+  playlist: async (pl) => ({ title: 'Minha playlist', items: ['PL1aaaaaaaa', 'PL2aaaaaaaa', 'BBBBBBBBBBB', 'PL3blocked0', 'PL4aaaaaaaa'].map(id => ({ url: 'https://www.youtube.com/watch?v=' + id, title: 'Vídeo ' + id, duration: 120, embeddable: id !== 'PL3blocked0' })) }),
   search: async (q) => [{ service: 'youtube', ref: 'AAAAAAAAAAA', url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA', title: 'Resultado ' + q, duration: 100 }],
   hostGraceMs: 150, emptyGraceMs: 250, fatalSkipMs: 50,
 });
@@ -179,6 +185,21 @@ ok(S().current.id === before && S().queue[0].ref === 'DDDDDDDDDDD', 'voltar ao a
 tick(); await cmd('ana', 'play_item', { id: S().queue[0].id });
 ok(S().current.ref === 'DDDDDDDDDDD', 'tocar um item da fila');
 
+// duração errada (a do vídeo anterior, de versões antigas): quem controla corrige; quem não controla, não
+{ const id = S().current.id, d0 = S().current.duration; await cmd('ana', 'mode', { mode: 'hosting' });
+  await cmd('ana', 'meta', { item_id: id, duration: 333 }); ok(S().current.duration === 333, 'quem controla corrige uma duração errada', S().current.duration);
+  await cmd('beto', 'meta', { item_id: id, duration: 50 }); ok(S().current.duration === 333, 'quem não controla não muda uma duração já conhecida');
+  S().current.duration = d0 || 0; await cmd('ana', 'mode', { mode: 'sharing' }); }
+// playlist: entram todos (menos os já na fila e os que proíbem incorporação), o do link na frente
+{ const q0 = S().queue.length;
+  const r = await cmd('beto', 'add_playlist', { url: 'https://www.youtube.com/watch?v=PL4aaaaaaaa&list=PLabcdefghij1234' });
+  const refs = S().queue.slice(q0).map(x => x.ref);
+  ok(r.added === (S().current?.ref === 'BBBBBBBBBBB' || S().queue.slice(0, q0).some(x => x.ref === 'BBBBBBBBBBB') ? 3 : 4) && r.title === 'Minha playlist' && refs.slice(0, 3).join() === 'PL4aaaaaaaa,PL1aaaaaaaa,PL2aaaaaaaa' && !refs.includes('PL3blocked0') && S().queue.slice(q0).every(x => x.by === 'beto' && x.duration === 120), 'playlist: vídeos na fila, o do link primeiro, sem os bloqueados', { r, refs });
+  ok(r.added + r.skipped === 5 && r.skipped >= 1, 'playlist: repetidos e bloqueados contados como "de fora"', r);
+  ok(await rejects(cmd('beto', 'add_playlist', { url: 'https://www.youtube.com/playlist?list=PLabcdefghij1234' }), 'empty_playlist'), 'playlist de novo: tudo já está na fila');
+  ok(await rejects(cmd('beto', 'add_playlist', { url: yt('PL1aaaaaaaa') }), 'bad_link'), 'link sem playlist é recusado no add_playlist');
+  for (const x of S().queue.slice(q0)) await cmd('ana', 'remove', { id: x.id }); }
+
 // fim do vídeo: relatório "ended" só vale perto do fim (pelo relógio do servidor)
 const curId = S().current.id;
 await cmd('beto', 'meta', { item_id: curId, duration: 60 });
@@ -186,8 +207,10 @@ ok(S().current.duration === 60, 'duração descoberta pelo player é guardada');
 let e = await cmd('beto', 'ended', { item_id: curId });
 ok(e.stale && S().current.id === curId, '"terminou" falso (fora do fim) é ignorado');
 clock += 60_000;
-e = await cmd('caio', 'ended', { item_id: curId });
-ok(!e.stale && S().current?.id !== curId, 'perto do fim: vai para o próximo');
+// a duração da sala está errada (maior que a do vídeo): o "terminou" de quem controla, com a duração do player, vale
+{ const c = S().current; c.duration = 600; await cmd('ana', 'mode', { mode: 'hosting' }); await cmd('ana', 'pause', { pos: 58 }); tick(); await cmd('ana', 'play'); clock += 3000;
+  e = await cmd('caio', 'ended', { item_id: curId, dur: 60 }); ok(e.stale, '"terminou" com a duração do player: quem não controla não pula');
+  e = await cmd('ana', 'ended', { item_id: curId, dur: 60 }); ok(!e.stale && S().current?.id !== curId, '"terminou" de quem controla com a duração do player: vai para o próximo (sem ficar voltando ao começo)'); await cmd('ana', 'mode', { mode: 'sharing' }); }
 // temporizador do servidor (sem ninguém relatar)
 st = S(); const qlen = st.queue.length;
 await cmd('ana', 'add', { url: yt('SHORTxxxxxx') }); // meta diz duração 1 s

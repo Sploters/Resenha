@@ -23,7 +23,14 @@
     this.cc = { on: true, track: 'pt' };
     this._load(o.videoId, (o.playerVars || {}).start || 0, !!(o.playerVars || {}).autoplay, true);
   }
+  // window.__ytmockLag (ms, opcional): como o YouTube real, depois de seekTo/loadVideoById o player continua relatando
+  // por um tempo a posição antiga e (na troca de vídeo) a duração e um último "tocando" do vídeo anterior
+  const lag = () => +window.__ytmockLag || 0;
   Player.prototype._load = function (id, start, play, first) {
+    if (!first && lag()) {
+      this._stale = { t: this.v.currentTime, d: this.getDuration(), until: performance.now() + lag() };
+      setTimeout(() => { this.state = S.PLAYING; this.ev.onStateChange?.({ data: S.PLAYING, target: this }); }, 30);
+    }
     this.id = id;
     if (/^EMBEDOFF/.test(id) || /^GONE/.test(id)) {
       setTimeout(() => { if (first) this.ev.onReady?.({ target: this }); this.ev.onError?.({ data: /^GONE/.test(id) ? 100 : 150, target: this }); }, 150);
@@ -31,6 +38,7 @@
     }
     const v = this.v; v.src = base + 'v/' + id + '.webm';
     v.onloadedmetadata = () => {
+      this.vid = id; // como no YouTube real: getVideoData só passa a dizer o vídeo novo depois que ele carrega
       if (start) v.currentTime = start;
       if (first) { first = false; this.ev.onReady?.({ target: this }); }
       // como no YouTube real: o 1º vídeo carregado sem autoplay fica "não iniciado" (-1) até alguém mandar o play;
@@ -40,10 +48,12 @@
   };
   Player.prototype.playVideo = function () { this.v.play().catch(() => this.ev.onAutoplayBlocked?.({ target: this })); };
   Player.prototype.pauseVideo = function () { this.v.pause(); };
-  Player.prototype.seekTo = function (s) { this.v.currentTime = s; };
-  Player.prototype.getCurrentTime = function () { return this.v.currentTime; };
-  Player.prototype.getDuration = function () { return isFinite(this.v.duration) ? this.v.duration : 0; };
+  Player.prototype.seekTo = function (s) { if (lag()) this._stale = { t: this.v.currentTime, d: this.getDuration(), until: performance.now() + lag() }; this.v.currentTime = s; };
+  const stale = (p) => p._stale && performance.now() < p._stale.until ? p._stale : null;
+  Player.prototype.getCurrentTime = function () { return stale(this)?.t ?? this.v.currentTime; };
+  Player.prototype.getDuration = function () { const st = stale(this); if (st && st.d) return st.d; return isFinite(this.v.duration) ? this.v.duration : 0; };
   Player.prototype.getPlayerState = function () { return this.state; };
+  Player.prototype.getVideoData = function () { return { video_id: this.vid || '' }; };
   Player.prototype.setVolume = function (n) { this.vol = n; this.v.volume = n / 100; };
   Player.prototype.getVolume = function () { return this.vol; };
   Player.prototype.mute = function () { this.v.muted = true; };

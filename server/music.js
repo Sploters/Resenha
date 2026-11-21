@@ -140,6 +140,14 @@ export async function searchTracks(q, n = 5) {
   if (!list.length) throw new Error('Nada encontrado');
   return list;
 }
+// vídeos de uma playlist do YouTube (Watch Together): só a lista, sem abrir cada vídeo. { title, entries: [faixa] }
+export async function listPlaylist(url, n = MAX_PLAYLIST) {
+  const j = await runJson(['-J', '--flat-playlist', '--playlist-end', String(Math.max(1, Math.min(200, n | 0))), '--', String(url)], 60_000);
+  const entries = (j.entries || []).filter(Boolean)
+    .filter(e => !/^\[(private|deleted|unavailable)/i.test(e.title || '') && e.availability !== 'private') // vídeos privados/apagados da playlist
+    .map(e => trackFrom(e)).filter(t => t.url);
+  return { title: String(j.title || '').slice(0, 140), entries };
+}
 // Devolve uma lista de faixas { title, artist, duration, thumb, url | search }
 export async function resolveQuery(q) {
   q = String(q || '').trim().slice(0, 500);

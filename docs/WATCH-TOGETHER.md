@@ -46,6 +46,17 @@ desktop/watchbridge.js preload dessa janela: encontra o <video> da página, rela
   latência de busca medida; pausado → alinha na hora. Com buffer, espera e corrige ao voltar. Intervalo mínimo entre
   correções para não ficar pulando.
 - Começo de vídeo: o servidor marca `at` 1,5 s no futuro (todos carregam e começam juntos).
+- **Comando da própria pessoa é aplicado na hora** (estado provisório com `seq + 0,5`): sem isso, entre o clique e a
+  volta do servidor o motor via o player "fora" do estado antigo e o corrigia de volta (clicar na barra fazia o vídeo e
+  a barra voltarem para a posição antiga antes de ir para o ponto clicado). O estado do servidor (`seq + 1`) substitui
+  o provisório; se o servidor recusar, volta ao anterior.
+- **Troca de vídeo no mesmo iframe** (`loadVideoById`): até o vídeo novo assumir (`getVideoData().video_id`), o
+  YouTube ainda relata posição, duração e eventos do anterior. O player ignora tudo isso nesse intervalo — antes a
+  duração do anterior ia para a sala como a do novo e os tempos se misturavam.
+- **Fim do vídeo**: o player que terminou espera parado no fim (pela duração do **player**, não a da sala) e avisa o
+  servidor (`ended` com a duração dele; repete a cada 3 s se o servidor recusar). Antes o play era mandado de novo, o
+  YouTube recomeçava do zero e a correção pulava para o fim — ficava voltando ao início até alguém pausar. Quem
+  controla também corrige uma duração errada da sala (`meta`).
 
 ### Permissões
 Na interface: Hosting = "Só eu" e Sharing = "Todos" (seletor "Quem controla" no topo, só o anfitrião muda). Em Pessoas,
@@ -55,7 +66,7 @@ Liberar / Agora não / Liberar para todos.
 
 | Ação | Hosting | Sharing |
 |---|---|---|
-| Adicionar à fila | todos | todos |
+| Adicionar à fila (vídeo ou playlist) | todos | todos |
 | Remover item | o próprio item; anfitrião/autorizados removem qualquer | todos |
 | Reordenar, pular, tocar item | anfitrião/autorizados | todos |
 | Play, pause, posição | anfitrião/autorizados | todos |
@@ -123,6 +134,14 @@ play, sem controlar o player).
 | Todos saem | sessão espera 2 min (`WATCH_EMPTY_GRACE_MS`) por alguém voltar | — |
 | Troca de conteúdo | todos carregam o próximo e começam juntos (início marcado 1,5 s no futuro) | — |
 
+### Playlists do YouTube
+Link de playlist (`youtube.com/playlist?list=…`) na busca → op `add_playlist`: até 100 vídeos entram na fila de uma
+vez (conta como uma adição no limite de ritmo). Link de um vídeo aberto dentro de uma playlist/mix
+(`watch?v=…&list=…`): a interface pergunta "só este vídeo" ou "playlist inteira" (começando por ele). Ficam de fora os
+que já estão na fila, os privados/apagados e os que proíbem incorporação. A lista vem da YouTube Data API v3
+(`playlistItems` + `videos` para duração e incorporação) se houver `YOUTUBE_API_KEY`; sem ela (e para os mixes
+automáticos "RD…", que a API não lista), do yt-dlp (`listPlaylist` em `server/music.js`).
+
 ## 5. Configuração
 - `YOUTUBE_API_KEY` (opcional): busca e metadados pela YouTube Data API v3. Sem ela, a busca usa o yt-dlp do bot de
   música e os metadados vêm do oEmbed (sem chave).
@@ -134,6 +153,9 @@ play, sem controlar o player).
   permissões, duplicados, concorrência, troca de anfitrião, reconexão, fim automático, erros).
 - `scripts/watch-test.mjs` (servidor real + 4 navegadores + SFU de voz, YouTube simulado): fluxo completo com capturas
   em `.testshots/watch-*.png`.
+- `scripts/watch-regress-test.mjs` (servidor real + 3 navegadores, com atraso de rede e o atraso do YouTube real
+  simulados por `window.__ytmockLag`): os bugs relatados — barra que voltava, duração/posição do vídeo anterior, fim
+  que voltava ao começo, quadro que sumia ao sair — e playlist pela busca.
 - `scripts/watch-desktop-test.mjs` (Electron real, tela virtual): janela de serviço, ponte, DRM, login, sessão
   persistente, bloqueio de domínios, busca da Netflix pela API do player.
 
