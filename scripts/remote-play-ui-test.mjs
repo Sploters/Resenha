@@ -32,7 +32,7 @@ async function page(tok, desk) {
       window.__bridge = { starts: [], stops: [], inputs: [] };
       const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { },
         getSources: async () => [{ id: 'screen:1:0', name: 'Tela 1', type: 'screen', thumbnail: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
-        remoteCapable: async () => ({ ok: true, antiCheats: [], pad: true, window: false }),
+        remoteCapable: async () => ({ ok: true, antiCheats: [], pad: true, window: false, rel: true }),
         remoteStart: async (o) => { window.__bridge.starts.push(o); return { ok: true }; },
         remoteInput: (ev, id) => window.__bridge.inputs.push(...ev.map(e => ({ ...e, _id: id }))),
         remoteStop: (id) => window.__bridge.stops.push(id), onRemoteEvent: (cb) => { window.__remoteCb = cb; } };
@@ -113,6 +113,18 @@ try {
   br = await bridge(A);
   ok(br.inputs.some(e => e.k === 'd' && e._id === bid + ':kb') && br.inputs.some(e => e.k === 'kd' && e.c === 'KeyW' && e._id === bid + ':kb'), 'liberados: clique e tecla do bob chegam', br.inputs.filter(e => e.k !== 'g').map(e => e.k + (e._id === bid + ':kb' ? '@kb' : '@' + e._id)));
   await B.screenshot({ path: `${SHOTS}/play-jogador.png` });
+  // ---------- mouse travado (relativo) ----------
+  const relBtn = () => B.evaluate(() => [...document.querySelectorAll('#remote-chip .btn')].find(b => /Mouse travado/.test(b.textContent))?.textContent || null);
+  ok(!!(await relBtn()), 'com o Mouse liberado e o app de quem transmite novo: opção "Mouse travado" no aviso', await relBtn());
+  await B.evaluate(() => [...document.querySelectorAll('#remote-chip .btn')].find(b => /Mouse travado/.test(b.textContent)).click());
+  await B.mouse.click(box.x, box.y); await sleep(300);
+  const locked = await B.evaluate(() => !!document.pointerLockElement?.closest?.('.tile.screen'));
+  const nr0 = (await bridge(A)).inputs.length;
+  await B.mouse.move(box.x + 40, box.y + 15, { steps: 4 }); await sleep(300);
+  await B.mouse.down(); await B.mouse.up(); await sleep(300);
+  const rel = (await bridge(A)).inputs.slice(nr0);
+  ok(locked && rel.some(e => e.k === 'r' && e._id === bid + ':kb') && !rel.some(e => e.k === 'm') && rel.some(e => e.k === 'd'), 'cursor travado: vai o deslocamento (sem posição) e o clique', { locked, ev: rel.map(e => e.k + (e.k === 'r' ? `(${e.dx},${e.dy})` : '')).slice(0, 8) });
+  await B.evaluate(() => { document.exitPointerLock(); [...document.querySelectorAll('#remote-chip .btn')].find(b => /Mouse travado/.test(b.textContent))?.click(); }); await sleep(200);
   // ---------- painel Desempenho (os dois lados) ----------
   const openPerf = (P) => P.evaluate(() => { document.querySelector('.sctl button[title="Mais opções"]')?.click(); [...document.querySelectorAll('.menu .it')].find(x => /Desempenho/.test(x.textContent))?.click(); });
   await openPerf(B); await openPerf(A); await sleep(4500);

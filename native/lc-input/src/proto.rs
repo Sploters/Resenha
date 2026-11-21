@@ -7,6 +7,7 @@
 //!   {"t":"ptt","code":null}        desliga o push-to-talk global
 //!   {"t":"padoff","p":1}           desliga o controle virtual da vaga p (0..3; o jogador saiu)
 //!   {"t":"padcheck"}               confere de novo se o driver do controle virtual responde (depois de instalar)
+//! Mouse relativo {"k":"r","dx":n,"dy":n} (jogos 3D, com o mouse travado em quem joga): deslocamento em contagens, até ±2000.
 //! Evento de controle {"k":"g",...,"p":n}: n = vaga do controle virtual (0..3; sem p = 0, o controle remoto normal).
 //! Nada aqui toca o Windows: só transforma texto em ações (testável em qualquer sistema).
 use crate::keymap::scan_for;
@@ -18,6 +19,7 @@ pub struct Rect { pub x: i32, pub y: i32, pub w: i32, pub h: i32 }
 #[derive(Debug, PartialEq)]
 pub enum Action {
     MoveTo { x: i32, y: i32 },        // pixel físico absoluto na área de trabalho virtual
+    MoveBy { dx: i32, dy: i32 },      // deslocamento relativo (o jogo lê como movimento do mouse: raw input)
     Button { b: u8, down: bool },     // 0 esquerdo, 1 meio, 2 direito (como MouseEvent.button)
     Wheel { dx: i32, dy: i32 },       // unidades do Windows (120 = um "dente"); dy > 0 = para baixo
     Key { scan: u16, ext: bool, down: bool },
@@ -95,6 +97,7 @@ fn raw_event(v: &serde_json::Value) -> Option<Raw> {
     match k {
         "m" => { let (x, y) = (f("x")?, f("y")?); if (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y) { Some(Raw::Move(x, y)) } else { None } }
         "d" | "u" => { let b = f("b")?; if b == 0.0 || b == 1.0 || b == 2.0 { Some(Raw::Act(Action::Button { b: b as u8, down: k == "d" })) } else { None } }
+        "r" => { let (dx, dy) = (f("dx")?, f("dy")?); if dx.abs() <= 2000.0 && dy.abs() <= 2000.0 && (dx.round() != 0.0 || dy.round() != 0.0) { Some(Raw::Act(Action::MoveBy { dx: dx.round() as i32, dy: dy.round() as i32 })) } else { None } }
         "w" => { let (dx, dy) = (f("dx").unwrap_or(0.0), f("dy").unwrap_or(0.0)); if dx.abs() <= 2400.0 && dy.abs() <= 2400.0 && (dx != 0.0 || dy != 0.0) { Some(Raw::Act(Action::Wheel { dx: dx as i32, dy: dy as i32 })) } else { None } }
         "kd" | "ku" => { let (scan, ext) = scan_for(v.get("c")?.as_str()?)?; Some(Raw::Act(Action::Key { scan, ext, down: k == "kd" })) }
         "g" => {
@@ -182,6 +185,15 @@ mod tests {
         assert_eq!(parse(r#"{"t":"padoff","p":4}"#), Cmd::Bad);
         assert_eq!(parse(r#"{"t":"padoff"}"#), Cmd::Bad);
         assert_eq!(parse(r#"{"t":"padcheck"}"#), Cmd::PadCheck);
+    }
+    #[test]
+    fn mouse_relativo() {
+        let ev = |s: &str| match parse(&format!(r#"{{"t":"ev","ev":[{s}]}}"#)) { Cmd::Events(v) => v, _ => vec![] };
+        assert_eq!(ev(r#"{"k":"r","dx":12.4,"dy":-3}"#), vec![Raw::Act(Action::MoveBy { dx: 12, dy: -3 })]);
+        assert!(ev(r#"{"k":"r","dx":2001,"dy":0}"#).is_empty()); // fora da faixa
+        assert!(ev(r#"{"k":"r","dx":0.2,"dy":-0.4}"#).is_empty()); // sem movimento
+        assert!(ev(r#"{"k":"r","dx":"1","dy":0}"#).is_empty());
+        assert!(ev(r#"{"k":"r","dx":5}"#).is_empty());
     }
     #[test]
     fn limite_de_eventos_por_linha() {

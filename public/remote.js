@@ -42,10 +42,10 @@ export function requestPlay(uid) {
     [{ label: 'Cancelar', cls: 'grey' }, { label: 'Pedir para jogar', fn: () => { S.prefs.remoteIntroSeen = true; ctx.savePrefs?.(); go(); } }]);
 }
 // ---------- quem transmite: ações da janela Jogadores ----------
-export const acceptPlay = (id, perms) => ctx.send('REMOTE_ANSWER', { id, accept: true, capable: true, mouse: !!perms.mouse, keyboard: !!perms.keyboard, gamepad: !!perms.gamepad });
+export const acceptPlay = (id, perms) => ctx.send('REMOTE_ANSWER', { id, accept: true, capable: true, mouse: !!perms.mouse, keyboard: !!perms.keyboard, gamepad: !!perms.gamepad, rel: !!capCache?.v?.rel });
 export const declinePlay = (id) => ctx.send('REMOTE_ANSWER', { id, accept: false, capable: true });
 export const setPlayPerms = (id, perms) => ctx.send('REMOTE_PERMS', { id, mouse: !!perms.mouse, keyboard: !!perms.keyboard, gamepad: !!perms.gamepad });
-export const invitePlayer = (uid, perms = { gamepad: true }) => ctx.send('REMOTE_INVITE', { to: uid, ...perms });
+export const invitePlayer = (uid, perms = { gamepad: true }) => ctx.send('REMOTE_INVITE', { to: uid, ...perms, rel: !!capCache?.v?.rel });
 export const revokeAll = () => { for (const p of playersOf(S.me.id)) if (p.kind === 'play' && (p.perms.mouse || p.perms.keyboard || p.perms.gamepad)) setPlayPerms(p.id, {}); };
 export const autoAccept = { get on() { return !!autoPlay && autoPlay === ctx.channelId?.(); }, set on(v) { autoPlay = v ? ctx.channelId?.() || null : null; playersChanged(); } };
 let capCache = null;
@@ -94,8 +94,9 @@ let queue = [], lastMove = null, flushTimer = 0, kbOn = false, lastSent = 0;
 const MOVE_MS = 8;
 const keysDown = new Set(), btnsDown = new Set();
 const push = (e) => {
-  if (e.k === 'm') {
-    lastMove = e;
+  if (e.k === 'm' || e.k === 'r') {
+    // relativo: soma os deslocamentos até sair (o último absoluto vale; um relativo nunca se perde)
+    lastMove = e.k === 'r' && lastMove?.k === 'r' ? { k: 'r', dx: lastMove.dx + e.dx, dy: lastMove.dy + e.dy } : e;
     const wait = MOVE_MS - (performance.now() - lastSent);
     if (wait <= 0) { clearTimeout(flushTimer); flush(); } else if (!flushTimer) flushTimer = setTimeout(flush, wait);
     return;
@@ -104,7 +105,7 @@ const push = (e) => {
   queue.push(e); clearTimeout(flushTimer); flush();
 };
 function flush() {
-  flushTimer = 0; lastSent = performance.now(); if (lastMove) { queue.push(lastMove); lastMove = null; }
+  flushTimer = 0; lastSent = performance.now(); if (lastMove) { if (lastMove.k === 'r') { const c = (v) => Math.max(-2000, Math.min(2000, Math.round(v))); lastMove = { k: 'r', dx: c(lastMove.dx), dy: c(lastMove.dy) }; } if (lastMove.k !== 'r' || lastMove.dx || lastMove.dy) queue.push(lastMove); lastMove = null; }
   const s = ctlSess(); if (!s || !queue.length) { queue = []; return; }
   while (queue.length) ctx.send('REMOTE_INPUT', { id: s.id, ev: queue.splice(0, 64) });
 }
@@ -125,12 +126,25 @@ function setKb(on) {
 }
 // tudo no modo captura: o clique dentro do quadro não troca o foco nem abre menus da página
 const opts = { capture: true, passive: false };
-addEventListener('pointermove', (e) => { const t = ownerTile(e.target); if (!t || !ctlSess()?.perms.mouse) return; const p = norm(videoOf(t), e.clientX, e.clientY); if (p) push({ k: 'm', ...p }); }, opts);
+// mouse travado (jogos 3D): com o cursor preso no quadro, vai o deslocamento (movementX/Y), não a posição
+export const relLocked = () => { const l = document.pointerLockElement; return !!l && !!ownerTile(l); };
+let relMode = false;
+export const relAvailable = () => { const s = ctlSess(); return !!s && s.kind === 'play' && !!s.perms.mouse && !!s.caps?.rel; };
+export const relOn = () => relMode && relAvailable();
+export function setRelMode(on) { relMode = !!on; if (!relMode && relLocked()) document.exitPointerLock(); if (relMode) toast('Mouse travado: clique na transmissão para travar o cursor; Esc solta.'); paintChip(); }
+document.addEventListener('pointerlockchange', () => paintChip());
+addEventListener('pointermove', (e) => {
+  const t = ownerTile(e.target); if (!t || !ctlSess()?.perms.mouse) return;
+  if (relLocked()) { if (relOn() && (e.movementX || e.movementY)) push({ k: 'r', dx: e.movementX, dy: e.movementY }); return; }
+  const p = norm(videoOf(t), e.clientX, e.clientY); if (p) push({ k: 'm', ...p });
+}, opts);
 addEventListener('pointerdown', (e) => {
   const t = ownerTile(e.target); if (!t) { setKb(false); return; }
   if (e.target.closest('.tctl, .remote-chip, button')) return; // botões do próprio quadro continuam funcionando
   e.preventDefault(); e.stopPropagation(); setKb(true);
   if (!ctlSess()?.perms.mouse || e.button > 2) return;
+  if (relOn() && !relLocked()) { try { const r = t.requestPointerLock({ unadjustedMovement: true }); r?.catch?.(() => t.requestPointerLock()); } catch { t.requestPointerLock(); } return; } // 1º clique só trava
+  if (relLocked()) { push({ k: 'd', b: e.button }); btnsDown.add(e.button); return; }
   const p = norm(videoOf(t), e.clientX, e.clientY); if (!p) return;
   push({ k: 'm', ...p }); push({ k: 'd', b: e.button }); btnsDown.add(e.button);
 }, opts);
@@ -398,7 +412,7 @@ function padState(d) {
       if (r === 'cancelled' && before?.invite) toast(`${other} cancelou o convite`);
       else if (r === 'cancelled' || r === 'invite_declined' || (r === 'stopped' && before?.state === 'active' && padLeaving)) { if (r === 'cancelled') toast('Pedido para jogar cancelado'); else if (r === 'stopped') toast('Você saiu do jogo'); }
       else toast(`${other} ${PLAY_END[r] || (before?.state === 'active' ? 'tirou você do jogo' : 'encerrou o jogo')}`, r !== 'stopped');
-      padLeaving = false; if (before?.kind === 'play') { setKb(false); releaseAll(); }
+      padLeaving = false; if (before?.kind === 'play') { setKb(false); releaseAll(); if (relLocked()) document.exitPointerLock(); relMode = false; }
     }
   } else {
     pads().set(d.id, d);
@@ -414,7 +428,7 @@ function padState(d) {
       if (before?.state !== 'active') { if (!hush) toast(d.kind === 'pad' ? `Você é o jogador ${d.slot} na transmissão de ${other}. Use o seu controle.` : `Você é o Player ${d.slot} de ${other}. Liberado: ${permsText(d.perms)}.${ctl ? ' Clique na transmissão para usar o ' + [d.perms.mouse && 'mouse', d.perms.keyboard && 'teclado'].filter(Boolean).join(' e ') + '.' : ''}`); }
       else if (JSON.stringify(before.perms) !== JSON.stringify(d.perms)) {
         toast(d.reason === 'mouse_moved' ? `${other} passou o mouse para outro jogador. Liberado: ${permsText(d.perms)}` : `${other} mudou suas permissões. Liberado: ${permsText(d.perms)}`);
-        if (!d.perms.keyboard || !d.perms.mouse) { if (!d.perms.keyboard) setKb(false); releaseAll(); flush(); }
+        if (!d.perms.keyboard || !d.perms.mouse) { if (!d.perms.keyboard) setKb(false); releaseAll(); flush(); if (!d.perms.mouse && relLocked()) document.exitPointerLock(); }
       }
       if (d.kind === 'pad' || d.perms.gamepad) padStart();
     }
@@ -468,6 +482,7 @@ export function remoteBar() {
       h('button.btn.sm', { onclick: (e) => { e.stopPropagation(); openPlayers(); } }, 'Jogadores'));
     return h('div.remote-chip.players', icon('gamepad', 16), h('span', h('b', 'Player ' + me.slot), ` · transmissão de ${ctx.name(me.owner)}`),
       me.kind === 'play' && permIcons(me.perms, true),
+      relAvailable() && h('button.btn.sm' + (relOn() ? '' : '.grey'), { title: relOn() ? (relLocked() ? 'Cursor travado no jogo (Esc solta). Clique para voltar ao mouse comum' : 'Clique na transmissão para travar o cursor. Clique aqui para voltar ao mouse comum') : 'Para jogos 3D (câmera com o mouse): o cursor fica preso na transmissão e vai o movimento, não a posição', 'aria-pressed': String(relOn()), onclick: (e) => { e.stopPropagation(); setRelMode(!relOn()); } }, relOn() ? (relLocked() ? 'Mouse travado' : 'Mouse travado: clique no jogo') : 'Mouse travado'),
       h('button.btn.sm.grey', { onclick: (e) => { e.stopPropagation(); leavePlay(me.owner); } }, 'Sair do jogo'));
   }
   if (!s || s.state !== 'active') return null;

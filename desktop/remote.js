@@ -6,7 +6,7 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null, padOk = false, readyWait = [], padWait = [];
+let helper = null, ready = false, armed = false, indicator = null, onEvent = () => { }, shared = null, padOk = false, relOk = false, readyWait = [], padWait = [];
 // sessões ativas neste PC: id -> { who, perms, kind ('control' | 'pad'), slot }. A injeção fica armada enquanto houver uma;
 // cada uma tem o seu controle virtual (vaga 0 = controle remoto; 1..3 = jogadores 2, 3 e 4 do "jogar junto")
 const active = new Map();
@@ -65,7 +65,7 @@ async function capable() {
   if (!target) return { ok: false, reason: 'Não consegui identificar o que você está transmitindo. Pare e transmita de novo.' };
   // controle de videogame: precisa do driver ViGEmBus no PC (o lc-input conta ao iniciar se conseguiu falar com ele)
   const pad = ensureHelper() && await whenReady(2500) && padOk;
-  return { ok: true, antiCheats: await antiCheats(), window: !!target.hwnd, pad };
+  return { ok: true, antiCheats: await antiCheats(), window: !!target.hwnd, pad, rel: relOk }; // rel: o lc-input aceita o mouse relativo (jogos 3D)
 }
 
 function ensureHelper() {
@@ -78,7 +78,7 @@ function ensureHelper() {
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       let m; try { m = JSON.parse(line); } catch { continue; }
-      if (m.t === 'ready') { ready = true; padOk = !!m.pad; readyWait.splice(0).forEach(f => f(true)); }
+      if (m.t === 'ready') { ready = true; padOk = !!m.pad; relOk = !!m.rel; readyWait.splice(0).forEach(f => f(true)); }
       if (m.t === 'pad') { padOk = !!m.ok; padWait.splice(0).forEach(f => f(padOk)); }
       if (m.t === 'ptt') onPttEvent(!!m.down);
       if (m.t === 'panic') { armed = false; active.clear(); closeIndicator(); onEvent('panic'); }

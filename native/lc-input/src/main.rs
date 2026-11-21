@@ -13,7 +13,7 @@
 //! ELA desce ou sobe — nenhuma outra tecla sai daqui. A tecla não é bloqueada (o jogo continua recebendo). Entrada
 //! injetada conta (macros de mouse/teclado gamer), exceto enquanto o controle remoto está armado (quem controla não abre
 //! o microfone do dono). O gancho de mouse só existe enquanto o PTT for um botão do mouse.
-//! Saída padrão: {"t":"ready","pad":bool}, {"t":"armed"}, {"t":"disarmed"}, {"t":"panic"}, {"t":"ptt-ok","on":bool},
+//! Saída padrão: {"t":"ready","pad":bool,"rel":true} (rel: aceita o mouse relativo "r"), {"t":"armed"}, {"t":"disarmed"}, {"t":"panic"}, {"t":"ptt-ok","on":bool},
 //! {"t":"ptt","down":bool}, {"t":"err","msg":...} (msg "blocked": janela de administrador; "covered": a janela transmitida
 //! está coberta ou fora de foco; "nopad": sem o driver do controle virtual)
 mod keymap;
@@ -144,6 +144,7 @@ mod win {
         under()
     }
     fn window_focused(h: u64) -> bool { unsafe { root(GetForegroundWindow()) == hwnd(h) } }
+    fn cursor_in(r: Rect) -> bool { unsafe { let mut p = POINT::default(); GetCursorPos(&mut p).is_ok() && p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h } }
 
     // ---- controle de videogame ----
     fn pad_available() -> bool { vigem_client::Client::connect().is_ok() }
@@ -174,6 +175,7 @@ mod win {
                 let ny = (((y - vy) as i64 * 65535) / (vh as i64 - 1)) as i32;
                 send(&[mouse(nx, ny, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)])
             }
+            Action::MoveBy { dx, dy } => send(&[mouse(dx, dy, 0, MOUSEEVENTF_MOVE)]),
             Action::Button { b, down } => {
                 let i = b as usize; if st.buttons[i] == down { return true; }
                 st.buttons[i] = down; send(&[mouse(0, 0, 0, if down { BTN[i].0 } else { BTN[i].1 })])
@@ -265,7 +267,7 @@ mod win {
             sync(&mut mhook);
             while GetMessageW(&mut msg, None, 0, 0).as_bool() { if msg.message == WM_SYNC_MOUSE { sync(&mut mhook); } }
         });
-        emit(&format!(r#"{{"t":"ready","native":true,"panic":"Ctrl+Alt+Shift+Q","pad":{}}}"#, pad_available()));
+        emit(&format!(r#"{{"t":"ready","native":true,"panic":"Ctrl+Alt+Shift+Q","pad":{},"rel":true}}"#, pad_available()));
         let mut blocked_warned = false;
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
             let mut st = STATE.lock().unwrap();
@@ -289,9 +291,13 @@ mod win {
                                 Action::Button { down: true, .. } => window_under_cursor(h),
                                 Action::Wheel { .. } => window_under_cursor(h),
                                 Action::Key { down: true, .. } => window_focused(h),
+                                Action::MoveBy { .. } => window_focused(h), // relativo: vai para quem tem o foco
                                 _ => true,
                             };
                             if !pass { covered = true; continue; }
+                        } else if let (Target::Screen(r), Action::Button { down: true, .. } | Action::Wheel { .. }) = (t, &a) {
+                            // o mouse relativo pode levar o cursor para fora do monitor transmitido: clique e rolagem só dentro dele
+                            if !cursor_in(r) { covered = true; continue; }
                         }
                         let is_pad = matches!(a, Action::Pad(_));
                         let done = apply(&mut st, a);

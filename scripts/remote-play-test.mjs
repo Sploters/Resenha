@@ -75,6 +75,18 @@ ok(R.invite('h', 'x').error, 'não convida quem está em outra sala');
 ok(R.invite('h', 'a').error, 'não convida quem já está jogando');
 ok(R.invite('a', 'd').error, 'quem não transmite não convida');
 
+// ---------- mouse relativo (jogos 3D) ----------
+{ const sr = R.request('d', 'h', 'play').session; R.answer('h', sr.id, { accept: true, gamepad: true, capable: true, rel: true });
+  ok(last('d', 'REMOTE_STATE', sr.id)?.caps?.rel === true, 'o app de quem transmite aceita mouse relativo: a sessão diz isso a quem joga');
+  ok(R.input('d', sr.id, [{ k: 'r', dx: 5, dy: -2 }]).sent === 0, 'sem o Mouse liberado, o relativo não passa');
+  R.setPerms('h', sr.id, { mouse: true, gamepad: true });
+  ok(R.input('d', sr.id, [{ k: 'r', dx: 5.4, dy: -2 }]).sent === 1 && injected(sr.id).some(e => e.k === 'r' && e.dx === 5 && e.dy === -2), 'com o Mouse: o deslocamento chega (inteiro)');
+  ok(R.input('d', sr.id, [{ k: 'r', dx: 2001, dy: 0 }, { k: 'r', dx: 0.2, dy: 0.1 }, { k: 'r', dx: '1', dy: 0 }]).sent === 0, 'relativo fora da faixa, sem movimento ou com texto é descartado');
+  R.stop('h', sr.id);
+  const so = R.request('d', 'h', 'play').session; R.answer('h', so.id, { accept: true, mouse: true, capable: true });
+  ok(!last('d', 'REMOTE_STATE', so.id)?.caps && R.input('d', so.id, [{ k: 'r', dx: 5, dy: 0 }]).sent === 0, 'app de quem transmite sem suporte (versão antiga): o relativo nunca passa');
+  R.stop('h', so.id); }
+
 // ---------- eco do painel Desempenho ----------
 out.length = 0; R.echo('a', pa.id, 'ping', { t: 12.5 });
 ok(last('h', 'REMOTE_PING', pa.id)?.t === 12.5, 'eco: o ping do jogador chega a quem transmite com o mesmo horário');

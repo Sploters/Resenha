@@ -21,6 +21,8 @@ export function cleanEvent(e, perms) {
   if (!e || typeof e !== 'object') return null;
   const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
   switch (e.k) {
+    // mouse relativo (jogos 3D, mouse travado em quem joga): só se o app de quem transmite aceita (perms.rel, vem da sessão)
+    case 'r': { if (!perms.mouse || !perms.rel) return null; const dx = num(e.dx, -2000, 2000), dy = num(e.dy, -2000, 2000); return dx === null || dy === null || (!Math.round(dx) && !Math.round(dy)) ? null : { k: 'r', dx: Math.round(dx), dy: Math.round(dy) }; }
     case 'm': { if (!perms.mouse) return null; const x = num(e.x, 0, 1), y = num(e.y, 0, 1); return x === null || y === null ? null : { k: 'm', x: Math.round(x * 1e5) / 1e5, y: Math.round(y * 1e5) / 1e5 }; }
     case 'd': case 'u': { if (!perms.mouse) return null; const b = num(e.b, 0, 2); return b === null || !Number.isInteger(b) ? null : { k: e.k, b }; }
     case 'w': { if (!perms.mouse) return null; const dx = num(e.dx ?? 0, -2400, 2400), dy = num(e.dy ?? 0, -2400, 2400); return dx === null || dy === null || (!dx && !dy) ? null : { k: 'w', dx: Math.round(dx), dy: Math.round(dy) }; }
@@ -44,7 +46,7 @@ const NONE = () => ({ mouse: false, keyboard: false, gamepad: false });
 const slotted = (k) => k === 'pad' || k === 'play';
 export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId, later = defaultLater }) {
   const sessions = new Map(); // id -> { id, kind, owner, controller, cid, perms, state, created, bucket, last, slot?, invite? }
-  const pub = (s, reason) => ({ id: s.id, kind: s.kind, owner: s.owner, controller: s.controller, channel_id: s.cid, perms: s.perms, state: s.state, ...(s.slot ? { slot: s.slot } : {}), ...(s.invite ? { invite: true } : {}), ...(reason ? { reason } : {}) });
+  const pub = (s, reason) => ({ id: s.id, kind: s.kind, owner: s.owner, controller: s.controller, channel_id: s.cid, perms: s.perms, state: s.state, ...(s.caps?.rel ? { caps: { rel: true } } : {}), ...(s.slot ? { slot: s.slot } : {}), ...(s.invite ? { invite: true } : {}), ...(reason ? { reason } : {}) });
   const tell = (s, reason) => { const p = pub(s, reason); sendUser(s.owner, 'REMOTE_STATE', p); sendUser(s.controller, 'REMOTE_STATE', p); };
   const live = (s) => s.state === 'pending' ? now() - s.created < (s.invite ? INVITE_MS : REMOTE_PENDING_MS) : s.state === 'active';
   const of = (uid) => [...sessions.values()].filter(s => live(s) && (s.owner === uid || s.controller === uid));
@@ -94,10 +96,10 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     return { session: pub(s) };
   }
   // convite do dono para quem está na sala: a pessoa aceita (joinInvite) e entra com as permissões que o dono escolheu
-  function invite(owner, to, { mouse, keyboard, gamepad = true } = {}) {
+  function invite(owner, to, { mouse, keyboard, gamepad = true, rel } = {}) {
     sweep();
     const err = canJoin(to, owner, 'play'); if (err) return { error: err === 'Você já está jogando (ou pediu para jogar) numa transmissão' || err === 'Você já está numa sessão de controle remoto' ? 'Essa pessoa já está jogando ou tem um pedido aberto' : err };
-    const s = { id: newId(), kind: 'play', owner, controller: to, cid: voiceOf(owner).cid, perms: { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad }, state: 'pending', invite: true, created: now(), bucket: BURST, last: now() };
+    const s = { id: newId(), kind: 'play', owner, controller: to, cid: voiceOf(owner).cid, perms: { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad }, caps: { rel: !!rel }, state: 'pending', invite: true, created: now(), bucket: BURST, last: now() };
     sessions.set(s.id, s);
     tell(s);
     later(sweep, INVITE_MS + 100);
@@ -112,7 +114,7 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
   }
 
   // resposta do dono (no cliente dele). Sem o programa nativo (navegador comum), o cliente responde capable:false.
-  function answer(uid, id, { accept, mouse, keyboard, gamepad, capable }) {
+  function answer(uid, id, { accept, mouse, keyboard, gamepad, capable, rel }) {
     const s = sessions.get(String(id));
     if (s && s.state === 'pending' && !live(s)) end(s, 'expired');
     if (!s || s.invite || s.owner !== uid || s.state !== 'pending' || !live(s)) return { error: 'Pedido não encontrado ou expirado' };
@@ -120,6 +122,7 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     // 'pad': só o controle, nunca mouse nem teclado (mesmo que o cliente mande)
     const perms = s.kind === 'pad' ? { mouse: false, keyboard: false, gamepad: true } : { mouse: !!mouse, keyboard: !!keyboard, gamepad: !!gamepad };
     if (s.kind === 'control' && !perms.mouse && !perms.keyboard && !perms.gamepad) { end(s, 'declined'); return {}; }
+    if (s.kind === 'play') s.caps = { rel: !!rel }; // o app de quem transmite aceita mouse relativo (lc-input novo)
     return activate(s, perms);
   }
   // o dono muda as permissões de um jogador no meio da sessão (tudo desligado = continua na sessão, sem controlar nada)
@@ -143,7 +146,7 @@ export function createRemote({ voiceOf, sendUser, now = () => Date.now(), newId,
     const out = [];
     for (const e of events.slice(0, MAX_EVENTS_PER_MSG)) {
       if (s.bucket < 1) break;
-      const c = cleanEvent(e, s.perms); if (!c) continue;
+      const c = cleanEvent(e, s.caps?.rel ? { ...s.perms, rel: true } : s.perms); if (!c) continue;
       s.bucket -= 1; out.push(c);
     }
     if (out.length) sendUser(s.owner, 'REMOTE_INPUT', { id: s.id, ev: out });

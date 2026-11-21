@@ -1163,10 +1163,10 @@ wss.on('connection', (ws) => {
           if (msg.t !== 'REMOTE_STOP' && (!c || voice.get(c).get(uid).ws !== ws)) { if (!['REMOTE_INPUT', 'REMOTE_PING', 'REMOTE_PONG'].includes(msg.t)) send(ws, 'REMOTE_ERROR', { error: 'Entre na sala de voz neste aparelho' }); break; }
           const perms = { mouse: d.mouse === true, keyboard: d.keyboard === true, gamepad: d.gamepad === true };
           const r = msg.t === 'REMOTE_REQUEST' ? remote.request(uid, String(d.to || ''), d.kind === 'pad' || d.kind === 'play' ? d.kind : 'control')
-            : msg.t === 'REMOTE_ANSWER' ? remote.answer(uid, d.id, { accept: d.accept === true, ...perms, capable: d.capable !== false })
+            : msg.t === 'REMOTE_ANSWER' ? remote.answer(uid, d.id, { accept: d.accept === true, ...perms, capable: d.capable !== false, rel: d.rel === true })
             : msg.t === 'REMOTE_INPUT' ? remote.input(uid, d.id, d.ev)
             : msg.t === 'REMOTE_PERMS' ? remote.setPerms(uid, d.id, perms)
-            : msg.t === 'REMOTE_INVITE' ? remote.invite(uid, String(d.to || ''), perms)
+            : msg.t === 'REMOTE_INVITE' ? remote.invite(uid, String(d.to || ''), { ...perms, rel: d.rel === true })
             : msg.t === 'REMOTE_JOIN' ? remote.joinInvite(uid, d.id, d.accept === true)
             : msg.t === 'REMOTE_PING' || msg.t === 'REMOTE_PONG' ? remote.echo(uid, d.id, msg.t === 'REMOTE_PONG' ? 'pong' : 'ping', d)
             : remote.stop(uid, d.id, d.reason === 'panic' ? 'panic' : 'stopped');

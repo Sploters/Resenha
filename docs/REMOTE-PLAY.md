@@ -126,7 +126,7 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 | 3 | Interface: "Pedir para jogar", janela Jogadores, aviso do jogador | `remote-play-ui-test` (4 navegadores) + capturas | **feito** (seção 7) |
 | 4 | Perfil de jogo: 60 FPS com o 1º jogador e volta ao sair o último (4b); receptor com `jitterBufferTarget` 0 (4a) | `remote-latency` alternando com e sem, LAN e WAN | **4b feito; 4a medido sem efeito e desfeito** (seção 7) |
 | 5 | Painel Desempenho + eco de comando + copiar/exportar | `remote-play-ui-test` + `remote-latency PANEL=1` (painel × medido) | **feito** (seção 7) |
-| 6 | `lc-input`: mouse relativo (pointer lock) e carimbo de tempo | `cargo test`, `cargo check` Windows | pendente (nova versão do app) |
+| 6 | `lc-input`: mouse relativo (pointer lock) | `cargo test` (13), `cargo check` Windows, testes de regra e de navegador | **feito; precisa de nova versão do app; não executado no Windows** |
 | 7 | Comandos por DataChannel (se o painel mostrar o TCP segurando comandos no teste real) | painel com 2 PCs | depende da medição |
 | 8 | Regressão: bateria completa | `run-tests` | pendente |
 | 9 | Teste com 2 PCs reais (dono) em redes diferentes | roteiro abaixo | depende do dono |
@@ -228,6 +228,21 @@ quem transmite e mandado pelo eco); sem dado, "—". Copiar (texto com média/p5
 - Testes: `remote-play-ui-test` (+6: números com origem, eco dos dois lados, Copiar, Exportar) e `remote-play-test` (+5:
   eco só entre as pontas da sessão, resumo limitado). Capturas: `.testshots/play-painel-jogador.png`,
   `play-painel-anfitriao.png`.
+
+### Etapa 6: mouse travado (relativo) para jogos 3D
+- `lc-input`: evento `r` (`dx`, `dy`, até ±2000) aplicado com `MOUSEEVENTF_MOVE` sem `ABSOLUTE` (o jogo lê como raw
+  input). Avisa no `ready` (`"rel":true`); o app desktop repassa em `remoteCapable().rel`. **Segurança:** como o relativo
+  pode levar o cursor para fora do monitor transmitido, clique e rolagem só passam com o cursor dentro dele (transmitindo
+  uma janela: relativo só com ela em foco, como as teclas).
+- Servidor: `r` só passa com o Mouse liberado **e** a sessão marcada com o app que suporta (`caps.rel`, do aceite/convite
+  de quem transmite). App antigo de quem transmite: a opção nem aparece e o servidor descarta.
+- Quem joga: "Mouse travado" no aviso (só quando disponível). O 1º clique na transmissão trava o cursor
+  (`requestPointerLock({ unadjustedMovement: true })`); vão os deslocamentos somados a cada 8 ms e os cliques; Esc solta.
+- Testes: `cargo test` (13, +1 mouse relativo), `cargo check --target x86_64-pc-windows-gnu`, `remote-play-test` (+5) e
+  `remote-play-ui-test` (+2: opção aparece; travado manda deslocamento e clique, nunca posição). **Não executado no
+  Windows** (precisa da nova versão do app: `lc-input.exe` e `desktop/remote.js`).
+- Não feito: carimbo de tempo dentro do `lc-input` (o eco do painel mede até a página de quem transmite; o trecho
+  página → processo principal → `lc-input` é IPC + pipe local e fica de fora da medida).
 
 **Não está validado:** isto é o container (mesmo PC, VP8 por software, sem `lc-stream`/`lc-input` reais). A latência
 só conta como resolvida depois do teste com 2 PCs, nos dois sentidos e em redes diferentes (seção 8).
