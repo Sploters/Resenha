@@ -293,8 +293,8 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
 **Plano, medições e checklist completos em [REMOTE-PLAY.md](REMOTE-PLAY.md).** Resumo:
 - Bateria: `gifs-test` e `community2-test` falhavam pelo aviso "Disco quase cheio" desta máquina, que cobria o menu e
   segurava o clique (`38ad009`): o aviso só de texto deixa o clique passar e o `run-tests` desliga o alerta de disco.
-- Bot de música volta ao SFU depois que o worker do mediasoup morre (`9fbc97f`). **Não testado:**
-  `scripts/music-worker-test.mjs` está escrito mas não rodou (a sessão foi interrompida). Rodar antes de confiar.
+- Bot de música volta ao SFU depois que o worker do mediasoup morre (`9fbc97f`): `music-worker-test` passa (mata o
+  worker de verdade; quem refaz a mídia volta a receber o produtor do bot).
 - `captura-metodo-test` passou a falhar no passo 11 ("nativo falhou com jogo em TELA CHEIA → quem assiste vê pelo
   Chromium"), nas 2 tentativas, depois do `47b22d8` (Valorant sem bordas). **Não investigado.** Comparar com a worktree
   `/home/user/audit` (commit anterior).
@@ -302,6 +302,7 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
   independentes e janela Jogadores; perfil de jogo a 60 FPS; painel Desempenho; mouse travado (nova versão do app). O
   receptor com `jitterBufferTarget = 0` foi medido sem efeito e não entrou. DataChannel: só se o teste com 2 PCs mostrar
   o TCP segurando comandos (critério em REMOTE-PLAY.md, seção 8).
+- **Bateria completa depois de tudo: 147 de 148** (57 min); só o `captura-metodo-test` (acima).
 - **Falta o dono:** validação com 2 PCs nos dois sentidos e em redes diferentes (REMOTE-PLAY.md, seção 8); nova versão do
   app desktop para o mouse travado; push e deploy quando autorizar.
 

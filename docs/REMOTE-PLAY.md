@@ -128,7 +128,7 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 | 5 | Painel Desempenho + eco de comando + copiar/exportar | `remote-play-ui-test` + `remote-latency PANEL=1` (painel × medido) | **feito** (seção 7) |
 | 6 | `lc-input`: mouse relativo (pointer lock) | `cargo test` (13), `cargo check` Windows, testes de regra e de navegador | **feito; precisa de nova versão do app; não executado no Windows** |
 | 7 | Comandos por DataChannel (se o painel mostrar o TCP segurando comandos no teste real) | painel com 2 PCs | depende da medição |
-| 8 | Regressão: bateria completa | `run-tests` | pendente |
+| 8 | Regressão: bateria completa | `run-tests` | **feito:** 147 de 148; só falha o `captura-metodo-test`, que já falhava antes deste trabalho (desde `47b22d8`) |
 | 9 | Teste com 2 PCs reais (dono) em redes diferentes | roteiro abaixo | depende do dono |
 
 ## 7. Resultados por etapa
