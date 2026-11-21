@@ -47,7 +47,7 @@ front.on('message', (msg, from) => {
 await new Promise(r => front.bind(RTC, '127.0.0.1', r));
 // ---- proxy TCP do gateway e do site para o bob (atraso nos dois sentidos, ordem mantida) ----
 const proxy = net.createServer((c) => {
-  const s = net.connect(PORT, '127.0.0.1'), id = Math.random();
+  const s = net.connect(PORT, '127.0.0.1'), id = Math.random(); c.setNoDelay(true); s.setNoDelay(true); // como o servidor (ws) e o navegador: sem Nagle
   const pipe = (from, to, side) => from.on('data', (d) => later(id + ':' + side, () => { if (!to.destroyed) to.write(d); }));
   pipe(c, s, 1); pipe(s, c, 0); const end = () => { c.destroy(); s.destroy(); }; c.on('error', end); s.on('error', end); c.on('close', end); s.on('close', end);
 }).listen(PROXY, '127.0.0.1');

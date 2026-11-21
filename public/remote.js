@@ -54,12 +54,24 @@ export function tileButton(uid) {
     onclick: (e) => { e.stopPropagation(); on || wait ? stopControl() : requestControl(uid); } }, icon('pointer', 18));
 }
 
-// eventos capturados no quadro -> fila -> servidor (movimento agrupado a cada 16 ms)
-let queue = [], lastMove = null, flushTimer = 0, kbOn = false;
+// eventos capturados no quadro -> servidor. Clique, tecla, rolagem e controle saem NA HORA (antes todos esperavam uma
+// fila de 16 ms: ~19 ms dos ~21 ms da ida na LAN, scripts/remote-latency.mjs). Só o movimento é agrupado: no máximo um
+// a cada MOVE_MS (o último ponto vale; o pointermove do Chromium já vem ~1 por quadro), e sai junto antes de um clique
+let queue = [], lastMove = null, flushTimer = 0, kbOn = false, lastSent = 0;
+const MOVE_MS = 8;
 const keysDown = new Set(), btnsDown = new Set();
-const push = (e) => { if (e.k === 'm') { lastMove = e; } else { if (lastMove) { queue.push(lastMove); lastMove = null; } queue.push(e); } if (!flushTimer) flushTimer = setTimeout(flush, 16); };
+const push = (e) => {
+  if (e.k === 'm') {
+    lastMove = e;
+    const wait = MOVE_MS - (performance.now() - lastSent);
+    if (wait <= 0) { clearTimeout(flushTimer); flush(); } else if (!flushTimer) flushTimer = setTimeout(flush, wait);
+    return;
+  }
+  if (lastMove) { queue.push(lastMove); lastMove = null; }
+  queue.push(e); clearTimeout(flushTimer); flush();
+};
 function flush() {
-  flushTimer = 0; if (lastMove) { queue.push(lastMove); lastMove = null; }
+  flushTimer = 0; lastSent = performance.now(); if (lastMove) { queue.push(lastMove); lastMove = null; }
   const s = S.remote; if (!s || s.state !== 'active' || !queue.length) { queue = []; return; }
   while (queue.length) ctx.send('REMOTE_INPUT', { id: s.id, ev: queue.splice(0, 64) });
 }

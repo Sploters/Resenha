@@ -121,7 +121,7 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 | # | Etapa | Como confere | Estado |
 |---|---|---|---|
 | 0 | Auditoria e linha de base (`remote-latency.mjs`) | tabela acima | **feito** |
-| 1 | Comandos sem a fila de 16 ms (clique, tecla, rolagem e controle na hora; movimento agrupado por quadro) | `remote-latency` antes × depois | pendente |
+| 1 | Comandos sem a fila de 16 ms (clique, tecla, rolagem e controle na hora; movimento no máximo 1 a cada 8 ms) | `remote-latency` antes × depois | **feito** (seção 7) |
 | 2 | Servidor: participação única (`play`), permissões alteráveis, convite, vagas, compatível com páginas velhas | `remote-test` (isolamento, concessão, revogação, vagas, reconexão) | pendente |
 | 3 | Interface: "Pedir para jogar", janela Jogadores, aviso do jogador | `remote-test` + capturas | pendente |
 | 4 | Receptor em baixa latência enquanto joga (`jitterBufferTarget`) e 60 FPS sugeridos ao aceitar o 1º jogador | `remote-latency` antes × depois (LAN e WAN), travadas | pendente |
@@ -130,6 +130,27 @@ Cada número com a origem: **medido** (contador do navegador ou do programa) ou 
 | 7 | Comandos por DataChannel (se o painel mostrar o TCP segurando comandos no teste real) | painel com 2 PCs | depende da medição |
 | 8 | Regressão: bateria completa | `run-tests` | pendente |
 | 9 | Teste com 2 PCs reais (dono) em redes diferentes | roteiro abaixo | depende do dono |
+
+## 7. Resultados por etapa
+
+### Etapa 1: comandos na hora (`public/remote.js push/flush`)
+Clique, tecla, rolagem e controle saem na hora; o movimento é agrupado (no máximo 1 a cada 8 ms, o último ponto vale) e sai
+antes de um clique. Mesma máquina, mesma ferramenta, 20 cliques por rodada:
+
+| ms (média / p95) | LAN antes (2) | LAN depois (2) | WAN 25±5, 0,5% antes (2) | WAN depois (3) |
+|---|---|---|---|---|
+| Comando (ida) | 20,9 / 35,8 · 21,8 / 59,3 | **3,5 / 6,1 · 4,1 / 15,8** | 45,7 / 51,5 · 44,8 / 51,0 | **29,4 / 37,6 · 29,9 / 42,1 · 29,4 / 33,9** |
+| ↳ espera no app de quem joga | 19,1 / 30,3 | **1,3 / 4,7 · 1,4 / 5,1** | 17,9 · 17,6 | **1,2 · 1,4 · 1,0** |
+| ↳ rede + servidor | 1,6 | 2,2 · 2,7 | 27,8 · 27,3 | 28,2 · 28,5 · 28,4 |
+| Comando → tela | 76,6 / 112,6 · 89,9 / 131,3 | **60,5 / 93,3 · 57,4 / 77,5** | 126,5 / 147,1 · 149,2 / 199,2 | 123,1 / 177,5 · 122,7 / 195,8 · 133,6 / 240,6 |
+
+- **Comprovado:** −16 a −18 ms na ida do comando, nas duas redes (o que era a fila). Na LAN, −20 a −30 ms no comando → tela.
+- Na WAN o comando → tela mudou pouco perto da variação entre rodadas (o vídeo domina: captura → exibição 66–77 ms,
+  p95 até 240 ms com perda). É o assunto das etapas 4 e 6.
+- Achado de ferramenta: a 1ª versão do proxy TCP do `remote-latency` não desligava o Nagle (o servidor desliga, `ws`
+  `setNoDelay`; o Chromium também), e com eventos saindo separados a WAN parecia pior (48–54 ms). Corrigido; as duas
+  colunas WAN acima são com o proxy corrigido.
+- Regressão: `remote-test`, `borderless-test`, `gameshare-test` passam.
 
 Limitações honestas desta medição: tudo no mesmo PC, sem GPU (VP8 por software), sem o `lc-stream` e o `lc-input` reais,
 rede simulada sem perda de TCP. O ganho real no Windows precisa do teste com 2 PCs e do painel.
