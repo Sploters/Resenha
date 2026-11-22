@@ -1,6 +1,6 @@
 // Service worker do app instalável (PWA): abre na hora, mesmo com a internet lenta ou caindo.
 // - Página (navegação): tenta a rede por até 2,5 s; se não vier, usa a última página guardada.
-// - Scripts e CSS com versão no endereço (?v=…): guardados para sempre (a versão muda a cada deploy).
+// - Scripts e CSS com versão no endereço (?v=…): guardados para sempre (cada arquivo troca de versão só quando ele muda).
 // - Ícones, fontes, worklets e o resto estático: usa o guardado e atualiza em segundo plano.
 // - API, gateway, arquivos enviados, miniaturas e downloads: sempre pela rede (nunca guardados aqui).
 const CACHE = 'lc-app-v1';

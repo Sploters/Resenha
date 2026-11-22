@@ -1,8 +1,11 @@
 // Entrega da interface (public/): comprimida (brotli/gzip, guardada em memória), com versão no endereço dos módulos e
 // cache longo, e com a lista de módulos avisada na página (modulepreload) para o navegador baixar tudo em paralelo.
 // - index.html: sem cache (sempre revalida); aponta para app.js?v=<versão> e os CSS ?v=<versão>.
-// - módulos e CSS da raiz com ?v=<versão atual>: "immutable" por 1 ano. Os imports dentro deles também ganham ?v.
-//   A versão é um hash de todos os arquivos: qualquer mudança (deploy) troca a versão e tudo é baixado de novo.
+// - módulos e CSS da raiz com ?v=<versão do arquivo>: "immutable" por 1 ano. Os imports dentro deles também ganham ?v.
+//   Cada arquivo tem a sua versão: hash do próprio texto e das versões do que ele importa (módulos que se importam em
+//   roda dividem uma só). Num deploy só é baixado de novo o que mudou e quem o importa; antes a versão era uma só para
+//   tudo e cada atualização baixava os ~130 arquivos da abertura (588 KB) de novo. A versão geral (V, <meta lc-ui>) segue
+//   sendo o hash de tudo: é ela que diz à página aberta que há interface nova (public/uiupdate.js) e é a do app.js.
 // - o resto (vendor, worklets, imagens): comprimido quando é texto/wasm, com ETag (revalida).
 // - .js e .css da raiz saem minificados (esbuild, arquivo por arquivo: os nomes e o jeito de carregar não mudam). O código
 //   é cheio de comentários e espaço, que só pesavam no download. STATIC_MINIFY=0 entrega como está no disco.
@@ -37,24 +40,42 @@ export function mountStatic(app, dir) {
   const root = path.resolve(dir);
   // Estado que depende dos arquivos de public/: montado na subida e de novo em reload() (atualização só da interface,
   // sem reiniciar o servidor: deploy/umbrel.sh troca public/ e manda SIGHUP; ver server/index.js)
-  let V = '', mods = new Set(), graph = new Set();
+  let V = '', mods = new Set(), graph = new Set(), vers = new Map(); // vers: arquivo -> versão dele
   function scan() {
-    // versão: conteúdo de todos os .js/.css/.html da raiz de public
+    // versão geral: conteúdo de todos os .js/.css/.html da raiz de public
     const top = fs.readdirSync(root).filter(f => /\.(js|css|html)$/.test(f)).sort();
-    const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(fs.readFileSync(path.join(root, f)));
+    const src = new Map(top.map(f => [f, fs.readFileSync(path.join(root, f))]));
+    const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(src.get(f));
     V = hash.digest('hex').slice(0, 10);
     mods = new Set(top.filter(f => f.endsWith('.js')));
+    const deps = new Map([...mods].map(f => { const t = src.get(f).toString('utf8'); return [f, { st: [...t.matchAll(IMPORT_RE)].map(m => m[3]).filter(x => mods.has(x)), all: [...new Set([...t.matchAll(IMPORT_RE), ...t.matchAll(DYN_RE)].map(m => m[3]).filter(x => mods.has(x)))] }]; }));
     // módulos que o app.js puxa (direta ou indiretamente) — vão no modulepreload
-    graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const m of fs.readFileSync(path.join(root, f), 'utf8').matchAll(IMPORT_RE)) walk(m[3]); };
+    graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const d of deps.get(f).st) walk(d); };
     walk('app.js');
+    // versão de cada arquivo (Tarjan: cada grupo de módulos que se importam em roda sai depois de tudo o que ele importa)
+    vers = new Map(top.filter(f => !mods.has(f)).map(f => [f, crypto.createHash('sha1').update(src.get(f)).digest('hex').slice(0, 10)]));
+    let n = 0; const idx = new Map(), low = new Map(), stack = [], on = new Set();
+    const visit = (f) => {
+      idx.set(f, n); low.set(f, n++); stack.push(f); on.add(f);
+      for (const d of deps.get(f).all) { if (!idx.has(d)) { visit(d); low.set(f, Math.min(low.get(f), low.get(d))); } else if (on.has(d)) low.set(f, Math.min(low.get(f), idx.get(d))); }
+      if (low.get(f) !== idx.get(f)) return;
+      const grp = []; let x; do { x = stack.pop(); on.delete(x); grp.push(x); } while (x !== f);
+      grp.sort(); const h = crypto.createHash('sha1'), ext = new Set();
+      for (const g of grp) { h.update(g).update(src.get(g)); for (const d of deps.get(g).all) if (!grp.includes(d)) ext.add(d); }
+      for (const d of [...ext].sort()) h.update(d + '=' + vers.get(d));
+      const v = h.digest('hex').slice(0, 10); for (const g of grp) vers.set(g, v);
+    };
+    for (const f of mods) if (!idx.has(f)) visit(f);
+    if (mods.has('app.js') && ![...deps.values()].some(d => d.all.includes('app.js'))) vers.set('app.js', V); // ninguém importa o app.js
   }
   scan();
-  const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m))
-    .replace(DYN_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${V}${q}` : m));
+  const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${vers.get(f)}${q}` : m))
+    .replace(DYN_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${vers.get(f)}${q}` : m));
   // <meta name="lc-ui">: a página sabe com qual versão abriu (public/uiupdate.js compara com a do servidor)
   const index = () => fs.readFileSync(path.join(root, 'index.html'), 'utf8')
-    .replace(/(href|src)="\/([\w.-]+\.(?:js|css))"/g, (m, a, f) => `${a}="/${f}?v=${V}"`)
-    .replace('</head>', `<meta name="lc-ui" content="${V}">\n` + [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${V}">`).join('\n') + '\n</head>');
+    .replace(/(href|src)="\/([\w.-]+\.(?:js|css))"/g, (m, a, f) => `${a}="/${f}?v=${vers.get(f) || V}"`)
+    // lc-lazy: versão dos módulos fora da abertura (telas sob demanda), para o window.__lc.import dos testes (public/app.js)
+    .replace('</head>', `<meta name="lc-ui" content="${V}">\n<meta name="lc-lazy" content="${[...mods].filter(f => !graph.has(f)).map(f => f + ':' + vers.get(f)).join(' ')}">\n` + [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${vers.get(f)}">`).join('\n') + '\n</head>');
 
   const cache = new Map(); // caminho -> { mtime, body, br, gz, etag, type }
   function entry(rel, file) {
@@ -86,7 +107,9 @@ export function mountStatic(app, dir) {
     res.end(req.method === 'HEAD' ? undefined : out);
     return true;
   }
-  let warm = null, prev = null; // prev: { V, cache } da versão anterior da interface (só .js/.css da raiz)
+  let warm = null, prev = null; // prev: { vers, cache } da versão anterior da interface (só .js/.css da raiz)
+  // arquivo da versão anterior pedido por uma página aberta antes da atualização (só o que mudou: o resto tem a mesma versão)
+  const prevEntry = (rel, v) => (prev && v && v !== vers.get(rel) && prev.vers.get(rel) === v ? prev.cache.get(rel) : null);
   app.use((req, res, next) => {
     if (warm && /\.(js|css)$/.test(req.path)) return void warm.then(() => serve(req, res, next));
     serve(req, res, next);
@@ -99,14 +122,15 @@ export function mountStatic(app, dir) {
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) return next();
     rel = path.relative(root, file).split(path.sep).join('/');
-    if (!fs.existsSync(file) && !(prev && req.query.v === prev.V && prev.cache.has(rel))) { // rota da interface (ex.: /@me): a página
+    const old = prevEntry(rel, req.query.v);
+    if (!fs.existsSync(file) && !old) { // rota da interface (ex.: /@me): a página
       if (!path.extname(rel)) return send(req, res, 'index.html', false) || next();
       return next();
     }
     // página aberta antes de uma atualização da interface pedindo um módulo da versão dela (tela aberta sob demanda):
     // entrega o da versão anterior, guardado em memória, para não misturar módulos novos e velhos na mesma página
-    if (prev && req.query.v === prev.V && prev.cache.has(rel)) return send(req, res, rel, true, prev.cache.get(rel));
-    const versioned = req.query.v === V && (mods.has(rel) || /^[\w.-]+\.css$/.test(rel));
+    if (old) return send(req, res, rel, true, old);
+    const versioned = req.query.v === vers.get(rel) && (mods.has(rel) || /^[\w.-]+\.css$/.test(rel));
     return send(req, res, rel, versioned) || next();
   }
   // minifica tudo logo na subida, num processo à parte e sem travar o servidor: quem pedir .js/.css antes de terminar
@@ -130,10 +154,10 @@ export function mountStatic(app, dir) {
     get version() { return V; },
     // public/ mudou no disco: versão nova, tudo montado de novo. Devolve true se a versão mudou
     reload() {
-      const before = V, old = new Map([...cache].filter(([rel]) => !rel.includes('/') && /\.(js|css)$/.test(rel)));
+      const before = V, beforeVers = vers, old = new Map([...cache].filter(([rel]) => !rel.includes('/') && /\.(js|css)$/.test(rel)));
       scan();
       if (V === before) return false;
-      prev = { V: before, cache: old };
+      prev = { vers: beforeVers, cache: old };
       cache.clear(); minDone.clear(); prewarm();
       return true;
     },

@@ -113,9 +113,10 @@ initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onWatchI
 initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
 initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { setInboxTab(tab); showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });
-// testes: importa um módulo do app pelo mesmo endereço (com a versão) que o app usa, para pegar a mesma instância
-const VQ = new URL(import.meta.url).search;
-window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import('./' + f + VQ), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+// testes: importa um módulo do app pelo mesmo endereço (com a versão dele, server/static.js) que o app usa, para pegar a mesma instância
+const modUrl = (f) => document.querySelector(`link[rel="modulepreload"][href^="/${f}?"]`)?.getAttribute('href')
+  || ((v) => v && `/${f}?v=${v}`)(document.querySelector('meta[name="lc-lazy"]')?.content.split(' ').find(x => x.startsWith(f + ':'))?.slice(f.length + 1)) || './' + f + new URL(import.meta.url).search;
+window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import(modUrl(f)), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

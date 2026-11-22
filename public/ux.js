@@ -9,8 +9,8 @@ import { S, toastHooks, menuHooks } from './state.js';
 const SEND_MS = 120e3, SEP = '\u0001', MAX_EVENTS = 1500;
 const queue = new Map(), seen = new Set();
 let timer = 0, counted = 0, serverOff = false;
-// versão do app = a versão no endereço dos módulos (?v=…, troca a cada atualização do servidor)
-export const UX_VERSION = (() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })();
+// versão do app = a versão geral da interface (<meta lc-ui>, troca a cada atualização do servidor; cada módulo tem a sua no ?v=)
+export const UX_VERSION = (() => { try { return document.querySelector('meta[name="lc-ui"]')?.content || new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })();
 export const uxOn = () => !serverOff && S.prefs?.uxStats !== false;
 // once: conta uma vez só por abertura do app (ex.: a mesma ⓘ aberta 5 vezes seguidas conta 1)
 // bg: conta mesmo com a aba escondida (erros, tempo desconectado); o resto só conta com o app à vista
