@@ -38,6 +38,7 @@ import { mountUx, uxSeen, uxFirst } from './ux.js';
 import { mountLfg, GAMES as LFG_GAMES } from './lfg.js';
 import { mountIntents } from './intents.js';
 import { createSocial, mountSocial } from './social.js';
+import { createVoiceSessions } from './sessions.js';
 import { initSessions } from './accounts.js';
 import { mountDiscover } from './discover.js';
 import { knownGame, WRAPPER_EXE } from '../public/gamecatalog.js';
@@ -64,6 +65,7 @@ import { mountTranslate } from './routes/translate.js';
 import { mountUpload, mountFiles } from './routes/files.js';
 import { mountNativeScreen } from './routes/nativescreen.js';
 import { mountActivity } from './routes/activity.js';
+import { mountVoiceSessions } from './routes/sessions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -630,13 +632,22 @@ const intents = mountIntents(app, {
   },
   callInvite: (from, to, opts) => { const r = callInv.create(from, to, opts); if (r.invite && !r.repeated && !conns.has(to)) social.pull(to, 'call_invite'); return r; },
 });
-// sessões de voz com 2+ pessoas (métricas): chamado depois de cada entrada/saída
+// memória do grupo (server/sessions.js): sessões de voz de servidor guardadas com quem esteve e o que rolou
+const voiceSessions = createVoiceSessions({ db, all, get, run, newId, log: console.log,
+  roomOf: (cid) => [...(voice.get(cid) || [])].map(([id, st]) => ({ id, bot: !!st.bot, at: st.at })),
+  channelOf: (cid) => get('SELECT guild_id, name FROM channels WHERE id=?', cid),
+  remembers: (uid) => privacy.memorySessions(uid),
+  // jogos da sessão sem nomes; quem escondeu a presença de alguém fica de fora (o resumo vai para o servidor todo)
+  gamesDuring: (uids, from, to) => activity.gamesDuring(uids.filter(u => !privacy.restricted(u)), from, to) });
+// sessões de voz com 2+ pessoas (métricas e memória): chamado depois de cada entrada/saída
 const voicePeople = (cid) => (voice.has(cid) ? [...voice.get(cid).values()].filter(st => !st.bot).length : 0);
 function socialVoice(cid, joined = null) {
   const isIntent = intents.isIntentRoom(cid);
   const friendThere = joined && voice.has(cid) && [...voice.get(cid).keys()].some(u => u !== joined && get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=1', joined, u));
   social.onVoice(cid, voicePeople(cid), { intent: isIntent, joined, friendThere });
+  voiceSessions.onVoice(cid);
 }
+mountVoiceSessions(app, { ...core, voiceSessions }); // "Desde a última vez" e apagar sessões (server/routes/sessions.js)
 const { accountPub, accountOf, resolveLocalGame, saveGameIcon, localNames } = mountActivity(app, { ...core, activity, games, achievements, discover }); // integrações, Ativo agora e jogo no PC (server/routes/activity.js)
 app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
@@ -844,7 +855,7 @@ const watch = createWatch({
   sendTo: (uid, t, d) => { const ws = voiceWs(uid); if (ws) send(ws, t, d); },
   userPub, guildOf: (cid) => get('SELECT guild_id FROM channels WHERE id=?', cid)?.guild_id || null,
   search: watchSearch, meta: watchMeta, playlist: watchPlaylist,
-  remember: (gid, it) => { if (gid) run('INSERT OR REPLACE INTO watch_history(guild_id,service,ref,url,title,channel,thumb,duration,by_id,at) VALUES(?,?,?,?,?,?,?,?,?,?)', gid, it.service, it.ref, it.url, it.title, it.channel || '', it.thumb || null, it.duration || 0, it.by, Date.now()); },
+  remember: (gid, it, cid) => { if (cid) voiceSessions.onWatch(cid); if (gid) run('INSERT OR REPLACE INTO watch_history(guild_id,service,ref,url,title,channel,thumb,duration,by_id,at) VALUES(?,?,?,?,?,?,?,?,?,?)', gid, it.service, it.ref, it.url, it.title, it.channel || '', it.thumb || null, it.duration || 0, it.by, Date.now()); },
   recent: (gid) => gid ? all('SELECT service, ref, url, title, channel, thumb, duration FROM watch_history WHERE guild_id=? ORDER BY at DESC LIMIT 30', gid) : [],
   log: (...a) => console.log(...a),
   onChange: (cid) => syncWtFlags(cid),
@@ -1333,6 +1344,7 @@ function shutdown(sig) {
   try { musicStopAll(); } catch { }
   try { watch.stopAll(); } catch { }
   try { activity.stop(); } catch { }
+  try { voiceSessions.stop(); } catch { } // o tempo de quem está em chamada fica gravado (a sessão continua no app novo)
   // avisa antes de fechar: o app mostra "Servidor atualizando, volta em segundos" em vez de "Conexão perdida"
   // (código 1012 = reinício do serviço; o aviso vai junto para clientes que não leem o código)
   for (const c of wss.clients) try { c.send(JSON.stringify({ t: 'SERVER_RESTART', d: {} })); c.close(1012, 'Servidor reiniciando'); } catch { }

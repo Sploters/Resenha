@@ -76,7 +76,7 @@ export function createWatch({
     // integrado: começa sozinho (um pouco no futuro, para todos carregarem); assistido: começa pausado esperando a
     // turma abrir o título na própria conta e o anfitrião dar o play (com contagem)
     bump(s, { status: embedded ? 'playing' : 'paused', pos: clampPos(it.start || 0, it.duration), at: now() + (embedded ? START_LEAD : 0), rate: 1 }, by);
-    try { remember(s.gid, it); } catch { }
+    try { remember(s.gid, it, s.cid); } catch { }
   }
   function advance(s, reason, by) {
     clearTimeout(s.fatalTimer); s.fatalTimer = null;

@@ -14,6 +14,8 @@ A Resenha roda no servidor de quem montou o grupo (um PC, um Umbrel, uma VPS). N
 | Servidores | Membros, cargos, canais, convites, banimentos, registro de auditoria. | Membros (auditoria: quem gerencia o servidor) |
 | Contas vinculadas | Steam: ID, nome, biblioteca (jogos e horas) e wishlist. | Amigos e quem divide servidor (padrão), só amigos ou ninguém — você escolhe |
 | "Jogando…" e histórico | Jogo aberto detectado pelo app desktop e o histórico da semana. As horas só contam enquanto você está numa call. No modo invisível ou com "Ninguém" em Contas vinculadas, só você vê o jogo ao vivo, mas as horas em call continuam somando, **sem o seu nome**, em "A semana da galera" dos seus amigos. Para um jogo não contar, esconda o jogo. | Ao vivo: conforme a sua configuração de presença. Na semana: só o total, sem identificar quem está em "Ninguém"/invisível |
+| Sessões de voz (memória do grupo) | Nas salas de voz de **servidor**, cada encontro com 2 ou mais pessoas: sala (e o nome dela na época), começo, fim, pico de pessoas, quem participou e por quanto tempo cada um ficou, e um resumo sem nomes (jogos jogados durante a sessão, quantos clipes, vídeos do Assistir junto, evento ou "A fim de jogar" ligados à sala). **Não guarda** o que foi dito, quem falou mais nem o conteúdo da tela. Encontros de menos de 3 minutos são descartados. Fica guardado para sempre (inclusive se a sala for apagada), até alguém apagar. **Chamadas nas DMs nunca entram.** Também guarda quando você viu o "Desde a última vez" pela última vez. | Membros do servidor que podem ver a sala. Quem escondeu a presença de quem lê, ou está invisível, aparece só como "+1 pessoa", sem nome. Jogos sem nome nem partidas privadas/escondidas |
+| Resumo diário de jogos | Por pessoa, jogo e dia: segundos em call e quantas partidas, para sempre (o histórico detalhado some em 30 dias). Partidas no modo invisível ou em "Ninguém" e jogos escondidos não entram. | Ainda não aparece para ninguém; quando aparecer, segue as mesmas regras do "Jogando…" |
 | Estatísticas de uso | Contagens por dia, **sem identificar ninguém**, apagadas em 60 dias. Inclui o formato (codec) dos vídeos enviados e se os vídeos do chat tocaram no seu aparelho, nunca o conteúdo. Desliga em Privacidade e segurança. | Só o administrador da instalação |
 | Qualidade das chamadas | Faixas (ex.: "atraso 100–200 ms") e a nota, sem conteúdo. | Só o administrador da instalação |
 
@@ -42,6 +44,8 @@ Cada item só acontece quando o recurso é usado, e a maioria pode ser desligada
 - **Modo invisível**, presença e atividade escondidas, quem pode ligar para você.
 - **Ver o que é enviado** nas estatísticas de uso, e desligá-las.
 - Desvincular a Steam apaga o que veio dela.
+- **Guardar minhas sessões no histórico do grupo** (Privacidade e segurança, ligado por padrão): desligado, você não entra como participante das sessões de voz guardadas dali em diante (conta só no número de pessoas, sem nome). Não apaga o passado sozinho.
+- **Tirar a sua participação** de uma sessão guardada (você some dela para todos); quem tem "Gerenciar servidor" pode apagar uma sessão inteira. Excluir a conta apaga as suas participações.
 
 ## Mudanças
 Qualquer mudança neste texto aparece em "Novidades" na próxima atualização. Nada muda em silêncio.

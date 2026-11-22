@@ -191,6 +191,8 @@
     "leaks-unit-test": 1,
     "voice-recover-unit-test": 5,
     "talkmuted-unit-test": 1,
-    "muted-talk-test": 45
+    "muted-talk-test": 45,
+    "voice-sessions-unit-test": 1,
+    "memory-since-test": 21
   }
 }
