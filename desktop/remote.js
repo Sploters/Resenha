@@ -94,6 +94,8 @@ function ensureHelper() {
     if (pttCode && !quitting && pttRetry < 5 && !pttTimer) pttTimer = setTimeout(() => { pttTimer = null; pttRetry++; if (pttCode && ensureHelper()) write({ t: 'ptt', code: pttCode }); }, 1000 * 2 ** pttRetry);
   });
   helper.stdin.on('error', () => { });
+  // não abriu (antivírus, permissão): sem ouvinte o 'error' derrubava o processo principal; sem pid não vem 'exit'
+  const h = helper; h.on('error', (e) => { log('helper:', e.message); if (helper === h && !h.pid) { helper = null; ready = false; readyWait.splice(0).forEach(f => f(false)); } });
   return true;
 }
 const whenReady = (ms) => (ready ? Promise.resolve(true) : new Promise(res => { readyWait.push(res); setTimeout(() => res(ready), ms); }));
@@ -199,7 +201,8 @@ function signerOf(file) {
     `$s = Get-AuthenticodeSignature -LiteralPath '${file.replace(/'/g, "''")}'; Write-Output ($s.Status.ToString() + '|' + $s.SignerCertificate.Subject)`],
   { windowsHide: true, timeout: 20000 }, (e, out) => { const [st, subject = ''] = String(out || '').trim().split('|'); res({ valid: !e && st === 'Valid', subject }); }));
 }
-function shutdown() { quitting = true; stop(); try { helper?.stdin.end(); } catch { } }
+// fim da entrada encerra o lc-input; se não sair (travado), mata antes do app fechar de vez (sem processo órfão)
+function shutdown() { quitting = true; clearTimeout(pttTimer); stop(); const h = helper; try { h?.stdin.end(); } catch { } if (h) setTimeout(() => { try { if (h.exitCode === null) h.kill(); } catch { } }, 1000).unref?.(); }
 
 // code = KeyboardEvent.code (ex.: KeyV, F13) ou Mouse3/Mouse4/Mouse5; null desliga. Só Windows.
 function setPtt(code) {

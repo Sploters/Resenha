@@ -105,7 +105,7 @@ async function start(o) {
     const finish = (r) => { if (!done) { done = true; resolve(r); } };
     const t = setTimeout(() => { finish({ ok: false, error: 'O programa de transmissão não respondeu' }); if (proc === p) stop(); }, 15000);
     p.stdout.on('data', (d) => {
-      buf += d; let i;
+      buf += d; if (buf.length > 1e6) buf = ''; let i;
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
         let ev; try { ev = JSON.parse(line); } catch { continue; }
@@ -115,8 +115,9 @@ async function start(o) {
         if (proc === p || ev.t !== 'stats') onEvent(ev);
       }
     });
+    p.stdin.on('error', () => { }); // fechou antes de ler a configuração: sem isto o EPIPE derrubava o processo principal
     p.stderr.on('data', (d) => log(String(d).trim()));
-    p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); });
+    p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); if (proc === p && !p.pid) proc = null; }); // não abriu: sem 'exit'
     p.on('exit', (code) => { clearTimeout(t); finish({ ok: false, error: 'o programa fechou (código ' + code + ')' }); if (proc === p) { proc = null; failClips('o programa de transmissão fechou'); onEvent({ t: 'exit', code }); } });
     p.stdin.write(JSON.stringify(cfg) + '\n');
   });
