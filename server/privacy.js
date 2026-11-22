@@ -3,15 +3,19 @@
 //   presence: quem vê se você está online e o que está fazendo (jogo, música, atividade):
 //             { mode: 'everyone' | 'friends' | 'chosen', allow: [ids], deny: [ids] }
 //             'chosen' = só as pessoas em allow; deny esconde de pessoas específicas em qualquer modo.
+//   memory:   { sessions } "Guardar minhas sessões no histórico do grupo" (server/sessions.js): desligado, a pessoa não
+//             entra como participante das sessões de voz guardadas (só conta no pico, sem nome). Padrão: ligado.
 // Quem não pode ver te vê offline e sem atividade. Tudo é decidido aqui no servidor: o app de quem não pode ver
 // nunca recebe o status nem a atividade de verdade.
 export const CALL_DEFAULT = { everyone: true, fof: true, friends: true, servers: true };
 export const PRESENCE_DEFAULT = { mode: 'everyone', allow: [], deny: [] };
+export const MEMORY_DEFAULT = { sessions: true };
 const MAX_LIST = 500;
 
 const ids = (a) => [...new Set((Array.isArray(a) ? a : []).map(String).filter(x => /^[\w-]{1,40}$/.test(x)))].slice(0, MAX_LIST);
 export function cleanPrivacy(p, cur = {}) {
-  const out = { calls: { ...CALL_DEFAULT, ...(cur.calls || {}) }, presence: { ...PRESENCE_DEFAULT, ...(cur.presence || {}) } };
+  const out = { calls: { ...CALL_DEFAULT, ...(cur.calls || {}) }, presence: { ...PRESENCE_DEFAULT, ...(cur.presence || {}) }, memory: { ...MEMORY_DEFAULT, ...(cur.memory || {}) } };
+  if (p?.memory && typeof p.memory === 'object' && 'sessions' in p.memory) out.memory.sessions = !!p.memory.sessions;
   if (p?.calls && typeof p.calls === 'object') for (const k of Object.keys(CALL_DEFAULT)) if (k in p.calls) out.calls[k] = !!p.calls[k];
   if (p?.presence && typeof p.presence === 'object') {
     const q = p.presence;
@@ -37,7 +41,9 @@ export function createPrivacy({ get, all }) {
     JOIN relationships b1 ON b1.other_id=a1.other_id AND b1.user_id=? AND b1.type=1 JOIN relationships b2 ON b2.user_id=b1.other_id AND b2.other_id=b1.user_id AND b2.type=1
     WHERE a1.user_id=? AND a1.type=1 LIMIT 1`, b, a);
 
-  const of = (uid) => cache.get(uid)?.raw || { calls: { ...CALL_DEFAULT }, presence: { ...PRESENCE_DEFAULT } };
+  const of = (uid) => cache.get(uid)?.raw || { calls: { ...CALL_DEFAULT }, presence: { ...PRESENCE_DEFAULT }, memory: { ...MEMORY_DEFAULT } };
+  // entra como participante nas sessões de voz guardadas? (server/sessions.js)
+  const memorySessions = (uid) => cache.get(uid)?.raw?.memory?.sessions !== false;
   // esconde a presença de alguém? (para o status "genérico", o que vai em mensagens, perfis etc. para todo mundo)
   const restricted = (owner) => { const p = cache.get(owner)?.presence; return !!p && (p.mode !== 'everyone' || p.deny.size > 0); };
   function presenceVisible(viewer, owner) {
@@ -58,7 +64,7 @@ export function createPrivacy({ get, all }) {
     return false;
   }
   return {
-    of, restricted, presenceVisible, canCall,
+    of, restricted, presenceVisible, canCall, memorySessions,
     set(uid, p) { keep(uid, p); },
   };
 }
