@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-22-2', title: 'O que você perdeu enquanto esteve fora',
+    items: [
+      { i: 'clock', t: 'Desde a última vez', d: 'Voltou depois de umas horas? No topo do "Ativo agora" aparece o que rolou sem você: quem ficou na sala e por quanto tempo, o que jogaram, eventos marcados e o clipe mais visto, com Entrar na sala, Ver evento e Ver clipe. No X some, e não volta em nenhum aparelho.' },
+      { i: 'gamepad', t: 'Nos últimos dias', d: 'Mesmo com todo mundo offline, o "Ativo agora" mostra o que os amigos jogaram nos últimos dias, por pessoa e jogo, com o tempo em call e quando foi.' },
+      { i: 'shield', t: 'Você escolhe se entra no histórico', d: 'Em Configurações → Privacidade e segurança, "Guardar minhas sessões no histórico do grupo" decide se o seu nome aparece nas sessões de voz que a galera vê. Conversas diretas nunca entram.' },
+    ],
+  },
+  {
     id: '2026-11-22-1', title: 'Amigos jogando, busca rápida e aviso de mudo',
     items: [
       { i: 'users', t: 'O que cada amigo está jogando', d: 'A lista de Amigos mostra o jogo e a sala de voz de cada um, com Entrar. E quando um amigo abre o mesmo jogo que você, aparece um aviso para entrar na sala dele ou chamá-lo para a sua (dá para desligar em Configurações → Contas vinculadas).' },
