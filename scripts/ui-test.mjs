@@ -2,11 +2,11 @@
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-const PORT = 3222, BASE = `http://localhost:${PORT}`, SHOTS = '.testshots';
+const PORT = +(process.env.PORT || 3222), BASE = `http://localhost:${PORT}`, SHOTS = '.testshots';
 const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome');
 fs.rmSync('.testdata2', { recursive: true, force: true });
 fs.mkdirSync(SHOTS, { recursive: true });
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata2' }, stdio: 'ignore' });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: process.env.DATA_DIR || './.testdata2' }, stdio: 'ignore' });
 for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await new Promise(r => setTimeout(r, 200)); } }
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

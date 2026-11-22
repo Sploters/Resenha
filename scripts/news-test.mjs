@@ -4,12 +4,12 @@
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-const PORT = 3269, BASE = `http://localhost:${PORT}`, OUT = '.testshots/news';
+const PORT = +(process.env.PORT || 3269), BASE = `http://localhost:${PORT}`, OUT = '.testshots/news';
 const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-fs.rmSync('.testdata23', { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: './.testdata23', RTC: '0' }, stdio: 'ignore' });
+fs.rmSync(process.env.DATA_DIR || '.testdata23', { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT, HTTPS: '0', DATA_DIR: process.env.DATA_DIR || './.testdata23', RTC: '0' }, stdio: 'ignore' });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });

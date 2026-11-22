@@ -4,7 +4,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
-const PORT = 3395, MOCK = 3396, BASE = `http://localhost:${PORT}`, DATA = '.testdata-activity-ui', POLL = 500;
+const PORT = +(process.env.PORT || 3395), MOCK = +(process.env.MOCK_PORT || 3396), BASE = `http://localhost:${PORT}`, DATA = process.env.DATA_DIR || '.testdata-activity-ui', POLL = 500;
 const EXE = process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
