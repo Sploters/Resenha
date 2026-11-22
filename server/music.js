@@ -30,6 +30,17 @@ const BOT_PREFIX = 'bot_music_';
 const LOOPS = ['off', 'track', 'queue'];
 const FRAME_MS = 20, FRAME_TS = 960; // Opus a 48 kHz: 20 ms = 960 amostras
 const BUF_HIGH = 250, BUF_LOW = 100; // pacotes guardados (5 s / 2 s): acima disso o ffmpeg espera
+// vigia: ffmpeg/yt-dlp sem entregar nada (rede presa, servidor de áudio mudo) é encerrado e cai no caminho de "o fluxo
+// caiu" (retoma do ponto / plano B). Antes a faixa ficava "carregando" ou parada para sempre
+const STALL_MS = Number(process.env.MUSIC_STALL_MS || 30_000), START_MS = Number(process.env.MUSIC_START_MS || 60_000);
+// processos em grupo próprio (fora do Windows): parar mata também o que eles abriram (o yt-dlp abre o ffmpeg para HLS/DASH)
+const GROUP = process.platform !== 'win32';
+const run = (bin, args, stdio) => spawn(bin, args, { stdio, detached: GROUP });
+function killTree(p) {
+  if (!p?.pid) return;
+  if (GROUP) try { process.kill(-p.pid, 'SIGKILL'); return; } catch { } // o grupo inteiro (mesmo se o líder já saiu)
+  if (p.exitCode === null && p.signalCode === null) try { p.kill('SIGKILL'); } catch { }
+}
 
 const sessions = new Map(); // channelId -> sessão (um bot por sala; vários bots por servidor)
 let env = null, available = null;
@@ -47,7 +58,7 @@ export const isMusicBot = (uid) => !!env.get('SELECT 1 x FROM users WHERE id=? A
 // ---------- binários ----------
 function probeBins() {
   return new Promise((resolve) => {
-    const check = (bin, arg) => new Promise(r => { try { const p = spawn(bin, [arg], { stdio: 'ignore' }); p.on('error', () => r(false)); p.on('exit', c => r(c === 0)); } catch { r(false); } });
+    const check = (bin, arg) => new Promise(r => { try { const p = spawn(bin, [arg], { stdio: 'ignore', timeout: 15_000 }); p.on('error', () => r(false)); p.on('exit', c => r(c === 0)); } catch { r(false); } });
     Promise.all([check(YTDLP, '--version'), check(FFMPEG, '-version')]).then(([y, f]) => resolve(y && f));
   });
 }
@@ -66,10 +77,11 @@ const ytErr = (err) => (/Sign in|confirm you.re not a bot|cookies/i.test(err) ? 
 
 function runJson(args, timeout = 45_000) {
   return new Promise((resolve, reject) => {
-    const p = spawn(YTDLP, ytdlpArgs(args), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = run(YTDLP, ytdlpArgs(args), ['ignore', 'pipe', 'pipe']);
     let out = '', err = '';
-    const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('A busca demorou demais')); }, timeout);
-    p.stdout.on('data', d => (out += d)); p.stderr.on('data', d => (err += d));
+    const t = setTimeout(() => { killTree(p); reject(new Error('A busca demorou demais')); }, timeout);
+    // limites: playlist enorme ou yt-dlp falando sem parar não enchem a memória do servidor
+    p.stdout.on('data', d => { if (out.length < 32e6) out += d; else killTree(p); }); p.stderr.on('data', d => { if (err.length < 16e3) err += d; });
     p.on('error', () => { clearTimeout(t); reject(new Error('yt-dlp não está instalado no servidor')); });
     p.on('close', (code) => {
       clearTimeout(t);
@@ -270,6 +282,11 @@ function rtpOut(rtp) {
 // a cada 10 ms: manda os pacotes que já deviam ter saído (sem rajada depois de um travamento)
 function pace(s) {
   const f = s.feed;
+  if (f && !f.ended && !f.held && !f.stuck && Date.now() - f.lastData > (f.started ? STALL_MS : START_MS)) {
+    f.stuck = true; if (!f.err) f.err = f.started ? 'o áudio parou de chegar' : 'o áudio não começou a tempo';
+    console.log(`[música] sala ${s.channelId}: nada do ${f.mode === 'pipe' ? 'yt-dlp/ffmpeg' : 'ffmpeg'} há ${Math.round((Date.now() - f.lastData) / 1000)} s, encerrando`);
+    for (const p of f.procs) killTree(p); // o 'close' do ffmpeg marca o fim e o trackEnded retoma ou tenta o plano B
+  }
   if (!f || s.paused || !s.out) return;
   if (!f.buf.length) {
     if (f.ended) { s.feed = null; s.clock = null; trackEnded(s, f); }
@@ -281,7 +298,7 @@ function pace(s) {
   let due = Math.floor((now - s.clock) / FRAME_MS) + 1 - s.sentSince;
   if (due > 25) { s.clock = now; s.sentSince = 0; due = 1; }
   while (due-- > 0 && f.buf.length) { s.out.send(f.buf.shift(), now); s.sentSince++; s.played++; }
-  if (f.held && f.buf.length < BUF_LOW) { f.held = false; f.src.resume(); }
+  if (f.held && f.buf.length < BUF_LOW) { f.held = false; f.lastData = Date.now(); f.src.resume(); }
 }
 // lê Opus em Ogg e devolve cada pacote (pula os cabeçalhos OpusHead/OpusTags)
 function oggReader(onPacket) {
@@ -308,7 +325,7 @@ function armIdle(s) { clearTimeout(s.idleTimer); if (!s.stay && (!s.current || s
 
 function killProc(s) {
   s.gen++; // invalida callbacks da faixa anterior
-  for (const p of s.feed?.procs || []) { try { p.kill('SIGKILL'); } catch { } }
+  for (const p of s.feed?.procs || []) killTree(p);
   s.feed = null; s.clock = null; s.loading = false;
 }
 function teardown(s) {
@@ -365,19 +382,19 @@ async function startTrack(s, offsetMs, { paused = false, mode = 'direct', fresh 
 function failTrack(s, t, msg) { s.current = null; s.loading = false; push(s, { notice: `Não consegui tocar "${t.title}": ${msg}` }); playNext(s); }
 function spawnFeed(s, t, offsetMs, st, { mode, retries }) {
   const gen = s.gen, sec = (offsetMs / 1000).toFixed(2);
-  const f = { gen, t, mode, retries, buf: [], ended: false, started: false, held: false, code: null, err: '', procs: [], src: null };
+  const f = { gen, t, mode, retries, buf: [], ended: false, started: false, held: false, code: null, err: '', procs: [], src: null, lastData: Date.now() };
   const enc = ['-vn', '-map', '0:a:0', '-ac', '2', '-ar', '48000', '-c:a', 'libopus', '-b:a', '128k', '-frame_duration', String(FRAME_MS), '-application', 'audio',
     '-f', 'ogg', '-page_duration', '20000', '-flush_packets', '1', 'pipe:1'];
   let ff;
   if (st) {
     const hdr = Object.entries(st.headers || {}).map(([k, v]) => `${k}: ${v}`).join('\r\n');
-    const http = /^https?:/i.test(st.url) ? ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_on_network_error', '1', '-reconnect_delay_max', '4', ...(hdr ? ['-headers', hdr + '\r\n'] : [])] : [];
+    const http = /^https?:/i.test(st.url) ? ['-rw_timeout', '15000000', '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_on_network_error', '1', '-reconnect_delay_max', '4', ...(hdr ? ['-headers', hdr + '\r\n'] : [])] : [];
     // -ss antes do -i: pula direto para o ponto (pedido de intervalo HTTP), sem baixar o começo
-    ff = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', ...http, ...(offsetMs && !st.live ? ['-ss', sec] : []), '-i', st.url, ...enc], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ff = run(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', ...http, ...(offsetMs && !st.live ? ['-ss', sec] : []), '-i', st.url, ...enc], ['ignore', 'pipe', 'pipe']);
     f.procs = [ff];
   } else { // plano B: o próprio yt-dlp baixa e passa para o ffmpeg
-    const dl = spawn(YTDLP, ytdlpArgs(['-f', 'bestaudio/best', '--no-playlist', '-o', '-', '--quiet', '--', t.url || t.search]), { stdio: ['ignore', 'pipe', 'pipe'] });
-    ff = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', ...(offsetMs ? ['-ss', sec] : []), '-i', 'pipe:0', ...enc], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const dl = run(YTDLP, ytdlpArgs(['-f', 'bestaudio/best', '--no-playlist', '-o', '-', '--quiet', '--', t.url || t.search]), ['ignore', 'pipe', 'pipe']);
+    ff = run(FFMPEG, ['-hide_banner', '-loglevel', 'error', ...(offsetMs ? ['-ss', sec] : []), '-i', 'pipe:0', ...enc], ['pipe', 'pipe', 'pipe']);
     dl.stdout.pipe(ff.stdin); ff.stdin.on('error', () => { }); dl.stdout.on('error', () => { });
     dl.stderr.on('data', d => { if (f.err.length < 4000) f.err += d; });
     dl.on('error', () => { f.err = 'yt-dlp não está instalado no servidor'; });
@@ -388,7 +405,7 @@ function spawnFeed(s, t, offsetMs, st, { mode, retries }) {
   ff.on('error', () => { f.err = 'ffmpeg não está instalado no servidor'; f.ended = true; });
   ff.stdout.on('data', oggReader((pk) => {
     if (gen !== s.gen) return;
-    f.buf.push(pk);
+    f.buf.push(pk); f.lastData = Date.now();
     if (!f.started) { f.started = true; s.loading = false; push(s); prefetch(s.loop === 'track' ? null : s.queue[0]); } // começou: já busca a próxima
     if (!f.held && f.buf.length > BUF_HIGH) { f.held = true; ff.stdout.pause(); }
   }));

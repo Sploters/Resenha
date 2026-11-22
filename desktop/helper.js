@@ -12,7 +12,7 @@ const { spawn } = require('child_process');
 // opts: { exe, spawnFn?, log?, helloMs?, retryMs? }
 function createHelper(opts) {
   const sp = opts.spawnFn || spawn, log = opts.log || (() => { }), helloMs = opts.helloMs || 3000, retryMs = opts.retryMs || 1000;
-  let proc = null, ready = null, info = null, seq = 0, buf = '', fails = 0, deadUntil = 0, unsupported = false, stopped = false, retry = null;
+  let proc = null, ready = null, info = null, seq = 0, buf = '', fails = 0, deadUntil = 0, unsupported = false, stopped = false, retry = null, silent = 0;
   const pending = new Map(), listeners = new Map(), sticky = new Map();
   const stats = { spawns: 0, calls: 0, events: 0 };
   const emit = (ev, d) => { for (const f of listeners.get(ev) || []) { try { f(d); } catch (e) { log('ouvinte de ' + ev + ':', e.message); } } };
@@ -20,13 +20,18 @@ function createHelper(opts) {
   function raw(p, op, args, ms) {
     return new Promise((res, rej) => {
       const id = ++seq;
-      const t = setTimeout(() => { pending.delete(id); rej(new Error('o programa nativo não respondeu (' + op + ')')); }, ms);
+      const t = setTimeout(() => {
+        pending.delete(id); rej(new Error('o programa nativo não respondeu (' + op + ')'));
+        // travado (vivo mas mudo): 3 pedidos seguidos sem resposta = encerra; o 'exit' reabre e repete os pedidos fixos
+        if (p === proc && ++silent >= 3) { silent = 0; log('não responde: encerrando para reabrir'); try { p.kill(); } catch { } }
+      }, ms);
       pending.set(id, { res, rej, t });
       try { p.stdin.write(JSON.stringify({ ...args, id, op }) + '\n'); } catch (e) { clearTimeout(t); pending.delete(id); rej(e); }
     });
   }
   function onLine(line) {
     let j; try { j = JSON.parse(line); } catch { return; }
+    silent = 0;
     if (j && j.id != null) {
       const w = pending.get(j.id); if (!w) return;
       pending.delete(j.id); clearTimeout(w.t);
@@ -40,11 +45,12 @@ function createHelper(opts) {
     let p;
     try { p = sp(opts.exe, ['--serve'], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] }); } catch (e) { log('não abriu:', e.message); return Promise.resolve(null); }
     stats.spawns++;
-    proc = p; buf = '';
+    proc = p; buf = ''; silent = 0;
     const t0 = Date.now();
     ready = new Promise((resolve) => {
       let settled = false; const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-      p.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l) onLine(l); } });
+      // linha sem fim (saída quebrada) não enche a memória
+      p.stdout.on('data', (d) => { buf += d; if (buf.length > 4e6) buf = ''; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l) onLine(l); } });
       p.stdin.on('error', () => { });
       p.on('error', (e) => log('erro:', e.message));
       p.on('exit', (code) => {

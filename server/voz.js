@@ -18,7 +18,7 @@ import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfu
 
 const APP = fileURLToPath(new URL('./index.js', import.meta.url));
 const log = (...a) => console.log('  [voz]', ...a);
-let child = null, stopping = false, restartAsked = false, crashes = 0, startedAt = 0;
+let child = null, stopping = false, restartAsked = false, crashes = 0, startedAt = 0, lastMsgAt = 0;
 let snap = null, snapAt = 0; // o último retrato que o app mandou (estado de cada pessoa nas salas: mudo, tela, cargo…)
 const handles = new Map(); let hid = 0; // RTP do bot de música e transmissões nativas: h -> { kind, cid, uid, close, producer, out }
 
@@ -62,6 +62,7 @@ const calls = {
 
 function onMessage(c, m) {
   if (c !== child || !m || typeof m !== 'object' || !m.id) return; // resposta atrasada de um app que já saiu: ignora
+  lastMsgAt = Date.now();
   const fn = calls[m.call];
   Promise.resolve().then(() => { if (!fn) throw new Error('chamada desconhecida: ' + m.call); return fn(...(m.args || [])); })
     .then((data) => { if (c === child && c.connected) c.send({ re: m.id, data: data ?? null }); },
@@ -73,6 +74,9 @@ function startApp() {
   startedAt = Date.now();
   const c = child = fork(APP, process.argv.slice(2), { env: { ...process.env, LC_VOZ_IPC: '1' }, stdio: 'inherit' });
   c.on('message', (m) => onMessage(c, m));
+  // sem ouvinte, um erro do filho (não abriu, IPC quebrado) derrubava o processo da voz e todas as chamadas.
+  // Se nem abriu (sem pid), não vem 'exit': trata como saída
+  c.on('error', (e) => { log('erro no app:', e.message); if (c === child && !c.pid) c.emit('exit', null, null); });
   c.on('exit', (code, sig) => {
     if (c !== child) return;
     child = null;
@@ -84,6 +88,16 @@ function startApp() {
     setTimeout(() => { if (!stopping && !child) startApp(); }, wait);
   });
 }
+// app travado (laço infinito, event loop preso): o processo existe mas não fala mais. Ele manda um retrato a cada 20 s
+// no máximo (server/index.js), então sem nenhuma mensagem por VOZ_APP_HANG_MS (padrão 2 min) depois da primeira, é
+// encerrado e volta pelo caminho da queda (as chamadas continuam aqui)
+const APP_HANG_MS = Number(process.env.VOZ_APP_HANG_MS || 120e3);
+setInterval(() => {
+  const c = child;
+  if (!c || stopping || restartAsked || !c.connected || lastMsgAt < startedAt || Date.now() - lastMsgAt < APP_HANG_MS) return;
+  log(`o app não responde há ${Math.round((Date.now() - lastMsgAt) / 1000)} s: encerrando para reabrir`);
+  try { c.kill('SIGKILL'); } catch { }
+}, Math.min(15e3, APP_HANG_MS / 2)).unref();
 function restartApp() {
   if (!child) return startApp();
   restartAsked = true;
@@ -107,7 +121,11 @@ setInterval(() => {
   for (const k of missing.keys()) if (!seen.has(k)) missing.delete(k);
 }, 30e3).unref();
 
-function finish() { log('encerrado'); process.exit(0); }
+function finish() {
+  // o app não saiu no prazo (travado): não fica órfão segurando a porta HTTP e o banco
+  if (child && child.exitCode === null && child.signalCode === null) { log('o app não saiu: SIGKILL'); try { child.kill('SIGKILL'); } catch { } }
+  log('encerrado'); process.exit(); // código 0, ou o process.exitCode (erros em laço)
+}
 function stop(sig) {
   if (stopping) return; stopping = true;
   log(`${sig} recebido: encerrando o app e a voz`);
@@ -115,6 +133,16 @@ function stop(sig) {
   child.kill('SIGTERM');
   setTimeout(finish, 6000).unref(); // o app tem até 6 s para avisar os apps e salvar
 }
+// erro inesperado aqui derrubava o SFU de todo mundo: registra e segue (o app e os workers continuam). Erro em laço
+// (mais de 20 por minuto) é estado quebrado: encerra e o systemd/Docker reabre do zero
+let errs = [];
+const oops = (what) => (e) => {
+  console.error(`  [voz] ${what}:`, e);
+  const now = Date.now(); errs = errs.filter(t => now - t < 60e3); errs.push(now);
+  if (errs.length > 20 && !stopping) { log('erros demais seguidos: encerrando'); process.exitCode = 1; stop('erros'); }
+};
+process.on('uncaughtException', oops('erro inesperado'));
+process.on('unhandledRejection', oops('promessa rejeitada'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGUSR2', () => { log('SIGUSR2: reiniciando só o app'); restartApp(); });

@@ -90,7 +90,7 @@ async function openWorker(port, prev = null) {
   let worker = null;
   try {
     worker = await msMod.createWorker({ logLevel: 'warn' });
-    const infos = listenInfos(port), w = { worker, infos, webRtcServer: await worker.createWebRtcServer({ listenInfos: infos }), port, dead: false, lastRu: null, peakCpu: 0, restarts: prev?.restarts || 0, diedAt: prev?.diedAt || 0, startedAt: Date.now() };
+    const infos = listenInfos(port), w = { worker, infos, webRtcServer: await worker.createWebRtcServer({ listenInfos: infos }), port, dead: false, lastRu: null, peakCpu: 0, restarts: prev?.restarts || 0, diedAt: prev?.diedAt || 0, startedAt: Date.now(), noReply: 0 };
     worker.on('died', (err) => onWorkerDied(w, err));
     return w;
   } catch (e) { worker?.close(); throw e; }
@@ -99,6 +99,8 @@ const RESPAWN_WAIT = [1000, 2000, 5000, 10000, 30000, 60000];
 function onWorkerDied(w, err) {
   if (w.dead) return;
   w.dead = true; w.diedAt = Date.now();
+  // caiu de novo pouco depois de recriado (crash em laço): a espera continua crescendo em vez de voltar a 1 s
+  w.quick = w.diedAt - w.startedAt < 60e3 ? (w.quick || 0) + 1 : 0;
   // quem estava nas salas deste worker refaz a conexão de mídia (cai num worker vivo ou no recriado)
   let peers = 0;
   for (const [cid, r] of [...rooms]) {
@@ -107,18 +109,27 @@ function onWorkerDied(w, err) {
     for (const p of r.peers.values()) { peers++; try { p.close(); } catch { } try { p.notify('SFU_RESET', { reason: 'worker' }); } catch { } }
   }
   note('worker_died', `worker do mediasoup da porta ${w.port} morreu (${err?.message || 'sem motivo'}); ${peers} pessoa(s) reconectando a mídia`);
-  respawn(w, 0);
+  respawn(w, w.quick);
+}
+// travado (o processo existe mas não responde): conta como morto. SIGKILL faz o mediasoup emitir 'died' e o fluxo acima
+// recria o worker; se o 'died' não vier, recupera direto
+function killHung(w, why) {
+  if (w.dead) return;
+  note('worker_hung', `worker do mediasoup da porta ${w.port} não responde (${why}): encerrando para recriar`);
+  try { process.kill(w.worker.pid, 'SIGKILL'); } catch { }
+  setTimeout(() => onWorkerDied(w, new Error('travado: ' + why)), 3000).unref?.();
 }
 function respawn(old, attempt) {
   const wait = RESPAWN_WAIT[Math.min(attempt, RESPAWN_WAIT.length - 1)];
   setTimeout(async () => {
+    if (!workers.includes(old)) return; // já substituído (não abre dois na mesma porta)
     try {
       const w = await openWorker(old.port, old);
-      w.restarts = old.restarts + 1;
+      w.restarts = old.restarts + 1; w.quick = old.quick;
       const i = workers.indexOf(old); if (i >= 0) workers[i] = w; else workers.push(w);
       note('worker_restarted', `worker da porta ${old.port} recriado (${w.restarts}ª vez)`);
     } catch (e) {
-      note('worker_restart_failed', `não consegui recriar o worker da porta ${old.port}: ${e.message}; tentando de novo`);
+      note('worker_restart_failed', `não consegui recriar o worker da porta ${old.port} (tentativa ${attempt + 1}): ${e.message}; tentando de novo em ${RESPAWN_WAIT[Math.min(attempt + 1, RESPAWN_WAIT.length - 1)] / 1000} s`);
       respawn(old, attempt + 1);
     }
   }, wait).unref?.();
@@ -390,11 +401,23 @@ export const sfuEvents = () => events.slice();
 // Amostrado a cada 15 s; guarda o pico e as últimas amostras. Se o pico se aproximar de 100% de um núcleo, é hora de usar mais workers.
 // Com vários workers: cpu = o do worker mais carregado (é ele que trava primeiro); "per_worker" traz cada um.
 const loadHist = []; let peakCpu = 0;
+// vigia de travamento: cada amostra é também um "está vivo?" com prazo. HANG_FAILS sem resposta seguidas = travado
+const HANG_MS = Number(process.env.SFU_HANG_MS || 10000), HANG_FAILS = 3;
+async function ask(w) {
+  let t;
+  try {
+    const ru = await Promise.race([w.worker.getResourceUsage(), new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`sem resposta em ${HANG_MS / 1000} s`)), HANG_MS); })]);
+    w.noReply = 0; return ru;
+  } catch (e) {
+    if (!w.dead && !w.worker.closed && ++w.noReply >= HANG_FAILS) killHung(w, e.message);
+    return null;
+  } finally { clearTimeout(t); }
+}
 async function sampleLoad() {
   const ws = live(); if (!ws.length) return null;
   const now = Date.now(), per = [];
   for (const w of ws) {
-    const ru = await w.worker.getResourceUsage();
+    const ru = await ask(w); if (!ru) continue;
     let cpu = null;
     if (w.lastRu) { const dt = now - w.lastRu.t, du = (ru.ru_utime + ru.ru_stime) - w.lastRu.cpu; cpu = dt > 0 ? +(du / dt * 100).toFixed(1) : null; } // ru_utime/ru_stime em ms (mediasoup): % de um núcleo
     w.lastRu = { t: now, cpu: ru.ru_utime + ru.ru_stime };
@@ -409,7 +432,8 @@ async function sampleLoad() {
   loadHist.push(smp); if (loadHist.length > 240) loadHist.shift();
   return smp;
 }
-setInterval(() => { sampleLoad().catch(() => { }); }, 15000).unref();
+let sampling = false; // uma amostra por vez (worker travado não empilha pedidos)
+setInterval(() => { if (sampling) return; sampling = true; sampleLoad().catch(() => { }).finally(() => { sampling = false; }); }, Number(process.env.SFU_SAMPLE_MS || 15000)).unref();
 export async function sfuLoad() {
   const cur = await sampleLoad();
   return { enabled: sfuEnabled(), workers: live().length, current: cur, peakCpuPercent: peakCpu, history: loadHist.slice(-40) };

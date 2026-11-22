@@ -220,8 +220,9 @@ function spawnCap(pid, mode, onData) {
     const finish = (r) => { if (!done) { done = true; resolve(r); } };
     const t = setTimeout(() => { finish({ ok: false, error: 'o programa de áudio não respondeu' }); if (proc === p) kill(); }, 6000);
     p.stdout.on('data', (d) => { if (proc === p) onData(d); });
+    p.stdin.on('error', () => { }); // programa que fecha logo: a escrita abaixo dava EPIPE sem ouvinte e derrubava o app
     p.stderr.on('data', (d) => {
-      err += d; let i;
+      err += d; if (err.length > 1e5) err = ''; let i;
       while ((i = err.indexOf('\n')) >= 0) {
         const line = err.slice(0, i).trim(); err = err.slice(i + 1);
         let ev; try { ev = JSON.parse(line); } catch { if (line) log(line); continue; }
@@ -229,7 +230,7 @@ function spawnCap(pid, mode, onData) {
         if (ev.t === 'error') { clearTimeout(t); finish({ ok: false, error: ev.error }); }
       }
     });
-    p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); });
+    p.on('error', (e) => { clearTimeout(t); finish({ ok: false, error: e.message }); if (proc === p && !p.pid) proc = null; }); // não abriu: sem 'exit' (o vigia tenta de novo)
     p.on('exit', (code) => { clearTimeout(t); finish({ ok: false, error: 'o programa de áudio fechou (código ' + code + ')' }); if (proc === p) proc = null; });
     p.stdin.write(JSON.stringify({ pid, mode }) + '\n');
   });
@@ -309,7 +310,7 @@ function openScreenCap(pid, slot, onData) {
   const p = spawn(exe, ['--capture'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   p.stdout.on('data', (d) => onData(d, slot));
   let err = '';
-  p.stderr.on('data', (d) => { err += d; let i; while ((i = err.indexOf('\n')) >= 0) { const line = err.slice(0, i).trim(); err = err.slice(i + 1); try { const ev = JSON.parse(line); if (ev.t === 'error') log('tela: processo', pid, ev.error); } catch { if (line) log(line); } } });
+  p.stderr.on('data', (d) => { err += d; if (err.length > 1e5) err = ''; let i; while ((i = err.indexOf('\n')) >= 0) { const line = err.slice(0, i).trim(); err = err.slice(i + 1); try { const ev = JSON.parse(line); if (ev.t === 'error') log('tela: processo', pid, ev.error); } catch { if (line) log(line); } } });
   p.on('error', (e) => log('tela: processo', pid, e.message));
   p.stdin.on('error', () => { });
   p.stdin.write(JSON.stringify({ pid, mode: 'include' }) + '\n');
