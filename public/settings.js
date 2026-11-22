@@ -369,6 +369,13 @@ function presenceCard() {
     h('div.pv-sub', h('b', 'Esconder de pessoas específicas'), chips('deny', 'Ninguém. Útil para colegas de trabalho, por exemplo.')));
   draw(); return card(box);
 }
+// memória do grupo (server/sessions.js): suas passagens pelas salas de voz entram no "Desde a última vez" de quem estava fora.
+// Ligado por padrão; desligado, você não aparece nas sessões novas (só conta no número de pessoas, sem nome)
+function memoryCard() {
+  const on = priv().memory?.sessions !== false;
+  return card(vrow('Guardar minhas sessões no histórico do grupo', 'Quem esteve na chamada, quando e por quanto tempo, para a galera ver o que perdeu. Conversas diretas (DMs) nunca entram.',
+    toggle(on, async (v) => { if (await savePrivacy({ memory: { sessions: v } })) toast(v ? 'Suas sessões voltam a entrar no histórico do grupo' : 'Suas próximas sessões não entram no histórico do grupo'); })));
+}
 // criptografia de ponta a ponta das conversas diretas (public/e2ee.js)
 function e2eeCard(reg) {
   const box = card();
@@ -412,6 +419,7 @@ function privacyPage(reg) {
     section('Pedidos de amizade'), card(choiceCards([['all', 'Qualquer pessoa pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-ok', icon('check', 14)))], ['none', 'Ninguém pode enviar', h('span.pv-fr', icon('users', 28), h('b.pv-no', icon('x', 14)))]], S.friendPolicy || 'all', (v) => { S.friendPolicy = v; api('PUT', '/me/settings', { friend_policy: v }).catch(e => toast(e.message, true)); })),
     section('Ligações'), callsCard(),
     section('Quem vê seu status e sua atividade'), presenceCard(),
+    section('Histórico do grupo'), memoryCard(),
     section('Criptografia de ponta a ponta'), e2eeCard(reg),
     section('Suas mensagens'), card(row('Apagar minhas mensagens', 'Apaga de uma vez as mensagens que você enviou.', h('button.btn.red', { onclick: () => openMyMessages() }, 'Abrir')),
       factChips([
