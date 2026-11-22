@@ -3,8 +3,9 @@
 // horas (uma medida por gráfico, com o limite do alerta tracejado e o valor ao passar o mouse), workers do SFU, tráfego
 // do mês, alertas enviados, erros recentes do servidor e o que aconteceu com o SFU. Atualiza sozinho a cada 30 s.
 import { h, icon } from './util.js';
-import { api } from './state.js';
+import { api, toast } from './state.js';
 import { seg } from './ui.js';
+import { downloadServerDiag } from './diag.js';
 
 const nf = (n, d = 0) => (n == null ? '—' : Number(n).toLocaleString('pt-BR', { maximumFractionDigits: d, minimumFractionDigits: 0 }));
 const when = (t) => new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -104,7 +105,9 @@ export function healthPage() {
   };
   const root = h('div.uxstats.health', h('h2', 'Saúde do servidor'),
     h('div.ux-bar-top', h('div.ux-filters', seg([[1, '1 hora'], [6, '6 horas'], [24, '24 horas']], hours, (v) => { hours = +v; if (data) draw(); })),
-      h('button.btn.grey.sm', { onclick: load }, icon('refresh', 16), 'Atualizar')),
+      h('div.hl-acts', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, h('button.btn.grey.sm', { onclick: load }, icon('refresh', 16), 'Atualizar'),
+      // diagnóstico para mandar a quem vai investigar (sem senhas, tokens nem IPs completos)
+      h('button.btn.grey.sm.hl-diag', { title: 'Baixa um .json com versões, saúde, SFU, alertas, erros e o log recente (sem segredos)', onclick: () => downloadServerDiag().then(() => toast('Diagnóstico baixado'), (e) => toast('Não consegui gerar o diagnóstico: ' + e.message, true)) }, icon('download', 16), 'Baixar diagnóstico'))),
     body);
   load();
   timer = setInterval(() => { if (!root.isConnected) return clearInterval(timer); if (!document.hidden) load(); }, 30e3);

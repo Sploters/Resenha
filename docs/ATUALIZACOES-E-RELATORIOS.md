@@ -79,6 +79,16 @@ Teste: `node scripts/uiupdate-test.mjs`.
   mesmo visto quando a pessoa confirmou o servidor na tela de conexão (impressão digital SHA-256 em `config.json`,
   `certPins`). Instalações antigas guardam o da primeira conexão. Se mudar, a página não carrega e a tela de conexão avisa;
   confirmar o endereço de novo (dois cliques) aceita o novo e o app reabre.
+- **Download limitado e sem sobras:** o nome tem de ser exatamente `Resenha-Setup-<versão>.exe` (sem caminho); o tamanho
+  assinado é o limite do download (servidor mandando mais: corta na hora) e há tempo total de 30 min além do de conexão
+  parada. Baixa para `.part`, que é apagado em qualquer falha, e só renomeia depois de conferir a assinatura.
+- **O arquivo que roda é o conferido (TOCTOU):** logo antes de abrir o instalador o app calcula o SHA-256 de novo; se o
+  arquivo da pasta temporária mudou desde o download, não roda e descarta a anotação (`cfg.readyUpdate`, que também só
+  aceita o arquivo com o nome assinado). Instalador que não abre nunca deixa o app fechado: "Reiniciar agora" reabre a
+  versão atual.
+- O `.sig` de uma release do GitHub responde com redirecionamento: a consulta segue até 5 (todos HTTPS). O servidor
+  (`server/desktopupdate.js`) também só guarda o instalador do GitHub com o tamanho da release (cortado: apaga e tenta de
+  novo), com limite de 512 MB e 20 min.
 - Chaves: `node scripts/update-sign.mjs keygen` gera um par; `verify <instalador>` confere um arquivo.
   Teste: `UPDATE_KEY_FILE=<chave privada> node scripts/update-security-test.mjs` (Electron de verdade).
 
@@ -95,3 +105,14 @@ Teste: `node scripts/uiupdate-test.mjs`.
 - Vai por **DM ao administrador da instalação**, com o `.json` anexado, e uma cópia fica em `<dados>/reports`.
   Administrador: variável `LC_ADMIN` (nome de usuário); sem ela, a conta mais antiga.
 - Teste: `node scripts/appver-test.mjs`.
+
+## Log do servidor e diagnóstico do administrador
+- `server/log.js`: `log('componente').info/warn/error(msg, campos)`. Sai no terminal como sempre (`  [componente] msg
+  campo=valor`) ou, com `LOG_FORMAT=json`, uma linha JSON por evento; `LOG_LEVEL` (debug/info/warn/error). Senha, token,
+  cookie, Authorization, chave e assinatura são escondidos (pelo nome do campo e no texto: `Bearer …`, JWT, `?token=`,
+  chave do GitHub). Os últimos 500 eventos ficam em memória, junto com o `console.*` do servidor inteiro.
+- Saúde do servidor → **Baixar diagnóstico** (só o administrador; `GET /api/health/diag`): `.json` com versões
+  (servidor, interface, Node, mediasoup), tempo no ar, saúde de agora e das últimas horas, workers e eventos do SFU,
+  alertas, erros, o log recente, os NOMES das variáveis de configuração definidas (nunca o valor) e o relatório da página.
+  Segredos escondidos e o fim dos IPs trocado por `x`: dá para mandar a quem vai investigar.
+- Teste: `node scripts/log-diag-test.mjs`.
