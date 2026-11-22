@@ -144,8 +144,18 @@ setInterval(async () => {
   if (cur !== ws) return;
   if (ms != null) { wsMiss = 0; return; }
   if (++wsMiss < 2) return;
-  wsMiss = 0; const onclose = cur.onclose; cur.onclose = cur.onmessage = null; try { cur.close(); } catch { } closeWhy = 'sem resposta a 2 pings seguidos (5 s cada)'; onclose?.();
+  dropDead(cur, 'sem resposta a 2 pings seguidos (5 s cada)');
 }, 8000);
+// derruba uma conexão que parou de responder e agenda a próxima (onclose), sem esperar o navegador perceber
+function dropDead(cur, why) { wsMiss = 0; const onclose = cur.onclose; cur.onclose = cur.onmessage = null; try { cur.close(); } catch { } closeWhy = why; onclose?.(); }
+// a rede trocou (Wi-Fi, cabo, VPN) ou o PC acordou com a conexão "aberta": depois disso ela costuma estar morta sem aviso
+// (o servidor já não a conhece). Um ping na hora decide; antes eram 2 pings perdidos (~16-26 s) até reconectar.
+async function probeNow(why) {
+  if (!ready || ws?.readyState !== 1) return;
+  const cur = ws; if ((await wsPing()) == null && cur === ws && cur.readyState === 1) dropDead(cur, why);
+}
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 30000) probeNow('sem resposta ao voltar à janela (PC dormiu?)'); });
 export function connect() {
   clearTimeout(connect.t);
   // resume=1: esta página caiu e está voltando com a chamada aberta; o servidor segura a sala até o VOICE_RESUME
@@ -180,6 +190,7 @@ export function connect() {
   };
   ws.onclose = async (e) => {
     if (!S.token || sock !== ws) return;
+    voice?.linkDown?.(); // a voz espera a retomada antes de pedir algo ao SFU (public/voice.js resume)
     if (e?.code) closeWhy = `fechada com código ${e.code}${e.reason ? ' (' + e.reason + ')' : ''}`;
     if (e?.code === 1012) restarting = true; // 1012 = o servidor está reiniciando
     if (ready && !offlineSince) offlineSince = Date.now();
@@ -194,7 +205,7 @@ export function connect() {
 }
 
 // a rede voltou (troca de Wi-Fi, cabo, VPN): tenta reconectar na hora, sem esperar a vez da próxima tentativa
-addEventListener('online', () => { if (S.token && ws && ws.readyState > 1) { clearTimeout(connect.t); connect(); } });
+addEventListener('online', () => { if (S.token && ws && ws.readyState > 1) { clearTimeout(connect.t); connect(); } else probeNow('sem resposta depois de a rede trocar'); });
 
 // lista inteira de um servidor grande chegou: redesenha o que mostra membros (nomes, cores, lista)
 document.addEventListener('join-btn-changed', () => { if (channelById(S.view.cid)?.type === 2 || channelById(S.view.cid)?.type === 1) renderMain(); });
