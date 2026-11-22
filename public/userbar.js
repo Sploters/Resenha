@@ -5,7 +5,8 @@ import { openFxPicker } from './fxui.js';
 import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { h, icon, avatar } from './util.js';
-import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, CH_KINDS } from './state.js';
+import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, CH_KINDS, channelMuted } from './state.js';
+import { openDM } from './usermenu.js';
 import { openMusic } from './music.js';
 import { openSoundboard, quickSoundsHover } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel } from './quick.js';
@@ -210,16 +211,85 @@ function statusMenu(e) {
   menu(e, ['online', 'idle', 'dnd', 'invisible'].map(s => ({ label: STATUS_TXT[s], fn: () => set(s) })));
 }
 
-// ---------- quick switcher ----------
+// ---------- busca rápida (Ctrl+K) ----------
+// Setas escolhem, Enter abre, o mouse também escolhe. Sem texto: primeiro o que tem menção ou não lida, depois os lugares
+// visitados por último (o canal aberto agora fica de fora). Com texto: nome exato, depois começo do nome, começo de uma
+// palavra, trecho e por fim as letras na ordem ("cdg" acha clipes-da-galera), sem ligar para acento. Começar com #, !, @
+// ou * limita a canais de texto, salas de voz, pessoas ou servidores (como no Discord).
+const QS_RECENT = 'lc_qs_recent', QS_KINDS = { '#': 'text', '!': 'voice', '@': 'dm', '*': 'guild' };
+const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const qsRecent = () => { try { return JSON.parse(localStorage.getItem(QS_RECENT) || '[]'); } catch { return []; } };
+addEventListener('hashchange', () => { // toda navegação conta (lista de canais, notificação, a própria busca)
+  const [, gid, cid] = location.hash.split('/'), id = cid || (gid !== '@me' && gid); if (!id) return;
+  try { localStorage.setItem(QS_RECENT, JSON.stringify([id, ...qsRecent().filter(x => x !== id)].slice(0, 30))); } catch { /* sem armazenamento: só não lembra */ }
+});
+function qsScore(name, q) {
+  const n = fold(name); if (!q) return 0;
+  if (n === q) return 0; if (n.startsWith(q)) return 1;
+  const i = n.indexOf(q); if (i > 0) return /[\s\-_./|]/.test(n[i - 1]) ? 2 : 3;
+  if (q.length < 3) return 99; let k = 0; for (const ch of n) if (ch === q[k]) k++; // letras soltas na ordem só a partir de 3 (com 2 batia quase tudo)
+  return k === q.length ? 4 : 99;
+}
+function qsMark(text, q) { // destaca o trecho que bateu
+  const i = q ? fold(text).indexOf(q) : -1; if (i < 0) return text;
+  return [text.slice(0, i), h('mark.qs-hit', text.slice(i, i + q.length)), text.slice(i + q.length)];
+}
+function qsItems() {
+  const items = [], inCall = (cid) => [...S.voice.values()].filter(v => v.channel_id === cid).length, withDm = new Set();
+  for (const d of S.dms.values()) { const p = dmPeer(d); if (!p) continue; const u = user(p.id); withDm.add(u.id); items.push({ id: d.id, kind: 'dm', label: u.display_name, alt: u.username, lead: avatar(u, 24), hint: 'Mensagem direta', fn: () => go('@me', d.id) }); }
+  for (const r of S.rels.values()) if (r.type === 1 && r.user?.id && !withDm.has(r.user.id)) { const u = user(r.user.id); items.push({ id: 'u' + u.id, kind: 'dm', label: u.display_name, alt: u.username, lead: avatar(u, 24), hint: 'Amigo · abrir conversa', fn: () => openDM(u.id) }); }
+  for (const g of S.guilds.values()) {
+    for (const c of g.channels) {
+      if (c.type === 4) continue;
+      const n = c.type === 2 ? inCall(c.id) : 0;
+      items.push({ id: c.id, kind: c.type === 2 ? 'voice' : 'text', label: chName(c), alt: c.name, lead: icon(CH_KINDS[c.type]?.[0] || 'hash', 20), hint: (n ? `${n} na chamada · ` : '') + g.name, fn: () => go(g.id, c.id) });
+    }
+    items.push({ id: g.id, kind: 'guild', label: g.name, lead: h('span.qs-gi', g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()), hint: 'Servidor', fn: () => go(g.id) });
+  }
+  for (const it of items) { it.mention = S.mentions[it.id] || 0; it.unread = !!S.unread[it.id] && !channelMuted(it.id); }
+  return items;
+}
 function quickSwitch() {
-  const inp = h('input', { placeholder: 'Para onde você quer ir?', style: { width: '100%' } }), res = h('div');
-  const items = [...[...S.dms.values()].map(d => ({ label: '@' + user(dmPeer(d).id).display_name, fn: () => go('@me', d.id) })),
-    ...[...S.guilds.values()].flatMap(g => g.channels.filter(c => c.type !== 4).map(c => ({ label: chName(c), ic: CH_KINDS[c.type]?.[0] || 'hash', alt: c.name, hint: g.name, fn: () => go(g.id, c.id) }))),
-    ...[...S.guilds.values()].map(g => ({ label: g.name, hint: 'servidor', fn: () => go(g.id) }))];
-  const m = modal('Busca rápida', '', h('div', h('label.f', inp), res), [], {});
-  const draw = () => { res.replaceChildren(...items.filter(i => (i.label + ' ' + (i.alt || '')).toLowerCase().includes(inp.value.toLowerCase())).slice(0, 10).map(i => h('div.role-row', { onclick: () => { m.close(); i.fn(); } }, i.ic && icon(i.ic, 18), i.label, h('small', { style: { marginLeft: 'auto', color: 'var(--text-muted)' } }, i.hint || '')))); };
+  if (document.querySelector('.backdrop.qs-bd:not(.leaving)')) return $('.qs-in')?.focus(); // já aberta: Ctrl+K de novo só devolve o foco
+  const inp = h('input.qs-in', { placeholder: 'Para onde você quer ir?', 'aria-label': 'Buscar canal, conversa ou servidor', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'qs-list', 'aria-autocomplete': 'list', autocomplete: 'off', spellcheck: false });
+  const res = h('div#qs-list.qs-list', { role: 'listbox' }), tip = h('div.qs-tip');
+  const all = qsItems(), here = S.view.cid || S.view.gid;
+  const m = modal('Busca rápida', '', h('div.qs', inp, res, tip), [], { width: '560px' });
+  m.el.classList.add('qs-bd'); m.el.querySelector('.modal').classList.add('qs-modal');
+  let shown = [], sel = 0;
+  const pick = (i) => {
+    sel = i; res.querySelectorAll('.qs-it').forEach((el, k) => { el.classList.toggle('sel', k === i); el.setAttribute('aria-selected', String(k === i)); });
+    const el = res.children[i]; if (el?.classList.contains('qs-it')) { el.scrollIntoView({ block: 'nearest' }); inp.setAttribute('aria-activedescendant', el.id); } else inp.removeAttribute('aria-activedescendant');
+  };
+  // fechar a janela tira a entrada dela do histórico (backclose.js: history.back(), que termina depois); navegar antes disso
+  // fazia o "voltar" desfazer a troca e a pessoa ficava no canal de antes. Navega quando o voltar termina (ou em 250 ms)
+  const open = (it) => {
+    if (!it) return; track('quick_switch', it.kind);
+    let done = false; const run = () => { if (done) return; done = true; removeEventListener('popstate', run); it.fn(); };
+    addEventListener('popstate', run); m.close(); setTimeout(run, 250);
+  };
+  const draw = () => {
+    const raw = inp.value.trim(), kind = QS_KINDS[raw[0]], q = fold(kind ? raw.slice(1).trim() : raw);
+    let list = all.filter(i => !kind || i.kind === kind).map((i, k) => ({ i, k, s: q ? Math.min(...[i.label, i.alt].filter(Boolean).map(t => qsScore(t, q))) : 0 }));
+    if (q) list = list.filter(x => x.s < 99).sort((a, b) => a.s - b.s || (b.i.mention - a.i.mention) || (b.i.unread - a.i.unread) || (a.i.id === here) - (b.i.id === here) || a.k - b.k);
+    else { const rec = qsRecent(), pos = (i) => { const p = rec.indexOf(i.id); return p < 0 ? 999 : p; }; list = list.filter(x => x.i.id !== here).sort((a, b) => (b.i.mention - a.i.mention) || (b.i.unread - a.i.unread) || pos(a.i) - pos(b.i) || a.k - b.k); }
+    shown = list.slice(0, 12).map(x => x.i);
+    res.replaceChildren(...shown.map((it, k) => h('div.qs-it', { id: 'qs-' + k, role: 'option', onmousemove: () => sel !== k && pick(k), onclick: () => open(it) },
+      h('span.qs-lead', it.lead), h('span.qs-name' + (it.unread || it.mention ? '.unread' : ''), qsMark(it.label, q)),
+      it.mention ? h('span.pill', { title: it.mention > 1 ? `${it.mention} menções` : '1 menção' }, it.mention > 99 ? '99+' : String(it.mention)) : it.unread && h('span.qs-dot', { title: 'Mensagens não lidas' }),
+      h('small.qs-hint', it.hint))));
+    if (!shown.length) res.append(h('div.qs-empty', raw ? `Nada encontrado para “${raw}”.` : 'Nenhum lugar para ir ainda.'));
+    tip.replaceChildren(raw ? h('span', h('kbd', '↑'), h('kbd', '↓'), ' escolher  ', h('kbd', 'Enter'), ' abrir  ', h('kbd', 'Esc'), ' fechar')
+      : h('span', 'Dica: comece com ', h('kbd', '#'), ' texto, ', h('kbd', '!'), ' voz, ', h('kbd', '@'), ' pessoas ou ', h('kbd', '*'), ' servidores'));
+    pick(0);
+  };
   inp.oninput = draw; draw();
-  inp.onkeydown = (e) => { if (e.key === 'Enter') res.firstChild?.click(); };
+  inp.onkeydown = (e) => {
+    const n = shown.length; if (e.isComposing) return;
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); if (n) pick((sel + 1) % n); }
+    else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); if (n) pick((sel - 1 + n) % n); }
+    else if (e.key === 'Enter') { e.preventDefault(); open(shown[sel]); }
+  };
 }
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && ready) { e.preventDefault(); quickSwitch(); } });
 // Esc numa conversa direta volta para Amigos (como no WhatsApp Web). Só quando o Esc não tem outra coisa para fazer:

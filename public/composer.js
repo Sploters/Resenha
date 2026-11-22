@@ -29,16 +29,28 @@ function saveDraft(cid, text) {
 export const flushDraft = () => { const ta = $('#composer textarea'); if (ta?.dataset.cid) { clearTimeout(ta._dt); saveDraft(ta.dataset.cid, ta.value); } };
 for (const ev of ['pagehide', 'freeze']) addEventListener(ev, flushDraft, { capture: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushDraft(); });
+const MSG_MAX = 4000, MSG_WARN = 500; // limite do servidor para texto comum (server/e2ee.js)
 export function composer(ch, label) {
   // sem permissão de enviar (canal só leitura para os seus cargos): no lugar do campo, um aviso
   if (ch.guild_id && !chCan(ch, CH.SEND)) return h('div#composer-wrap', h('div.composer-locked', { role: 'status' }, icon('lock', 18), h('span', 'Você não tem permissão para enviar mensagens neste canal.')));
-  const ta = h('textarea', { placeholder: label == null ? 'Escreva um comentário…' : `Conversar em ${label}`, rows: 1, maxLength: 4000, value: readDrafts()[ch.id]?.t || '' });
+  const ta = h('textarea', { placeholder: label == null ? 'Escreva um comentário…' : `Conversar em ${label}`, rows: 1, maxLength: MSG_MAX, value: readDrafts()[ch.id]?.t || '' });
+  // perto do limite de 4000 caracteres aparece quanto falta (antes o campo só parava de aceitar letras, sem dizer por quê)
+  const cnt = h('span.msg-count.hidden', { 'aria-live': 'polite' });
+  const count = () => { const left = MSG_MAX - ta.value.length; cnt.classList.toggle('hidden', left > MSG_WARN); cnt.classList.toggle('full', left <= 0); cnt.textContent = String(left); cnt.title = left > 0 ? `Faltam ${left} caracteres (limite de ${MSG_MAX})` : `Limite de ${MSG_MAX} caracteres. Texto maior: cole e ele vai como arquivo`; };
   ta.dataset.cid = ch.id; ta.addEventListener('blur', flushDraft);
   const grow = () => { ta.style.height = '0'; ta.style.height = Math.min(ta.scrollHeight, 400) + 'px'; };
   let lastTyping = 0;
   const fileIn = h('input', { type: 'file', multiple: true, style: { display: 'none' }, onchange: () => { [...fileIn.files].forEach(addFile); fileIn.value = ''; } });
-  ta.addEventListener('input', () => { grow(); clearTimeout(ta._dt); ta._dt = setTimeout(() => saveDraft(ch.id, ta.value), 400); if (Date.now() - lastTyping > 3000 && ta.value) { lastTyping = Date.now(); gwSend('TYPING', { channel_id: ch.id }); } autocomplete(ta); });
-  ta.addEventListener('paste', (e) => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); fs.forEach(addFile); } });
+  ta.addEventListener('input', () => { grow(); count(); clearTimeout(ta._dt); ta._dt = setTimeout(() => saveDraft(ch.id, ta.value), 400); if (Date.now() - lastTyping > 3000 && ta.value) { lastTyping = Date.now(); gwSend('TYPING', { channel_id: ch.id }); } autocomplete(ta); });
+  ta.addEventListener('paste', (e) => {
+    const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); fs.forEach(addFile); return; }
+    // texto colado maior que o que cabe: o campo cortava o resto calado (log, código). Agora vai inteiro como mensagem.txt
+    const txt = e.clipboardData?.getData('text/plain') || '', room = MSG_MAX - ta.value.length + (ta.selectionEnd - ta.selectionStart);
+    if (txt.length <= room) return;
+    if (ch.guild_id && !chCan(ch, CH.ATTACH)) { toast(`O texto colado tem ${txt.length.toLocaleString('pt-BR')} caracteres e o limite é ${MSG_MAX}: entrou só o começo.`, true); setTimeout(count); return; }
+    e.preventDefault(); addFile(new File([txt], 'mensagem.txt', { type: 'text/plain' }));
+    toast(`Texto longo demais para uma mensagem (${txt.length.toLocaleString('pt-BR')} de ${MSG_MAX} caracteres): ele vai anexado como mensagem.txt`);
+  });
   ta.addEventListener('keydown', (e) => {
     const ac = $('.ac');
     if (ac && ['ArrowDown', 'ArrowUp', 'Tab', 'Enter'].includes(e.key)) {
@@ -47,7 +59,7 @@ export function composer(ch, label) {
       else items[i]?.dispatchEvent(new MouseEvent('mousedown'));
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(ta, ch); setTimeout(grow); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(ta, ch); setTimeout(() => { grow(); count(); }); }
     else if (e.key === 'Escape') { if (ac) ac.remove(); else if (S.replyTo) { S.replyTo = null; renderReplyBar(); } }
     else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && S.prefs.quickReply !== false) { e.preventDefault(); quickReply(ch, e.key === 'ArrowUp' ? -1 : 1); }
     else if (e.key === 'ArrowUp' && !ta.value) { const mine = [...(S.messages.get(ch.id) || [])].reverse().find(m => m.author_id === S.me.id); if (mine) { S.editing = mine.id; renderMessages(true); } }
@@ -78,7 +90,7 @@ export function composer(ch, label) {
   extrasBtn.addEventListener('mouseleave', () => { if (cxOpen()) cxLater(); });
   extrasBtn.onclick = () => (!cxOpen() ? cxShow() : Date.now() - cxAt > 700 && cxHide()); // clique logo depois de abrir pelo mouse (ou toque) mantém aberto
   const wrap = h('div#composer-wrap', h('div#softmute-bar.hidden', { role: 'status' }), h('div#reply-bar.hidden'), h('div#attach-prev.hidden'),
-    h('div#composer', h('button.ibtn', { title: 'Enviar arquivo, compartilhar um clipe e mais', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta,
+    h('div#composer', h('button.ibtn', { title: 'Enviar arquivo, compartilhar um clipe e mais', onclick: (e) => plusMenu(e, ch, fileIn) }, icon('plus', 24)), fileIn, ta, cnt,
       extrasBtn));
   // ir para a primeira mensagem: canto de baixo, logo acima do campo; só aparece depois de rolar para cima
   const topBtn = h('button#totop-btn.hidden', { type: 'button', title: 'Ir para a primeira mensagem', 'aria-label': 'Ir para a primeira mensagem', onclick: jumpToTop }, icon('totop', 20));
@@ -87,7 +99,7 @@ export function composer(ch, label) {
   // para quando a pessoa rola
   topBtn.classList.add('nofade'); setTimeout(() => topBtn.classList.remove('nofade'), 1500);
   setTimeout(() => {
-    renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    renderReplyBar(); renderPendingPrev(); renderSoftmute(); if (ta.value) { grow(); count(); ta.setSelectionRange(ta.value.length, ta.value.length); }
     // sala de voz: o chat não pega o foco sozinho, senão a tecla de push-to-talk (uma letra, por padrão V) vira texto
     // em vez de abrir o microfone; para escrever, é só clicar no campo
     if (ch.type !== 2) ta.focus();
