@@ -106,8 +106,11 @@ function welcomeBlock(ch) {
   if (ch.type === 1) { const p = user(dmPeer(ch).id); return h('div.welcome', avatar(p, 80, { status: false }), h('h1', p.display_name), h('p', `Este é o início do seu histórico de mensagens diretas com ${p.display_name}.`)); }
   // texto próprio do Resenha (antes era a frase do Discord traduzida); sala de voz não leva '#'
   if (ch.type === 2) return h('div.welcome', h('div.big', icon('voice', 40)), h('h1', `Chat da sala ${chName(ch)}`), h('p', 'Links e recados para quem está na call.'));
-  return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `#${chName(ch)}`), h('p', 'Primeira mensagem do canal. Manda aí.'));
+  // "Manda aí" só com o canal vazio; com mensagens (rolou até o topo) é o começo do canal, e a 1ª mensagem que chega troca o texto
+  const empty = !(S.messages.get(ch.id) || []).length;
+  return h('div.welcome', h('div.big', icon('hash', 40)), h('h1', `#${chName(ch)}`), h('p' + (empty ? '.wl-empty' : ''), empty ? 'Primeira mensagem do canal. Manda aí.' : chStart(ch)));
 }
+const chStart = (ch) => `Este é o começo do canal #${chName(ch)}.`;
 // linha fina que liga as mensagens seguidas do mesmo autor: marca com classe quem tem uma .cont logo depois (.tnext) em
 // vez de .msg.first:has(+ .msg.cont) no CSS, que o navegador reavaliava a cada recálculo de estilo do chat (~26 ms
 // no teste com a CPU 4x mais lenta). Um observador no #msgs remarca só os vizinhos do que entrou ou saiu.
@@ -183,6 +186,7 @@ export function appendMessage(m) {
   // 30 mensagens dos outros: 4,8 s de trabalho da página com a animação, 1,0 s sem, CPU 4x)
   if (m.author_id === S.me.id) { mel.classList.add('fresh'); setTimeout(() => mel.classList.remove('fresh'), 700); }
   box.append(mel);
+  const wp = box.querySelector(':scope > .welcome p.wl-empty'); if (wp) { wp.classList.remove('wl-empty'); wp.textContent = chStart(channelById(m.channel_id)); }
   if (near) { box.stick = true; trimChat(m.channel_id); box.scrollTop = box.scrollHeight; }
 }
 // Canal aberto por horas: as mensagens que chegam iam se acumulando no chat e na memória para sempre (~900 por hora num

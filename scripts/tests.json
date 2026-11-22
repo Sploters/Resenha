@@ -152,6 +152,7 @@
     "presence-test": 10,
     "privacy-test": 6,
     "pwa-test": 5,
+    "quickswitch-test": 12,
     "reconnect-storm-test": 27,
     "remote-test": 10,
     "screen-release-test": 16,
