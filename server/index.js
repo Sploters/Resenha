@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
-import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR } from './db.js';
+import { db, all, get, run, newId, UPLOAD_DIR, DATA_DIR, closeDb, dbProblem } from './db.js';
+import { startBackups } from './backup.js';
 import './parentwatch.js'; // testes: encerra junto com quem abriu (EXIT_WITH_PARENT)
 // SFU no processo da voz (server/voz.js, quando o app roda como filho dele) ou neste mesmo processo: server/sfuapi.js
 import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuLastVoice, sfuSplit, sfuRestore, sfuAdopt, sfuSnapshot } from './sfuapi.js';
@@ -1338,7 +1339,7 @@ function shutdown(sig) {
   const snapP = sfuSplit ? Promise.race([sfuSnapshot(voiceSnapshot()).catch(() => { }), new Promise(r => setTimeout(r, 800))]) : null;
   server.close();
   // espera os avisos saírem (até 0,5 s; antes o processo saía na hora e os apps só viam a conexão cair)
-  const t0 = Date.now(), end = async () => { await snapP; try { db.close(); } catch { } process.exit(0); };
+  const t0 = Date.now(), end = async () => { await snapP; closeDb(); process.exit(0); };
   const tick = () => ([...wss.clients].every(c => c.readyState === 3) || Date.now() - t0 > 500 ? end() : setTimeout(tick, 25));
   tick();
 }
@@ -1353,5 +1354,7 @@ process.on('SIGHUP', () => {
     for (const c of wss.clients) send(c, 'UI_VERSION', { v: ui.version });
   } catch (e) { console.log('  SIGHUP: falha ao recarregar a interface', e.message); }
 });
+// cópias automáticas do banco e checkpoint do WAL (server/backup.js)
+startBackups(db, DATA_DIR, { dbProblem });
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
