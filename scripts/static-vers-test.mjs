@@ -42,8 +42,17 @@ try {
   const r2 = await fetch(`${BASE}/util.js?v=0000000000`);
   ok(!/immutable/.test(r2.headers.get('cache-control') || ''), 'versão desconhecida: sem cache longo');
 
-  // deploy que muda um módulo folha (o mais importado por um só)
-  const leaf = 'changelog.js', oldLeaf = await (await fetch(`${BASE}/${leaf}?v=${a.urls.get(leaf)}`)).text();
+  // deploy que muda um módulo folha. Quem importa um módulo (direto ou por outro) tem o texto mudado (o import aponta para
+  // o endereço novo), então troca de versão também: escolhe pelo grafo de imports de public/ (estáticos e dinâmicos) um
+  // módulo da página com poucos dependentes e confere que muda exatamente ele, quem o importa e o app.js (versão geral).
+  const files = fs.readdirSync(PUB).filter(f => f.endsWith('.js'));
+  const rev = new Map(files.map(f => [f, []]));
+  for (const f of files) for (const m of fs.readFileSync(path.join(PUB, f), 'utf8').matchAll(/(?:from|import)\s*\(?\s*["']\.\/([\w.-]+\.js)["']/g)) if (rev.has(m[1]) && m[1] !== f) rev.get(m[1]).push(f);
+  const upOf = (s) => { const v = new Set([s]), st = [s]; while (st.length) for (const x of rev.get(st.pop())) if (!v.has(x)) { v.add(x); st.push(x); } return v; };
+  const cands = [...a.urls.keys()].filter(f => f.endsWith('.js') && f !== 'app.js' && rev.get(f)?.length).map(f => [f, upOf(f)]).sort((x, y) => x[1].size - y[1].size || (x[0] < y[0] ? -1 : 1));
+  const [leaf, up] = cands.find(([, u]) => u.size >= 3) || cands[0];
+  const expect = new Set([...up, 'app.js'].filter(f => a.urls.has(f)));
+  const oldLeaf = await (await fetch(`${BASE}/${leaf}?v=${a.urls.get(leaf)}`)).text();
   fs.appendFileSync(path.join(PUB, leaf), '\n// versão nova (teste)\n');
   srv.kill('SIGHUP');
   ok(await until(async () => (await page()).ui !== a.ui), 'SIGHUP: versão geral nova');
@@ -51,7 +60,8 @@ try {
   const changed = [...a.urls].filter(([f, v]) => b.urls.get(f) !== v).map(([f]) => f);
   const total = a.urls.size;
   ok(changed.includes(leaf) && changed.includes('app.js'), 'o módulo mudado e o app.js trocam de versão', changed);
-  ok(changed.length < total / 3, `só o que mudou e quem o importa trocam de endereço (${changed.length} de ${total})`, changed);
+  const extra = changed.filter(f => !expect.has(f)), miss = [...expect].filter(f => !changed.includes(f));
+  ok(!extra.length && !miss.length && changed.length < total / 3, `só o que mudou (${leaf}) e quem o importa trocam de endereço (${changed.length} de ${total})`, { extra, miss });
   ok(!changed.some(f => f.endsWith('.css')), 'CSS não mexido continua com o mesmo endereço');
   const rOld = await fetch(`${BASE}/${leaf}?v=${a.urls.get(leaf)}`);
   ok(rOld.status === 200 && /immutable/.test(rOld.headers.get('cache-control') || '') && await rOld.text() === oldLeaf, 'versão anterior do arquivo mudado continua servida igual');
