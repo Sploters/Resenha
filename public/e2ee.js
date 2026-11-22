@@ -236,13 +236,25 @@ export function openFile(a) {
       const data = new Uint8Array(await r.arrayBuffer()), key = await subtle.importKey('raw', unb64(m.k), 'AES-GCM', false, ['decrypt']);
       const step = m.c + 16, n = Math.max(1, Math.ceil(data.length / step)), parts = [];
       for (let i = 0; i < n; i++) parts.push(await subtle.decrypt({ name: 'AES-GCM', iv: chunkIv(unb64(m.iv), i), additionalData: enc.encode(`${i}|${i === n - 1 ? 1 : 0}`) }, key, data.subarray(i * step, (i + 1) * step)));
-      const u = URL.createObjectURL(new Blob(parts, { type: m.type || 'application/octet-stream' }));
-      p.done = u; return u;
+      const blob = new Blob(parts, { type: m.type || 'application/octet-stream' }), u = URL.createObjectURL(blob);
+      p.done = u; p.size = blob.size; trimOpened(); return u;
     })();
     p.catch(() => opened.delete(m.url));
     opened.set(m.url, p);
   }
-  return opened.get(m.url);
+  const p = opened.get(m.url); opened.delete(m.url); opened.set(m.url, p); // usado agora: vai para o fim da fila
+  return p;
+}
+// cada arquivo aberto ficava decifrado na memória até fechar o app (horas numa conversa cheia de fotos e vídeos: centenas de
+// MB). Passando de OPENED_MAX arquivos ou OPENED_BYTES, os usados há mais tempo são soltos (voltar a eles decifra de novo)
+const OPENED_MAX = 150, OPENED_BYTES = 300 << 20;
+function trimOpened() {
+  let n = 0, bytes = 0; for (const p of opened.values()) if (p.done) { n++; bytes += p.size || 0; }
+  for (const [k, p] of opened) {
+    if (n <= OPENED_MAX && bytes <= OPENED_BYTES) break;
+    if (!p.done) continue;
+    opened.delete(k); URL.revokeObjectURL(p.done); n--; bytes -= p.size || 0;
+  }
 }
 
 // chave da chamada de voz/vídeo da conversa (mesma troca de chaves, outro rótulo): os dois lados chegam à mesma chave

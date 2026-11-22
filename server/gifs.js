@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pruneHits } from './limits.js';
 
 // categorias da tela inicial do seletor (como no Discord): cada uma é uma busca pronta, com um GIF de capa
 export const GIF_CATS = ['feliz', 'triste', 'rindo', 'uau', 'amor', 'abraço', 'obrigado', 'parabéns', 'aplausos', 'dançando', 'oi', 'tchau',
@@ -61,7 +62,7 @@ export function mountGifs(app, d) {
   const prov = provs[0] || null; // padrão: KLIPY se houver, senão GIPHY
   if (provs.length) console.log(`  GIFs: ${provs.map(p => p.label).join(' + ')}`);
   const cache = new Map(); // url -> { t, data }
-  const hits = new Map(); // uid -> [tempos] (limite por pessoa)
+  const hits = new Map(); pruneHits(hits, 60e3); // uid -> [tempos] (limite por pessoa)
   const limited = (uid) => { const now = Date.now(), a = (hits.get(uid) || []).filter(t => now - t < 60000); a.push(now); hits.set(uid, a); return a.length > 40; };
 
   async function fetchFrom(pv, kind, q, page, uid) {

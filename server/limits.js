@@ -52,3 +52,11 @@ export function createLimits({ get }) {
     return n('SELECT COUNT(*) n FROM channels WHERE parent_id=? AND type<>11', parent) >= LIMITS.perCategory ? `Limite de ${LIMITS.perCategory} canais por categoria` : null;
   }
 }
+
+// Contadores por pessoa em memória (`Map<chave, [instantes]>`, ex.: buscas de GIF por minuto): cada um só era limpo quando a
+// mesma pessoa voltava a pedir, então ficava uma entrada por pessoa que já usou, para sempre. Varre de tempos em tempos e
+// tira quem não pediu nada dentro da janela `ms`.
+export function pruneHits(map, ms, every = Math.max(60e3, ms)) {
+  const t = setInterval(() => { const old = Date.now() - ms; for (const [k, a] of map) if (!a.length || a[a.length - 1] < old) map.delete(k); }, every);
+  t.unref?.(); return t;
+}

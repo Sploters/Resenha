@@ -1,10 +1,11 @@
 // Rotas da tradução de mensagens (o motor fica em server/translate.js).
 import { translate, translateEnabled, engineName } from '../translate.js';
+import { pruneHits } from '../limits.js';
 
 export function mountTranslate(app, d) {
   const { auth, wrap, bad } = d;
   // Tradução
-  const trRate = new Map();
+  const trRate = new Map(); pruneHits(trRate, 60e3);
   app.get('/api/translate/info', auth, (req, res) => res.json({ enabled: translateEnabled, engine: engineName }));
   app.post('/api/translate', auth, wrap(async (req, res) => {
     if (!translateEnabled) return bad(res, 'Tradução desativada neste servidor', 403);
