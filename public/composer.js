@@ -49,7 +49,7 @@ export function composer(ch, label) {
     if (txt.length <= room) return;
     if (ch.guild_id && !chCan(ch, CH.ATTACH)) { toast(`O texto colado tem ${txt.length.toLocaleString('pt-BR')} caracteres e o limite é ${MSG_MAX}: entrou só o começo.`, true); setTimeout(count); return; }
     e.preventDefault(); addFile(new File([txt], 'mensagem.txt', { type: 'text/plain' }));
-    toast(`Texto longo demais para uma mensagem (${txt.length.toLocaleString('pt-BR')} de ${MSG_MAX} caracteres): ele vai anexado como mensagem.txt`);
+    toast(`Texto longo demais para uma mensagem (${txt.length.toLocaleString('pt-BR')} de ${MSG_MAX.toLocaleString('pt-BR')} caracteres): ele vai anexado como mensagem.txt`);
   });
   ta.addEventListener('keydown', (e) => {
     const ac = $('.ac');

@@ -4,7 +4,7 @@ import { S, api, tryApi } from './state.js';
 import { inviteFrom, acceptInvite, declineInvite } from './callinvite.js';
 import { styleName } from './themes.js';
 import { STATUS_TXT } from './card.js';
-import { activityPanel, refreshFeedView, activityOf, gameIcon, titleEl, friendRoom, myVoiceRoom, enterRoom } from './activity.js';
+import { activityPanel, refreshFeedView, activityOf, gameIcon, titleEl, gameTitle, friendRoom, myVoiceRoom, enterRoom } from './activity.js';
 import { chName } from './chnames.js';
 import { viewTransition, stagger } from './motion.js';
 import { $ } from './gateway.js';
@@ -66,7 +66,7 @@ export function renderHome(main) {
     const inv = r.type === 1 && inviteFrom(u.id); // chamou você para a sala dele (convite ainda valendo)
     // o que o amigo está fazendo agora, como no Discord ("Jogando X"), e a sala em que está, com Entrar (servidor, não DM)
     const a = r.type === 1 && activityOf(u.id), room = r.type === 1 && friendRoom(u.id), join = !inv && room?.g && myVoiceRoom() !== room.ch.id;
-    const live = (a || room) && h('span.f-live', a && h('span.f-play', gameIcon(a, 16), 'Jogando ', titleEl(a, 'b')),
+    const live = (a || room) && h('span.f-live', a && h('span.f-play', { title: 'Jogando ' + gameTitle(a) }, gameIcon(a, 16), 'Jogando ', titleEl(a, 'b')),
       room && h('span.f-room' + (a ? '' : '.solo'), icon('voice', 14), h('span', room.g ? `${chName(room.ch)} · ${room.g.name}` : 'Em uma ligação privada')));
     pane.append(h('div.frow' + (r.type === 3 ? '.req' : inv ? '.inv' : ''), { onclick: () => openDM(u.id), oncontextmenu: (e) => userMenu(e, u.id) }, avatar(u, 36, { ring: 'var(--bg-pri)' }),
       h('div.fn', h('div.fn-top', styleName(h('b', u.display_name), u.name_style), r.type === 3 && h('span.ftag.req', icon('users', 12), 'Pedido de amizade'),

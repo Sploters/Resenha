@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-22-1', title: 'Amigos jogando, busca rápida e aviso de mudo',
+    items: [
+      { i: 'users', t: 'O que cada amigo está jogando', d: 'A lista de Amigos mostra o jogo e a sala de voz de cada um, com Entrar. E quando um amigo abre o mesmo jogo que você, aparece um aviso para entrar na sala dele ou chamá-lo para a sua (dá para desligar em Configurações → Contas vinculadas).' },
+      { i: 'mic', t: 'Avisa quando você fala mutado', d: 'Falou com o microfone mutado? Aparece "Você está mutado" em cima do botão, com Desmutar. E se o microfone parar no meio da chamada, você vê que ele está religando, quando voltou ou, se não voltar, um botão para tentar de novo.' },
+      { i: 'search', t: 'Busca rápida melhor (Ctrl+K)', d: 'Setas para escolher e Enter para abrir; o que tem menção ou não lida aparece primeiro; # texto, ! voz, @ pessoas, * servidores; acha sem acento. Texto colado grande demais vai como arquivo em vez de ser cortado.' }
+    ],
+  },
+  {
     id: '2026-11-21-5', title: 'Sua voz não some mais no meio da chamada',
     items: [
       { i: 'mic', t: 'Microfone se recupera sozinho', d: 'Quando o Windows ou o driver reinicia o microfone no meio da chamada (outro programa ou jogo pegou o dispositivo, o USB economizou energia, o fone trocou de modo), a sua voz parava de sair até você sair e entrar na sala. Agora a Resenha percebe em poucos segundos e liga o microfone de novo, sem tirar você da chamada.' },
