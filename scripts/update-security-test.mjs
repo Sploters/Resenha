@@ -3,6 +3,8 @@
 // 2) instalador adulterado (1 byte diferente) → recusado
 // 3) sem assinatura → recusado
 // 4) endereço de download http:// → recusado
+// 4b) servidor manda mais bytes que o tamanho assinado → download cortado na hora, .part apagado
+// 4c) nome de arquivo com caminho (../) → nem baixa
 // 5) o certificado do servidor muda → a página não carrega e a tela de conexão avisa
 // Precisa da chave privada das atualizações (DESKTOP_UPDATE_KEY, ou o arquivo em UPDATE_KEY_FILE); sem ela o teste é pulado.
 // Uso: node scripts/update-security-test.mjs
@@ -12,6 +14,7 @@ import fs from 'node:fs';
 import https from 'node:https';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const electronPath = require('../desktop/node_modules/electron');
@@ -32,10 +35,11 @@ const handler = (req, res) => {
   if (req.url === '/api/server-info') return res.end(JSON.stringify({ name: 'Teste' }));
   if (req.url === '/api/desktop/update') {
     res.setHeader('Content-Type', 'application/json');
+    if (mode === 'badname') return res.end(JSON.stringify({ version: V, name: '..\\..\\' + NAME, url: `/desktop/download/${NAME}`, signature: sign(body) }));
     const url = mode === 'http' ? `http://127.0.0.1:3299/${NAME}` : `/desktop/download/${NAME}`;
     return res.end(JSON.stringify({ version: V, name: NAME, size: body.length, url, signature: mode === 'nosig' ? null : sign(body) }));
   }
-  if (req.url.startsWith('/desktop/download/')) { const b = Buffer.from(body); if (mode === 'tamper') b[100] ^= 1; return res.end(b); }
+  if (req.url.startsWith('/desktop/download/')) { const b = Buffer.from(body); if (mode === 'tamper') b[100] ^= 1; if (mode === 'big') return res.end(Buffer.concat([b, crypto.randomBytes(300000)])); return res.end(b); }
   res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>Resenha</title><h1 id=ok>servidor</h1>');
 };
 let srv = https.createServer(tls1, handler).listen(3298);
@@ -73,6 +77,17 @@ try {
   p2 = await findPage(browser, u => u.startsWith('https://localhost:3298'));
   r = await p2.evaluate(() => window.lcDesktop.checkUpdate());
   ok(r && !r.ready, 'download por http://: recusado'); ok(/só por HTTPS/.test(mainLog()), 'log diz "só por HTTPS"');
+  app.kill(); await browser.disconnect().catch(() => { }); await sleep(1500);
+  mode = 'big'; app = start(); browser = await connect();
+  p2 = await findPage(browser, u => u.startsWith('https://localhost:3298'));
+  r = await p2.evaluate(() => window.lcDesktop.checkUpdate());
+  ok(r && !r.ready, 'download maior que o tamanho assinado: recusado'); ok(/maior que o esperado/.test(mainLog()), 'log diz "maior que o esperado"');
+  ok(!fs.readdirSync(os.tmpdir()).some(f => f === NAME + '.part'), 'download recusado não deixa .part na pasta temporária');
+  app.kill(); await browser.disconnect().catch(() => { }); await sleep(1500);
+  mode = 'badname'; app = start(); browser = await connect();
+  p2 = await findPage(browser, u => u.startsWith('https://localhost:3298'));
+  r = await p2.evaluate(() => window.lcDesktop.checkUpdate());
+  ok(!r, 'nome de arquivo com caminho: nem é oferecido'); ok(/nome de arquivo inesperado/.test(mainLog()), 'log diz "nome de arquivo inesperado"');
   app.kill(); await browser.disconnect().catch(() => { }); await sleep(1500);
   mode = 'good'; app = start(); browser = await connect();
   p2 = await findPage(browser, u => u.startsWith('https://localhost:3298'));

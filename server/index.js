@@ -542,7 +542,7 @@ mountFiles(app, { ...core, thumbs, clipKeys }); // /files e miniaturas de vídeo
 const { natives, endNative, startNative, nativeOut, adoptNative } = mountNativeScreen(app, core); // transmissão nativa (server/routes/nativescreen.js)
 
 // saúde do servidor (server/health.js): CPU, memória, disco, rede, workers do SFU, pessoas e chamadas, erros e alertas
-mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id === uid, dataDir: DATA_DIR,
+mountHealth(app, { auth, wrap: wrapA, bad, isAdmin: (uid) => reportAdmin()?.id === uid, dataDir: DATA_DIR, uiVersion: () => ui?.version,
   sfu: { workers: sfuWorkers, load: sfuLoad, events: sfuEvents, onEvent: onSfuEvent },
   appStats: () => {
     let connections = 0, calls = 0, inCalls = 0, screens = 0, cams = 0;

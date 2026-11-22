@@ -508,7 +508,8 @@ ipcMain.handle('app-metrics', () => app.getAppMetrics().map(m => ({ type: m.type
 ipcMain.handle('cache-info', async () => ({ http: await session.defaultSession.getCacheSize(), limitMB: +cfg.cacheLimitMB || 0 }));
 ipcMain.handle('relaunch', () => {
   quitting = true;
-  if (update?.file && !updating && !portable) { updating = true; runInstaller(update.file, true); app.exit(0); return true; } // reabre já atualizado
+  // reabre já atualizado; se o instalador não abrir (ou não conferir mais), reabre a versão atual em vez de só fechar
+  if (update?.file && !updating && !portable) { updating = true; if (runInstaller(update.file, true)) { app.exit(0); return true; } updating = false; }
   app.relaunch(); app.exit(0); return true;
 });
 ipcMain.handle('change-server', () => { showConnect(); return true; });
@@ -545,11 +546,16 @@ function httpsGet(url, opts, onRes) {
   const req = https.get(url, opts, onRes);
   return fromServer(url) ? guardTls(req, serverHost()) : req;
 }
-const getJson = (url) => new Promise((resolve) => {
+// segue até 5 redirecionamentos (o .sig de uma release do GitHub responde 302 para outro endereço; antes vinha null e a
+// atualização direto do GitHub era sempre recusada "sem assinatura"), cada um também só por HTTPS. Resposta grande demais,
+// conexão fechada ou tempo esgotado: null (antes o pedido podia ficar pendurado e travar as buscas seguintes)
+const getJson = (url, hops = 5) => new Promise((resolve) => {
   try {
     httpsGet(url, reqOpts(url, 'application/json'), (res) => {
-      let b = ''; res.on('data', d => { b += d; if (b.length > 1e6) res.destroy(); }); res.on('end', () => { try { resolve(res.statusCode === 200 ? JSON.parse(b) : null); } catch { resolve(null); } });
-    }).on('error', (e) => { log('atualização: pedido falhou', String(url).slice(0, 120), e.message); resolve(null); }).on('timeout', function () { this.destroy(); });
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops > 0) { res.resume(); return resolve(getJson(new URL(res.headers.location, url).href, hops - 1)); }
+      let b = ''; res.on('data', d => { b += d; if (b.length > 1e6) { res.destroy(); resolve(null); } }); res.on('end', () => { try { resolve(res.statusCode === 200 ? JSON.parse(b) : null); } catch { resolve(null); } });
+      res.on('close', () => resolve(null)); res.on('aborted', () => resolve(null));
+    }).on('error', (e) => { log('atualização: pedido falhou', String(url).slice(0, 120), e.message); resolve(null); }).on('timeout', function () { this.destroy(new Error('tempo esgotado')); }).on('close', () => resolve(null));
   } catch (e) { log('atualização:', e.message); resolve(null); }
 });
 const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
@@ -572,7 +578,8 @@ async function doCheckUpdate() {
   }
   if (found && !/^\d+\.\d+\.\d+$/.test(found.version)) return;
   // o nome do arquivo vem de fora: só o formato esperado (vai para a pasta temporária e é executado)
-  if (found && !/^Resenha-Setup-[\d.]+\.exe$/i.test(found.name)) { log('atualização: nome de arquivo inesperado', found.name); return; }
+  // e tem de ser o desta versão (Resenha-Setup-<versão>.exe): sem barra, "..", nem outro nome
+  if (found && found.name !== `Resenha-Setup-${found.version}.exe`) { log('atualização: nome de arquivo inesperado', String(found.name).slice(0, 80)); return; }
   if (!found || !newer(found.version, app.getVersion())) return;
   if (update?.version === found.version) return; // já encontrada (e baixada ou baixando)
   update = found;
@@ -593,12 +600,15 @@ function prepareUpdate() {
     let last = -1;
     const signature = u.signature || (u.sigUrl ? await getJson(u.sigUrl) : null);
     if (!signature) throw new Error('atualização sem assinatura: recusada');
-    await download(u.url, part, 5, (got, size) => { const pct = size ? Math.floor(got * 100 / size) : -1; if (pct !== last) { last = pct; win?.webContents.send('update-progress', { version: u.version, pct, got, size }); } });
+    // o tamanho assinado limita o download (servidor mandando mais que isso: corta na hora, sem encher o disco)
+    const max = +signature.size;
+    if (!(max > 0 && max <= MAX_UPDATE)) throw new Error('assinatura com tamanho inválido: recusada');
+    await download(u.url, part, 5, (got, size) => { const pct = size ? Math.floor(got * 100 / size) : -1; if (pct !== last) { last = pct; win?.webContents.send('update-progress', { version: u.version, pct, got, size }); } }, max);
     // só vira "instalador pronto" se a assinatura conferir (nome, versão, tamanho e SHA-256 do que foi baixado)
     const sha256 = await new Promise((ok, no) => { const h = crypto.createHash('sha256'); fs.createReadStream(part).on('data', c => h.update(c)).on('end', () => ok(h.digest('hex'))).on('error', no); });
     const bad = verifyUpdate(signature, { name: u.name, version: u.version, size: fs.statSync(part).size, sha256 });
     if (bad) { fs.rmSync(part, { force: true }); log('ATUALIZAÇÃO RECUSADA', u.version, bad); throw new Error(bad); }
-    fs.renameSync(part, file); u.file = file; log('atualização baixada e assinatura conferida', u.version, sha256);
+    fs.renameSync(part, file); u.file = file; u.sha256 = sha256; log('atualização baixada e assinatura conferida', u.version, sha256);
     // anotada para a próxima abertura: o app instala antes de mostrar a janela e já abre na versão nova
     if (!portable) { cfg.readyUpdate = { version: u.version, name: u.name, file, sha256, signature, tries: 0 }; saveCfg(); }
     return file;
@@ -616,6 +626,17 @@ const portable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 // A versão pedida fica anotada (cfg.pendingUpdate): se o app abrir de novo na versão velha, a página avisa que não deu.
 // quiet: acompanha o instalador sem mostrar a janelinha (abertura escondida)
 function runInstaller(file, reopen, quiet = false) {
+  // TOCTOU: o instalador fica na pasta temporária desde o download (às vezes horas). Confere de novo, logo antes de rodar,
+  // que é o MESMO arquivo conferido com a assinatura; trocado ou apagado: não roda (e o app continua aberto)
+  if (update?.sha256) {
+    let h = null; try { h = updReady.sha256File(file); } catch { h = null; }
+    if (h !== update.sha256) {
+      log('ATUALIZAÇÃO RECUSADA', update.version, 'o instalador mudou depois de conferido', file);
+      update.file = null; update.downloading = null;
+      if (cfg.readyUpdate?.file === file) { delete cfg.readyUpdate; saveCfg(); }
+      return false;
+    }
+  }
   const args = portable ? [] : ['/S', '--updated', ...(reopen ? ['--force-run'] : [])];
   log('instalando atualização', update?.version, args.join(' '), file);
   if (!portable && update?.version) { cfg.pendingUpdate = { version: update.version, at: Date.now() }; saveCfg(); }
@@ -640,22 +661,30 @@ if (cfg.pendingUpdate) {
   log(ok ? 'atualização instalada' : 'ATUALIZAÇÃO NÃO INSTALOU', 'pedida', pu.version, 'aberta', app.getVersion(), tail ? '| ' + tail : '');
   if (!ok && Date.now() - pu.at < 3 * 3600e3) updateFailed = { version: pu.version };
 }
-function download(url, dest, redirects = 5, onProgress) {
+// max: tamanho máximo (o da assinatura, no instalador); MAX_UPDATE_MS: tempo total (o timeout do pedido só pega conexão
+// parada, não um servidor mandando 1 byte por minuto)
+const MAX_UPDATE = 512 * 2 ** 20, MAX_UPDATE_MS = 30 * 60e3;
+function download(url, dest, redirects = 5, onProgress, max = MAX_UPDATE, deadline = Date.now() + MAX_UPDATE_MS) {
   return new Promise((resolve, reject) => {
     // falhou com o arquivo aberto: fecha e apaga (no Windows o .part aberto não deixava a próxima tentativa apagar/renomear)
-    let f = null;
-    const fail = (e) => { if (f) { f.destroy(); fs.rm(dest, { force: true }, () => { }); } reject(e); };
-    httpsGet(url, { ...reqOpts(url, 'application/octet-stream'), timeout: 60000 }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) { res.resume(); return resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1, onProgress)); }
-      if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
-      // download interrompido não pode virar "instalador pronto": confere o tamanho anunciado
-      const size = +res.headers['content-length'] || 0;
-      f = fs.createWriteStream(dest); res.pipe(f); f.on('error', fail);
-      if (onProgress) { let got = 0; res.on('data', (c) => { got += c.length; onProgress(got, size); }); }
-      // conexão caiu no meio: sem isso o download nunca terminava nem falhava
-      res.on('aborted', () => fail(new Error('download interrompido'))); res.on('error', fail);
-      f.on('finish', () => f.close(() => { const got = fs.statSync(dest).size; if (size && got !== size) reject(new Error(`download incompleto (${got} de ${size} bytes)`)); else resolve(); }));
-    }).on('error', fail).on('timeout', function () { this.destroy(new Error('tempo esgotado')); });
+    let f = null, req = null, done = false;
+    const timer = setTimeout(() => fail(new Error('tempo esgotado (download)')), Math.max(1000, deadline - Date.now()));
+    const end = (fn, v) => { if (done) return; done = true; clearTimeout(timer); fn(v); };
+    const fail = (e) => { if (done) return; req?.destroy(); if (f) { f.destroy(); } fs.rm(dest, { force: true }, () => { }); end(reject, e); };
+    try {
+      req = httpsGet(url, { ...reqOpts(url, 'application/octet-stream'), timeout: 60000 }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) { res.resume(); clearTimeout(timer); done = true; return resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1, onProgress, max, deadline)); }
+        if (res.statusCode !== 200) { res.resume(); return fail(new Error('HTTP ' + res.statusCode)); }
+        // download interrompido não pode virar "instalador pronto": confere o tamanho anunciado
+        const size = +res.headers['content-length'] || 0;
+        if (size > max) { res.resume(); return fail(new Error(`download maior que o esperado (${size} bytes)`)); }
+        f = fs.createWriteStream(dest); res.pipe(f); f.on('error', fail);
+        let got = 0; res.on('data', (c) => { got += c.length; if (got > max) return fail(new Error('download maior que o esperado')); onProgress?.(got, size); });
+        // conexão caiu no meio: sem isso o download nunca terminava nem falhava
+        res.on('aborted', () => fail(new Error('download interrompido'))); res.on('error', fail);
+        f.on('finish', () => f.close(() => { if (done) return; let n = -1; try { n = fs.statSync(dest).size; } catch { } if ((size && n !== size) || n !== got) fail(new Error(`download incompleto (${n} de ${size || got} bytes)`)); else end(resolve); }));
+      }).on('error', fail).on('timeout', function () { this.destroy(new Error('tempo esgotado')); });
+    } catch (e) { fail(e); }
   });
 }
 ipcMain.handle('get-update', () => update && { version: update.version, ready: !!update.file });
@@ -731,7 +760,7 @@ function installReadyOnStart() {
   let file = null; try { file = updReady.checkReady(r, verifyUpdate); } catch (e) { log('conferir a atualização baixada falhou', e.message); }
   if (!file) { log('atualização anotada não confere mais (apagada ou trocada): descartada', r.version); delete cfg.readyUpdate; saveCfg(); return false; }
   r.tries = (r.tries || 0) + 1; saveCfg();
-  update = { version: r.version, name: r.name, file }; updating = true;
+  update = { version: r.version, name: r.name, file }; updating = true; // checkReady acabou de conferir o hash
   // abertura escondida: a versão nova também abre escondida, e sem a janelinha "Atualizando…" na tela
   const quiet = isStartHidden(); if (quiet) { updReady.markHidden(cfg, Date.now()); saveCfg(); }
   log('abertura com a versão', r.version, 'já baixada: instalando antes de abrir (tentativa', r.tries + ')' + (quiet ? ', escondida' : ''));

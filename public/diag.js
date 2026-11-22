@@ -31,6 +31,18 @@ async function collect() {
   };
 }
 
+// pacote de diagnóstico do SERVIDOR (só o administrador; GET /api/health/diag, server/health.js): versões, tempo no ar,
+// saúde de agora, workers do SFU, alertas, erros e o log recente, com senhas, tokens e o fim dos IPs já escondidos pelo
+// servidor. Junta o relatório desta página (sem a descrição) e baixa um .json para mandar a quem vai investigar.
+export async function downloadServerDiag() {
+  const server = await api('GET', '/health/diag');
+  const page = await collect().catch(() => null);
+  const blob = new Blob([JSON.stringify({ ...server, pagina: page }, null, 2)], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: `diagnostico-resenha-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json` });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return server;
+}
+
 export async function openReport(prefill = '') {
   const text = h('textarea', { name: 'report-text', rows: 4, maxLength: 2000, placeholder: 'Ex.: entrei na call e não aparecia a tela do Fulano; só aparecia quando eu passava o mouse.', value: prefill });
   const tech = h('input', { type: 'checkbox', name: 'report-tech', checked: true });

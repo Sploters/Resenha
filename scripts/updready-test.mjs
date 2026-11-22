@@ -24,6 +24,7 @@ ok(checkReady(r, verify) === file, 'instalador anotado íntegro: pronto para ins
 ok(checkReady({ ...r, signature: { ...sig, sig: 'ruim' } }, verify) === null, 'assinatura recusada: não instala');
 ok(checkReady({ ...r, file: path.join(dir, 'sumiu.exe') }, verify) === null, 'arquivo apagado (limpeza da pasta temporária): não instala');
 ok(checkReady({ ...r, signature: undefined }, verify) === null, 'anotação sem assinatura: não instala');
+{ const other = path.join(dir, 'outro.exe'); fs.copyFileSync(file, other); ok(checkReady({ ...r, file: other }, verify) === null, 'anotação apontando para outro arquivo (config.json mexido): não instala'); }
 fs.appendFileSync(file, 'x');
 ok(checkReady(r, verify) === null, 'arquivo trocado depois de conferido: não instala');
 fs.truncateSync(file, sig.size);

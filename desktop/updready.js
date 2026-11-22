@@ -5,6 +5,7 @@
 // reinstalações) e fica o caminho de antes ("Reiniciar agora" e a instalação ao sair).
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const path = require('node:path');
 
 const MAX_TRIES = 2;
 
@@ -18,6 +19,8 @@ function sha256File(file) {
 // inválida). verify = updatekey.verifyUpdate (devolve o motivo da recusa, ou null se confere)
 function checkReady(r, verify) {
   if (!r || !r.file || !r.version || !r.name || !r.signature || !r.sha256) return null;
+  // a anotação vem do config.json (fora do app): só o arquivo com o nome assinado, nunca outro caminho qualquer
+  if (typeof r.file !== 'string' || path.basename(r.file) !== r.name || !/^Resenha-Setup-\d+\.\d+\.\d+\.exe$/i.test(r.name)) return null;
   let size; try { size = fs.statSync(r.file).size; } catch { return null; }
   const sha256 = sha256File(r.file);
   if (sha256 !== r.sha256) return null;

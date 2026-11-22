@@ -15,6 +15,7 @@ const message = ({ name, version, size, sha256 }) => `Resenha-update-v1\n${name}
 function verifyUpdate(s, expect) {
   if (!s || typeof s !== 'object' || typeof s.sig !== 'string') return 'atualização sem assinatura';
   if (s.name !== expect.name || s.version !== expect.version) return 'assinatura de outro arquivo ou versão';
+  if (!/^\d+\.\d+\.\d+$/.test(String(s.version)) || !(+s.size > 0) || !/^[0-9a-f]{64}$/i.test(String(s.sha256))) return 'assinatura malformada';
   if (+s.size !== expect.size || String(s.sha256).toLowerCase() !== expect.sha256) return 'arquivo baixado não confere com a assinatura';
   let ok = false;
   try { ok = crypto.verify(null, Buffer.from(message(s)), crypto.createPublicKey(PUBLIC_KEY), Buffer.from(s.sig, 'base64')); } catch { ok = false; }

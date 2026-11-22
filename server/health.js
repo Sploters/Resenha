@@ -11,10 +11,15 @@
 //   alerta em 85%), worker do SFU morto ou perto de 100% de um núcleo, e muitos erros (20 em 5 min).
 // - GET /api/health (só o administrador da instalação) devolve tudo; GET /healthz (público, sem números) responde 200 se
 //   está tudo de pé ou 503 se não, para um monitor de fora (UptimeRobot, Uptime Kuma) avisar quando o servidor cair.
+// - GET /api/health/diag (só o administrador) devolve o pacote de diagnóstico para baixar em .json (public/health.js):
+//   versões, tempo no ar, a amostra de agora, workers e eventos do SFU, alertas, erros e o log recente (server/log.js),
+//   tudo com senhas, tokens, cookies e o fim dos IPs escondidos (redact), para poder mandar para alguém investigar.
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { sendAlert, recentAlerts } from './alerts.js';
+import { captureConsole, recentLogs, redact, redactText } from './log.js';
 
 const SAMPLE_MS = +(process.env.HEALTH_SAMPLE_MS || 30e3), KEEP = Math.round(24 * 3600e3 / SAMPLE_MS);
 const env = (k, d) => (process.env[k] != null && process.env[k] !== '' ? +process.env[k] : d);
@@ -44,14 +49,27 @@ function netBytes() {
 }
 function diskInfo(dir) { try { const s = fs.statfsSync(dir); return { total: s.blocks * s.bsize, free: s.bavail * s.bsize }; } catch { return null; } }
 
-export function mountHealth(app, { auth, wrap, bad, isAdmin, dataDir, appStats, sfu }) {
+// versão de um pacote (package.json), para o diagnóstico
+// (pelo arquivo principal, subindo até o package.json dele: alguns pacotes não exportam o package.json)
+const pkgVersion = (name) => {
+  try {
+    let d = path.dirname(createRequire(import.meta.url).resolve(name));
+    for (let i = 0; i < 5; i++, d = path.dirname(d)) { const f = path.join(d, 'package.json'); if (fs.existsSync(f)) { const j = JSON.parse(fs.readFileSync(f, 'utf8')); if (j.name === name) return j.version; } }
+  } catch { }
+  return null;
+};
+const serverVersion = () => { try { return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return null; } };
+
+export function mountHealth(app, { auth, wrap, bad, isAdmin, dataDir, appStats, sfu, uiVersion = () => null }) {
+  captureConsole(); // o log recente (server/log.js) junta o console do servidor inteiro
   // ---- erros do servidor ----
   const errors = [], errLog = path.join(dataDir, 'errors.log');
   const origError = console.error.bind(console);
   console.error = (...a) => {
     origError(...a);
     try {
-      const text = a.map(x => x instanceof Error ? (x.stack || x.message) : typeof x === 'string' ? x : JSON.stringify(x)).join(' ').slice(0, 2000);
+      // sem token/senha/cookie no errors.log e no painel (redactText)
+      const text = redactText(a.map(x => x instanceof Error ? (x.stack || x.message) : typeof x === 'string' ? x : JSON.stringify(x)).join(' ')).slice(0, 2000);
       if (/^\(node:\d+\) \w*Warning/.test(text)) return; // aviso do próprio Node (ex.: SQLite experimental), não é erro
       errors.push({ at: Date.now(), text: text.slice(0, 400) }); if (errors.length > 100) errors.shift();
       try { if (fs.statSync(errLog).size > 5 * 2 ** 20) fs.renameSync(errLog, errLog + '.1'); } catch { }
@@ -125,6 +143,26 @@ export function mountHealth(app, { auth, wrap, bad, isAdmin, dataDir, appStats, 
     let events = []; try { events = sfu.events(); } catch { }
     res.json({ now, history: hist, sample_ms: SAMPLE_MS, limits: LIM, traffic: { ...traffic }, alerts: recentAlerts().slice(-30), errors: errors.slice(-50).reverse(), sfu_events: events.slice(-20).reverse(),
       uptime_min: Math.round(process.uptime() / 60), node: process.version, host: { platform: `${os.type()} ${os.release()}`, cores: os.cpus().length, cpu: os.cpus()[0]?.model } });
+  }));
+  // pacote de diagnóstico para baixar (public/health.js): o mesmo do painel + versões e o log recente, sem segredos
+  app.get('/api/health/diag', auth, wrap(async (req, res) => {
+    if (!isAdmin(req.uid)) return bad(res, 'Só o administrador da instalação', 403);
+    const now = cur && Date.now() - cur.t < 5e3 ? cur : await sample().catch(() => cur);
+    let events = []; try { events = sfu.events(); } catch { }
+    let ui = null; try { ui = uiVersion(); } catch { }
+    // configuração: só QUAIS variáveis estão definidas (nunca o valor), menos as de sistema
+    const envSet = Object.keys(process.env).filter(k => /^(HEALTH_|SFU_|RTC_|ALERT_|CSP|HTTPS$|PORT$|DATA_DIR$|LOG_|DESKTOP_|VOICE_|CALL_|MAX_UPLOAD|OPEN_|GITHUB_TOKEN$)/.test(k)).sort();
+    const bundle = {
+      gerado: new Date().toISOString(), tipo: 'resenha-diagnostico-servidor', formato: 1,
+      versoes: { servidor: serverVersion(), interface: ui, node: process.version, mediasoup: pkgVersion('mediasoup'), express: pkgVersion('express') },
+      noAr: { processoMin: Math.round(process.uptime() / 60), sistemaMin: Math.round(os.uptime() / 60), pid: process.pid },
+      host: { platform: `${os.type()} ${os.release()}`, arch: os.arch(), cores: os.cpus().length, cpu: os.cpus()[0]?.model },
+      agora: now, limites: LIM, trafego: { ...traffic }, historico: hist.slice(-120),
+      sfu: { workers: now?.workers || [], eventos: events.slice(-50) },
+      alertas: recentAlerts(), erros: errors.slice(), log: recentLogs(), variaveis: envSet,
+    };
+    res.set('Cache-Control', 'no-store').set('Content-Disposition', `attachment; filename="diagnostico-resenha-${bundle.gerado.slice(0, 16).replace(/[:T]/g, '-')}.json"`);
+    res.json(redact(bundle, { ips: true }));
   }));
   // monitor de fora: só "está de pé ou não" (nada de números para quem não é administrador)
   app.get('/healthz', (req, res) => {

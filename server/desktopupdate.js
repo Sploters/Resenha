@@ -10,8 +10,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
+import { log } from './log.js';
 
-const SETUP = /^Resenha-Setup-[\d.]+\.exe$/i;
+const L = log('desktop-update');
+
+const SETUP = /^Resenha-Setup-\d+\.\d+\.\d+\.exe$/i;
+const MAX_SIZE = 512 * 2 ** 20, MAX_MS = 20 * 60e3; // instalador: no máximo 512 MB e 20 min para baixar do GitHub
 
 export function mountDesktopUpdate(app, dataDir) {
   const REPO = process.env.DESKTOP_REPO || 'Sploters/Resenha';
@@ -43,10 +47,11 @@ export function mountDesktopUpdate(app, dataDir) {
         let b = ''; for await (const c of r) { b += c; if (b.length > 8192) break; }
         if (r.statusCode === 200) try { signature = JSON.parse(b); } catch { }
       }
-      if (a && !signature) console.log(`  Atualização do app desktop: a release ${j.tag_name} não tem assinatura (${a.name}.sig); os apps novos vão recusá-la`);
+      if (a && !signature) L.warn(`a release ${j.tag_name} não tem assinatura (${a.name}.sig); os apps novos vão recusá-la`);
+      if (a && !(a.size > 0 && a.size <= MAX_SIZE)) throw new Error(`tamanho do instalador inválido (${a.size})`);
       cache = { at: Date.now(), rel: a ? { version: String(j.tag_name || '').replace(/^v/i, ''), id: a.id, name: a.name, size: a.size, signature } : null, err: '' };
     } catch (e) {
-      if (e.message !== cache.err) console.log(`  Atualização do app desktop: não consegui consultar o GitHub (${e.message})${token() ? '' : ' — sem chave: com o repositório privado, coloque github-token.txt na pasta de dados'}`);
+      if (e.message !== cache.err) L.warn(`não consegui consultar o GitHub (${e.message})${token() ? '' : ' — sem chave: com o repositório privado, coloque github-token.txt na pasta de dados'}`);
       cache = { at: Date.now() - 60e3, rel: cache.rel, err: e.message }; // tenta de novo em 1 min
     }
     return cache.rel;
@@ -67,7 +72,17 @@ export function mountDesktopUpdate(app, dataDir) {
       const res = await get(`https://api.github.com/repos/${REPO}/releases/assets/${r.id}`, 'application/octet-stream');
       if (res.statusCode !== 200) { res.resume(); throw new Error(`GitHub ${res.statusCode}`); }
       const tmp = file + '.part';
-      await new Promise((ok, no) => { const f = fs.createWriteStream(tmp); res.pipe(f); f.on('finish', ok); f.on('error', no); res.on('error', no); });
+      // baixa para .part e só renomeia com o tamanho certo (download cortado não vira instalador servido aos apps);
+      // tamanho e tempo limitados; falhou: apaga o .part
+      try {
+        await new Promise((ok, no) => {
+          const f = fs.createWriteStream(tmp); let got = 0;
+          const fail = (e) => { clearTimeout(t); res.destroy(); f.destroy(); no(e); }, t = setTimeout(() => fail(new Error('tempo esgotado')), MAX_MS);
+          res.on('data', (c) => { got += c.length; if (got > r.size || got > MAX_SIZE) fail(new Error('instalador maior que o anunciado')); });
+          res.pipe(f); f.on('finish', () => { clearTimeout(t); got === r.size ? ok() : no(new Error(`download incompleto (${got} de ${r.size} bytes)`)); });
+          f.on('error', fail); res.on('error', fail); res.on('aborted', () => fail(new Error('download interrompido')));
+        });
+      } catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
       fs.renameSync(tmp, file);
       for (const old of fs.readdirSync(dir)) if (old !== r.name && SETUP.test(old)) fs.unlink(path.join(dir, old), () => { }); // só o mais novo fica
       return file;
@@ -80,6 +95,6 @@ export function mountDesktopUpdate(app, dataDir) {
     try {
       const file = await fetchInstaller(r);
       res.set('Cache-Control', 'no-store'); res.download(file, r.name);
-    } catch (e) { console.log('  Atualização do app desktop: falha ao baixar o instalador', e.message); if (!res.headersSent) res.sendStatus(502); }
+    } catch (e) { L.warn('falha ao baixar o instalador', { erro: e.message }); if (!res.headersSent) res.sendStatus(502); }
   });
 }
