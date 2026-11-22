@@ -69,5 +69,15 @@ const count = (v, t, op) => v.sent.filter(m => m.t === t && (!op || m.d.op === o
   const e = await v.sfuReq('producers').then(() => null, (x) => x);
   ok(e && Date.now() - t0 < 100, 'sem conexão: pedido falha na hora', e?.message);
 }
+{ // 7) sem moderação (modDeaf undefined) e sem ensurdecer: syncVoiceFlow não pede 'levels'/'pause' em laço
+  const v = mk(); const ops = [];
+  v.sfuReq = async (op) => { ops.push(op); return []; };
+  v.sfu = { ready: true, consumers: new Map([['k1', { source: 'mic' }]]) };
+  v.syncVoiceFlow(); await sleep(50);
+  ok(ops.length === 0, 'sem ensurdecer: nenhum pedido levels/pause', ops.slice(0, 6));
+  v.deafened = true; v.syncVoiceFlow(); await sleep(50);
+  const n = ops.length; await sleep(100);
+  ok(n > 0 && ops.length === n && ops.includes('levels') && ops.includes('pause'), 'ensurdecer: pede levels e pausa uma vez, sem laço', ops);
+}
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

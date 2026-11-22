@@ -33,7 +33,19 @@ try {
   const pa = await open(a.token), pb = await open(b.token);
   const aid = await pa.evaluate(() => window.__lc.S.me.id);
   // Bob: a voz da Alice está chegando? (nível do último pacote recebido, como o medidor de "falando")
-  const hears = () => pb.evaluate((id) => { const x = window.__lc.voice.analysers.get(id); const s = x?.rx?.getSynchronizationSources()[0]; return !!s && performance.timeOrigin + performance.now() - s.timestamp < 500 && s.audioLevel > 0.001; }, aid);
+  // O microfone falso do Chrome é um bipe curto a cada ~0,5 s (fora dele, nível ~0). Ler o nível uma vez a cada ~250 ms
+  // (mais a ida e volta do Puppeteer, maior com a máquina carregada) entrava em fase com o bipe e errava todos por vários
+  // segundos com a voz chegando normalmente (o nível decodificado no inbound-rtp do Bob estava alto). Então amostra dentro
+  // da página a cada 10 ms por 500 ms: mesmo limiar e mesma janela, sem depender da sorte da leitura.
+  const hears = () => pb.evaluate(async (id) => {
+    const t0 = performance.now();
+    do {
+      const x = window.__lc.voice.analysers.get(id); const s = x?.rx?.getSynchronizationSources()[0];
+      if (s && performance.timeOrigin + performance.now() - s.timestamp < 500 && s.audioLevel > 0.001) return true;
+      await new Promise(r => setTimeout(r, 10));
+    } while (performance.now() - t0 < 500);
+    return false;
+  }, aid);
   const waitHear = async (ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await hears()) return (Date.now() - t0) / 1000; await sleep(250); } return null; };
   ok(await waitHear(10000) != null, 'Bob ouve a Alice');
 
@@ -58,7 +70,10 @@ try {
 
   // 4) mutado: continua vigiando a captura (desmutar já sai com a voz)
   await pa.evaluate(() => window.__lc.voice.toggleMute()); const id3 = await pa.evaluate(() => { const g = window.__lc.voice.micGraph; g.nodes[0].disconnect(); return g.id; });
-  await sleep(12000); await pa.evaluate(() => window.__lc.voice.toggleMute());
+  await sleep(12000);
+  // remontou mutado: a trilha nova tem de continuar desligada (o replaceTrack do mediasoup-client a ligava)
+  ok(await pa.evaluate((id) => { const v = window.__lc.voice; return v.micGraph.id !== id && v.muted && v.mic.getAudioTracks()[0].enabled === false; }, id3), 'mutado e remontado: a trilha nova continua desligada');
+  await pa.evaluate(() => window.__lc.voice.toggleMute());
   ok(await pa.evaluate((id) => window.__lc.voice.micGraph.id !== id, id3), 'mutado: captura morta também é remontada');
   ok(await waitHear(6000) != null, 'desmutou: Bob ouve na hora');
 } catch (e) { console.log('ERRO', e); fails++; }

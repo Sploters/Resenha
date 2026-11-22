@@ -302,6 +302,10 @@ export class Voice {
       const track = this.mic.getAudioTracks()[0];
       if (this.sfu) await this.sfuProduce('mic', track);
       else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
+      // o replaceTrack do mediasoup-client liga a trilha (enabled = true) se o produtor não está pausado, e o mudo daqui
+      // não pausa o produtor: remontar mutado (vigia do microfone, troca de filtro) deixava a trilha nova ligada. Com o
+      // teste de microfone segurando a cadeia (micHold) a voz saía para a sala mesmo mutado. Aplica o mudo de novo.
+      this.applyMute();
       void old;
     } catch (e) { this.error = e.message; }
     this.onUpdate();
@@ -1527,7 +1531,9 @@ export class Voice {
   // janela escondida, porque o medidor daqui precisa do áudio para acender o "falando".
   syncVoiceFlow() {
     const s = this.sfu; if (!s?.ready) return;
-    const want = (this.deafened || this.modDeaf) && !this.screen;
+    // booleano de verdade: modDeaf começa undefined (só setModeration o define) e "undefined !== false" pedia 'levels' de
+    // novo a cada resposta, em laço (~10 pedidos/s por pessoa na chamada, cada um com um 'pause' de paused: undefined)
+    const want = !!((this.deafened || this.modDeaf) && !this.screen);
     if (want !== !!s.levelsOn && s.srvLevels !== false) {
       s.levelsOn = want;
       this.sfuReq('levels', { on: want }).then((r) => { s.srvLevels = true; if (s.levelsOn) this.onSfuSpeaking(r); this.syncVoiceFlow(); }, () => { s.srvLevels = false; this.syncVoiceFlow(); });
