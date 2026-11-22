@@ -48,11 +48,16 @@ async function page(tok, desk) {
     if (desk) {
       window.__natCalls = [];
       window.__sel = [];
+      window.__overAsked = [];
       const fns = { isDesktop: true, getSettings: async () => ({}), getUpdate: async () => null, setThrottle: () => { }, selectSource: async (id) => { window.__sel.push(id); return true; },
         getSources: async () => [{ id: 'screen:0:0', name: 'Tela', type: 'screen' }, ...(window.__twoScreens ? [{ id: 'screen:1:0', name: 'Tela 2', type: 'screen' }] : []), { id: 'window:4242:0', name: 'VALORANT', type: 'window', game: true }],
         // __oldApp: app desktop anterior (sem escolha de método)
         nativeCapable: async (mode) => { window.__natCalls.push(mode ?? null); return window.__oldApp ? { ok: true, encoders: ['teste'] } : { ok: true, encoders: ['teste'], modes: ['auto', 'wgc', 'dxgi'], os: window.__os || 26200 }; },
-        nativeStart: (o) => window.__natStart(o), nativeStop: () => window.__natStop(), onNativeEvent: (cb) => { window.__natCb = cb; } };
+        nativeStart: (o) => window.__natStart(o), nativeStop: () => window.__natStop(), onNativeEvent: (cb) => { window.__natCb = cb; },
+        // vigia "jogo fora do monitor" (jogo mandado pela tela do monitor): como o programa de verdade (lc-audio serve.rs
+        // 'over'), ao começar a vigiar reavisa o estado atual; aqui o jogo está na frente (covered: false)
+        watchSourceOver: async (id) => { window.__overAsked.push(id); if (id) setTimeout(() => window.__overCb?.({ covered: false, why: null }), 30); return !!id; },
+        onSourceOver: (f) => { window.__overCb = f; } };
       window.lcDesktop = new Proxy(fns, { get: (t, k) => (k in t ? t[k] : () => Promise.resolve(true)) });
     }
   }, tok, desk);
@@ -233,6 +238,9 @@ try {
   await A.waitForFunction(() => !window.__lc.voice.native && window.__lc.voice.sfu?.producers?.screen, { timeout: 15000 }).catch(() => { });
   sel = await A.evaluate(() => [...window.__sel]); s = await state(A);
   ok(!s.native && s.chromiumVideo && sel.at(-1) === 'screen:0:0', 'nativo falhou com jogo em TELA CHEIA: o Chromium fica na tela do monitor do jogo (a janela pela WGC teria borda amarela e atrasaria o jogo)', { sel, s });
+  // pela tela do monitor, o vídeo só sai com o jogo na frente: o app vigia a janela do jogo (no Alt+Tab pausa)
+  const over = await A.evaluate(() => ({ asked: window.__overAsked.at(-1), on: window.__lc.voice._overOn }));
+  ok(over.asked === 'window:4242:0' && over.on === false, 'o app vigia se o jogo sai da frente e, com ele na frente, manda o vídeo', over);
   await watch(B, a.id);
   ok(await viewerFrames(B, a.id) > 20, 'quem assiste vê pelo Chromium');
   await unshare(A);
