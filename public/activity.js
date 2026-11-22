@@ -6,7 +6,8 @@ import { h, icon, avatar, skeleton, thumbUrl } from './util.js';
 import { knownGame } from './gamecatalog.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
+import { S, api, tryApi, toast, notify, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
+import { playSound } from './sounds.js';
 import { openClip } from './clipsgallery.js';
 import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
@@ -24,8 +25,9 @@ export const platformName = (p) => PLATFORM[p] || p;
 export function setActivities(list) { S.activities.clear(); for (const a of list || []) S.activities.set(a.user_id + ':' + a.platform, a); }
 export const activityOf = (uid) => { let pc = null; for (const a of S.activities.values()) if (a.user_id === uid) { if (a.platform !== 'pc') return a; pc = a; } return pc; };
 export function onActivityUpdate(d) {
-  const k = d.user_id + ':' + d.platform;
+  const k = d.user_id + ':' + d.platform, prev = activityOf(d.user_id);
   if (d.activity) S.activities.set(k, d.activity); else S.activities.delete(k);
+  sameGameCheck(d.user_id, prev, d.activity);
   ctx.renderActiveNow?.(); ctx.renderMembers?.(); scheduleFeed(); dispatchEvent(new Event('rs-activity')); // cartões da Steam no chat (steamcard.js)
   if (S.voice.has(d.user_id)) ctx.renderSide?.(); // ícone do jogo ao lado do nome na sala de voz
 }
@@ -194,6 +196,74 @@ export function voiceGameIcon(uid) {
   return el;
 }
 
+// ---------------------------------------------------------------- "também está jogando"
+// Você e um amigo no mesmo jogo, sem estarem na mesma sala: um aviso no canto com o que dá para fazer AGORA (entrar na
+// sala dele, chamá-lo para a sua, ou mandar mensagem). Dois sentidos: o amigo abre o jogo que você está jogando
+// ("começou a jogar"), ou você abre um jogo em que amigos já estão ("já está jogando"). Uma vez a cada 3 h por amigo e
+// jogo (fica no aparelho), nada em "não perturbe"; desliga no próprio aviso ou em Contas vinculadas (S.prefs.sameGameAlert).
+const SG_KEY = 'lc_samegame', SG_TTL = 3 * 3600e3;
+const sgSeen = () => { try { return JSON.parse(localStorage.getItem(SG_KEY) || '{}'); } catch { return {}; } };
+const sgKey = (uid, a) => uid + ':' + norm(gameTitle(a));
+const sgFresh = (k) => !(Date.now() - (sgSeen()[k] || 0) < SG_TTL);
+function sgMark(keys) {
+  const m = sgSeen(), lim = Date.now() - SG_TTL;
+  for (const k of Object.keys(m)) if (m[k] < lim) delete m[k];
+  for (const k of keys) m[k] = Date.now();
+  try { localStorage.setItem(SG_KEY, JSON.stringify(m)); } catch { }
+}
+const myRoomId = () => { const v = ctx.voice?.(); return v?.active ? v.channelId : null; };
+const sgSame = (x, a) => !!x && !!a && sameGame({ ...x.game, platform: x.platform }, a);
+// amigos no mesmo jogo que eu e fora da minha sala (os que ainda valem para o aviso aberto)
+const sgApart = (uid, a) => S.rels.get(uid)?.type === 1 && sgSame(activityOf(uid), a) && (!myRoomId() || S.voice.get(uid)?.channel_id !== myRoomId());
+let sg = null; // { kind: 'started' | 'already', uids, a, el, timer, tick }
+export const sameGameOn = () => S.prefs.sameGameAlert !== false;
+function sameGameCheck(uid, prev, now) {
+  if (!S.me || !now || !sameGameOn() || S.me.status === 'dnd' || S.me.status === 'invisible') return;
+  const a = { platform: now.platform, game: now.game };
+  if (prev && sgSame(prev, a)) return; // mesmo jogo de antes (só mudou o "o que está fazendo"): não é novidade
+  if (uid === S.me.id) { // abri um jogo: quem já está nele?
+    const ids = [...S.rels.values()].filter(r => r.type === 1).map(r => r.user.id).filter(id => sgApart(id, a) && sgFresh(sgKey(id, a)));
+    if (ids.length) showSameGame('already', ids, a);
+  } else if (sgSame(activityOf(S.me.id), a) && sgApart(uid, a) && sgFresh(sgKey(uid, a))) showSameGame('started', [uid], a);
+}
+function sgClose() { if (!sg) return; clearInterval(sg.tick); clearTimeout(sg.timer); sg.el.remove(); sg = null; }
+function showSameGame(kind, uids, a) {
+  if (sg && sg.kind === kind && sgSame(sg.a, a)) uids = [...new Set([...sg.uids, ...uids])]; // outro amigo no mesmo jogo: junta
+  sgClose(); sgMark(uids.map(id => sgKey(id, a)));
+  sg = { kind, uids, a, el: h('div#samegame-banner', { role: 'alert' }), sig: '' };
+  document.body.append(sg.el); sgPaint(true);
+  playSound('friend');
+  const u = uOf(uids[0]);
+  notify(kind === 'started' ? `${u.display_name} começou a jogar ${gameTitle(a)}` : `${nameList(uids.map(uOf))} ${uids.length > 1 ? 'já estão' : 'já está'} jogando ${gameTitle(a)}`, 'Vocês estão no mesmo jogo', () => window.focus(), 'samegame');
+  sg.timer = setTimeout(sgClose, 40000);
+  sg.tick = setInterval(() => sgPaint(false), 1500); // entrou/saiu de sala, fechou o jogo: o aviso acompanha (ou some)
+}
+// redesenha só quando a situação muda; sem ninguém que ainda valha, some
+function sgPaint(force) {
+  if (!sg) return;
+  if (!sg.el.isConnected) return sgClose();
+  const ids = sg.uids.filter(id => sgApart(id, sg.a));
+  if (!ids.length || !sgSame(activityOf(S.me.id), sg.a)) return sgClose();
+  const room = ids.map(id => roomOf(id)).find(r => r?.g && r.ch.id !== myRoomId()), inv = ids.filter(id => canCallInvite(id));
+  const sig = ids.join() + '|' + (room?.ch.id || '') + '|' + inv.join() + '|' + (myRoomId() || '');
+  if (!force && sig === sg.sig) return;
+  sg.sig = sig;
+  const us = ids.map(uOf), u = us[0], a = sg.a, title = gameTitle(a);
+  const head = sg.kind === 'started' && ids.length === 1 ? `${u.display_name} começou a jogar ${title}` : `${nameList(us)} ${ids.length > 1 ? 'já estão' : 'já está'} jogando ${title}`;
+  const where = room ? `${chName(room.ch)} · ${room.g.name}` : null;
+  const go = (fn) => (e) => { e.stopPropagation(); sgClose(); fn(); };
+  const main = room ? h('button.btn.green', { onclick: go(() => { goRoom(room); ctx.joinVoice(room.ch.id); }) }, icon('voice', 14), 'Entrar na sala')
+    : inv.length ? h('button.btn.green', { onclick: go(() => inv.forEach(id => sendCallInvite(id))) }, icon('invite', 14), 'Chamar para a call')
+    : h('button.btn', { onclick: go(() => ctx.openDM(ids[0])) }, icon('dm', 14), 'Mensagem');
+  sg.el.replaceChildren(
+    h('div.sg-pic', avatar(u, 44, { status: false }), h('span.sg-game', gameIcon(a, 22))),
+    h('div.sg-txt', h('b', head), h('div.sg-sub', where ? [icon('voice', 13), h('span', `Na sala ${where}`)] : h('span', sg.kind === 'started' ? 'Você também está jogando' : 'Vocês estão no mesmo jogo'))),
+    h('button.ibtn.sg-x', { title: 'Fechar', onclick: go(() => { }) }, icon('x', 16)),
+    h('div.sg-btns',
+      h('button.btn.link.sm.sg-off', { title: 'Não mostrar mais este aviso (dá para religar em Configurações → Contas vinculadas)', onclick: go(() => { S.prefs.sameGameAlert = false; savePrefs(); toast('Aviso desligado. Religue em Configurações → Contas vinculadas.'); }) }, 'Não avisar'),
+      h('button.btn.grey', { onclick: go(() => { }) }, 'Depois'), main));
+}
+
 // ---------------------------------------------------------------- ações reais (só aparecem quando a situação permite)
 function voiceActions(uid) {
   const v = S.voice.get(uid), ch = v && channelById(v.channel_id), voice = ctx.voice(), out = [];
@@ -215,6 +285,9 @@ const nameEl = (u) => styleName(h('b', u.display_name), u.name_style);
 const roomOf = (uid) => { const v = S.voice.get(uid), ch = v && channelById(v.channel_id); if (!ch) return null; const g = ch.type === 1 ? null : guild(ch.guild_id); return { v, ch, g }; };
 const roomLine = (r) => h('div.an-room', icon('voice', 16), h('span', r.g ? `${chName(r.ch)} · ${r.g.name}` : 'Ligação privada'), r.v.screen && h('span.an-live', 'AO VIVO'), r.v.mute && icon('micoff', 14));
 const goRoom = (r) => (r.g ? ctx.go(r.g.id, r.ch.id) : ctx.go('@me', r.ch.id));
+// para a lista de Amigos (public/home.js): a sala de voz de alguém, entrar nela e a sala em que estou
+export const friendRoom = roomOf, myVoiceRoom = () => myRoomId();
+export const enterRoom = (r) => { goRoom(r); ctx.joinVoice(r.ch.id); };
 
 // cartão de quem está jogando: arte da Steam (se houver), quem, jogo, há quanto tempo, a sala em que está e as ações possíveis
 // "Ativo agora": clicar na pessoa abre a conversa (pedido dos usuários); o perfil fica na foto (e no clique direito)
@@ -626,5 +699,6 @@ function pcActivityBlock() {
     feats([['gamepad', 'Reconhece qualquer jogo aberto, não só os da Steam'], ['link', 'Não precisa vincular nenhuma conta'], ['lock', 'Só o nome do jogo é enviado']]),
     !on && h('p.lk-note', icon('info', 14), 'Funciona no app desktop para Windows (1.0.24 ou mais novo).'),
     ctl,
+    h('div.lk-opt.sg-opt', h('span', h('b', 'Avisar quando um amigo jogar o mesmo que eu'), h('small', 'Um aviso no canto para entrar na sala dele ou chamá-lo para a sua. Não toca em "não perturbe".')), toggle(sameGameOn(), (on) => { S.prefs.sameGameAlert = on; savePrefs(); })),
     h('p.lk-note', icon('clock', 14), 'As horas só contam enquanto você está numa call (servidor ou DM, mesmo mutado). Em "Ninguém" ou no modo invisível, só você vê o jogo, mas as horas entram na semana da galera sem seu nome.'));
 }
