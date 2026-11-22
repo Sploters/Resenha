@@ -53,15 +53,26 @@ parar_espera() {
   rm -f "$EST/espera.pid"
 }
 
+backup_parado() {
+  DB=$(cd "$HOME/resenha-data" 2>/dev/null && ls resenha.db resenha.db-wal localcord.db localcord.db-wal 2>/dev/null || true)
+  [ -n "$DB" ] || return 0
+  mkdir -p "$HOME/resenha-backups"
+  T="$HOME/resenha-backups/data-$(date +%Y%m%d-%H%M%S).tgz"
+  # temporário + renomear: cópia pela metade (disco cheio) não fica com cara de cópia boa
+  if tar czf "$T.tmp" -C "$HOME/resenha-data" $DB && gzip -t "$T.tmp"; then mv "$T.tmp" "$T"; else rm -f "$T.tmp"; echo "AVISO: cópia do banco falhou (disco cheio?)"; fi
+  ls -1t "$HOME"/resenha-backups/data-*.tgz 2>/dev/null | tail -n +$(( ${BACKUPS_MANTER:-20} + 1 )) | xargs -r rm -f
+}
 trocar_container() { # $1 = hash da voz, $2 = hash do app
-  DB=$(cd "$HOME/resenha-data" && ls resenha.db* localcord.db* 2>/dev/null || true)
-  [ -n "$DB" ] && tar czf "$HOME/resenha-backups/data-$(date +%Y%m%d-%H%M%S).tgz" -C "$HOME/resenha-data" $DB
   # cookies do YouTube (opcional): ~/resenha-data/cookies.txt. Chave da Steam (opcional): ~/resenha-steam.env com a
   # linha STEAM_API_KEY=suachave (fora do repositório e da pasta de dados; crie em steamcommunity.com/dev/apikey)
   COOKIES=; [ -f "$HOME/resenha-data/cookies.txt" ] && COOKIES='-e YTDLP_COOKIES=/data/cookies.txt'
   STEAM=; [ -f "$HOME/resenha-steam.env" ] && STEAM="--env-file $HOME/resenha-steam.env"
   # docker stop (não rm -f, que mata na hora): o servidor avisa os apps que está atualizando antes de fechar
   docker stop -t 10 resenha >/dev/null 2>&1 || true
+  # cópia do banco com o servidor JÁ parado (fechou o banco com checkpoint: resenha.db inteiro, -wal vazio). Antes era
+  # feita com ele no ar, e o tar de resenha.db + -wal enquanto alguém escreve pode sair inconsistente. Guarda as
+  # BACKUPS_MANTER (20) mais novas; as automáticas diárias ficam em ~/resenha-data/backups (server/backup.js)
+  backup_parado
   docker rm -f resenha >/dev/null 2>&1 || true
   docker run -d --name resenha --restart=always \
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \

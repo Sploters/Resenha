@@ -21,3 +21,36 @@ Voz no automático em 64 kbps mono (até 80% menos banda que antes), diagnóstic
 
 ## Relatórios de problema e versões do app
 Configurações → Relatar um problema manda o diagnóstico por DM ao administrador da instalação (`LC_ADMIN`). Versão mínima do app desktop para entrar nas calls e como as atualizações chegam: [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md).
+
+## Cópias do banco e restauração
+O banco (`resenha.db`, SQLite em modo WAL) é aberto com `synchronous=NORMAL`, `foreign_keys`, `busy_timeout` de 5 s e o
+`-wal` limitado a 64 MB depois de cada checkpoint (`server/db.js`). Na abertura roda `PRAGMA quick_check` (`DB_CHECK=quick`;
+`full` = `integrity_check`, `off` desliga; ~1 s por GB). Banco com problema: os arquivos são copiados como estão para
+`<dados>/corrompido-<data>/` (uma vez só), o aviso aparece no console, no `errors.log` e no alerta do administrador, e o
+servidor segue (`DB_ON_CORRUPT=stop` para de vez). Arquivo que nem é banco: o servidor não sobe e diz como restaurar.
+Ao desligar/atualizar, o banco fecha com checkpoint completo (o `-wal` fica vazio).
+
+**Cópias automáticas** (`server/backup.js`): a cada `BACKUP_HOURS` (24; 0 desliga) em `BACKUP_DIR` (`<dados>/backups`,
+no Umbrel `~/resenha-data/backups`), guardando as `BACKUP_KEEP` (7) mais novas. Usa a API de backup do SQLite com o
+servidor no ar (nunca copia o arquivo vivo; não usa `VACUUM INTO`, que renumera o rowid de que a busca depende); cada cópia
+nasce `.tmp`, é verificada (`quick_check` + tabelas), vira um arquivo só e só então ganha o nome `resenha-<data>-<hora>.db`
+(UTC). Cópia que reprova (banco corrompido, disco cheio) é apagada e as boas ficam. Os anexos (`uploads/`) não entram:
+copie a pasta de dados inteira de vez em quando. O deploy (`deploy/servidor.sh`) também guarda `~/resenha-backups/data-*.tgz`
+a cada troca de container, agora feito com o container **já parado** (as 20 mais novas; `BACKUPS_MANTER`).
+
+    node server/backup.js copiar [dados]                 # cópia agora (pode com o servidor no ar)
+    node server/backup.js listar [dados]                 # cópias, da mais nova para a mais velha
+    node server/backup.js verificar <arquivo>            # abre e confere (sai com 1 se tiver problema)
+    node server/backup.js restaurar <arquivo> [dados]    # só com o servidor parado
+
+**Restaurar** confere a cópia antes de tudo, recusa se o servidor estiver rodando (banco aberto por outro processo ou
+`em-chamada.json` recente), guarda o banco atual inteiro em `<dados>/antes-da-restauracao-<data>/` e troca. Também aceita o
+`resenha.db` de um `.tgz` do deploy (extraia antes; o `-wal` ao lado entra junto). No Umbrel/Docker:
+
+    docker stop resenha
+    docker run --rm -v ~/resenha-data:/data resenha node server/backup.js listar
+    docker run --rm -v ~/resenha-data:/data resenha node server/backup.js restaurar /data/backups/resenha-AAAAMMDD-HHMMSS.db
+    docker start resenha
+
+Instalação com systemd: `systemctl stop resenha`, `sudo -u resenha DATA_DIR=/var/lib/resenha node server/backup.js restaurar …`
+em `/opt/resenha`, `systemctl start resenha`. Teste: `node scripts/backup-unit-test.mjs`.

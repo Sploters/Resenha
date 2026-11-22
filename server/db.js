@@ -9,12 +9,52 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // o banco se chamava localcord.db (nome antigo do programa): na primeira abertura vira resenha.db, com os arquivos do WAL
 const DB_FILE = path.join(DATA_DIR, 'resenha.db'), OLD_DB = path.join(DATA_DIR, 'localcord.db');
 if (!fs.existsSync(DB_FILE) && fs.existsSync(OLD_DB)) for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(OLD_DB + ext)) fs.renameSync(OLD_DB + ext, DB_FILE + ext);
-export const db = new DatabaseSync(DB_FILE);
+export { DB_FILE };
+// Durabilidade: WAL com synchronous=NORMAL não corrompe o banco se a máquina desligar (no pior caso perde as últimas
+// transações antes da queda); journal_size_limit devolve o espaço do -wal depois de cada checkpoint.
+// Arquivo que nem é um banco (disco com problema, cópia pela metade): para com a explicação de como restaurar.
+// guarda os arquivos do banco como estão (antes de qualquer escrita), uma vez só: reiniciando em laço não enche o disco
+const keepAside = () => {
+  try {
+    const old = fs.readdirSync(DATA_DIR).find(f => f.startsWith('corrompido-')); if (old) return path.join(DATA_DIR, old);
+    const aside = path.join(DATA_DIR, 'corrompido-' + new Date().toISOString().replace(/[:.]/g, '-'));
+    fs.mkdirSync(aside, { recursive: true });
+    for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(DB_FILE + ext)) fs.copyFileSync(DB_FILE + ext, path.join(aside, 'resenha.db' + ext));
+    return aside;
+  } catch { return null; }
+};
+export let db;
+try {
+  db = new DatabaseSync(DB_FILE);
+  db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA journal_size_limit = 67108864;');
+} catch (e) {
+  console.error(`\n  BANCO ILEGÍVEL (${DB_FILE}): ${e.message}\n  Cópia do estado atual: ${keepAside() || '(falhou)'}\n  Restaure uma cópia com o servidor parado: node server/backup.js listar / restaurar <arquivo> (docs/ADMINISTRACAO.md)\n`);
+  process.exit(1);
+}
+// Integridade na abertura (DB_CHECK = quick | full | off; quick lê o banco inteiro, ~1 s por GB). Com problema: guarda uma
+// cópia dos arquivos como estão (corrompido-<data>/) antes de qualquer escrita e avisa alto (de novo no errors.log e no
+// alerta, por server/backup.js). Segue no ar: as cópias automáticas param de girar (a do banco ruim reprova na
+// verificação), então as boas ficam. DB_ON_CORRUPT=stop para de vez em vez de seguir.
+export let dbProblem = null;
+if ((process.env.DB_CHECK || 'quick') !== 'off') {
+  const t0 = Date.now();
+  let res; try { res = db.prepare(`PRAGMA ${process.env.DB_CHECK === 'full' ? 'integrity_check' : 'quick_check'}(20)`).all().map(r => Object.values(r)[0]); } catch (e) { res = [e.message]; }
+  if (res.length !== 1 || res[0] !== 'ok') {
+    dbProblem = { at: Date.now(), errors: res.slice(0, 20) };
+    dbProblem.aside = keepAside();
+    console.error(`\n  BANCO COM PROBLEMA DE INTEGRIDADE (${DB_FILE}):\n    ${res.slice(0, 5).join('\n    ')}\n  Cópia do estado atual: ${dbProblem.aside || '(falhou)'}\n  Restaure a última cópia boa com o servidor parado: node server/backup.js listar / restaurar <arquivo>\n`);
+    if (process.env.DB_ON_CORRUPT === 'stop') process.exit(1);
+  } else if (Date.now() - t0 > 2000) console.log(`  Banco verificado (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+}
+// fecha o banco limpo (desligar/atualizar): checkpoint completo, o -wal fica vazio e o resenha.db sozinho já é a cópia inteira
+let closed = false;
+export function closeDb() {
+  if (closed) return; closed = true;
+  try { db.exec('PRAGMA optimize; PRAGMA wal_checkpoint(TRUNCATE);'); } catch (e) { console.error('  checkpoint ao fechar o banco:', e.message); }
+  try { db.close(); } catch { }
+}
+process.on('exit', closeDb); // também quando o processo sai por outro caminho (tempo esgotado no encerramento, erro fatal)
 db.exec(`
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
 PRAGMA temp_store = MEMORY;
 PRAGMA cache_size = -32000;
 CREATE TABLE IF NOT EXISTS users(
