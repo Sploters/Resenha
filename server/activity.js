@@ -66,6 +66,18 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   // imagem do jogo guardada junto com o evento (o histórico mostra o ícone/arte mesmo depois que a pessoa parou de jogar)
   const artOf = (game, platform) => { const o = {}; if (game.icon) o.icon = game.icon; const st = platform === 'steam' ? game.id : game.steam; if (st) o.steam = String(st); return Object.keys(o).length ? o : null; };
   const hiddenGame = (uid, platform, gameId) => !!get('SELECT 1 x FROM game_prefs WHERE user_id=? AND platform=? AND game_id=? AND hidden=1', uid, platform, gameId);
+  // resumo diário permanente por pessoa e jogo (activities some em 30 dias): segundos em call e partidas, no dia (fuso de
+  // weekFor) em que a partida terminou. Partida privada (invisível / "Ninguém"), jogo escondido e launcher não entram.
+  run(`CREATE TABLE IF NOT EXISTS activity_daily(day TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL, game_id TEXT NOT NULL, title TEXT, secs_call INTEGER NOT NULL DEFAULT 0, sessions INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(day, user_id, platform, game_id)) WITHOUT ROWID`);
+  const addDaily = (uid, platform, game, secs, t) => {
+    if (hiddenGame(uid, platform, game.id) || isLauncher(game)) return;
+    try {
+      run(`INSERT INTO activity_daily(day,user_id,platform,game_id,title,secs_call,sessions) VALUES(?,?,?,?,?,?,1)
+        ON CONFLICT(day,user_id,platform,game_id) DO UPDATE SET secs_call=secs_call+excluded.secs_call, sessions=sessions+1, title=excluded.title`, dayKey(t), uid, platform, String(game.id), game.title || null, Math.max(0, Math.round(secs) || 0));
+    } catch (e) { log('[atividade] resumo diário: ' + e.message); }
+  };
 
   // horas em call: vAcc = ms já contados; vSince = desde quando está em voz (null fora de voz). Atualizado nos ganchos de
   // voz (onVoice) e, por garantia, a cada informe do app / rodada do agendador
@@ -94,7 +106,11 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const clear = (uid, platform, { notify = true, why = 'stop', audienceOverride = null } = {}) => {
     const k = uid + ':' + platform, cur = current.get(k); if (!cur) return;
     current.delete(k);
-    if (why === 'stop') record(uid, platform, 'game_stop', cur.game, { seconds: Math.max(0, Math.round(counted(cur) / 1000)), open: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform), ...(cur.priv ? { priv: 1 } : {}) });
+    if (why === 'stop') {
+      const secs = Math.max(0, Math.round(counted(cur) / 1000));
+      record(uid, platform, 'game_stop', cur.game, { seconds: secs, open: Math.max(0, Math.round((now() - cur.since) / 1000)), ...artOf(cur.game, platform), ...(cur.priv ? { priv: 1 } : {}) });
+      if (!cur.priv) addDaily(uid, platform, cur.game, secs, now());
+    }
     if (notify) dispatch(audienceOverride || audience(uid, platform), 'ACTIVITY_UPDATE', { user_id: uid, platform, activity: null });
   };
 
@@ -276,6 +292,39 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const cw = clipsWeek ? clipsWeek(viewer, { played: myGames }) : { clips: [], categories: [], recs: [] };
     return { days, games: ranked, played, clips: cw.clips, clip_categories: cw.categories, clip_recs: cw.recs, clip_quiet: !!cw.quiet };
   }
+  // preenche activity_daily uma vez com o histórico que ainda existe (até 30 dias), marcado em meta
+  try {
+    if (get("SELECT 1 x FROM sqlite_master WHERE name='meta'") && !get("SELECT 1 x FROM meta WHERE k='activity-daily-1'")) {
+      for (const ev of all("SELECT user_id, platform, game_id, title, data, created_at FROM activities WHERE kind='game_stop' ORDER BY created_at")) {
+        const d = parse(ev.data); if (!d.priv) addDaily(ev.user_id, ev.platform, { id: ev.game_id, title: ev.title }, +d.seconds || 0, ev.created_at);
+      }
+      run("INSERT INTO meta(k,v) VALUES('activity-daily-1',?)", String(now()));
+    }
+  } catch (e) { log('[atividade] preenchendo o resumo diário: ' + e.message); }
+
+  // jogos de uma sessão de voz (server/sessions.js), sem nomes: para cada jogo, por quanto tempo alguém da lista jogou
+  // dentro de [from, to] (o maior trecho de uma pessoa, em minutos) e quantas pessoas. Mesmas regras do cartão do servidor
+  // (guildGames): partida priv, jogo escondido, launcher e conta que não compartilha a atividade ficam de fora.
+  function gamesDuring(uids, from, to, { limit = 5 } = {}) {
+    if (!uids.length) return [];
+    const shares = (uid, platform) => platform === 'pc' ? pcVis(uid) !== 'off' : (acct(uid, platform)?.visibility || 'off') !== 'off';
+    const games = new Map(), add = (uid, platform, gid, title, d, a, b) => {
+      const ms = Math.min(b, to) - Math.max(a, from); if (ms < 60e3) return;
+      if (!shares(uid, platform) || hiddenGame(uid, platform, gid) || isLauncher({ id: gid, title })) return;
+      const ks = ggKeys(platform, gid, title, d);
+      let x = ks.map(k => games.get(k)).find(Boolean);
+      if (!x) x = { title, game_id: String(gid), platform, ms: new Map() };
+      for (const k of ks) games.set(k, x);
+      x.ms.set(uid, (x.ms.get(uid) || 0) + ms);
+    };
+    for (const ev of all(`SELECT user_id, platform, game_id, title, data, created_at FROM activities WHERE user_id IN (${uids.map(() => '?').join(',')}) AND kind='game_stop' AND created_at>?`, ...uids, from)) {
+      const d = parse(ev.data); if (d.priv) continue;
+      add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at - (+d.open || +d.seconds || 0) * 1000, ev.created_at);
+    }
+    for (const e of current.values()) if (uids.includes(e.uid) && !e.priv) add(e.uid, e.platform, e.game.id, e.game.title, e.game, e.since, now());
+    return [...new Set(games.values())].map(x => ({ title: x.title, game_id: x.game_id, platform: x.platform, mins: Math.round(Math.max(...x.ms.values()) / 60e3), people: x.ms.size }))
+      .sort((a, b) => b.people - a.people || b.mins - a.mins).slice(0, limit);
+  }
   // jogo do clipe: o que o dono da transmissão (ou quem clipou) estava jogando naquela hora, se você pode ver
   function clipGame(c, viewer) {
     const uid = c.streamer_id || c.author_id;
@@ -299,7 +348,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   return {
     start() { stopped = false; setTimeout(() => tick().catch(() => { }), 3000).unref?.(); schedule(); },
     stop() { stopped = true; clearTimeout(timer); },
-    tick, poke, readyFor, feedFor, weekFor, guildGames, canSee, audience, clipGame,
+    tick, poke, readyFor, feedFor, weekFor, guildGames, canSee, audience, clipGame, gamesDuring, dayKey,
     gameKeys: (g) => ggKeys(g.platform, g.game.id, g.game.title, g.game),
     _ggClear() { ggCache.clear(); },
     onLinked() { poke(); },
