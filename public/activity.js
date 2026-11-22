@@ -38,7 +38,7 @@ export function onIntegrationUpdate(d) {
 }
 // a situação real mudou (alguém entrou/saiu de uma chamada, começou a transmitir…): redesenha os cartões para só mostrar ações possíveis
 export const refreshFeedView = () => { if (document.getElementById('actfeed')) S.redrawFeed?.(); };
-export function clearActivities() { S.activities.clear(); S.integrations = null; feed = null; away = null; awayAt = 0; }
+export function clearActivities() { S.activities.clear(); S.integrations = null; feed = null; away = null; awayAt = 0; awayReq = null; }
 
 const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 1) return 'menos de 1 min'; if (m < 60) return m + ' min'; const hh = Math.floor(m / 60), mm = m % 60; return hh + 'h' + (mm ? ' ' + mm + 'min' : ''); };
 const since = (t) => (Date.now() - t < 60000 ? 'começou agora' : 'há ' + dur(Date.now() - t));
@@ -595,15 +595,17 @@ function serverSection(friendsNow, redraw) {
 // evento, Ver clipe). Dispensar marca "vi até agora" no servidor (POST /activity/seen), o que vale em todos os aparelhos.
 // Servidor antigo (sem a rota): nada aparece. Quem decide o que cada um vê (sala, quem aparece pelo nome) é o servidor.
 const AWAY_MIN = 2 * 3600e3, AWAY_TTL = 60e3, RECENT_MAX = 5;
-let away = null, awayAt = 0; // última resposta de /activity/since (null: nada a mostrar ou rota ausente)
-async function loadSince() {
-  if (Date.now() - awayAt < AWAY_TTL) return; // trocar de aba no início não repete o pedido a cada vez
+let away = null, awayAt = 0, awayReq = null; // última resposta de /activity/since (null: nada a mostrar ou rota ausente)
+// o painel pode ser montado de novo enquanto o pedido ainda está a caminho (a Home se redesenha ao abrir): quem chega
+// nesse meio-tempo espera o MESMO pedido, em vez de desenhar sem a resposta e perdê-la
+function loadSince() {
+  if (awayReq) return awayReq;
+  if (Date.now() - awayAt < AWAY_TTL) return Promise.resolve(); // trocar de aba no início não repete o pedido a cada vez
   awayAt = Date.now();
-  try {
-    const r = await api('GET', '/activity/since');
+  return (awayReq = api('GET', '/activity/since').then((r) => {
     for (const u of r?.users || []) if (!S.users.has(u.id)) S.users.set(u.id, u);
     away = r && Array.isArray(r.items) ? r : null;
-  } catch { away = null; } // 404 (servidor ainda sem a memória) ou fora do ar: sem faixa e sem aviso
+  }, () => { away = null; }).finally(() => { awayReq = null; })); // 404 (servidor ainda sem a memória) ou fora do ar: sem faixa e sem aviso
 }
 function dismissSince() {
   away = null; awayAt = Date.now(); S.redrawFeed?.();
@@ -712,8 +714,8 @@ export function activityPanel(box) {
     ];
     // gente dos seus servidores que não é amiga (jogando ou em chamada) e, no topo dela, sugestões de amizade
     const srv = serverSection([...playing.map(x => ({ u: x.u, a: x.a, r: roomOf(x.u.id) })), ...inVoice.map(x => ({ u: x.u, a: null, r: x.r }))], draw);
-    const recent = recentGames();
-    if (!now.length && !forMe.length && !srv.length && !recent.length) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
+    const recent = recentGames(), back = sinceStrip(); // com a faixa "Desde a última vez" não está "tudo quieto"
+    if (!now.length && !forMe.length && !srv.length && !recent.length && !back) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
       !S.integrations?.some(i => i.account) && !window.lcDesktop?.detectGame && h('button.btn.sm', { onclick: () => ctx.openSettings('connections') }, 'Mostrar o que eu jogo')));
     // você também está jogando: linha discreta (dá para esconder o jogo daqui)
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
@@ -723,14 +725,14 @@ export function activityPanel(box) {
     if (recent.length) now.push(h('div.an-cap.an-pastcap', 'Nos últimos dias'), ...recent.map(recentRow));
     // "Desde a última vez" no topo; "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho;
     // embaixo a retrospectiva da semana
-    const back = sinceStrip();
     body.replaceChildren(back || '', intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
     // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
     document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);
   };
   S.redrawFeed = draw; draw();
   stagger(body.querySelector('.an-now')); // cartões entram em cascata ao montar o painel (não nos redesenhos)
-  Promise.all([loadFeed(), loadSince()]).then(() => { if (body.isConnected) draw(); });
+  // redesenha o painel que estiver na tela (pode ser outro, montado enquanto os pedidos estavam a caminho)
+  Promise.all([loadFeed(), loadSince()]).then(() => { if (body.isConnected) draw(); else if (document.getElementById('actfeed')) S.redrawFeed?.(); });
   clearInterval(S.feedClock); S.feedClock = setInterval(() => { if (!body.isConnected) return clearInterval(S.feedClock); draw(); }, 30000);
 }
 async function loadFeed() {

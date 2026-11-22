@@ -150,6 +150,7 @@
     "pcactivity-test": 134,
     "friends-presence-test": 90,
     "memory-home-test": 95,
+    "memory-real-test": 35,
     "polls-test": 9,
     "presence-test": 10,
     "privacy-test": 6,
