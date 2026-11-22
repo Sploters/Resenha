@@ -188,6 +188,8 @@
     "mic-dead-test": 75,
     "backup-unit-test": 2,
     "leaks-unit-test": 1,
-    "voice-recover-unit-test": 5
+    "voice-recover-unit-test": 5,
+    "talkmuted-unit-test": 1,
+    "muted-talk-test": 45
   }
 }

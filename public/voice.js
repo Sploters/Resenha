@@ -7,7 +7,7 @@ import { createFx, loadFx, FX_IDS } from './voicefx.js';
 import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 import { attachTap } from './clipbuf.js';
-import { newMicWatch, micWatchStep } from './micwatch.js';
+import { newMicWatch, micWatchStep, newTalkMuted, talkMutedStep } from './micwatch.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -166,7 +166,13 @@ export async function createMic(prefs, ctx) {
   // nível do microfone CRU (antes de filtro, porta e mudo) para o vigia da captura (public/micwatch.js)
   const rawAn = ctx.createAnalyser(); rawAn.fftSize = 16384; src.connect(rawAn); nodes.push(rawAn); // ~340 ms: lido a cada 250 ms, cobre o tempo todo
   const rawBuf = new Float32Array(rawAn.fftSize);
-  out.rawPeak = () => { rawAn.getFloatTimeDomainData(rawBuf); let m = 0; for (const v of rawBuf) { const a = v < 0 ? -v : v; if (a > m) m = a; } return m; };
+  // rawRms: energia dos últimos 250 ms (aviso de "falando mutado", public/micwatch.js talkMutedStep), na mesma passada
+  const RMS_N = Math.min(rawBuf.length, Math.round(ctx.sampleRate / 4));
+  out.rawPeak = () => {
+    rawAn.getFloatTimeDomainData(rawBuf); let m = 0, q = 0; const n = rawBuf.length, k = n - RMS_N;
+    for (let i = 0; i < n; i++) { const v = rawBuf[i], a = v < 0 ? -v : v; if (a > m) m = a; if (i >= k) q += v * v; }
+    out.rawRms = Math.sqrt(q / RMS_N); return m;
+  };
   out.rawTrack = raw.getAudioTracks()[0];
   const { first: f0 } = await buildChain(ctx, src, prefs, out);
   let last = out.last, first = f0;
@@ -275,16 +281,29 @@ export class Voice {
     const t = g.rawTrack, ctx = this.ctx, ended = t?.readyState === 'ended';
     if (w.g !== g.id) { w.g = g.id; w.pk = null; w.n = 0; }
     try { const v = g.rawPeak?.(); if (v != null) w.pk = Math.max(w.pk ?? 0, v); } catch { }
+    // falando com o mudo ligado (só o mudo escolhido pela pessoa: ensurdecido, em espera, moderação, apertar-para-falar e
+    // teste de microfone não avisam): "Você está mutado" com o botão de desmutar (public/voicenote.js)
+    const tmOn = this.muted && !this.deafened && !this.hold && !this.modMute && !this.modDeaf && !this.testMute && !this.micHold && this.prefs.mutedTalkWarn !== false;
+    if (talkMutedStep(this._tm ||= newTalkMuted(), { muted: tmOn, rms: ctx?.state === 'running' && !ended ? g.rawRms ?? null : null })) { track('muted_talk'); this.note('mutedtalk'); }
     if (++w.n < 4 && !ended) return;
     const peak = w.pk; w.pk = null; w.n = 0;
     const r = micWatchStep(w, { graph: g.id, ended, muted: !!t?.muted, ctxRunning: ctx?.state === 'running', peak });
     if (r === 'resume') ctx?.resume?.().catch(() => { });
     else if (r?.rebuild) this.micRecover(r.rebuild);
+    // a remontagem automática deu certo (a captura nova tem som) ou desistiu (MAX tentativas): a pessoa fica sabendo
+    if (this._mfix != null && g.id !== this._mfix && w.heard) { this._mfix = null; if (performance.now() - this._mfixAt < 30e3) this.note('micok'); } // voltou bem depois: era o jeito do dispositivo, não queda
+    if (w.deadNew) { w.deadNew = false; this._mfix = null; track('mic_dead'); this.note('micdead'); }
   }
+  // aviso pequeno em cima do botão do microfone (falando mutado, microfone religando/voltou/sem som): public/voicenote.js,
+  // carregado só na primeira vez que precisa
+  note(kind) { if (typeof document === 'undefined') return; import('./voicenote.js').then(m => m.voiceNote(this, kind)).catch(() => { }); }
   micRecover(why) {
     if (!this.channelId) return;
     console.warn('microfone: captura parou (' + why + '), montando de novo');
     track('mic_recover', why);
+    // silêncio: pode ser o jeito do dispositivo (porta de ruído embutida), então só avisa se voltar; os outros motivos são
+    // queda de verdade e avisam já ("religando o microfone…")
+    this._mfix = this.micGraph?.id ?? null; this._mfixAt = performance.now(); if (why !== 'silence') this.note('micfix');
     this.ctx?.resume?.().catch(() => { });
     return this.rebuildMic();
   }
@@ -392,7 +411,7 @@ export class Voice {
     })();
     this.channelId = channelId; this.joinedAt = Date.now();
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
-    this._mw = newMicWatch(); clearInterval(this._mwT); this._mwT = setInterval(() => this.micWatch(), 250); // vigia da captura do microfone
+    this._mw = newMicWatch(); this._tm = newTalkMuted(); this._mfix = null; clearInterval(this._mwT); this._mwT = setInterval(() => this.micWatch(), 250); // vigia da captura do microfone
     this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
     this._jt = { sent: performance.now() }; this.send('VOICE_JOIN', { channel_id: channelId });
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
@@ -411,7 +430,7 @@ export class Voice {
     // qualidade técnica da chamada que acabou: vai para a telemetria em faixas e junto do aviso (a avaliação cruza com ela)
     const ms = Date.now() - (this.joinedAt || Date.now());
     clearInterval(this._cqT); this._cqT = null; let quality = null;
-    clearInterval(this._mwT); this._mwT = null; this._mw = null;
+    clearInterval(this._mwT); this._mwT = null; this._mw = null; this._mfix = null; if (this.micGraph) this.note('close'); // sem aviso do microfone fora da sala
     try { quality = this._cq?.summary(ms) || null; recordCallQuality(quality); } catch (e) { console.warn('qualidade da chamada', e); }
     this._cq = null;
     // avisa que a chamada acabou (avaliação da chamada, public/callrate.js): quanto durou, em que sala e como a rede estava

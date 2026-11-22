@@ -35,7 +35,8 @@ export function micWatchStep(w, s) {
   }
   w.age = (w.age || 0) + 1;
   const canFix = () => w.fixes < MICWATCH.MAX && w.t - w.lastFix >= MICWATCH.GAP_S;
-  const fix = (why) => { if (!canFix()) return null; w.fixes++; w.lastFix = w.t; w.fresh = why === 'silence'; return { rebuild: why }; };
+  // esgotou as tentativas e a captura continua morta: avisa a pessoa uma vez (w.deadNew, lido por voice.js) em vez de calar
+  const fix = (why) => { if (!canFix()) { if (w.fixes >= MICWATCH.MAX && !w.dead) w.dead = w.deadNew = true; return null; } w.fixes++; w.lastFix = w.t; w.fresh = why === 'silence'; return { rebuild: why }; };
 
   if (s.ended) return fix('ended');
   if (!s.ctxRunning) { // sem o motor de áudio rodando a leitura do nível não vale
@@ -46,10 +47,38 @@ export function micWatchStep(w, s) {
   if (s.muted) { w.mute++; if (w.mute >= MICWATCH.MUTE_S) { w.mute = 0; return fix('muted'); } return null; }
   w.mute = 0;
   if (s.peak == null) return null;
-  if (s.peak > ZERO_PEAK) { w.heard = true; w.zero = 0; w.fresh = false; w.fixes = 0; return null; } // voltou o som: a conta de remontagens zera
+  if (s.peak > ZERO_PEAK) { w.heard = true; w.zero = 0; w.fresh = false; w.fixes = 0; w.dead = false; return null; } // voltou o som: a conta de remontagens zera
   // zero absoluto
   if (w.fresh && !w.heard && w.age >= MICWATCH.FRESH_S) { w.zeroOk = true; w.fresh = false; } // remontou e continua zero: é o dispositivo
   if (!w.heard || w.zeroOk) return null;
   if (++w.zero >= MICWATCH.ZERO_S) { w.zero = 0; return fix('silence'); }
   return null;
+}
+
+// Falando mutado: com o mudo ligado a captura continua aberta (o vigia acima lê o nível cru, antes do mudo), então dá para
+// perceber quem fala sem lembrar que está mutado e avisar "Você está mutado" com o botão de desmutar. Nada sai para a sala:
+// é só a leitura local. Fala = trecho de 250 ms com energia (RMS) bem acima do ruído de fundo em pelo menos HIT dos últimos
+// WIN trechos (~1,2 s de fala em 2 s): tecla, clique, tosse e porta batendo são curtos e não contam. O ruído de fundo desce
+// na hora e sobe devagar (ventilador ou ar-condicionado ligado não vira "fala" depois de alguns segundos).
+export const TALKMUTED = {
+  WIN: 8, HIT: 5, // janela e trechos com fala (de 250 ms)
+  MIN_RMS: 0.006, // ~-44 dBFS: abaixo disso é chiado, mesmo num microfone baixo
+  FLOOR_X: 3.5, // fala = ~11 dB acima do ruído de fundo
+  ARM_S: 1.5, // acabou de mutar: o fim da frase que estava falando não conta
+  COOL_S: 25, // intervalo mínimo entre dois avisos
+};
+export const newTalkMuted = () => ({ t: 0, hist: [], floor: null, mutedFor: 0, last: -Infinity });
+// Um passo (250 ms). s = { muted: mudo escolhido pela pessoa (e nada além dele fechando o microfone), rms: nível cru do
+// trecho ou null }. true = mostrar o aviso agora.
+export function talkMutedStep(w, s) {
+  const T = TALKMUTED; w.t += 0.25;
+  if (!s.muted) { w.hist.length = 0; w.mutedFor = 0; }
+  if (s.rms == null) return false;
+  const r = s.rms;
+  w.floor = w.floor == null || r < w.floor ? r : w.floor + (r - w.floor) * 0.02;
+  if (!s.muted) return false;
+  w.mutedFor += 0.25;
+  w.hist.push(r > Math.max(T.MIN_RMS, w.floor * T.FLOOR_X)); if (w.hist.length > T.WIN) w.hist.shift();
+  if (w.mutedFor < T.ARM_S || w.t - w.last < T.COOL_S || w.hist.filter(Boolean).length < T.HIT) return false;
+  w.last = w.t; w.hist.length = 0; return true;
 }

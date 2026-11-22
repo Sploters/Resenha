@@ -816,3 +816,21 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .clipplayer .pstats { margin-top: 4px; } .clipplayer .pstats:empty { display: none; }
 .clipcard .cbtns .ibtn.clike.on, .clipplayer .plike.on { color: #f0478f; }
 .clipplayer .plike.on .icon { fill: #f0478f; }
+/* Aviso do seu microfone em cima do botão de mutar (public/voicenote.js): falando mutado, religando, voltou, sem som */
+.vnote { position: fixed; z-index: 205; display: flex; align-items: flex-start; gap: 10px; width: max-content; max-width: min(400px, calc(100vw - 16px));
+  background: var(--bg-float); color: var(--text-normal); padding: 10px 8px 10px 12px; border-radius: 8px; border-left: 4px solid var(--brand); box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: vnote-in .18s ease-out; }
+.vnote::after { content: ''; position: absolute; top: 100%; left: calc(var(--vn-arrow, 24px) - 6px); border: 6px solid transparent; border-top-color: var(--bg-float); }
+.vnote.free::after { display: none; }
+.vnote.out { opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+.vnote .vn-ic { display: flex; flex: none; margin-top: 1px; }
+.vnote .vn-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.3; }
+.vnote .vn-t b { color: var(--header); font-size: 14px; } .vnote .vn-t small { color: var(--text-muted); font-size: 12.5px; }
+.vnote .vn-b { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; } .vnote .vn-b .btn { padding: 5px 12px; min-height: 0; font-size: 13px; }
+.vnote .vn-x { background: none; border: 0; color: var(--text-muted); cursor: pointer; padding: 2px; display: flex; flex: none; } .vnote .vn-x:hover { color: var(--header); }
+.vnote.mutedtalk { border-left-color: var(--red); } .vnote.mutedtalk .vn-ic { color: var(--red); animation: vnote-pulse 1s ease-in-out 2; }
+.vnote.micfix { border-left-color: var(--yellow); } .vnote.micdead { border-left-color: var(--red); } .vnote.micdead .vn-ic { color: var(--yellow); }
+.vnote.micok { border-left-color: var(--green); } .vnote.micok .vn-ic { color: var(--green); }
+.vnote .vn-spin { width: 16px; height: 16px; margin: 2px; border-radius: 50%; border: 2px solid var(--yellow); border-right-color: transparent; animation: vp-spin .8s linear infinite; flex: none; }
+@keyframes vnote-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes vnote-pulse { 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .vnote, .vnote .vn-ic { animation: none; } .vnote .vn-spin { animation-duration: 2.4s; } }
