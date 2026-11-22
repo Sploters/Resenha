@@ -38,7 +38,7 @@ export function onIntegrationUpdate(d) {
 }
 // a situação real mudou (alguém entrou/saiu de uma chamada, começou a transmitir…): redesenha os cartões para só mostrar ações possíveis
 export const refreshFeedView = () => { if (document.getElementById('actfeed')) S.redrawFeed?.(); };
-export function clearActivities() { S.activities.clear(); S.integrations = null; feed = null; }
+export function clearActivities() { S.activities.clear(); S.integrations = null; feed = null; away = null; awayAt = 0; }
 
 const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 1) return 'menos de 1 min'; if (m < 60) return m + ' min'; const hh = Math.floor(m / 60), mm = m % 60; return hh + 'h' + (mm ? ' ' + mm + 'min' : ''); };
 const since = (t) => (Date.now() - t < 60000 ? 'começou agora' : 'há ' + dur(Date.now() - t));
@@ -589,6 +589,103 @@ function serverSection(friendsNow, redraw) {
     srvMore && rest.length > SRV_MAX && h('button.hl-more', { onclick: () => { srvMore = false; redraw(); } }, h('span.hl-up', icon('chevdown', 14)), 'Mostrar menos')].filter(Boolean);
 }
 
+// ---------------------------------------------------------------- memória do grupo: "Desde a última vez" e "Nos últimos dias"
+// "Desde a última vez" (GET /activity/since, server/sessions.js): quem volta depois de 2 h ou mais vê, no topo do painel, as
+// sessões de voz que aconteceram sem ela, os eventos marcados e o clipe mais visto, cada um com a ação (Entrar na sala, Ver
+// evento, Ver clipe). Dispensar marca "vi até agora" no servidor (POST /activity/seen), o que vale em todos os aparelhos.
+// Servidor antigo (sem a rota): nada aparece. Quem decide o que cada um vê (sala, quem aparece pelo nome) é o servidor.
+const AWAY_MIN = 2 * 3600e3, AWAY_TTL = 60e3, RECENT_MAX = 5;
+let away = null, awayAt = 0; // última resposta de /activity/since (null: nada a mostrar ou rota ausente)
+async function loadSince() {
+  if (Date.now() - awayAt < AWAY_TTL) return; // trocar de aba no início não repete o pedido a cada vez
+  awayAt = Date.now();
+  try {
+    const r = await api('GET', '/activity/since');
+    for (const u of r?.users || []) if (!S.users.has(u.id)) S.users.set(u.id, u);
+    away = r && Array.isArray(r.items) ? r : null;
+  } catch { away = null; } // 404 (servidor ainda sem a memória) ou fora do ar: sem faixa e sem aviso
+}
+function dismissSince() {
+  away = null; awayAt = Date.now(); S.redrawFeed?.();
+  api('POST', '/activity/seen').catch(() => { }); // se falhar, a faixa volta numa próxima abertura, sem incomodar agora
+}
+// dias de calendário entre t e hoje (positivo = passado): "hoje", "ontem", "sexta"…
+const dayDiff = (t) => { const a = new Date(t), b = new Date(); a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0); return Math.round((b - a) / 864e5); };
+const dayWord = (t) => { const d = dayDiff(t); return d === 0 ? 'hoje' : d === 1 ? 'ontem' : d === -1 ? 'amanhã' : Math.abs(d) < 7 ? WDN[new Date(t).getDay()] : new Date(t).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', ''); };
+const daysAgo = (t) => { const d = dayDiff(t); return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`; };
+const hourWord = (t) => { const d = new Date(t), m = d.getMinutes(); return d.getHours() + 'h' + (m ? String(m).padStart(2, '0') : ''); };
+const hm2 = (s) => { const m = Math.max(1, Math.round(s / 60)); if (m < 60) return m + ' min'; const hh = Math.floor(m / 60), mm = m % 60; return hh + 'h' + (mm ? String(mm).padStart(2, '0') : ''); };
+const awayWord = (ms) => { const hh = Math.floor(ms / 3600e3); return hh < 24 ? `há ${hh} h` : `há ${Math.floor(hh / 24)} ${hh < 48 ? 'dia' : 'dias'}`; };
+const shortTitle = (t) => knownGame({ title: t })?.title || t;
+// "Ana, Beto e +1": até dois nomes; o resto (e quem o servidor não deixa você ver pelo nome) vira "+N"
+function whoLine(ids, hidden) {
+  const names = ids.map(id => (id === S.me.id ? 'Você' : uOf(id).display_name)), extra = Math.max(0, names.length - 2) + (hidden || 0);
+  if (!names.length) return `${hidden || 2} pessoas`;
+  if (names.length === 3 && !hidden) return `${names[0]}, ${names[1]} e ${names[2]}`;
+  const two = names.slice(0, 2);
+  return extra ? `${two.join(', ')} e +${extra}` : two.join(' e ');
+}
+const sinceRow = (kind, ic, main, sub, btn) => h('div.an-si.' + kind, { 'data-kind': kind },
+  h('span.an-siic', ic), h('div.an-sit', h('span.an-simain', ...[main].flat(2).filter(Boolean)), sub && h('small.an-sisub', ...[sub].flat().filter(Boolean)), btn || null));
+function sessionItem(it) {
+  const games = (it.games || []).filter(g => g?.title).slice(0, 2).map(g => shortTitle(g.title)), mem = it.members || [];
+  const ch = it.channel_exists ? channelById(it.channel_id) : null, g = ch && guild(ch.guild_id);
+  const join = ch && g && myRoomId() !== ch.id && h('button.btn.green.sm', { title: `Entrar em ${chName(ch)} (${g.name})`, onclick: (e) => { e.stopPropagation(); enterRoom({ ch, g }); } }, icon('voice', 14), 'Entrar na sala');
+  return sinceRow('sess', icon('voice', 16),
+    [h('b', whoLine(mem, it.hidden)), ` ficaram ${hm2(it.secs || 0)} na ${it.channel_name || 'sala'}`, games.length > 0 && [' jogando ', h('b', games.join(' e '))], it.clips > 0 && ` · ${it.clips} ${it.clips === 1 ? 'clipe' : 'clipes'}`],
+    [mem.length > 0 && h('span.an-faces', ...mem.slice(0, 4).map(id => avatar(uOf(id), 16, { status: false }))), h('span', [`${dayWord(it.ended_at)} ${hourWord(it.ended_at)}`, it.guild_name].filter(Boolean).join(' · '))],
+    join);
+}
+function eventItem(it) {
+  const g = guild(it.guild_id);
+  return sinceRow('ev', icon('calendar', 16),
+    [`Evento ${dayWord(it.starts_at)} ${hourWord(it.starts_at)}: `, h('b', it.title || 'Evento')],
+    h('span', [it.game && shortTitle(it.game), it.guild_name].filter(Boolean).join(' · ')),
+    g && h('button.btn.grey.sm', { onclick: (e) => { e.stopPropagation(); ctx.go(g.id, 'events'); } }, icon('calendar', 14), 'Ver evento'));
+}
+function clipItem(it, first) {
+  const u = uOf(it.author_id);
+  return sinceRow('clip', icon('clip', 16),
+    [first ? 'Clipe mais visto: ' : 'Também bombou: ', h('b', it.title || 'Clipe')],
+    h('span', [`de ${it.author_id === S.me.id ? 'você' : u.display_name}`, it.views > 0 && `${it.views} ${it.views === 1 ? 'visualização' : 'visualizações'}`].filter(Boolean).join(' · ')),
+    h('button.btn.grey.sm', { onclick: (e) => { e.stopPropagation(); openClip(it.id); } }, icon('play', 14), 'Ver clipe'));
+}
+function sinceStrip() {
+  const d = away; if (!d?.items?.length || !(d.away_ms >= AWAY_MIN)) return null;
+  let clips = 0;
+  const rows = d.items.slice(0, 6).map(it => (it.type === 'session' ? sessionItem(it) : it.type === 'event' ? eventItem(it) : it.type === 'clip' ? clipItem(it, clips++ === 0) : null)).filter(Boolean);
+  if (!rows.length) return null;
+  return h('section.an-since', { 'aria-label': 'Desde a última vez' },
+    h('div.an-sinceh', h('b', 'Desde a última vez'), h('small', `você saiu ${awayWord(d.away_ms)}`),
+      h('button.ibtn.an-sincex', { title: 'Dispensar (marca como visto em todos os aparelhos)', 'aria-label': 'Dispensar', onclick: dismissSince }, icon('x', 16))),
+    ...rows);
+}
+// "Nos últimos dias": o feed.events (jogos que os amigos fecharam nos últimos 7 dias) por pessoa e jogo, somando o tempo
+// em call. Quem está jogando o mesmo jogo agora já aparece em "Jogando" e não se repete aqui.
+function recentGames() {
+  const by = new Map();
+  for (const ev of feed?.events || []) {
+    if (ev.kind !== 'game_stop' || ev.user_id === S.me.id || !ev.game?.title) continue;
+    const a = { platform: ev.platform, game: ev.game }, cur = activityOf(ev.user_id);
+    if (cur && sameGameAs(cur, a)) continue;
+    const k = ev.user_id + '|' + gameKey(a);
+    let x = by.get(k); if (!x) by.set(k, x = { uid: ev.user_id, a, secs: 0, at: 0 });
+    x.secs += ev.seconds || 0; x.at = Math.max(x.at, ev.at || 0);
+  }
+  const list = [...by.values()].sort((p, q) => q.at - p.at).slice(0, RECENT_MAX);
+  // ícone do jogo: a retrospectiva da semana guarda o do programa e o número na Steam (o evento só traz id e nome)
+  for (const x of list) {
+    const w = (feed.week?.played || []).find(p => p.user_id === x.uid && sameGame({ ...p.game, platform: p.platform }, x.a));
+    if (w) x.a = { platform: x.a.platform, game: { ...x.a.game, icon: w.game.icon, steam: w.game.steam } };
+  }
+  return list;
+}
+const recentRow = (x) => {
+  const u = uOf(x.uid), a = x.a;
+  return h('div.an-row.an-past', { 'data-uid': x.uid, 'data-secs': String(x.secs), title: `Sobre ${a.game.title}`, onclick: openGame(a), oncontextmenu: (e) => ctx.userMenu(e, x.uid) },
+    profAv(u, 32), h('div.an-who', nameEl(u), h('small.an-sub', gameIcon(a, 14), h('span', 'Jogou ', titleEl(a), [x.secs >= 60 && hm2(x.secs), daysAgo(x.at)].filter(Boolean).map(t => ' · ' + t).join('')))));
+};
+
 // painel inteiro. Topo, em destaque: o que os amigos estão fazendo AGORA (jogando, em chamada, online). Embaixo: os destaques.
 export function activityPanel(box) {
   box.id ||= 'active-now';
@@ -615,18 +712,25 @@ export function activityPanel(box) {
     ];
     // gente dos seus servidores que não é amiga (jogando ou em chamada) e, no topo dela, sugestões de amizade
     const srv = serverSection([...playing.map(x => ({ u: x.u, a: x.a, r: roomOf(x.u.id) })), ...inVoice.map(x => ({ u: x.u, a: null, r: x.r }))], draw);
-    if (!now.length && !forMe.length && !srv.length) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
+    const recent = recentGames();
+    if (!now.length && !forMe.length && !srv.length && !recent.length) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
       !S.integrations?.some(i => i.account) && !window.lcDesktop?.detectGame && h('button.btn.sm', { onclick: () => ctx.openSettings('connections') }, 'Mostrar o que eu jogo')));
     // você também está jogando: linha discreta (dá para esconder o jogo daqui)
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
       h('button.btn.link.sm', { title: 'Este jogo nunca aparece como atividade', onclick: async () => { if (await tryApi('PUT', `/activity/games/${mine.platform}/${encodeURIComponent(mine.game.id)}`, { hidden: true })) toast('Jogo escondido. Você pode reexibi-lo em Contas vinculadas.'); } }, 'Esconder jogo')));
     now.push(...srv);
-    // "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho, no topo; embaixo a retrospectiva da semana
-    body.replaceChildren(intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
+    // o que os amigos jogaram nos últimos dias (por pessoa e jogo), depois do que está acontecendo agora
+    if (recent.length) now.push(h('div.an-cap.an-pastcap', 'Nos últimos dias'), ...recent.map(recentRow));
+    // "Desde a última vez" no topo; "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho;
+    // embaixo a retrospectiva da semana
+    const back = sinceStrip();
+    body.replaceChildren(back || '', intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
+    // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
+    document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);
   };
   S.redrawFeed = draw; draw();
   stagger(body.querySelector('.an-now')); // cartões entram em cascata ao montar o painel (não nos redesenhos)
-  loadFeed().then(() => { if (body.isConnected) draw(); });
+  Promise.all([loadFeed(), loadSince()]).then(() => { if (body.isConnected) draw(); });
   clearInterval(S.feedClock); S.feedClock = setInterval(() => { if (!body.isConnected) return clearInterval(S.feedClock); draw(); }, 30000);
 }
 async function loadFeed() {

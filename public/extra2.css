@@ -613,6 +613,36 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 /* "Ativo agora": a foto abre o perfil; o resto da pessoa abre a DM */
 #active-now .an-av { display: inline-flex; flex: none; border-radius: 50%; cursor: pointer; }
 #active-now .an-av:hover { filter: brightness(1.1); }
+/* "Ativo agora" → "Desde a última vez": faixa no topo para quem voltou depois de um tempo (sem animação de entrada) */
+#active-now .an-since { display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 8px; background: var(--bg-tert); box-shadow: inset 3px 0 0 var(--brand, #5865f2); }
+#active-now .an-sinceh { display: flex; align-items: center; gap: 8px; margin: 0 0 4px 6px; min-width: 0; }
+#active-now .an-sinceh b { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--header); white-space: nowrap; }
+#active-now .an-sinceh small { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-sincex { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; }
+#active-now .an-si { display: flex; align-items: flex-start; gap: 10px; padding: 8px 6px; border-radius: 6px; min-width: 0; }
+#active-now .an-si + .an-si { border-top: 1px solid var(--divider); border-radius: 0; }
+#active-now .an-siic { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-sec); color: var(--green, #23a55a); }
+#active-now .an-si.ev .an-siic { color: var(--brand, #5865f2); } #active-now .an-si.clip .an-siic { color: var(--yellow, #f0b232); }
+#active-now .an-siic .icon { fill: currentColor; }
+#active-now .an-sit { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: 1; min-width: 0; }
+#active-now .an-simain { font-size: 13.5px; line-height: 1.35; color: var(--text); overflow-wrap: anywhere; }
+#active-now .an-simain b { color: var(--header); font-weight: 600; }
+#active-now .an-sisub { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--text-muted); }
+#active-now .an-sisub > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-sisub .an-faces > * { box-shadow: 0 0 0 2px var(--bg-tert); margin-left: -4px; } #active-now .an-sisub .an-faces > :first-child { margin-left: 0; }
+#active-now .an-sit .btn { margin-top: 4px; }
+/* "Nos últimos dias": o que os amigos jogaram, uma linha por pessoa e jogo */
+#active-now .an-now .an-pastcap { margin-top: 12px; }
+#active-now .an-now .an-pastcap:first-child { margin-top: 0; }
+#active-now .an-past .an-who { flex: 1; }
+/* janela estreita: ponto no botão do "Ativo agora" quando a gaveta tem "Desde a última vez" */
+/* entre 640 e 1100 px as abas não encolhiam e empurravam esse botão para fora da tela: elas rolam, o botão fica à vista */
+@media (max-width: 1100px) {
+  #home #topbar .tabs { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #home #topbar .tabs::-webkit-scrollbar { display: none; }
+  #home #topbar .tab { white-space: nowrap; flex: none; }
+}
+#home .an-toggle.an-new::after { content: ''; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--red, #f23f43); box-shadow: 0 0 0 2px var(--bg-pri); }
 #active-now .an-card .an-top[title] { cursor: pointer; }
 
 /* tela cheia exclusiva (Ajustes da transmissão) e diagnóstico da captura */
