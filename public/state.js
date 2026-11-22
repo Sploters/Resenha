@@ -354,11 +354,11 @@ export function notifPolicy(ch) {
 // ---------- UI utilitários ----------
 const layer = () => document.getElementById('layer');
 export const toastHooks = []; // telemetria (public/ux.js): conta os avisos de erro mostrados
-export function toast(msg, err) {
+export function toast(msg, err, ms = 3500) {
   for (const f of toastHooks) { try { f(msg, err); } catch { } }
   document.getElementById('toast')?.remove();
   const t = h('div#toast' + (err ? '.err' : ''), msg); document.body.append(t);
-  setTimeout(() => leave(t, 160), 3500);
+  setTimeout(() => leave(t, 160), ms);
 }
 export function modal(title, sub, body, buttons = [], opts = {}) {
   // a janela encolhe e some (mais rápido que a entrada); voltar do navegador/celular também fecha

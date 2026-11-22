@@ -26,7 +26,9 @@ import { reportVideoCaps } from './codecs.js';
 import { track, watchClicks, stopTimer, cancelTimer, timing } from './ux.js';
 import { onFilesMessage, onFilesClip } from './files.js';
 import { onForumEvent, onPostReply } from './forum.js';
-import { onClipEvent, onClipStats } from './clipsgallery.js';
+import { onClipEvent, onClipStats, openClip } from './clipsgallery.js';
+// alguém clipou a sua transmissão: aviso com "Ver" (só para clipes postados; os guardados no aparelho não chegam ao servidor)
+const clipOfMe = (c) => toast(h('span', { style: { display: 'inline-flex', alignItems: 'center' } }, `${c.author.display_name || 'Alguém'} clipou você`, h('button.btn.grey.sm', { style: { marginLeft: '10px' }, onclick: () => { document.getElementById('toast')?.remove(); openClip(c.id); } }, 'Ver')), false, 8000);
 import { onWatchEvent } from './watch.js';
 import { onCallInvite, onCallInviteUpdate, loadPendingInvites } from './callinvite.js';
 import { themeText } from './themes.js';
@@ -422,7 +424,8 @@ export function onEvent(t, d) {
     case 'ADMIN_ALERT': toast('⚠️ ' + d.text, true); notify('Resenha: servidor lento', d.text); break; // só o administrador recebe (server/perf.js)
     case 'LFG_POST': case 'LFG_REQUEST': case 'LFG_ANSWER': case 'LFG_MESSAGE': case 'LFG_JOINED': case 'LFG_LEFT': onLfgEvent(t, d); break;
     case 'CLIP_STATS': onClipStats(d); onFeedClipStats(d); break; // visualizações, curtidas, compartilhamentos e retenção mudaram
-    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
+    case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d);
+      if (t === 'CLIP_CREATE' && d.streamer?.id === S.me.id && d.author?.id && d.author.id !== S.me.id) clipOfMe(d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null }; boardState(d.boards);

@@ -8,6 +8,7 @@
 import WebSocket from 'ws';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 const PORT = +(process.env.PORT || 3710), RTC_PORT = +(process.env.RTC_PORT || 41710), DATA = process.env.DATA_DIR || './.testdata-memsince', BASE = `http://localhost:${PORT}`;
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -20,12 +21,16 @@ process.on('exit', kill);
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = async (tok, m, p, b) => { const r = await fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const j = await r.json().catch(() => ({})); j._status = r.status; return j; };
 const reg = async (name, display) => { const r = await call('', 'POST', '/register', { username: name, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', { display_name: display }); return { tok: r.token, id: me.id, name }; };
+// contas "antigas" (5 dias): sem isso, conta nova não tem "Desde a última vez" (a janela não começa antes de a conta existir)
+const ageAccounts = (ids) => { const db = new DatabaseSync(`${DATA}/resenha.db`); try { for (const id of ids) db.prepare('UPDATE users SET created_at=? WHERE id=?').run(Date.now() - 5 * 864e5, id); } finally { db.close(); } };
 const connect = (u) => new Promise((res) => { const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + u.tok); ws.on('message', (raw) => { const m = JSON.parse(raw); if (m.t === 'READY') { ws.ready = m.d; res(ws); } }); });
 const since = (u) => call(u.tok, 'GET', '/activity/since');
 const sessionsOf = (r) => (r.items || []).filter(i => i.type === 'session');
 
 try {
   const ana = await reg('ana', 'Ana'), beto = await reg('beto', 'Beto'), caio = await reg('caio', 'Caio'), dani = await reg('dani', 'Dani');
+  ageAccounts([ana.id, beto.id, caio.id, dani.id]);
+  { const novo = await reg('novo', 'Novo'), rn = await since(novo); ok(rn.away_ms >= 0 && rn.away_ms < 60e3, 'conta nova: a janela começa na criação da conta (não "saiu há 3 dias")', { away_ms: rn.away_ms }); }
   const g = await call(ana.tok, 'POST', '/guilds', { name: 'Turma' }), code = (await call(ana.tok, 'POST', `/guilds/${g.id}/invites`)).code;
   for (const o of [beto, caio]) await call(o.tok, 'POST', '/invites/' + code);
   const g2 = await call(dani.tok, 'POST', '/guilds', { name: 'Outro' }); // dani só tem o servidor dela
@@ -43,6 +48,7 @@ try {
   // ---- 2) ana e beto numa sala: caio vê ----
   await session();
   let r = await since(caio), s = sessionsOf(r)[0];
+  { const mine = await call(ana.tok, 'GET', '/voice-sessions/mine'); ok(Array.isArray(mine) && mine.length >= 1 && mine[0].secs >= 0, 'GET /voice-sessions/mine lista as sessões de quem esteve', mine); }
   console.log('  resposta de /api/activity/since (caio):\n' + JSON.stringify({ ...r, _status: undefined, users: r.users?.map(u => `${u.id} (${u.username}, perfil público)`) }, null, 2).replace(/^/gm, '    '));
   ok(r.since && r.away_ms >= 3 * 864e5 - 60e3 && r.away_ms <= 3 * 864e5 + 60e3, 'sem "visto": since = agora − 3 dias', { away_ms: r.away_ms });
   ok(s && s.guild_id === g.id && s.guild_name === 'Turma' && s.channel_id === vch.id && s.channel_name === vch.name && s.channel_exists === true, 'caio vê a sessão da sala', s);

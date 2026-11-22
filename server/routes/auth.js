@@ -6,6 +6,14 @@ import { uxSignup } from '../ux.js';
 
 export function mountAuth(app, d) {
   const { auth, wrap, bad, clean, get, run, newId, sessions, OPEN_REGISTRATION, COLORS, DEFAULT_AVATARS } = d;
+  // avatar padrão menos usado (empate: sorteio), para duas pessoas da turma não começarem com o mesmo rosto
+  const pickAvatar = () => {
+    if (!DEFAULT_AVATARS.length) return null;
+    const used = (a) => get('SELECT COUNT(*) n FROM users WHERE avatar=?', a)?.n || 0;
+    const counts = DEFAULT_AVATARS.map(a => [a, used(a)]), min = Math.min(...counts.map(c => c[1]));
+    const free = counts.filter(c => c[1] === min);
+    return free[Math.floor(Math.random() * free.length)][0];
+  };
   // tentativas por IP: o scrypt da senha trava o servidor ~50 ms por chamada; sem limite, alguém podia testar senhas sem parar
   // (força bruta) ou derrubar a voz/chat de todos só mandando logins. Login: 10 por minuto por IP + conta (a turma atrás do
   // mesmo IP, ex.: proxy do Docker, não se bloqueia entre si). Registro: 20 contas por hora por IP.
@@ -26,7 +34,7 @@ export function mountAuth(app, d) {
     const id = newId(), salt = crypto.randomBytes(16).toString('hex');
     run('INSERT INTO users(id,username,display_name,pass_hash,salt,color,avatar,created_at) VALUES(?,?,?,?,?,?,?,?)',
       id, username, clean(req.body.display_name, 32) || username, hashPw(pw, salt), salt, COLORS[Math.floor(Math.random() * COLORS.length)],
-      DEFAULT_AVATARS.length ? DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)] : null, Date.now());
+      pickAvatar(), Date.now());
     const token = sessions.create(id, clean(req.headers['user-agent'], 200));
     uxSignup(id); // telemetria: começa a "turma" do dia (funil do usuário novo e retenção), sem guardar quem
     res.json({ token });

@@ -374,7 +374,22 @@ function presenceCard() {
 function memoryCard() {
   const on = priv().memory?.sessions !== false;
   return card(vrow('Guardar minhas sessões no histórico do grupo', 'Quem esteve na chamada, quando e por quanto tempo, para a galera ver o que perdeu. Conversas diretas (DMs) nunca entram.',
-    toggle(on, async (v) => { if (await savePrivacy({ memory: { sessions: v } })) toast(v ? 'Suas sessões voltam a entrar no histórico do grupo' : 'Suas próximas sessões não entram no histórico do grupo'); })));
+    toggle(on, async (v) => { if (await savePrivacy({ memory: { sessions: v } })) toast(v ? 'Suas sessões voltam a entrar no histórico do grupo' : 'Suas próximas sessões não entram no histórico do grupo'); })),
+    mySessions());
+}
+// as sessões guardadas com você dentro, com "Tirar minha participação" (DELETE /voice-sessions/:id/me)
+function mySessions() {
+  const box = h('div.mysess');
+  const fmt = (s) => { const m = Math.max(1, Math.round((s || 0) / 60)); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : ''); };
+  const draw = async () => {
+    const list = await tryApi('GET', '/voice-sessions/mine') || [];
+    box.replaceChildren(h('b', { style: { display: 'block', margin: '12px 0 6px' } }, 'Sessões guardadas com você'),
+      !list.length ? hint('Nenhuma sessão guardada com você ainda.') : null,
+      ...list.map(s => h('div.frow', { style: { cursor: 'default' } },
+        h('div.fn', h('b', `${s.channel_name || 'Sala'}${s.guild_name ? ' · ' + s.guild_name : ''}`), h('small', `${new Date(+s.ended_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} · você ficou ${fmt(s.secs)}`)),
+        h('button.btn.grey.sm', { title: 'Tira o seu nome desta sessão; o resto da sessão continua para quem esteve', onclick: async () => { if (await tryApi('DELETE', `/voice-sessions/${s.id}/me`)) { toast('Você saiu do histórico desta sessão'); draw(); } } }, 'Tirar minha participação'))));
+  };
+  draw(); return box;
 }
 // criptografia de ponta a ponta das conversas diretas (public/e2ee.js)
 function e2eeCard(reg) {

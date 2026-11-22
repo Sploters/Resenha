@@ -24,7 +24,7 @@ try {
   await p.waitForFunction(() => window.__lc.voice?.active, { timeout: 15000 }); await sleep(1500);
   const vis = () => p.evaluate(() => [...document.querySelectorAll('#stage .bar .roundbtn')].filter(b => getComputedStyle(b).display !== 'none').map(b => b.title.split(' (')[0]));
   const wide = await vis();
-  ok(wide.join('|') === 'Transmitir tela|Lousa compartilhada|Editor de código compartilhado|Desconectar', 'tela larga: centro só com sala/transmissão', wide);
+  ok(wide.join('|') === 'Transmitir tela|Desconectar', 'tela larga: centro só com sala/transmissão', wide);
   await p.screenshot({ path: `${OUT}/01-larga.png` });
   await p.setViewport({ width: 600, height: 900, deviceScaleFactor: 2 }); await sleep(800);
   const narrow = await vis();

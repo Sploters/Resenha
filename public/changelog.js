@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-22-3', title: 'Clipes para a turma e controle das suas sessões',
+    items: [
+      { i: 'clip', t: 'Mandar o clipe para a turma', d: 'Apertou F8? O aviso de "Clipe salvo" agora tem "Mandar para a turma": um clique e o clipe vai para o chat da sala. E quando alguém clipa a sua transmissão, você fica sabendo, com Ver.' },
+      { i: 'shield', t: 'Tirar sua participação', d: 'Em Configurações → Privacidade e segurança aparecem as sessões de voz guardadas com você, com "Tirar minha participação" em cada uma.' },
+      { i: 'check', t: 'Menos repetição na chamada', d: 'Lousa, editor de código e "O que jogar hoje?" ficam só no menu Atividades. Contas novas não veem mais "você saiu há 3 dias" e ganham um avatar diferente dos outros.' },
+    ],
+  },
+  {
     id: '2026-11-22-2', title: 'O que você perdeu enquanto esteve fora',
     items: [
       { i: 'clock', t: 'Desde a última vez', d: 'Voltou depois de umas horas? No topo do "Ativo agora" aparece o que rolou sem você: quem ficou na sala e por quanto tempo, o que jogaram, eventos marcados e o clipe mais visto, com Entrar na sala, Ver evento e Ver clipe. No X some, e não volta em nenhum aparelho.' },

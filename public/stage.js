@@ -342,7 +342,6 @@ export function renderVoiceUI(speakOnly) {
   let focusTile = hasFocus && tiles.length > 1 ? tiles.find(t => t.dataset.key === S.focus) : null; // sozinho no palco não há o que minimizar: fica a grade normal
   if (layout === 'grid' || layout === 'side') focusTile = null;
   else if (['spot', 'sidebar', 'cinema'].includes(layout) && tiles.length > 1 && !focusTile) focusTile = screens[0] || tiles[0]; // sem destaque escolhido: a primeira transmissão
-  const abtn = (ic, title, on, fn) => h('button.roundbtn' + (on ? '.active' : ''), { title, onclick: fn }, icon(ic, 24));
   const btn = (ic, title, on, fn, cls = '') => swapIcon(h('button.roundbtn' + (on ? '.off' : '') + cls, { title, onclick: fn, oncontextmenu: cls.startsWith('.mic') ? noiseMenu : null }, icon(ic, 24)), 'bar-' + ic.replace(/(off|set)$/, ''), !!on); // ícone novo entra com fade + desfoque
   syncLive();
   // fora da sala o botão Entrar não some com o mouse fora do palco (.joinbar, features.css): era o único jeito de entrar
@@ -360,9 +359,6 @@ export function renderVoiceUI(speakOnly) {
       { icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
       { icon: 'gamepad', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#f0b232', fn: () => openGameNight(voice.channelId) },
     ]) }, icon('rocket', 24)),
-    abtn('edit', room?.wb ? 'Fechar a lousa' : 'Lousa compartilhada', !!room?.wb, () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb })),
-    abtn('code', room?.code ? 'Fechar o editor de código' : 'Editor de código compartilhado', !!room?.code, () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code })),
-    abtn('gamepad', 'O que jogar hoje? (jogos que todo mundo da chamada tem)', false, () => openGameNight(voice.channelId)),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
     // transmitindo: a bola vermelha da ponta vira "Parar transmissão" (mesmo tamanho das outras) no lugar do "Sair da chamada";

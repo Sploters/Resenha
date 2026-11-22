@@ -1,5 +1,6 @@
 // Clipes de transmissão: buffer circular por transmissão e o corte dos últimos 15 s a 2 min. Como no Discord, o clipe fica
 // guardado só neste aparelho (cliplocal.js) até a pessoa compartilhar; quem preferir pode postar direto no chat da sala.
+import { h } from './util.js';
 import { S, api, toast } from './state.js';
 import { addLocalClip } from './cliplocal.js';
 import { createBuffer, createMixer, createNativeBuffer, createTapBuffer } from './clipbuf.js';
@@ -78,7 +79,10 @@ async function keepClip(blob, { channelId, secs, streamerId, hasAudio, title, wh
   if (clipDest() === 'post') return postClip(blob, { channelId, secs, streamerId, hasAudio, title, who });
   try {
     await addLocalClip({ blob, title: title || stampTitle(who), secs, streamerId, who, game: game || '', hasAudio, guildId: guildId || null, channelId });
-    toast(hasAudio ? 'Clipe salvo neste aparelho. Para compartilhar: + do campo de mensagem → Compartilhar um clipe.' : 'Clipe salvo neste aparelho, mas sem áudio: esta transmissão não está enviando som.', !hasAudio);
+    // "Mandar para a turma" no próprio aviso: compartilhar sem ir ao + do campo de mensagem
+    let sent = false;
+    const share = h('button.btn.green.sm', { style: { marginLeft: '10px' }, onclick: () => { if (sent) return; sent = true; document.getElementById('toast')?.remove(); postClip(blob, { channelId, secs, streamerId, hasAudio, title, who }); } }, 'Mandar para a turma');
+    toast(h('span', { style: { display: 'inline-flex', alignItems: 'center' } }, hasAudio ? 'Clipe salvo neste aparelho.' : 'Clipe salvo neste aparelho, mas sem áudio.', share), !hasAudio, 8000);
     return true;
   } catch (e) { toast('Não consegui guardar o clipe neste aparelho: ' + (e?.message || 'sem espaço'), true); return false; }
 }

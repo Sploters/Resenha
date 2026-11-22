@@ -15,7 +15,8 @@ export function mountVoiceSessions(app, d) {
 
   function sinceFor(viewer) {
     const t = Date.now(), seen = get('SELECT seen_at FROM memory_seen WHERE user_id=?', viewer)?.seen_at;
-    const since = seen ?? t - DEFAULT_AWAY, from = Math.max(since, t - MAX_BACK);
+    // sem "vi até agora" ainda: no máximo 3 dias, mas nunca antes de a conta existir (conta nova não "saiu há 3 dias")
+    const since = seen ?? Math.max(t - DEFAULT_AWAY, get('SELECT created_at FROM users WHERE id=?', viewer)?.created_at || 0), from = Math.max(since, t - MAX_BACK);
     const guildName = new Map(all('SELECT g.id, g.name FROM guilds g JOIN members m ON m.guild_id=g.id WHERE m.user_id=?', viewer).map(g => [g.id, g.name]));
     const cited = new Set(), items = [];
     const visible = (uid) => uid !== viewer && privacy.presenceVisible(viewer, uid) && getUser(uid)?.status !== 'invisible';
@@ -60,6 +61,12 @@ export function mountVoiceSessions(app, d) {
     const t = Date.now();
     run('INSERT INTO memory_seen(user_id,seen_at) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET seen_at=excluded.seen_at', req.uid, t);
     res.json({ seen_at: t });
+  }));
+  // as sessões em que a pessoa entrou (Configurações -> Privacidade), para ela poder tirar a própria participação
+  app.get('/api/voice-sessions/mine', auth, wrap((req, res) => {
+    res.set('Cache-Control', 'no-store').json(all(`SELECT s.id, s.channel_name, s.started_at, s.ended_at, g.name guild_name, vm.secs
+      FROM voice_session_members vm JOIN voice_sessions s ON s.id=vm.session_id LEFT JOIN guilds g ON g.id=s.guild_id
+      WHERE vm.user_id=? AND s.ended_at IS NOT NULL ORDER BY s.ended_at DESC LIMIT 50`, req.uid));
   }));
   app.delete('/api/voice-sessions/:id/me', auth, wrap((req, res) => {
     if (!voiceSessions.removeMember(String(req.params.id), req.uid)) return bad(res, 'Sessão não encontrada', 404);

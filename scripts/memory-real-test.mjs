@@ -7,6 +7,7 @@ import puppeteer from 'puppeteer-core';
 import WebSocket from 'ws';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 const PORT = +(process.env.PORT || 3730), RTC_PORT = +(process.env.RTC_PORT || 41730), DATA = process.env.DATA_DIR || './.testdata-memreal', BASE = `http://localhost:${PORT}`, OUT = process.env.SHOTS || '';
 const EXE = process.env.BROWSER || (process.platform === 'win32' ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : '/opt/pw-browsers/chromium');
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
@@ -17,8 +18,11 @@ process.on('exit', () => { try { srv.kill(); } catch { } });
 for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(200); } }
 const call = async (tok, m, p, b) => { const r = await fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); return r.json().catch(() => ({})); };
 const reg = async (n, d) => { const r = await call('', 'POST', '/register', { username: n, password: 'Teste.senha-123' }); const me = await call(r.token, 'PATCH', '/me', { display_name: d }); return { tok: r.token, id: me.id, n }; };
+// contas "antigas" (5 dias): sem isso, conta nova não tem "Desde a última vez" (a janela não começa antes de a conta existir)
+const ageAccounts = (ids) => { const db = new DatabaseSync(`${DATA}/resenha.db`); try { for (const id of ids) db.prepare('UPDATE users SET created_at=? WHERE id=?').run(Date.now() - 5 * 864e5, id); } finally { db.close(); } };
 const connect = (u) => new Promise((res) => { const ws = new WebSocket(BASE.replace('http', 'ws') + '/gateway?token=' + u.tok); ws.on('message', (raw) => { const m = JSON.parse(raw); if (m.t === 'READY') { ws.ready = m.d; res(ws); } }); });
 const ana = await reg('ana', 'Ana'), beto = await reg('beto', 'Beto'), caio = await reg('caio', 'Caio'), dani = await reg('dani', 'Dani');
+ageAccounts([ana.id, beto.id, caio.id, dani.id]);
 const g = await call(ana.tok, 'POST', '/guilds', { name: 'Turma' }), code = (await call(ana.tok, 'POST', `/guilds/${g.id}/invites`)).code;
 for (const o of [beto, caio, dani]) await call(o.tok, 'POST', '/invites/' + code);
 const wsA = await connect(ana), wsB = await connect(beto), wsD = await connect(dani);
