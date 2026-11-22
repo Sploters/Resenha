@@ -8,7 +8,7 @@ export function mountPolls(app, d) {
   const pollUpdate = (p) => { const m = get('SELECT * FROM messages WHERE id=?', p.message_id), ch = m && get('SELECT * FROM channels WHERE id=?', m.channel_id); if (ch) dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(m), guild_id: ch.guild_id }); };
   // avisa todo mundo na hora em que o prazo acaba (o cartão passa a mostrar o resultado)
   function schedulePollEnd(p) {
-    clearTimeout(pollTimers.get(p.id));
+    clearTimeout(pollTimers.get(p.id)); pollTimers.delete(p.id);
     if (!p.ends_at || p.closed_at) return;
     const ms = p.ends_at - Date.now(); if (ms > 7 * 86400e3 + 60e3) return;
     pollTimers.set(p.id, setTimeout(() => { pollTimers.delete(p.id); const cur = get('SELECT * FROM polls WHERE id=?', p.id); if (cur && !cur.closed_at) pollUpdate(cur); }, Math.max(0, ms) + 250));
@@ -57,7 +57,7 @@ export function mountPolls(app, d) {
     const f = pollFor(req, res); if (!f) return;
     const { p, ch } = f;
     if (p.author_id !== req.uid && !(ch.guild_id && can(ch.guild_id, req.uid, P.MANAGE_MESSAGES))) return bad(res, 'Só quem criou (ou um moderador) pode encerrar', 403);
-    if (!p.closed_at && !(p.ends_at && p.ends_at <= Date.now())) { run('UPDATE polls SET closed_at=? WHERE id=?', Date.now(), p.id); clearTimeout(pollTimers.get(p.id)); }
+    if (!p.closed_at && !(p.ends_at && p.ends_at <= Date.now())) { run('UPDATE polls SET closed_at=? WHERE id=?', Date.now(), p.id); clearTimeout(pollTimers.get(p.id)); pollTimers.delete(p.id); }
     const n = get('SELECT * FROM polls WHERE id=?', p.id); pollUpdate(n);
     res.json(pollObj(n));
   }));

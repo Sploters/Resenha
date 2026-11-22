@@ -3,6 +3,7 @@
 // activity chega por getter (d.activity): é criado mais abaixo no index.js, então só é lido na hora da requisição
 import crypto from 'node:crypto';
 import { createCallInvites } from '../callinvites.js';
+import { pruneHits } from '../limits.js';
 
 export function mountInvites(app, d) {
   const { auth, wrap, bad, all, get, run, lim, P, can, audit, dispatch, userPub, pubUser, statusFor, platformsFor, conns, voice, sessions, privacy, social, joinGuild, postDm } = d;
@@ -73,7 +74,7 @@ export function mountInvites(app, d) {
     canCall: (a, b) => privacy.canCall(a, b),
     onState: (i, st) => social.count('callinv', `${i.source || 'manual'}:${st}`, 1, i.to), // métricas: aceito, recusado, expirado, cancelado
   });
-  const callInvRate = new Map(); // uid -> instantes dos últimos convites (no máx. 10 por minuto)
+  const callInvRate = new Map(); pruneHits(callInvRate, 60e3); // uid -> instantes dos últimos convites (no máx. 10 por minuto)
   const callOut = (res, r) => (r.error ? bad(res, r.error, r.status) : res.json(r));
   app.post('/api/call-invites', auth, wrap((req, res) => {
     const t = Date.now(), recent = (callInvRate.get(req.uid) || []).filter(x => t - x < 60e3);

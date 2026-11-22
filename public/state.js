@@ -212,7 +212,7 @@ export async function api(method, path, body) {
     if (inflight.has(path)) return structuredClone(await inflight.get(path));
     const p = request(method, path, body).finally(() => inflight.delete(path));
     inflight.set(path, p);
-    const data = await p; if (SHORT.test(path)) short.set(path, { at: Date.now(), data: structuredClone(data) });
+    const data = await p; if (SHORT.test(path)) { short.set(path, { at: Date.now(), data: structuredClone(data) }); if (short.size > 100) for (const [k, v] of short) if (Date.now() - v.at >= SHORT_MS) short.delete(k); } // perfis vistos numa sessão longa: os vencidos saem
     return data;
   }
   short.clear();

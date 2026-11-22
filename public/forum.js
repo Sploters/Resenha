@@ -3,7 +3,7 @@
 //   ordem Em alta / Novos / Top / Atividade, busca, filtro por tag e o quadro "Sobre" ao lado (regras, tags, criar post)
 // - post aberto: o post em destaque no topo e os comentários embaixo, no chat de sempre (o post é um canal type 11)
 // Os posts ficam em S.posts (channelById procura lá): não vêm no READY, chegam pela lista ou pelo link do post.
-import { h, icon, avatar, md } from './util.js';
+import { h, icon, avatar, md, whenGone } from './util.js';
 import { S, api, tryApi, toast, modal, confirmBox, menu, can, PERM, guild, channelById, user, nameOf, lightbox } from './state.js';
 import { uploadFile } from './upload.js';
 
@@ -204,13 +204,13 @@ function newPostModal(f, edit) {
   const drawTags = () => tagBox.replaceChildren(...cfg.tags.filter(t => !t.modOnly || mod).map(t => tagEl(t, tags.includes(t.id), () => { tags = tags.includes(t.id) ? tags.filter(x => x !== t.id) : [...tags, t.id].slice(-5); drawTags(); })));
   const thumbs = h('div.fo-thumbs');
   const drawThumbs = () => thumbs.replaceChildren(...files.map((a, i) => h('div.fo-thumb', /^image\//.test(a.type) ? h('img', { src: a.preview || a.url, alt: '' }) : h('span', icon('file', 22), a.name),
-    a.uploading && h('div.fo-upl', a.uploading), h('button.ibtn', { type: 'button', title: 'Tirar', onclick: () => { files.splice(i, 1); drawThumbs(); } }, icon('x', 14)))));
+    a.uploading && h('div.fo-upl', a.uploading), h('button.ibtn', { type: 'button', title: 'Tirar', onclick: () => { if (files[i]?.preview) URL.revokeObjectURL(files[i].preview); files.splice(i, 1); drawThumbs(); } }, icon('x', 14)))));
   const pick = h('input', { type: 'file', multiple: true, accept: 'image/*,video/*', hidden: true, onchange: async () => {
     for (const file of [...pick.files].slice(0, 10 - files.length)) {
-      const a = { name: file.name, type: file.type, size: file.size, preview: URL.createObjectURL(file), uploading: '0%' };
+      const a = { name: file.name, type: file.type, size: file.size, preview: /^image\//.test(file.type) ? URL.createObjectURL(file) : null, uploading: '0%' }; // prévia: solta ao tirar, ao falhar e ao fechar
       files.push(a); drawThumbs();
       try { const r = await uploadFile(file, { onProgress: (x) => { a.uploading = Math.round(x * 100) + '%'; drawThumbs(); } }); Object.assign(a, { url: r.url, name: r.name || file.name, size: r.size || file.size, type: r.type || file.type }); delete a.uploading; }
-      catch (e) { files = files.filter(x => x !== a); toast(e.message, true); }
+      catch (e) { files = files.filter(x => x !== a); if (a.preview) URL.revokeObjectURL(a.preview); toast(e.message, true); }
       drawThumbs();
     }
     pick.value = '';
@@ -218,7 +218,7 @@ function newPostModal(f, edit) {
   const tabs = h('div.fo-wtabs', ...[['write', 'Escrever'], ['preview', 'Prévia']].map(([k, l]) => h('button' + (k === tab ? '.on' : ''), { type: 'button', onclick: () => { tab = k; body.hidden = k !== 'write'; prev.hidden = k === 'write'; if (k === 'preview') prev.innerHTML = body.value.trim() ? md(body.value, ctx.mdCtx(f.guild_id)) : '<p class="fo-muted">Nada para mostrar ainda.</p>'; for (const b of tabs.children) b.classList.toggle('on', b.textContent === l); } }, l)));
   prev.hidden = true;
   drawTags(); drawThumbs();
-  modal(edit ? 'Editar post' : 'Criar post', `em ${ctx.chName(f)}`, h('div.fo-form',
+  const dlg = modal(edit ? 'Editar post' : 'Criar post', `em ${ctx.chName(f)}`, h('div.fo-form',
     h('div.fo-titlerow', title, cnt),
     cfg.tags.length > 0 && h('div', h('label.f', 'Tags', cfg.requireTag ? h('small.fo-req', ' (escolha pelo menos uma)') : null), tagBox),
     tabs, body, prev,
@@ -235,6 +235,7 @@ function newPostModal(f, edit) {
     rememberPost(r);
     if (!edit) ctx.go(f.guild_id, r.id); else refreshPost(S.posts.get(r.id).post);
   } }], { width: '640px' });
+  whenGone(dlg.el, () => { for (const a of files) if (a.preview) URL.revokeObjectURL(a.preview); });
 }
 
 // ---------- ajustes do fórum (tags e regras) ----------

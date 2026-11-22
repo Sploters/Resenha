@@ -57,6 +57,7 @@ export async function loadChannel(cid) {
   // voltando a um chat lido para trás (até 300 guardadas): abre no fim, então monta só as 50 mais novas. As outras voltam
   // do servidor ao rolar para cima (~4 ms cada página). Antes eram montadas todas (300 mensagens = quadro de ~1 s na CPU 4x)
   const cached = S.messages.get(cid);
+  if (cached) { S.messages.delete(cid); S.messages.set(cid, cached); } // vai para o fim: os abertos há mais tempo saem primeiro (pruneCachedChannels)
   if (cached && cached.length > OPEN_KEEP + 30) { cached.splice(0, cached.length - OPEN_KEEP); S.loaded.set(cid, false); }
   let netMs = 0; // telemetria: quanto da troca foi esperando o servidor
   if (!S.messages.has(cid)) {
@@ -188,6 +189,20 @@ export function appendMessage(m) {
 // canal movimentado). Com a pessoa no fim da conversa, passando de CHAT_MAX ficam as CHAT_KEEP mais novas; rolar até o topo
 // busca as antigas de novo no servidor (o mesmo caminho do histórico).
 const CHAT_MAX = 250, CHAT_KEEP = 150, OPEN_KEEP = 50;
+// Canais que já foram abertos e ficaram para trás continuam recebendo as novas (gateway: onMessage) e a lista crescia sem
+// parar enquanto a pessoa estava em outro canal (trimChat só olha o canal na tela). De minuto em minuto: lista grande fora
+// da tela volta às OPEN_KEEP mais novas (o mesmo corte que o loadChannel faria ao reabrir) e, passando de CACHE_CHANNELS
+// canais guardados, os abertos há mais tempo saem (reabrir busca de novo no servidor, como no primeiro acesso).
+const CACHE_CHANNELS = 40;
+export function pruneCachedChannels() {
+  const here = S.view.cid; let extra = S.messages.size - CACHE_CHANNELS;
+  for (const [cid, list] of [...S.messages]) {
+    if (cid === here || detached.has(cid) || arriving.has(cid)) continue;
+    if (extra > 0) { S.messages.delete(cid); S.loaded.delete(cid); extra--; continue; }
+    if (list.length > CHAT_MAX) { list.splice(0, list.length - OPEN_KEEP); S.loaded.set(cid, false); }
+  }
+}
+setInterval(pruneCachedChannels, 60e3);
 // Lendo o histórico para cima: o chat guarda no máximo HIST_MAX mensagens. Passando disso, as mais novas saem de baixo e o
 // chat fica "vendo mensagens antigas" (rolar até o fim busca de novo; o botão volta ao presente). Descendo de volta, saem as
 // de cima. Antes cada página de 50 se somava para sempre: lendo 2.000 mensagens para trás eram 2.000 no chat e cada

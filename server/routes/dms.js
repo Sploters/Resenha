@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pruneHits } from '../limits.js';
 
 export function mountDms(app, d) {
   const { auth, wrap, bad, clean, get, run, newId, dispatch, channelAudience, dmChannelObj, messageObj, getUser, userPub, reportAdmin, UPLOAD_DIR, DATA_DIR } = d;
@@ -34,7 +35,7 @@ export function mountDms(app, d) {
   }));
   // ---- relatório de problema ("Algo deu errado?"): diagnóstico do app vira um arquivo .json, guardado em <dados>/reports
   // e enviado por DM ao administrador da instalação (LC_ADMIN = nome de usuário; sem isso, a conta mais antiga) ----
-  const reportRate = new Map(); // uid -> [tempos]
+  const reportRate = new Map(); pruneHits(reportRate, 3600e3); // uid -> [tempos]
   app.post('/api/reports', auth, wrap((req, res) => {
     const now = Date.now(), hits = (reportRate.get(req.uid) || []).filter(t => now - t < 3600e3);
     if (hits.length >= 6) return bad(res, 'Muitos relatórios seguidos. Tente de novo daqui a pouco.', 429);

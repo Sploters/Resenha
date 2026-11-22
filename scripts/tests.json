@@ -180,6 +180,7 @@
     "clipstats-unit-test": 1,
     "micwatch-unit-test": 1,
     "mic-dead-test": 75,
-    "backup-unit-test": 2
+    "backup-unit-test": 2,
+    "leaks-unit-test": 1
   }
 }

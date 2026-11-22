@@ -157,6 +157,8 @@ function userJson(u, viewer) {
   if (!c || Date.now() - c.at > 60e3) { const p = pubUser(u); delete p.status; delete p.platforms; c = { at: Date.now(), head: JSON.stringify(p).slice(0, -1) }; userCache.set(u.id, c); }
   return c.head + ',"status":' + JSON.stringify(statusFor(viewer, u)) + ',"platforms":' + JSON.stringify(platformsFor(viewer, u)) + '}';
 }
+// os guardados vencidos saem de vez (antes ficava um por pessoa/servidor já visto, para sempre, num servidor ligado por meses)
+setInterval(() => { const t = Date.now(); for (const [k, c] of guildCache) if (t - c.at > 30e3) guildCache.delete(k); for (const [k, c] of userCache) if (t - c.at > 60e3) userCache.delete(k); }, 5 * 60e3).unref();
 
 // o mesmo evento para muita gente: vira texto (JSON) uma vez só, não uma vez por pessoa (1000 pessoas no servidor = 1000x)
 // o texto do canal de documento vai só no GET /doc e no CHANNEL_DOC (não pesa na abertura nem a cada mudança do canal)
@@ -352,7 +354,7 @@ function sendRaw(list, type, d) { // como o dispatch, mas para conexões escolhi
 }
 function broadcastStatus(uid) {
   const t0 = performance.now(), u = getUser(uid); if (!u) return;
-  platKey.set(uid, platformsOf(u).join());
+  if (conns.has(uid)) platKey.set(uid, platformsOf(u).join()); else platKey.delete(uid);
   const direct = new Set([uid]);
   for (const r of all('SELECT other_id FROM relationships WHERE user_id=?', uid)) direct.add(r.other_id);
   for (const r of all('SELECT p2.user_id FROM dm_participants p1 JOIN dm_participants p2 ON p1.channel_id=p2.channel_id WHERE p1.user_id=?', uid)) direct.add(r.user_id);
@@ -373,7 +375,7 @@ function broadcastStatus(uid) {
 }
 const legacyConns = new Set(); // conexões que ainda não mandaram VIEW
 const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAudience(uid), u = getUser(uid), pu = pubUser(u); if (!u) return;
-  platKey.set(uid, platformsOf(u).join());
+  if (conns.has(uid)) platKey.set(uid, platformsOf(u).join()); else platKey.delete(uid);
   if (!privacy.restricted(uid)) dispatch(to, 'USER_UPDATE', pu);
   else { // quem pode ver recebe o status de verdade; os outros, offline
     const see = to.filter(v => privacy.presenceVisible(v, uid)), hide = to.filter(v => !privacy.presenceVisible(v, uid));
