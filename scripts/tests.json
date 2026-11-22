@@ -148,6 +148,7 @@
     "news-test": 18,
     "noise-suggest-test": 14,
     "pcactivity-test": 134,
+    "friends-presence-test": 90,
     "polls-test": 9,
     "presence-test": 10,
     "privacy-test": 6,
