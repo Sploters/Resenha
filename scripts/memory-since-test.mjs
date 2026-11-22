@@ -58,6 +58,24 @@ try {
   ok(sessionsOf(await since(ana)).length === 0 && sessionsOf(await since(beto)).length === 0, 'quem esteve na sessão não a vê (já sabe)');
   ok(sessionsOf(await since(dani)).length === 0, 'dani (fora do servidor) não vê nada');
   const sid1 = s?.id;
+  // ---- A Noite: item na faixa de quem esteve, lista, página, GG e pérolas ----
+  { const ra = await since(ana), it = (ra.items || []).find(i => i.type === 'night');
+    ok(it && it.id === sid1 && it.title && it.members.includes(beto.id), 'ana (esteve) vê "A Noite … está pronta" no topo da faixa', it);
+    ok(!(await since(caio)).items.some(i => i.type === 'night'), 'caio (não esteve) não tem item "night"');
+    const ls = await call(caio.tok, 'GET', `/nights?guild_id=${g.id}`);
+    ok(ls.nights?.some(x => x.id === sid1 && x.title), 'GET /nights lista a noite para quem é do servidor', ls.nights?.map(x => x.title));
+    ok((await call(dani.tok, 'GET', `/nights?guild_id=${g.id}`))._status === 404, 'dani (fora do servidor) não lista as noites');
+    const nd = await call(caio.tok, 'GET', `/nights/${sid1}`);
+    ok(nd.night?.timeline?.filter(e => e.kind === 'join').length === 2 && nd.night.was_here === false, 'página da noite: linha do tempo com as 2 chegadas', nd.night?.timeline);
+    const gg1 = await call(caio.tok, 'POST', `/nights/${sid1}/gg`), gg2 = await call(beto.tok, 'POST', `/nights/${sid1}/gg`), gg3 = await call(caio.tok, 'POST', `/nights/${sid1}/gg`);
+    ok(gg1.gg === 1 && gg1.mine && gg2.gg === 2 && gg3.gg === 1 && !gg3.mine, 'GG: dar e tirar', [gg1, gg2, gg3]);
+    const msg = await call(beto.tok, 'POST', `/channels/${tch.id}/messages`, { content: 'eu nunca erro um flick' });
+    const pr = await call(caio.tok, 'POST', `/messages/${msg.id}/pearl`);
+    const wall = await call(ana.tok, 'GET', `/guilds/${g.id}/pearls`);
+    ok(pr.pearl === true && wall.pearls?.[0]?.content === 'eu nunca erro um flick' && wall.pearls[0].author_id === beto.id && wall.pearls[0].by_id === caio.id, 'pérola guardada aparece no mural', wall.pearls);
+    ok((await call(beto.tok, 'POST', `/messages/${msg.id}/pearl`)).pearl === false, 'o autor da mensagem tira a pérola');
+    ok((await call(dani.tok, 'GET', `/guilds/${g.id}/pearls`))._status === 404, 'dani não vê o mural de outro servidor');
+  }
 
   // ---- 3) beto invisível agora: vira "+1 pessoa" ----
   await call(beto.tok, 'PATCH', '/me', { status: 'invisible' }); await sleep(300);

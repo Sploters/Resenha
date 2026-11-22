@@ -1,6 +1,7 @@
 // Atividade social: estado em tempo real, painel "Ativo agora" (o que os amigos fazem AGORA, em destaque, e a retrospectiva
 // da semana: os jogos e os clipes que marcaram) e página de contas vinculadas.
 // A decisão de QUEM pode ver cada atividade é do servidor; aqui só se exibe o que ele enviou.
+import { openNight, nightDay } from './nights.js';
 import { canCallInvite, sendCallInvite, pendingInvites, acceptInvite, declineInvite } from './callinvite.js';
 import { h, icon, avatar, skeleton, thumbUrl } from './util.js';
 import { knownGame } from './gamecatalog.js';
@@ -636,7 +637,7 @@ function sessionItem(it) {
   return sinceRow('sess', icon('voice', 16),
     [h('b', whoLine(mem, it.hidden)), ` ficaram ${hm2(it.secs || 0)} na ${it.channel_name || 'sala'}`, games.length > 0 && [' jogando ', h('b', games.join(' e '))], it.clips > 0 && ` · ${it.clips} ${it.clips === 1 ? 'clipe' : 'clipes'}`],
     [mem.length > 0 && h('span.an-faces', ...mem.slice(0, 4).map(id => avatar(uOf(id), 16, { status: false }))), h('span', [`${dayWord(it.ended_at)} ${hourWord(it.ended_at)}`, it.guild_name].filter(Boolean).join(' · '))],
-    join);
+    h('span.an-sibtns', join || null, h('button.btn.grey.sm', { onclick: (e) => { e.stopPropagation(); openNight(it.id); } }, 'Ver a noite')));
 }
 function eventItem(it) {
   const g = guild(it.guild_id);
@@ -652,10 +653,17 @@ function clipItem(it, first) {
     h('span', [`de ${it.author_id === S.me.id ? 'você' : u.display_name}`, it.views > 0 && `${it.views} ${it.views === 1 ? 'visualização' : 'visualizações'}`].filter(Boolean).join(' · ')),
     h('button.btn.grey.sm', { onclick: (e) => { e.stopPropagation(); openClip(it.id); } }, icon('play', 14), 'Ver clipe'));
 }
+function nightItem(it) {
+  const games = (it.games || []).filter(g => g?.title).slice(0, 2).map(g => shortTitle(g.title)), others = (it.members || []).filter(id => id !== S.me.id);
+  return sinceRow('night', icon('moon', 16),
+    [h('b', `A Noite ${nightDay(it.ended_at)}`), ' está pronta: ', it.title || ''],
+    [others.length > 0 && h('span.an-faces', ...others.slice(0, 4).map(id => avatar(uOf(id), 16, { status: false }))), h('span', [others.length ? `com ${whoLine(others, it.hidden)}` : '', games.length ? games.join(' e ') : '', it.clips ? `${it.clips} ${it.clips === 1 ? 'clipe' : 'clipes'}` : '', it.gg ? `${it.gg} GG` : ''].filter(Boolean).join(' · '))],
+    h('button.btn.green.sm', { onclick: (e) => { e.stopPropagation(); openNight(it.id); } }, icon('moon', 14), 'Ver a noite'));
+}
 function sinceStrip() {
   const d = away; if (!d?.items?.length || !(d.away_ms >= AWAY_MIN)) return null;
   let clips = 0;
-  const rows = d.items.slice(0, 6).map(it => (it.type === 'session' ? sessionItem(it) : it.type === 'event' ? eventItem(it) : it.type === 'clip' ? clipItem(it, clips++ === 0) : null)).filter(Boolean);
+  const rows = d.items.slice(0, 6).map(it => (it.type === 'night' ? nightItem(it) : it.type === 'session' ? sessionItem(it) : it.type === 'event' ? eventItem(it) : it.type === 'clip' ? clipItem(it, clips++ === 0) : null)).filter(Boolean);
   if (!rows.length) return null;
   return h('section.an-since', { 'aria-label': 'Desde a última vez' },
     h('div.an-sinceh', h('b', 'Desde a última vez'), h('small', `você saiu ${awayWord(d.away_ms)}`),

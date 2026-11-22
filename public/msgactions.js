@@ -1,4 +1,5 @@
 // Ações em mensagens: encaminhar, menu da mensagem, spoiler, editar, responder e pular até uma mensagem.
+import { pearlMenuItem } from './nights.js';
 import { isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gifs.js';
 import { favMenuItems } from './mediafavs.js';
 import { undoImportModal } from './importer.js';
@@ -60,6 +61,7 @@ export function msgMenu(e, m) {
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
     m.content && ttsSupported() && (ttsSpeaking() ? { label: 'Parar leitura', fn: () => ttsStop() } : { label: 'Ler em voz alta', hint: 'Voz do aparelho', fn: () => speak(`${nameOf(m.author_id, gid)} disse: ${speakableText(m.content, { nameOf: (id) => nameOf(id, gid) })}`, { localOnly: !!m.e2ee }) }),
+    pearlMenuItem(m, gid),
     canForward(m) && { label: 'Encaminhar', hint: 'Para outras conversas e canais', fn: () => forwardModal(m) },
     ...favMenuItems(m),
     isGifMessage(m.content) && { label: isGifFav(m.content.trim()) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', fn: () => toggleGifFav({ url: m.content.trim(), preview: m.content.trim() }).then(() => renderMessages(true)) },

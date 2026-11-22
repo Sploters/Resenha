@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-22-4', title: 'A Noite: as noites da turma viram história',
+    items: [
+      { i: 'moon', t: 'A Noite', d: 'Cada sessão de voz com a turma vira uma página: quem esteve, quanto tempo, o que jogaram, clipes (com o lance da noite), pérolas, conquistas e uma linha do tempo. Abra pelo "Desde a última vez" ("A Noite de ontem está pronta") ou em Noites, no topo dos canais do servidor.' },
+      { i: 'star', t: 'Pérolas', d: 'No menu de uma mensagem (clique direito), "Guardar como pérola". As pérolas vão para o mural em Noites → Pérolas e aparecem na noite em que foram ditas. Quem escreveu pode tirar.' },
+      { i: 'check', t: 'GG', d: 'Gostou da noite? Dê GG. Quem perdeu também pode ver o que rolou e dar GG.' },
+    ],
+  },
+  {
     id: '2026-11-22-3', title: 'Clipes para a turma e controle das suas sessões',
     items: [
       { i: 'clip', t: 'Mandar o clipe para a turma', d: 'Apertou F8? O aviso de "Clipe salvo" agora tem "Mandar para a turma": um clique e o clipe vai para o chat da sala. E quando alguém clipa a sua transmissão, você fica sabendo, com Ver.' },

@@ -1328,3 +1328,35 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 /* Campo de mensagem: quanto falta perto do limite de 4000 caracteres */
 .msg-count { align-self: flex-end; flex: none; padding: 0 6px 12px; font-size: 12px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .msg-count.full { color: var(--red); }
+
+/* A Noite (public/nights.js) */
+.nt { display: flex; flex-direction: column; gap: 14px; }
+.nt-load { color: var(--text-muted); padding: 18px 4px; }
+.nt-when { color: var(--text-muted); font-size: 13px; }
+.nt-title { margin: 2px 0 8px; font-size: 22px; line-height: 1.25; }
+.nt-who { display: flex; align-items: center; gap: 10px; color: var(--text-normal); }
+.nt-faces { display: inline-flex; }
+.nt-faces > * { margin-right: -6px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-floating, #111214); }
+.nt-acts { margin-top: 10px; display: flex; gap: 8px; }
+.nt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.nt-stat { background: var(--bg-2, rgba(255,255,255,.04)); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.nt-stat small { color: var(--text-muted); }
+.nt-sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 4px 0 8px; }
+.nt-clips { display: flex; flex-direction: column; gap: 6px; }
+.nt-clip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; text-align: left; background: var(--bg-2, rgba(255,255,255,.04)); border: 0; border-radius: 8px; padding: 8px 10px; color: inherit; cursor: pointer; }
+.nt-clip small { grid-column: 2; color: var(--text-muted); }
+.nt-clip.top { outline: 2px solid var(--yellow, #f0b232); }
+.nt-pearl { margin: 0 0 8px; padding: 8px 12px; border-left: 3px solid var(--yellow, #f0b232); background: var(--bg-2, rgba(255,255,255,.04)); border-radius: 0 8px 8px 0; font-style: italic; }
+.nt-pearl small { display: block; font-style: normal; color: var(--text-muted); margin-top: 4px; }
+.nt-tl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nt-ev { display: flex; align-items: center; gap: 8px; }
+.nt-ev time { color: var(--text-muted); font-size: 12px; min-width: 42px; font-variant-numeric: tabular-nums; }
+.nt-priv { padding-top: 6px; border-top: 1px solid var(--bg-mod, rgba(255,255,255,.06)); }
+.nt-priv .linkbtn { background: none; border: 0; color: var(--text-muted); cursor: pointer; padding: 0; text-decoration: underline; }
+.nt-tabs { display: flex; gap: 6px; }
+.nt-list { display: flex; flex-direction: column; gap: 6px; }
+.nt-row { display: flex; align-items: center; gap: 12px; text-align: left; background: var(--bg-2, rgba(255,255,255,.04)); border: 0; border-radius: 8px; padding: 10px 12px; color: inherit; cursor: pointer; }
+.nt-row:hover, .nt-clip:hover { background: var(--bg-mod-hover, rgba(255,255,255,.08)); }
+.nt-rowt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nt-rowt small { color: var(--text-muted); }
+.an-sibtns { display: flex; gap: 6px; flex-wrap: wrap; }
