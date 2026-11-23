@@ -111,6 +111,9 @@ function moreMenu(e, c) {
     { label: 'Ir para a mensagem', icon: 'dm', fn: () => { ctx.go(c.guild_id, c.channel_id); setTimeout(() => ctx.jumpTo?.(c.message_id), 600); } },
     { label: 'Compartilhar…', icon: 'clipshare', fn: () => ctx.share?.(c) },
     { label: 'Copiar link do clipe', icon: 'link', fn: () => { navigator.clipboard?.writeText(clipLink(c.id)); toast('Link do clipe copiado'); } },
+    c.author?.id === S.me.id && (S.me.pinned_clip === c.id
+      ? { label: 'Tirar do meu perfil', icon: 'pin', fn: async () => { if (await tryApi('PATCH', '/me', { pinned_clip: null })) { S.me.pinned_clip = null; toast('Clipe tirado do perfil'); } } }
+      : { label: 'Fixar no meu perfil', icon: 'pin', hint: 'Vira o banner do seu cartão', fn: async () => { if (await tryApi('PATCH', '/me', { pinned_clip: c.id })) { S.me.pinned_clip = c.id; toast('Clipe fixado no seu perfil'); } } }),
     canEdit(c) && '-',
     canEdit(c) && { label: 'Apagar clipe', icon: 'cliptrash', danger: true, fn: () => remove(c) },
   ]);

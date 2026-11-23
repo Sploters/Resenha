@@ -63,9 +63,10 @@ try {
   const kb = (l) => Math.round(l.reduce((n, x) => n + (x.bytes || 0), 0) / 1024);
   R.openChatVideoKB = kb(vids); R.openChatThumbKB = kb(th);
   ok(vids.length === 0, 'abrir o chat da sala não baixa nenhum vídeo', { videoKB: kb(vids) });
-  const cards = await P.evaluate(() => ({ n: document.querySelectorAll('#msgs .clipmsg').length, players: document.querySelectorAll('#msgs .clipmsg video').length, text: [...document.querySelectorAll('#msgs .msg .body')].some(b => /Clipe de 15s da transmissão/.test(b.textContent)), thumbs: [...document.querySelectorAll('#msgs .clipmsg img')].filter(i => i.complete && i.naturalWidth > 0).length, other: document.querySelector('#msgs .attach video')?.getAttribute('preload'), poster: !!document.querySelector('#msgs .attach video')?.poster }));
+  const cards = await P.evaluate(() => ({ n: document.querySelectorAll('#msgs .clipmsg').length, players: document.querySelectorAll('#msgs .clipmsg video').length, text: [...document.querySelectorAll('#msgs .msg .body')].some(b => /Clipe de 15s da transmissão/.test(b.textContent)), thumbs: [...document.querySelectorAll('#msgs .clipmsg img')].filter(i => i.complete && i.naturalWidth > 0).length, vis: (() => { const b = document.getElementById('msgs').getBoundingClientRect(); return [...document.querySelectorAll('#msgs .clipmsg .cmthumb')].filter(t => { const r = t.getBoundingClientRect(); return r.bottom > b.top && r.top < b.bottom; }).length; })(), other: document.querySelector('#msgs .attach video')?.getAttribute('preload'), poster: !!document.querySelector('#msgs .attach video')?.poster }));
   ok(cards.n === 12 && cards.players === 0 && !cards.text, 'o chat mostra 12 cartões leves (sem player e sem o texto antigo)', cards);
-  ok(cards.thumbs >= 6, 'miniaturas geradas pelo servidor aparecem', { carregadas: cards.thumbs, kB: kb(th) });
+  // cartões grandes (Resenha 2.0): cabem menos na tela e a miniatura só carrega para quem aparece
+  ok(cards.vis > 0 && cards.thumbs >= Math.min(6, cards.vis), 'miniaturas geradas pelo servidor aparecem', { carregadas: cards.thumbs, visiveis: cards.vis, kB: kb(th) });
   ok(cards.other === 'none' && cards.poster, 'vídeo comum no chat: só baixa no play e tem miniatura', cards);
   if (process.env.SHOTS) await P.screenshot({ path: `${OUT}/06-chat-cartoes.png` });
   got.length = 0;

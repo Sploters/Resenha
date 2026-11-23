@@ -166,19 +166,28 @@ export function appendAttachments(el, m, canDel) {
   } // áudio/arquivo: excluir fica na barra da mensagem
 }
 // cartão do clipe no chat: miniatura pequena + título; o vídeo só carrega ao clicar em assistir
-function clipMsgCard(m, full) {
+function clipMsgCard(m, full, msg = m.id ? m : null) {
   const c = m.clip, ch = channelById(m.channel_id), gid = full ? (full.guild_id && S.guilds.has(full.guild_id) ? full.guild_id : null) : ch?.guild_id;
   const who = c.streamer_id ? nameOf(c.streamer_id, gid) || user(c.streamer_id).display_name : null;
+  // 🔥 rápido ao passar o mouse: reage à mensagem que trouxe o clipe (de novo tira a reação)
+  const FIRE = '🔥', mine = () => !!msg?.reactions?.find(r => r.emoji === FIRE && r.users?.includes(S.me.id));
+  const fire = msg && chCan(channelById(msg.channel_id), CH.REACT) && h('button.cmfire' + (mine() ? '.on' : ''), { type: 'button', title: 'Reagir com 🔥', 'aria-label': 'Reagir com fogo',
+    onclick: (e) => { e.stopPropagation(); const on = mine(); e.currentTarget.classList.toggle('on', !on); tryApi(on ? 'DELETE' : 'PUT', `/channels/${msg.channel_id}/messages/${msg.id}/reactions/${encodeURIComponent(FIRE)}`); } }, FIRE);
   const thumb = h('div.cmthumb', { title: 'Assistir aqui', onclick: () => { thumb.replaceWith(fsVideo({ src: c.url, autoplay: true, preload: 'auto', poster: thumbUrl(c.url) || undefined }, '.cmvideo')); } },
-    thumbUrl(c.url) && h('img', { src: thumbUrl(c.url), loading: 'lazy', alt: '', onerror: (e) => e.target.remove() }), h('span.cmplay', icon('play', 22)), c.secs ? h('span.cmdur', c.secs + 's') : null);
+    thumbUrl(c.url) && h('img', { src: thumbUrl(c.url), loading: 'lazy', alt: '', onerror: (e) => e.target.remove() }), h('span.cmplay', icon('play', 26)), c.secs ? h('span.cmdur', c.secs + 's') : null, fire);
+  // quem assistiu de verdade (visualização qualificada, sem contar o autor): vem do clipe completo, buscado uma vez
+  const seen = h('span.cmseen');
+  const paintSeen = (cc) => { const n = cc?.stats?.views || 0; seen.replaceChildren(...(n ? [icon('eye', 14), `${n} ${n === 1 ? 'assistiu' : 'assistiram'}`] : [])); };
+  if (full) paintSeen(full); else if (c.id) fetchClip(c.id).then(paintSeen);
   return h('div.clipmsg', thumb, h('div.cminfo', h('b', c.title), h('small', [who && `transmissão de ${who}`, !c.has_audio && 'sem áudio'].filter(Boolean).join(' · ') || 'clipe'),
-    gid && h('button.btn.link.sm', { onclick: () => { galleryFocus(c.id); go(gid, 'clips'); } }, icon('clip', 14), 'Ver na galeria')));
+    h('div.cmfoot', seen, gid && h('button.btn.link.sm', { onclick: () => { galleryFocus(c.id); go(gid, 'clips'); } }, icon('clip', 14), 'Ver na galeria'))));
 }
 // cartão de um clipe compartilhado por link: busca o clipe pelo id (nome e vídeo sempre atuais, mesmo depois de renomear)
 const clipCache = new Map(); // id -> Promise<clipe | null>
 const fetchClip = (id) => { if (!clipCache.has(id)) clipCache.set(id, api('GET', `/clips/${encodeURIComponent(id)}`).catch(() => null)); return clipCache.get(id); };
-export function clipEmbed(id) {
+export function clipEmbed(id, msg) {
   const box = h('div.clipmsg.clipembed.loading', { 'data-clip': id }, h('div.cmthumb'), h('div.cminfo', h('b', 'Carregando clipe…')));
+  box._msg = msg;
   fetchClip(id).then(c => paintClipEmbed(box, c));
   return box;
 }
@@ -186,7 +195,7 @@ function paintClipEmbed(box, c) {
   box.classList.remove('loading');
   if (!c) return box.replaceChildren(h('div.cmthumb.cmgone', icon('clip', 22)), h('div.cminfo', h('b', 'Clipe indisponível'), h('small', 'Foi apagado ou você não tem acesso.')));
   const fake = { clip: { id: c.id, title: c.title, secs: c.secs, url: c.url, has_audio: c.has_audio, streamer_id: c.streamer?.id || null }, channel_id: c.channel_id };
-  const card = clipMsgCard(fake, c);
+  const card = clipMsgCard(fake, c, box._msg || null);
   box.replaceChildren(...card.childNodes);
 }
 export function updateClipEmbeds(t, d) {

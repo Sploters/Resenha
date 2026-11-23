@@ -477,6 +477,7 @@ function appearancePage() {
     section('Temas em gradiente'), card(gr, hint('Passe o mouse num tema e clique no lápis para criar uma versão sua a partir dele.')),
     section('Agentes do Valorant'), card(val, hint('Um tema para cada agente, nas cores dele.')),
     section('Seus temas'), card(mine, hint('Crie um gradiente com até 5 cores e compartilhe: o código colado no chat vira um cartão com o botão "Usar tema".')),
+    section('Layout'), card(row('Visual clássico', 'Desliga as ilhas (áreas separadas com cantos arredondados) e a cor do servidor no fundo, voltando ao visual de colunas grudadas.', toggle(!!S.prefs.classicLayout, v => { S.prefs.classicLayout = v; save(); applyTheme(); }))),
     section('Cor de destaque'), card(swatches(S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
     section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
       h('label.f', 'Tamanho da interface', slider(80, 140, S.prefs.zoom, 5, set('zoom'), v => v + '%'))),

@@ -124,7 +124,7 @@ const platKey = new Map(); // uid -> plataformas já avisadas (só avisa de novo
 const pubUser = (u) => u && ({
   id: u.id, username: u.username, display_name: u.display_name || u.username, avatar: u.avatar, color: u.color,
   banner_color: u.banner_color, banner: u.banner, avatar_pos: u.avatar_pos, banner_pos: u.banner_pos, pronouns: u.pronouns, status_emoji: u.status_emoji, theme_primary: u.theme_primary, theme_accent: u.theme_accent, name_style: parseNameStyle(u.name_style),
-  bio: u.bio, custom_status: u.custom_status, created_at: u.created_at,
+  bio: u.bio, custom_status: u.custom_status, created_at: u.created_at, pinned_clip: u.pinned_clip || null,
   // quem esconde a presença aparece offline em tudo que vai para todo mundo (mensagens, perfis…); quem pode ver recebe o
   // status de verdade à parte (READY e USER_UPDATE, por pessoa: ver statusFor)
   status: privacy.restricted(u.id) ? 'offline' : realStatus(u),

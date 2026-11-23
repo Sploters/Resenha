@@ -189,7 +189,7 @@ export function applyTheme() {
   r.style.setProperty('--brand', a); r.style.setProperty('--brand-hover', `color-mix(in srgb, ${a} 80%, black)`);
   const rm = reduceMotionOn();
   r.classList.toggle('reduce-motion', rm); r.classList.toggle('anim', S.prefs.animations !== false && !rm && !systemReduceMotion()); // também o "reduzir movimento" do sistema
-  r.classList.toggle('high-contrast', highContrastOn()); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
+  r.classList.toggle('classic', !!S.prefs.classicLayout); r.classList.toggle('high-contrast', highContrastOn()); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
   const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');

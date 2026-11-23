@@ -278,6 +278,13 @@ function autocomplete(ta) {
 export function renderTyping() {
   const el = $('#typing'); if (!el) return;
   const m = S.typing.get(S.view.cid), now = Date.now();
-  const names = m ? [...m].filter(([, t]) => t > now).map(([u]) => nameOf(u, S.view.gid)) : [];
-  el.replaceChildren(...(names.length ? [h('span.dots', h('i'), h('i'), h('i')), h('span', names.length > 3 ? 'Várias pessoas estão digitando…' : names.join(', ') + (names.length > 1 ? ' estão digitando…' : ' está digitando…'))] : []));
+  const ids = m ? [...m].filter(([, t]) => t > now).map(([u]) => u) : [];
+  const names = ids.map(u => nameOf(u, S.view.gid));
+  const txt = names.length > 3 ? 'Várias pessoas estão digitando…' : names.join(', ') + (names.length > 1 ? ' estão digitando…' : ' está digitando…');
+  // rostos empilhados de quem escreve (até 4) + os pontinhos; o texto fica no title e para leitor de tela
+  el.title = names.length ? txt : '';
+  el.replaceChildren(...(names.length ? [
+    h('span.typing-faces', { 'aria-hidden': 'true' }, ids.slice(0, 4).map(u => avatar(user(u), 20, { status: false })), ids.length > 4 && h('span.typing-more', '+' + (ids.length - 4))),
+    h('span.dots', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+    h('span.sr-only', txt)] : []));
 }

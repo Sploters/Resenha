@@ -30,6 +30,7 @@ export function renderSide() {
   const side = $('#side'); if (!side) return;
   if (vDrag || cDrag) return; // arrastando alguém para outra sala (ou um canal): redesenha ao soltar (senão o arrasto é cancelado)
   let head, list;
+  { const gg = S.view.gid !== '@me' && guild(S.view.gid); $('#app')?.style.setProperty('--srv', (gg && gg.accent) || 'transparent'); }
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,

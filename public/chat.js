@@ -294,7 +294,7 @@ export function msgEl(m, prev) {
     if (shared) body.append(themeCard(shared));
     for (const code of invites) body.append(inviteCard(code));
     for (const id of calls) body.append(callCard(id));
-    for (const id of clipIds) body.append(clipEmbed(id));
+    for (const id of clipIds) body.append(clipEmbed(id, m));
     if (m.poll) body.append(pollCard(m));
     if (m.event) body.append(eventCard(m.event));
     if (gifOnly && S.prefs.embedLinks !== false) body.append(coverMedia(gifEl(m.content.trim(), (u) => lightbox(u)), coverReason(m), m.id + ':gif')); else if (gifOnly) body.append(h('a', { href: m.content.trim(), target: '_blank', rel: 'noopener' }, m.content.trim()));

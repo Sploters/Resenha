@@ -27,12 +27,14 @@ export function mountAccount(app, d) {
       theme_primary: b.theme_primary !== undefined ? hex(b.theme_primary) : u.theme_primary,
       theme_accent: b.theme_accent !== undefined ? hex(b.theme_accent) : u.theme_accent,
       name_style: b.name_style !== undefined ? JSON.stringify(cleanNameStyle(b.name_style)) : u.name_style,
+      // clipe fixado no perfil: só um clipe que a própria pessoa fez (quem vê o cartão precisa ter acesso ao clipe para ele tocar)
+      pinned_clip: b.pinned_clip !== undefined ? (b.pinned_clip && get('SELECT 1 x FROM clips WHERE id=? AND author_id=?', String(b.pinned_clip), req.uid) ? String(b.pinned_clip) : null) : u.pinned_clip,
     };
     if (!f.theme_primary || !f.theme_accent) f.theme_primary = f.theme_accent = null; // tema só com as duas cores
     if (f.avatar && !isFileUrl(f.avatar) && !DEFAULT_AVATARS.includes(f.avatar)) f.avatar = u.avatar;
     if (f.avatar !== u.avatar && isFileUrl(f.avatar)) uxFirst(req.uid, 'avatar'); // telemetria: pôs uma foto própria
-    run('UPDATE users SET display_name=?,bio=?,avatar=?,color=?,banner_color=?,custom_status=?,status=?,pronouns=?,banner=?,avatar_pos=?,banner_pos=?,status_emoji=?,theme_primary=?,theme_accent=?,name_style=? WHERE id=?',
-      f.display_name, f.bio, f.avatar, f.color, f.banner_color, f.custom_status, f.status, f.pronouns, f.banner, f.avatar_pos, f.banner_pos, f.status_emoji, f.theme_primary, f.theme_accent, f.name_style, req.uid);
+    run('UPDATE users SET display_name=?,bio=?,avatar=?,color=?,banner_color=?,custom_status=?,status=?,pronouns=?,banner=?,avatar_pos=?,banner_pos=?,status_emoji=?,theme_primary=?,theme_accent=?,name_style=?,pinned_clip=? WHERE id=?',
+      f.display_name, f.bio, f.avatar, f.color, f.banner_color, f.custom_status, f.status, f.pronouns, f.banner, f.avatar_pos, f.banner_pos, f.status_emoji, f.theme_primary, f.theme_accent, f.name_style, f.pinned_clip, req.uid);
     broadcastPresence(req.uid);
     if ((f.status === 'invisible') !== (u.status === 'invisible')) d.activity.onInvisible(req.uid, f.status === 'invisible'); // atividade some/volta junto com o status
     res.json(userPub(req.uid));
