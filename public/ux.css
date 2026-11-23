@@ -1361,7 +1361,7 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 
 /* Retrospectiva (public/retro.js) */
 .nt-tabs .nt-retro { margin-left: auto; }
-.rt { display: flex; flex-direction: column; gap: 14px; }
+.rt-wrap { display: flex; flex-direction: column; gap: 14px; } /* era .rt: o nome batia com o título das linhas de configuração (ui.js row) e empilhava o ⓘ embaixo */
 .rt-stage { min-height: 320px; display: flex; }
 .rt-card { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 28px 20px; border-radius: 14px;
   background: linear-gradient(150deg, rgba(88,101,242,.28), rgba(235,69,158,.18) 60%, rgba(240,178,50,.16)); }

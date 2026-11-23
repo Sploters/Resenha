@@ -70,7 +70,7 @@ export function openRetro(gid, opt) {
   let period = typeof opt === 'string' && PER[opt] ? opt : typeof opt === 'number' ? 'year' : prefPeriod, offset = typeof opt === 'number' ? opt - new Date().getFullYear() : 0;
   const stage = h('div.rt-stage', h('div.rt-card', h('div.rt-kicker', 'Carregando…')));
   const nav = h('div.rt-nav'), head = h('div.rt-head');
-  const m = modal('Rewind', '', h('div.rt', head, stage, nav), [], { width: 'min(560px, 96vw)' });
+  const m = modal('Rewind', '', h('div.rt-wrap', head, stage, nav), [], { width: 'min(560px, 96vw)' });
   m.el.querySelector('.mh p')?.remove();
   let list = [], i = 0, req = 0, cur = null;
   const show = (k) => {
