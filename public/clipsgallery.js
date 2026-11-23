@@ -210,12 +210,23 @@ function player(i, list = st.clips, opts = {}) {
   };
   const keys = (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowLeft') show(cur - 1); if (e.key === 'ArrowRight') show(cur + 1); };
   addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => { removeEventListener('keydown', keys); stopWatch?.(); players.delete(live); }));
-  const dlg = modal('Clipe', null, box, [], { width: 'min(1100px, 94vw)' });
+  const dlg = modal('Clipe', null, box);
   const md = dlg.el.querySelector('.modal');
-  md?.classList.add('clipmodal');
-  md?.querySelector('.mf')?.remove(); // sem rodapé: fechar fica no X do topo (e clicando fora)
-  md?.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
-  show(cur);
+  md.classList.add('clipmodal');
+  md.querySelector('.mf')?.remove(); // sem rodapé: fechar fica no X do topo (e clicando fora)
+  md.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
+  // tamanho da janela pela proporção do clipe (features.css .clipmodal): --ar = largura/altura do vídeo,
+  // --chrome = altura de tudo que não é vídeo (título, barra, botões que quebram linha); 2 passadas porque a largura
+  // nova pode mudar a quebra da barra
+  const stage = box.querySelector('.pstage');
+  const fit = () => {
+    if (!md.isConnected || document.fullscreenElement) return;
+    if (v.videoWidth && v.videoHeight) md.style.setProperty('--ar', (v.videoWidth / v.videoHeight).toFixed(4));
+    for (let n = 0; n < 2; n++) md.style.setProperty('--chrome', Math.ceil(md.scrollHeight - stage.offsetHeight) + 'px');
+  };
+  v.addEventListener('loadedmetadata', fit);
+  addEventListener('resize', fit); whenGone(md, () => removeEventListener('resize', fit));
+  show(cur); fit();
 }
 
 // abre um clipe pelo id, em popup, de qualquer lugar (ex.: destaque "salvou um clipe" no painel "Ativo agora")

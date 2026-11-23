@@ -59,18 +59,20 @@ export const cancelTimer = (name) => marks.delete(name);
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') for (const k of [...marks.keys()]) if (k !== 'ws_offline') marks.delete(k); });
 
 // ---------- erros: agrupados pela forma, sem números, aspas, endereços ou ids ----------
-export const normErr = (t) => String(t || '').replace(/https?:\/\/\S+/g, '<url>').replace(/(["'`«“]).*?(["'`»”])/g, '"…"').replace(/\b[0-9a-f]{8,}\b/gi, '#').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+// o nome da propriedade de "Cannot read properties of null (reading 'x')" fica (é do código, não da pessoa): sem ele o erro não acha o lugar
+export const normErr = (t) => String(t || '').replace(/https?:\/\/\S+/g, '<url>').replace(/\(reading (['"])([\w$]{1,40})\1\)/g, '(reading $2)').replace(/(["'`«“]).*?(["'`»”])/g, '"…"').replace(/\b[0-9a-f]{8,}\b/gi, '#').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
 const fileOf = (u) => String(u || '').split('/').pop().split('?')[0];
-function onError(msg, file, line) {
-  const where = file ? ` @ ${fileOf(file)}:${line || '?'}` : '';
+// arquivos saem minificados (server/static.js): a linha sozinha não acha o lugar (players.js:1), a coluna sim
+function onError(msg, file, line, col) {
+  const where = file ? ` @ ${fileOf(file)}:${line || '?'}${col ? ':' + col : ''}` : '';
   track('js_error', (normErr(msg).slice(0, 110) || 'erro sem mensagem') + where, { once: true, bg: true });
 }
 // "Script error." sem arquivo: erro de um script de fora (extensão do navegador, outro site) — o navegador esconde tudo, não ajuda
-addEventListener('error', (e) => { if ((e.error || e.message) && !(/^Script error\.?$/.test(e.message) && !e.filename)) onError(e.message, e.filename, e.lineno); });
+addEventListener('error', (e) => { if ((e.error || e.message) && !(/^Script error\.?$/.test(e.message) && !e.filename)) onError(e.message, e.filename, e.lineno, e.colno); });
 addEventListener('unhandledrejection', (e) => {
-  const r = e.reason, st = String(r?.stack || '').split('\n').find(l => /\.js/.test(l)) || '', m = /([\w.-]+\.js)(?:\?[^:]*)?:(\d+)/.exec(st);
+  const r = e.reason, st = String(r?.stack || '').split('\n').find(l => /\.js/.test(l)) || '', m = /([\w.-]+\.js)(?:\?[^:]*)?:(\d+)(?::(\d+))?/.exec(st);
   if (r?.name === 'AbortError') return; // cancelado de propósito
-  onError((r?.name && r?.name !== 'Error' ? r.name + ': ' : '') + (r?.message || r), m?.[1], m?.[2]);
+  onError((r?.name && r?.name !== 'Error' ? r.name + ': ' : '') + (r?.message || r), m?.[1], m?.[2], m?.[3]);
 });
 // avisos de erro mostrados na tela (toast vermelho)
 // (registrado depois de todos os módulos carregarem: state.js → e2ee.js → ux.js formam um ciclo de imports)
@@ -96,6 +98,7 @@ export function describeClick(el) {
   return (area + ' › ' + (label || cls)).slice(0, 80);
 }
 const typingTag = (t) => /^(INPUT|TEXTAREA|SELECT|OPTION)$/.test(t?.tagName) || t?.isContentEditable;
+const REPEATABLE = '.sbsnd, .pnav, [data-repeat]';
 let watching = false;
 export function watchClicks() {
   if (watching) return; watching = true;
@@ -110,7 +113,8 @@ export function watchClicks() {
     // com raiva: 3 cliques em 0,8 s cada, a menos de 40 px, no mesmo lugar
     if (last && last.key === key && now - last.t < 800 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 40) { last.n++; last.t = now; }
     else last = { key, x: e.clientX, y: e.clientY, t: now, n: 1, sent: false };
-    if (last.n >= 3 && !last.sent) { last.sent = true; track('rage_click', key); }
+    // botões feitos para clicar várias vezes (som da soundboard, anterior/próximo, +/−) não contam como raiva: eram ~10% das rajadas
+    if (last.n >= 3 && !last.sent && !e.target.closest?.(REPEATABLE)) { last.sent = true; track('rage_click', key); }
     // sem efeito: tinha cara de clicável (cursor de mãozinha) e nada mudou na página (DOM, endereço ou foco) em 1 s
     if (probe || last.n > 1) return;
     const t = e.target.closest?.(CLICKABLE) || e.target;

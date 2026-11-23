@@ -771,12 +771,16 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 #clipsview .cempty b, #filesview .cempty b { display: block; margin: 12px 0 6px; color: var(--header); font-size: 17px; }
 #clipsview .ceart, #filesview .ceart { width: 80px; height: 80px; margin: 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--bg-sec, #2b2d31); color: var(--interactive); }
 #clipsview .cmore { display: block; margin: 20px auto 0; }
-.modal.clipmodal { max-width: none; }
+/* a janela segue a proporção do vídeo (vertical, 4:3, ultrawide…): largura = altura que sobra × proporção, entre 560 px
+   (cabem nome e botões) e 1100 px. --ar e --chrome (altura do resto da janela) vêm do player (clipsgallery.js).
+   Sem rolagem: o vídeo encolhe para tudo caber nos 90vh */
+.modal.clipmodal { --vmax: max(160px, calc(90vh - var(--chrome, 190px))); max-width: 94vw;
+  width: calc(clamp(min(512px, 94vw - 48px), var(--vmax) * var(--ar, 1.7778), min(1052px, 94vw - 48px)) + 48px); }
 .modal.clipmodal .mh { position: relative; padding-right: 48px; }
-.modal.clipmodal .mb { padding: 8px 24px 24px; } /* sem rodapé: a margem de baixo fica no corpo */
+.modal.clipmodal .mb { padding: 8px 24px 24px; overflow: visible; } /* sem rodapé: a margem de baixo fica no corpo */
 /* o palco não recorta o vídeo (sem overflow/cantos): recortar obrigava a recompor a cada quadro e travava fora da tela cheia */
 .clipplayer .pstage { position: relative; display: flex; align-items: center; justify-content: center; background: #000; }
-.clipplayer video { width: 100%; max-height: calc(90vh - 200px); background: #000; display: block; }
+.clipplayer video { width: 100%; max-height: var(--vmax, calc(90vh - 200px)); background: #000; display: block; object-fit: contain; }
 /* setas só aparecem com o mouse no palco: camadas translúcidas fixas por cima do vídeo também custam a cada quadro */
 .clipplayer .pnav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 44px; height: 64px; border: 0; border-radius: 8px; background: rgba(0,0,0,.45); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s; }
 .clipplayer .pstage:hover .pnav:not(:disabled), .clipplayer .pnav:focus-visible { opacity: 1; }
