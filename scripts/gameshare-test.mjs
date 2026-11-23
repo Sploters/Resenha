@@ -154,10 +154,11 @@ try {
   await A.evaluate(() => { document.hasFocus = () => false; window.__hotkey('clip'); }); await sleep(400);
   const fl = await A.evaluate(() => window.__t.flashes);
   ok(fl.length === 1 && fl[0].ok && fl[0].title === 'Clipe salvo', 'em segundo plano: o app desktop mostra o aviso por cima do jogo', fl);
-  // nada gravando: aviso de erro
+  // clipes desligados: o atalho liga os clipes (em vez de só avisar "desativados") e avisa que já dá para clipar logo
   await B.evaluate(() => { window.__lc.S.prefs.clipsOn = false; return window.__lc.import('clips.js').then(m => m.stopAllBuffers()); });
   await B.bringToFront(); await B.keyboard.press('F8'); await sleep(300);
-  ok(await B.evaluate(() => !!document.querySelector('.clipflash.bad')), 'F8 sem clipes gravando: aviso de erro');
+  const on = await B.evaluate(() => ({ clipsOn: window.__lc.S.prefs.clipsOn, flash: document.querySelector('.clipflash')?.className || null, toast: document.getElementById('toast')?.textContent || '' }));
+  ok(on.clipsOn !== false && /liguei/.test(on.toast), 'F8 com clipes desligados: liga os clipes e avisa', on);
 
   // parar a transmissão desliga o programa de áudio
   await A.evaluate(() => window.__lc.voice.toggleScreen()); await sleep(300);

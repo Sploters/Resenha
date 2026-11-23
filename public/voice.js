@@ -1687,7 +1687,16 @@ export class Voice {
     this._swapWhy = null; this._natWinId = await this.gameWindowViaScreen(opts);
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
-      try { this.screen = await gdm(); } catch (e) {
+      try { this.screen = await gdm(); } catch (e0) {
+        let e = e0;
+        // "Could not start video source" passageiro (a placa de vídeo ou a janela ainda se preparando, troca de modo do
+        // jogo): tenta mais 2 vezes antes de desistir. Era o 3º erro mais visto da transmissão
+        for (let i = 0; window.lcDesktop && e.name === 'NotReadableError' && i < 2 && !(await this.srcMinimized()); i++) { // no navegador, repetir abriria o seletor de novo
+          await new Promise(r => setTimeout(r, 600));
+          if (!this.channelId || this.channelId !== cid) return;
+          try { this.screen = await gdm(); e = null; break; } catch (e2) { e = e2; }
+        }
+        if (!e) { /* abriu na nova tentativa */ } else {
         // Jogo em TELA CHEIA (exclusiva): no Alt+Tab para a Resenha o Windows minimiza o jogo, e o Chromium não começa a
         // captura de uma janela minimizada ("Could not start video source"). Espera o jogo voltar à tela e começa.
         if (e.name !== 'NotReadableError' || !(await this.srcMinimized())) throw e;
@@ -1696,12 +1705,18 @@ export class Voice {
         for (let i = 0; ; i++) { // o jogo leva um instante para voltar a desenhar depois de restaurado
           try { this.screen = await gdm(); break; } catch (e2) { if (e2.name !== 'NotReadableError' || i >= 5) throw e2; await new Promise(r => setTimeout(r, 400)); }
         }
+        }
       }
-    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo.' : '') + (this._swapWhy ? ` [${this._swapWhy}]` : '')); }
+    } catch (e) {
+      if (e.name === 'NotAllowedError' || e.name === 'AbortError') return;
+      // a janela escolhida já não existe (o jogo fechou ou recriou a janela ao mudar de modo): diz isso, não "tente de novo"
+      if (e.name === 'NotReadableError' && await this.srcGone()) throw new Error('Não foi possível compartilhar a tela: a janela escolhida foi fechada. Abra o jogo e escolha a janela de novo.');
+      throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo. Se continuar, transmita a tela inteira.' : '') + (this._swapWhy ? ` [${this._swapWhy}]` : ''));
+    }
     if (!this.channelId || this.channelId !== cid) { this.screen?.getTracks().forEach(t => t.stop()); this.screen = null; return; } // saiu da sala enquanto abria
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
-    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false;
+    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false; this.noted = null; // avisos de uma vez por transmissão (gateway.js)
     if (this._swapWhy) this.capLog({ t: 'capnote', msg: 'captura do Chromium para jogo: ' + this._swapWhy });
     this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
@@ -1786,6 +1801,8 @@ export class Voice {
   }
   // janela escolhida está minimizada agora? (só o app desktop sabe; sem ele, não)
   async srcMinimized() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && !!s.minimized; } catch { return false; } }
+  // janela escolhida fechada? (só o app desktop sabe; sem ele, não)
+  async srcGone() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && s.exists === false; } catch { return false; } }
   // espera a janela escolhida sair do minimizado (até 2 min). true = apareceu; false = desistiu/fechou/saiu da sala
   waitSourceShown() {
     const cid = this.channelId;
@@ -1986,6 +2003,14 @@ export class Voice {
   // o caminho nativo falhou: segue transmitindo pelo Chromium (até ~48 fps), sem derrubar a transmissão
   nativeFallback(why) {
     if (!this.native) return;
+    // a janela transmitida fechou (o jogo foi fechado): não há o que transmitir pelo modo normal. Antes tentava a captura
+    // do Chromium na janela que não existe mais e terminava em dois avisos vermelhos ("placa de vídeo indisponível" e
+    // "a captura nativa falhou e não consegui…"). Agora para a transmissão com um aviso só, sem cara de erro
+    if (/janela transmitida foi fechada/i.test(why)) {
+      this.capLog({ t: 'capnote', msg: 'janela transmitida fechada: transmissão encerrada' });
+      this.stopNative(); this.stopLocal('screen'); this.onScreenNote?.('gone'); this.onUpdate();
+      return;
+    }
     this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail'; this._natWhyText = why;
     this.capLog({ t: 'method', m: 'chromium', from: this.native.method || null, why: 'último recurso: ' + why, auto: true });
     this.stopNative();

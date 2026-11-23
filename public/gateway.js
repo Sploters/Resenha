@@ -265,9 +265,18 @@ export function onEvent(t, d) {
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; S.nativeCode = r.code || ''; }); }
       // tela cheia exclusiva confirmada pela captura (voice.watchFse): avisa uma vez por transmissão; não para nada
       voice.onFse = () => { if (!voice.fseToasted) { voice.fseToasted = true; toast('O jogo parece estar em tela cheia exclusiva e a captura não recebe a imagem. Mude para "Janela sem bordas" nas opções de vídeo do jogo. A transmissão continua; veja as opções em Ajustes da transmissão.', true); } renderVoiceUI(); };
-      voice.onBlackCapture = (black) => { if (black) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
+      // preta e minimizada: o aviso aparece UMA vez por transmissão (voice.noted); depois fica só no painel de saúde da
+      // transmissão. Antes vinha um aviso vermelho a cada Alt+Tab (jogo em tela cheia minimiza ao perder o foco) e a cada
+      // tela de carregamento escura: eram os avisos de erro mais vistos da telemetria
+      const once = (k) => { const s = (voice.noted ||= new Set()); if (s.has(k)) return false; s.add(k); return true; };
+      voice.onBlackCapture = (black) => { if (black && once('black')) toast('Sua transmissão está saindo preta. Se for um jogo, coloque-o em "Janela sem bordas" (tela cheia exclusiva e alguns anti-cheats bloqueiam a captura).', true); renderVoiceUI(); };
       // vigias da transmissão (voice.js watchSource / app desktop appaudio.js): avisos só para quem transmite
-      voice.onScreenNote = (n) => { if (n === 'min') toast('Sua janela transmitida foi minimizada: quem assiste vê a imagem parada até você restaurá-la.', true); else if (n === 'closed') toast('A janela que você transmitia foi fechada. Escolha outra fonte na barra da transmissão.', true); renderVoiceUI(); };
+      voice.onScreenNote = (n) => {
+        if (n === 'min' && once('min')) toast('Sua janela transmitida foi minimizada: quem assiste vê a imagem parada até você voltar para ela.');
+        else if (n === 'closed' && !voice.native) toast('A janela que você transmitia foi fechada. Escolha outra fonte na barra da transmissão.', true);
+        else if (n === 'gone') toast('A janela que você transmitia foi fechada: a transmissão parou.');
+        renderVoiceUI();
+      };
       voice.onAppAudioEvent = (ev) => { const n = ev.name || 'O jogo'; toast(ev.t === 'waiting' ? `${n} fechou: o áudio da transmissão volta sozinho quando ele abrir de novo.` : `Áudio de ${n} reconectado na transmissão.`, ev.t === 'waiting'); renderVoiceUI(); };
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
