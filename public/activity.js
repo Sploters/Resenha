@@ -54,30 +54,48 @@ const steamIdOf = (a) => (a.platform === 'steam' ? a.game.id : a.game.steam) || 
 export const playingSteam = (appid) => [...new Set([...S.activities.values()].filter(a => String(steamIdOf(a)) === String(appid)).map(a => a.user_id))];
 const iconUrl = (a) => (a.game.icon && /^[a-f0-9]{64}$/.test(a.game.icon) ? `/game-icons/${a.game.icon}.png` : null);
 const art = new Map(); let artQ = new Set(), artTimer = null;
-function steamArt(id) { // Promise<{ image, thumb } | null>, em lote (vários cartões ao mesmo tempo = 1 pedido)
-  if (!/^\d+$/.test(String(id))) return Promise.resolve(null);
-  if (art.has(id)) return art.get(id).p;
-  let res; const p = new Promise(r => (res = r)); art.set(id, { p, res }); artQ.add(id);
+const ART_MAX = 20; // o servidor (/api/steam-art) responde no máximo 20 jogos por pedido
+function steamArt(id) { // Promise<{ image, thumb, icon… } | null>, em lote (vários cartões ao mesmo tempo = poucos pedidos)
+  id = String(id); if (!/^\d+$/.test(id)) return Promise.resolve(null);
+  const c = art.get(id); if (c && (!c.failed || Date.now() - c.at < 60e3)) return c.p;
+  let res; const p = new Promise(r => (res = r)); art.set(id, { p, res, at: Date.now() }); artQ.add(id);
   clearTimeout(artTimer); artTimer = setTimeout(async () => {
     const ids = [...artQ]; artQ = new Set();
-    const r = await tryApi('GET', '/steam-art?ids=' + ids.join(',')).catch(() => null) || {};
-    for (const x of ids) art.get(x)?.res(r[x]?.image ? r[x] : null);
+    // antes ia tudo num pedido só e o servidor cortava em 20: do 21º jogo em diante (Ativo agora, ranking da semana,
+    // conquistas) o ícone virava o controle. Agora em partes de 20, ao mesmo tempo
+    await Promise.all(Array.from({ length: Math.ceil(ids.length / ART_MAX) }, (_, i) => ids.slice(i * ART_MAX, (i + 1) * ART_MAX)).map(async (part) => {
+      const r = await tryApi('GET', '/steam-art?ids=' + part.join(',')).catch(() => null);
+      for (const x of part) {
+        const e = art.get(x); if (!e) continue;
+        // a loja não respondeu: não guarda o "sem imagem" para sempre (tenta de novo depois de 1 min)
+        if (!r) { e.failed = true; e.at = Date.now(); }
+        e.res(r?.[x] && (r[x].image || r[x].icon) ? r[x] : null);
+      }
+    }));
   }, 30);
   return p;
 }
-// quadradinho do jogo (lista de membros, cartão, painel): ícone do programa; sem ele, o recorte da arte da Steam; senão o controle
+// quadradinho do jogo (lista de membros, cartão, painel). Ordem: ícone do catálogo (Valorant, LoL…) > ícone oficial do
+// jogo na Steam > ícone do programa > recorte da capa da Steam > controle. O do programa vem depois do da Steam porque
+// pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo. Cada imagem que não carrega passa
+// para a próxima (antes só havia um reserva, e uma falha virava o controle mesmo com outra imagem boa disponível).
 export function gameIcon(a, size = 20) {
   const box = h('span.gicon', { style: { width: size + 'px', height: size + 'px' } });
-  const set = (src, cover, alt) => { const img = h('img', { src, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => (alt ? set(alt) : box.replaceChildren(icon('gamepad', Math.round(size * .8)))) }); if (cover) img.classList.add('cover'); box.replaceChildren(img); };
-  // ordem: ícone do catálogo (Valorant, LoL…) > ícone oficial do jogo na Steam > ícone do programa > controle. O do
-  // programa fica por último porque pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo
+  const pad = () => box.replaceChildren(icon('gamepad', Math.round(size * .8)));
+  const tryList = (list) => {
+    const [x, ...rest] = list.filter(c => c && c.src);
+    if (!x) return pad();
+    const img = h('img', { src: x.src, alt: '', loading: 'lazy', decoding: 'async', referrerPolicy: 'no-referrer', onerror: () => tryList(rest) });
+    if (x.cover) img.classList.add('cover');
+    box.replaceChildren(img);
+  };
   const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, exe = iconUrl(a);
-  if (kg?.icon) set(kg.icon, !/\.svg(\?|$)/.test(kg.icon));
-  else if (!sid) { if (exe) set(exe); else box.append(icon('gamepad', Math.round(size * .8))); }
-  else {
-    box.append(icon('gamepad', Math.round(size * .8))); // enquanto a Steam responde (o pedido é em lote e guardado)
-    steamArt(sid).then(x => { if (x?.icon) set(x.icon, true, exe); else if (exe) set(exe); });
-  }
+  const exeC = exe && { src: exe };
+  if (kg?.icon) { tryList([{ src: kg.icon, cover: !/\.svg(\?|$)/.test(kg.icon) }, exeC]); return box; }
+  if (!sid) { tryList([exeC]); return box; }
+  // enquanto a Steam responde (o pedido é em lote e guardado): o ícone do programa, se houver; senão o controle
+  tryList([exeC]);
+  steamArt(sid).then(x => { if (x) tryList([x.icon && { src: x.icon, cover: true }, exeC, (x.thumb || x.image) && { src: x.thumb || x.image, cover: true }]); });
   return box;
 }
 // nome do jogo: o do catálogo, ou o da loja da Steam quando chega (o título da janela pode ser "Pagoda" ou um aviso)

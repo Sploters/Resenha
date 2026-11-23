@@ -79,7 +79,8 @@ export function mountInvites(app, d) {
   app.post('/api/call-invites', auth, wrap((req, res) => {
     const t = Date.now(), recent = (callInvRate.get(req.uid) || []).filter(x => t - x < 60e3);
     if (recent.length >= 10) return bad(res, 'Muitos convites em pouco tempo; espere um pouco', 429);
-    const r = callInv.create(req.uid, String(req.body.user_id || ''), req.body.activity === 'watch' ? { activity: 'watch', source: 'watch' } : {});
+    const r = callInv.create(req.uid, String(req.body.user_id || ''), req.body.activity === 'watch' ? { activity: 'watch', source: 'watch' }
+      : req.body.activity === 'play' ? { activity: 'play', source: 'play', game: String(req.body.game ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 80) || null } : {});
     if (r.invite && !r.repeated && !conns.has(r.invite.to)) social.pull(r.invite.to, 'call_invite');
     if (!r.error && !r.repeated) callInvRate.set(req.uid, [...recent, t]);
     callOut(res, r);

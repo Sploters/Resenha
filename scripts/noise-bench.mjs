@@ -130,6 +130,14 @@ const SCEN = {
     add(n, bg[0], Math.round(0.2 * SR)); t.segs.slice(0, -1).forEach(([, e], i) => add(n, bg[i + 1], e + Math.round(0.3 * SR)));
     return { s: t.x, n, desc: 'você com voz feminina; voz masculina de fundo (-38 dBFS)' };
   },
+  ventilador: () => { // ventilador perto do microfone, ligado o tempo todo
+    const t = talk([3, 12, 20], [2.5, 2.5], SPEECH_DB), n = fan(t.x.length, -40);
+    return { s: t.x, n, desc: 'ventilador ligado o tempo todo (-40 dBFS)' };
+  },
+  ventilador_forte: () => { // ventilador apontado para o microfone / ventoinha barulhenta
+    const t = talk([5, 9, 23], [2.5, 2.5], SPEECH_DB), n = fan(t.x.length, -33);
+    return { s: t.x, n, desc: 'ventilador forte (-33 dBFS) o tempo todo' };
+  },
   teclado_ventilador: () => {
     const t = talk([30, 50], [3], SPEECH_DB), n = fan(t.x.length, -50);
     for (let at = Math.round(0.3 * SR), k = 0; at < n.length; at += Math.round(4.6 * SR), k++) add(n, clip(KEYS[k % KEYS.length], 4.5, -34, 20), at);
@@ -144,14 +152,18 @@ const scen = Object.entries(SCEN).filter(([k]) => !ONLY || ONLY.includes(k)).map
 });
 
 // ---------- cadeias ----------
+// fanFilter: filtro de ruído constante (public/fanfilter-core.js), ligado por padrão no app; "+vent" = com ele
+const FAN = +(process.env.FAN ?? 50), FANP = process.env.FANP ? JSON.parse(process.env.FANP) : undefined; // FANP='{"minWinMs":2500}'
 const CHAINS = {
-  'rnnoise': { noiseMode: 'rnnoise', vadGate: false },
-  'rnnoise+porta': { noiseMode: 'rnnoise', vadGate: false, gate: true, gateDb: -45 },
-  'rnnoise+voz': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false },
-  'rnnoise+trava': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS },
-  'gtcrn': { noiseMode: 'gtcrn', vadGate: false },
-  'gtcrn+voz': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false },
-  'gtcrn+trava': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS },
+  'rnnoise': { noiseMode: 'rnnoise', vadGate: false, fanFilter: false },
+  'rnnoise+porta': { noiseMode: 'rnnoise', vadGate: false, gate: true, gateDb: -45, fanFilter: false },
+  'rnnoise+voz': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanFilter: false },
+  'rnnoise+voz+vent': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanStrength: FAN, fanParams: FANP },
+  'rnnoise+trava': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, fanFilter: false },
+  'gtcrn': { noiseMode: 'gtcrn', vadGate: false, fanFilter: false },
+  'gtcrn+voz': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanFilter: false },
+  'gtcrn+voz+vent': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanStrength: FAN, fanParams: FANP },
+  'gtcrn+trava': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, fanFilter: false },
 };
 if (process.env.CHAINS) { const keep = process.env.CHAINS.split(','); for (const c of Object.keys(CHAINS)) if (!keep.includes(c) && !keep.includes(c.split('+')[0])) delete CHAINS[c]; }
 const BASEOF = Object.fromEntries(Object.keys(CHAINS).map(c => [c, c.split('+')[0]]));

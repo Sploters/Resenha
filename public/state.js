@@ -27,7 +27,7 @@ export const S = {
   view: { kind: 'home', gid: null, cid: null, tab: 'online' },
   collapsed: new Set(JSON.parse(localStorage.getItem('lc_collapsed') || '[]')),
   lastChannel: JSON.parse(localStorage.getItem('lc_last') || '{}'),
-  prefs: Object.assign({ volume: 100, echo: true, agc: false, noiseMode: 'rnnoise', gate: false, gateDb: -45, vadGate: true, vadSens: 50, inputVolume: 100, inputMode: 'vad', pttKey: 'KeyV',
+  prefs: Object.assign({ volume: 100, echo: true, agc: false, noiseMode: 'rnnoise', gate: false, gateDb: -45, vadGate: true, vadSens: 50, fanFilter: true, fanStrength: 50, inputVolume: 100, inputMode: 'vad', pttKey: 'KeyV',
     zoom: 100, compact: false, desktopNotif: true, sounds: true, callSounds: true, inputId: '', outputId: '', videoId: '', theme: 'dark', accent: '#5865f2', reduceMotion: false,
     screen: { res: 1080, fps: 30, audio: true, hint: 'motion' },
     soundVolume: 80, fontFamily: 'default', msgGap: 17, radius: 8, hour12: false, highContrast: false, saturation: 100, underlineLinks: false, embedLinks: true, awayPause: true, roleColors: true,

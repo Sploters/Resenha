@@ -113,7 +113,7 @@ try {
   if (process.env.SHOTS) {
     fs.mkdirSync(process.env.SHOTS, { recursive: true });
     // menu da própria transmissão (clique direito no quadro) > Ajustes da transmissão
-    await A.evaluate(() => { const t = [...document.querySelectorAll('.tile')].find(x => /— tela/.test(x.textContent)); t?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 600, clientY: 200 })); }); await sleep(500);
+    await A.evaluate(() => { const t = document.querySelector('.tile.screen[data-sid]'); t?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 600, clientY: 200 })); }); await sleep(500);
     await A.evaluate(() => [...document.querySelectorAll('.menu *, [role=menu] *')].find(x => x.textContent.trim().startsWith('Ajustes da transmissão'))?.click()); await sleep(1200);
     await A.evaluate(() => document.querySelector('.modal details.capdiag')?.setAttribute('open', '')); await sleep(1500);
     await A.screenshot({ path: process.env.SHOTS + '/captura-diagnostico.png', fullPage: false });

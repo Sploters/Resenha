@@ -20,7 +20,7 @@ import { controlling as remoteControlling } from './remote.js';
 import { watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry } from './watch.js';
 import { toggle as uiToggle } from './ui.js';
 import { styleName } from './themes.js';
-import { activityOf, refreshFeedView } from './activity.js';
+import { activityOf, refreshFeedView, gameTitle } from './activity.js';
 import { swapIcon, animOn } from './motion.js';
 import { voice, $, gwSend, roomVoice } from './gateway.js';
 import { musicOn, botTile } from './botmusic.js';
@@ -224,6 +224,14 @@ function watchStage() {
   fitStage();
 }
 
+// nome do jogo de uma transmissão: a janela de jogo escolhida (mandada por quem transmite) ou o "Jogando X" da pessoa
+export function streamGameName(uid, v = S.voice.get(uid)) {
+  if (!v?.screen) return null;
+  const mine = uid === S.me?.id, t = mine ? voice?.streamTitle?.() : v.screen_title;
+  if (t) return t;
+  const a = activityOf(uid); return a ? gameTitle(a) : null;
+}
+const screenLabel = (who, uid, v, info) => { const g = streamGameName(uid, v); return h('div.label', icon('screen', 14), h('span.sl-who', who), g ? h('span.sl-game', { title: g }, g) : h('span.sl-game.sl-plain', 'tela'), info); };
 const seenLive = new Set(); // transmissões já vistas nesta sala: só as novas começam fechadas
 // transmissão que acabou de parar: se a mesma pessoa volta a transmitir logo (trocou de janela em "Alterar janela", ou a
 // captura reiniciou), quem estava assistindo continua assistindo, em vez de ter que clicar em Assistir de novo
@@ -285,7 +293,7 @@ export function renderVoiceUI(speakOnly) {
     if (scr && v.screen && !mine && voice.closedStreams.has(uid)) {
       // multistream (como no Discord): "Assistir" fecha as outras e fica só com esta; o olho junta ao palco, mantendo as que
       // você já está assistindo (e o destaque)
-      tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`),
+      tiles.push(h('div.tile.cstream', { 'data-key': 's:' + uid }, h('div.cs', icon('screen', 36), h('b', `${nm(uid)} está transmitindo`), streamGameName(uid, v) && h('span.cs-game', streamGameName(uid, v)),
         h('div.cs-acts',
           h('button.btn.green', { title: 'Assistir só esta (fecha as outras transmissões abertas)', onclick: (e) => { e.stopPropagation(); watchOnly(uid); renderVoiceUI(); } }, 'Assistir'),
           h('button.cs-multi', { title: 'Assistir junto com as outras (multistream): entra no palco sem mudar o destaque', 'aria-label': 'Assistir junto com as outras transmissões', onclick: (e) => { e.stopPropagation(); voice.openStream(uid); renderVoiceUI(); } }, icon('eye', 18))))));
@@ -303,12 +311,12 @@ export function renderVoiceUI(speakOnly) {
               // duplo clique: tela cheia (no 1º teste, cliques repetidos no vídeo procuravam isso)
               ondblclick: (e) => { if (S.annot === key || e.target.closest('button, input, .sctl, .annot-bar, .snote')) return; fullscreenStream(scr, inRoom ? { key, who: nm(uid) } : null); },
               oncontextmenu: (e) => menu(e, [!mine && { node: volumeControl(voice, uid, 'screen', 'Volume da transmissão de ' + nm(uid)) }, !mine && '-', ...streamItems({ key, uid, mine, scr, inRoom, who: nm(uid) }, e)]) }, vid, vid.classList.contains('nofr') && h('div.vwait', icon('screen', 28), h('span', mine ? 'Iniciando a prévia…' : `Conectando à transmissão de ${nm(uid)}…`)), !mine && v.screen_note && h('div.snote', icon('screen', 22), h('b', v.screen_note === 'closed' ? 'A janela transmitida foi fechada' : v.screen_note === 'away' ? 'O jogo não está na tela' : 'Janela minimizada'), h('span', v.screen_note === 'closed' ? `${nm(uid)} precisa escolher outra fonte.` : v.screen_note === 'away' ? `A imagem volta quando ${nm(uid)} voltar para o jogo.` : `A imagem volta quando ${nm(uid)} restaurar a janela.`)), mine && healthPill(), mine && (voice.fse?.state === 'confirmed' || voice.captureBlack) && h('button.blackwarn', { title: 'Como corrigir', onclick: (e) => { e.stopPropagation(); liveShareModal(); } }, icon('screen', 18), h('span', voice.fse?.state === 'confirmed' ? 'Tela cheia exclusiva: use "Janela sem bordas" no jogo. Clique para ver as opções.' : 'Transmissão preta — jogos em tela cheia exclusiva/anti-cheat bloqueiam a captura. Use "Janela sem bordas".')), sctl, vid.tagName === 'VIDEO' && boardCanvas('s:' + uid, { interactive: S.annot === key, video: vid }), S.annot === key && vid.tagName === 'VIDEO' && h('div.annot-bar', annotTools('s:' + uid, () => { S.annot = null; renderVoiceUI(); })), vid.tagName === 'VIDEO' && zoomControls(key, vid, scr), S.qstats === key && !mine && qstatsPanel(uid),
-        h('div.label', icon('screen', 14), `${nm(uid)} — tela`, info)));
+        screenLabel(nm(uid), uid, v, info)));
     } else if (v.screen && !mine && (!inRoom || !voice.closedStreams.has(uid))) {
       // transmitindo, mas o vídeo ainda não chegou (fora da sala ou entrando agora): o quadro já entra no lugar dele, para a
       // grade montar uma vez só (antes ela pulava de 2+2+1 para 2×3 quando o vídeo chegava)
       tiles.push(h('div.tile.screen.waitvid', { 'data-key': 's:' + uid, 'data-uid': uid }, h('div.vwait', icon('screen', 28), h('span', inRoom ? `Conectando à transmissão de ${nm(uid)}…` : `${nm(uid)} está transmitindo`)),
-        h('div.label', icon('screen', 14), `${nm(uid)} — tela`)));
+        screenLabel(nm(uid), uid, v, null)));
     }
     const ckey = 'c:' + uid;
     if (cam && v.video) live.add(ckey);

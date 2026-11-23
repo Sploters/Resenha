@@ -61,7 +61,7 @@ import './card.js';
 import './mod.js';
 import './voicemsg.js';
 import './plugins.js';
-import { initActivity, refreshFeedView } from './activity.js';
+import { initActivity, refreshFeedView, activityOf, gameTitle } from './activity.js';
 import './translate.js';
 import { initDiag } from './diag.js';
 import { initPwa } from './pwa.js';
@@ -109,7 +109,7 @@ initWatch({ send: gwSend, voice: () => voice, channelById, goCall: (ch) => go(ch
   invite: (uid) => sendCallInvite(uid, { activity: 'watch' }),
   streams: () => (voice?.channelId ? [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.screen && v.user_id !== S.me.id).map(v => v.user_id) : []),
   watchStream: (uid) => { watchOnly(uid); renderVoiceUI(); } });
-initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, onWatchInvite: (cid) => pendingWatch(cid), onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
+initCallInvite({ go, joinVoice, voice: () => voice, channelById, guild, activityOf, gameTitle, onWatchInvite: (cid) => pendingWatch(cid), onPending: () => { if (S.view.kind === 'home') { S.redrawHome?.(); refreshFeedView(); } } });
 initEvents({ go, joinVoice: (cid) => joinVoice(cid), profile: (a, uid) => profile(a, uid), playSound: (n) => { if (alertAllowed('mention')) playSound(n); } });
 initGames({ profile: (a, uid) => profile(a, uid), go, openSettings: (k) => openSettings(k, ctxSettings()), onDeals: () => updateTitle(), playSound: (n) => { if (alertAllowed('mention')) playSound(n); }, openInbox: (tab) => { setInboxTab(tab); showInbox(); } });
 initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) => userMenu(e, uid), go, joinVoice, watchFriend, voice: () => voice, openSettings: (k) => openSettings(k, ctxSettings()), renderActiveNow, renderMembers: () => { if ($('#members')) renderMembers(); }, renderSide: () => renderSide() });

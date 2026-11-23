@@ -53,6 +53,9 @@ if (pinnedIp) app.commandLine.appendSwitch('host-resolver-rules', `MAP ${srvHost
 const offFeatures = new Set();
 // bug do Chromium no Windows: a janela deixa de repintar até trocar de programa
 offFeatures.add('CalculateNativeWinOcclusion');
+// o ganho automático do WebRTC mexia no volume do microfone NO WINDOWS (baixava quando a pessoa falava alto e quase nunca
+// subia de volta): o app nunca mais mexe no volume do sistema. O ganho automático do Resenha é só digital (public/agc-core.js)
+offFeatures.add('WebRtcAllowInputVolumeAdjustment');
 // borda amarela em volta da tela ao transmitir: é a moldura que o Windows desenha na captura moderna (WGC). No Windows 11
 // o Chromium tira a moldura; no Windows 10 não dá para tirar, então lá a tela inteira é capturada pelo método antigo
 // (DXGI, sem moldura e igualmente rápido). Ver também desktop/native.js (120 FPS).

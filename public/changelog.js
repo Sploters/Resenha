@@ -6,6 +6,17 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-23-1', title: 'Chamar pra jogar, microfone e ícones de jogos',
+    items: [
+      { i: 'gamepad', t: 'Chamar pra jogar', d: 'Na chamada, o botão de controle no painel de voz (ou clique direito na sala de voz → "Chamar pra jogar") abre a lista de amigos e membros fora da chamada. Escolha o jogo e quem chamar: cada um recebe um aviso com toque, "Fulano chamou você para jogar X", e entra na sala com um clique.' },
+      { i: 'screen', t: 'Nome do jogo na transmissão', d: 'O quadro de quem transmite um jogo mostra o nome dele ("Bruno · Counter-Strike 2"), e a sala de voz mostra o jogo ao lado do "Ao vivo".' },
+      { i: 'waves', t: 'Filtro de ventilador', d: 'Com a redução Forte, o app aprende o som que não para (ventilador, ar-condicionado, ventoinha do PC) e tira só ele, antes da IA. Dá para ajustar quanto tira em Configurações → Voz e vídeo. A Máxima já tirava bem o ventilador.' },
+      { i: 'mic', t: 'Ganho automático que sobe e desce', d: 'O ganho automático agora é do próprio app: sobe a voz baixa, desce a alta e não mexe nas pausas. Ele nunca mais muda o volume do microfone no Windows (o antigo baixava e não subia de volta). Se o seu microfone ficou baixo, volte para 100% em Configurações do Windows → Som → Entrada.' },
+      { i: 'gift', t: 'Wishlist mais leve', d: 'Cartões maiores (3 ou 4 por linha), 12 jogos por vez com "Carregar mais", busca por nome, e o preço de cada jogo só é buscado quando o cartão aparece.' },
+      { i: 'check', t: 'Ícones de jogos', d: 'Com muitos jogos na tela (Ativo agora, ranking da semana, conquistas), a maioria dos ícones virava o controle genérico. Agora todos carregam, e um ícone que falha cai para a próxima imagem do jogo.' },
+    ],
+  },
+  {
     id: '2026-11-22-5', title: 'Retrospectiva da turma',
     items: [
       { i: 'star', t: 'Retrospectiva 2026', d: 'Em Noites (topo dos canais do servidor), "Retrospectiva": as noites, as horas juntos, a noite mais longa, os jogos, a dupla do ano, a mensagem, a pérola e o clipe do ano, e um cartão com o seu ano que só você vê. Cresce com cada noite nova até o fim do ano.' },

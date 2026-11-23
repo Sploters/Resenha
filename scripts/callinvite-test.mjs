@@ -137,6 +137,23 @@ try {
   await call(a.tok, 'POST', `/call-invites/${rc2.invite.id}/cancel`);
   ok((await call(c.tok, 'POST', `/call-invites/${rc2.invite.id}/accept`)).status === 410, 'convite cancelado não pode ser aceito');
   ok((await call('', 'POST', '/call-invites', { user_id: c.id })).status === 401, 'sem login: 401');
+
+  // "Chamar pra jogar": janela no painel de voz, escolhe o jogo e a pessoa; o convite leva o jogo
+  const C = await page(c.tok); await sleep(500);
+  await A.evaluate(async () => { const m = await window.__lc.import('callinvite.js'); m.playInviteModal(); });
+  await A.waitForSelector('.playinv .pi-row', { timeout: 5000 }).catch(() => { });
+  const rows = await A.evaluate(() => [...document.querySelectorAll('.playinv .pi-row b')].map(x => x.textContent));
+  ok(rows.includes('carol') && !rows.includes('alice'), 'Chamar pra jogar: lista quem está fora da chamada: ' + rows.join(', '));
+  await A.evaluate(() => { const g = document.querySelector('.playinv input'); g.value = 'Counter-Strike 2'; g.dispatchEvent(new Event('input')); });
+  await A.evaluate(() => { [...document.querySelectorAll('.playinv .pi-row')].find(r => /carol/.test(r.textContent))?.querySelector('input').click(); });
+  await sleep(150); await A.screenshot({ path: `${SHOTS}/callinv-play.png` });
+  await A.evaluate(() => document.querySelector('.playinv .pi-foot .btn.green').click());
+  await C.waitForSelector('#call-banner.callinv', { timeout: 6000 }).catch(() => { });
+  const pban = await C.evaluate(() => document.querySelector('#call-banner.callinv')?.textContent || '');
+  ok(/chamou você para jogar Counter-Strike 2/.test(pban), 'Chamar pra jogar: carol recebe "chamou você para jogar Counter-Strike 2": ' + pban.slice(0, 90));
+  const pinv = await call(c.tok, 'GET', '/call-invites');
+  const plist = Object.values(pinv).filter(x => x && typeof x === 'object'); // o call() espalha a lista num objeto com status
+  ok(plist.some(i => i.activity === 'play' && i.game === 'Counter-Strike 2'), 'Chamar pra jogar: o convite guarda o jogo');
 } catch (err) { console.log('  ERRO', err); fails++; }
 await browser.close(); srv.kill();
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');

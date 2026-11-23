@@ -6,6 +6,7 @@ import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { h, icon, avatar } from './util.js';
 import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, CH_KINDS, channelMuted } from './state.js';
+import { playInviteModal } from './callinvite.js';
 import { openDM } from './usermenu.js';
 import { openMusic } from './music.js';
 import { openSoundboard, quickSoundsHover } from './soundboard.js';
@@ -46,6 +47,7 @@ export function voicePanel() {
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera (clique direito: escolher a câmera)', onclick: () => voiceAct(() => voice.toggleCam()), oncontextmenu: async (e) => { e.preventDefault(); const t = e.currentTarget; menuAbove(t, camOptItems(await mediaDevs())); } }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão' + shareKeyHint(), onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
+      ch?.guild_id && h('button.vp-play', { title: 'Chamar pra jogar: escolha o jogo e quem chamar (recebem um aviso com toque)', 'aria-label': 'Chamar pra jogar', onclick: () => playInviteModal() }, icon('gamepad', 20)),
       ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
       sbButton()));
 }

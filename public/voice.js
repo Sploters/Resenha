@@ -94,6 +94,13 @@ async function ensureModule(ctx, name, url = `${NS}/${name}/workletProcessor.js`
 // o modelo (.wasm) é baixado uma vez por abertura do app; cada nó recebe uma cópia (o nó pode transferir o buffer)
 const loadWasm = (m) => (wasmCache[m] ||= (m === 'rnnoise' ? nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` }))
   .catch((e) => { delete wasmCache[m]; throw e; })).then((b) => b.slice(0));
+// filtro de ruído constante (fanfilter-worklet.js): com o RNNoise (Forte), ligado por padrão; prefs.fanFilter === false
+// desliga. prefs.fanStrength (0-100, padrão 50) escolhe quanto tira. Medido (scripts/noise-bench.mjs): o RNNoise sozinho
+// tirava só ~7 dB de ventilador; com o filtro, o ventilador audível nas pausas cai de 60% para 16% dos quadros. O GTCRN
+// (Máxima) já tira ~40 dB de ruído constante: lá o filtro não ajuda e não entra.
+export const fanFilterOn = (prefs) => prefs.noiseMode === 'rnnoise' && prefs.fanFilter !== false;
+const fanFilterNode = (ctx, prefs) => new AudioWorkletNode(ctx, 'lc-fanfilter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+  channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers', processorOptions: { strength: prefs.fanStrength ?? 50, params: prefs.fanParams } });
 // porta guiada por voz (vadgate-worklet.js): ligada por padrão com RNNoise/GTCRN; prefs.vadGate === false desliga
 export const vadGateOn = (prefs) => (prefs.noiseMode === 'rnnoise' || prefs.noiseMode === 'gtcrn') && prefs.vadGate !== false;
 const vadGateNode = (ctx, opts) => new AudioWorkletNode(ctx, 'lc-vadgate', { numberOfInputs: opts.denoise ? 1 : 2, numberOfOutputs: 1, outputChannelCount: [1],
@@ -104,11 +111,19 @@ const vadGateNode = (ctx, opts) => new AudioWorkletNode(ctx, 'lc-vadgate', { num
 export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null, processed: false }) {
   const mode = prefs.noiseMode || 'standard', nodes = out.nodes;
   let last = src, first = null;
-  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
+  // saídas do filtro de ventilador (createMic setIdle desliga e religa no mudo)
+  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; if (last === out.fanFilter) out.fanOuts.push([n, 0, 0]); last = n; };
   try {
     if (mode === 'rnnoise' || mode === 'gtcrn') {
       nsLib ||= await import(`${NS}/index.js`);
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80; chain(hp);
+      // ruído constante (ventilador, ar-condicionado, ventoinha do PC): tirado antes da IA (public/fanfilter-core.js).
+      // Ligado por padrão; prefs.fanFilter === false desliga. Se não carregar, segue sem ele.
+      let pre = hp;
+      if (fanFilterOn(prefs)) {
+        try { await ensureModule(ctx, 'fanfilter', '/fanfilter-worklet.js'); const ff = fanFilterNode(ctx, prefs); out.fanFilter = ff; out.fanOuts = []; chain(ff); pre = ff; }
+        catch (e) { console.warn('fanfilter', e); }
+      }
       // a porta é um extra: se ela não carregar, segue a redução de ruído de sempre (sem a proteção)
       let smart = vadGateOn(prefs);
       if (smart) await ensureModule(ctx, 'vadgate', '/vadgate-worklet.js').catch((e) => { console.warn('vadgate', e); smart = false; });
@@ -124,7 +139,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
         chain(new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary: g }));
         // RNNoise separado, só como detector de voz, analisando o microfone ANTES do GTCRN (entrada 1): a saída do GTCRN
         // confunde o detector, e o atraso do GTCRN vira antecedência para a porta
-        if (smart && r) { chain(vg(false, r)); hp.connect(last, 0, 1); }
+        if (smart && r) { chain(vg(false, r)); pre.connect(last, 0, 1); if (pre === out.fanFilter) out.fanOuts.push([last, 0, 1]); }
       }
       out.processed = true;
     }
@@ -139,6 +154,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
   }
   // sensibilidade / liga-desliga da porta por voz ao vivo, sem refazer o microfone
   out.setVadGate = (o) => { try { out.vadGate?.port.postMessage(o); } catch { } };
+  out.setFanFilter = (o) => { try { out.fanFilter?.port.postMessage(o); } catch { } };
   return Object.assign(out, { first, last });
 }
 
@@ -153,7 +169,9 @@ export async function createMic(prefs, ctx) {
   const mode = prefs.noiseMode || 'standard';
   const want = (id) => ({ audio: { deviceId: id ? { exact: id } : undefined,
     echoCancellation: echoConstraint(prefs), noiseSuppression: mode === 'standard',
-    autoGainControl: prefs.agc === true, channelCount: 1, sampleRate: 48000 }, video: false });
+    // ganho automático do navegador SEMPRE desligado: ele baixa o volume do microfone no sistema (Windows) e quase nunca
+    // sobe de volta. O "Ganho automático" das Configurações agora é o do próprio app (agc-worklet.js, abaixo), só digital
+    autoGainControl: false, channelCount: 1, sampleRate: 48000 }, video: false });
   let raw;
   try { raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)); } catch (e) {
     // microfone escolhido não encontrado (desconectado, id novo): usa o padrão agora, SEM apagar a escolha — volta quando ele voltar
@@ -176,7 +194,12 @@ export async function createMic(prefs, ctx) {
   out.rawTrack = raw.getAudioTracks()[0];
   const { first: f0 } = await buildChain(ctx, src, prefs, out);
   let last = out.last, first = f0;
-  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; last = n; };
+  const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; if (last === out.fanFilter) out.fanOuts.push([n, 0, 0]); last = n; };
+  // ganho automático próprio (public/agc-core.js): depois da redução de ruído e da porta, antes do volume do microfone
+  if (prefs.agc === true) {
+    try { await ensureModule(ctx, 'agc', '/agc-worklet.js'); const a = new AudioWorkletNode(ctx, 'lc-agc', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers' }); out.agc = a; chain(a); }
+    catch (e) { console.warn('agc', e); }
+  }
   const g = ctx.createGain(); g.gain.value = gain;
   // alguns filtros de ruído só preenchem o canal esquerdo: pega o canal 0 e o destino estéreo repete nos dois lados
   g.channelCount = 1; g.channelCountMode = 'explicit'; g.channelInterpretation = 'discrete'; chain(g);
@@ -197,7 +220,13 @@ export async function createMic(prefs, ctx) {
   // mutado: o microfone sai da cadeia e a IA de ruído (RNNoise/GTCRN, na thread de áudio) para de processar — sem entrada
   // os nós de ruído não fazem nada. O que sai para a sala é silêncio de qualquer jeito (trilha desligada).
   let idle = false;
-  out.setIdle = (on) => { if (!first || on === idle) return; idle = on; try { on ? src.disconnect(first) : src.connect(first); } catch { } };
+  // o filtro de ventilador (worklet) segue mandando silêncio mesmo sem entrada: a saída dele também sai da cadeia
+  const ff = out.fanFilter, ffOuts = out.fanOuts || [];
+  out.setIdle = (on) => {
+    if (!first || on === idle) return; idle = on;
+    try { on ? src.disconnect(first) : src.connect(first); } catch { }
+    if (ff) for (const [n, o, i] of ffOuts) { try { on ? ff.disconnect(n, o, i) : ff.connect(n, o, i); } catch { } }
+  };
   out.dispose = () => {
     out.setLoopback(false);
     for (const n of nodes) { try { n.port?.postMessage('destroy'); } catch { } try { n.disconnect(); } catch { } }
@@ -1561,7 +1590,13 @@ export class Voice {
     if (!!s.voiceOff === off) return; s.voiceOff = off;
     for (const [id, x] of s.consumers) if (x.source === 'mic') this.sfuReq('pause', { consumer_id: id, paused: off }).catch(() => { });
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror }); }
+  // nome do que está sendo transmitido, para quem assiste ("Fulano — Counter-Strike 2"): só de janela de JOGO (o título de
+  // outras janelas pode ter coisa pessoal: aba do navegador, nome de arquivo). Tela inteira: quem assiste usa o "Jogando X".
+  streamTitle() {
+    const si = this.screenOpts?.srcInfo; if (!si || si.type !== 'window' || !(si.game || si.fullscreen)) return null;
+    const t = String(si.name || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, 80) : null;
+  }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, screenTitle: (this.screen && this.streamTitle()) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)

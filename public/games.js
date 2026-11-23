@@ -114,48 +114,90 @@ export async function userGamesModal(uid) {
 }
 
 // ---------------------------------------------------------------- Wishlist do servidor
-const gw = { gid: null, sort: 'wish', data: null };
+// Mostra 12 por vez (3 ou 4 cartões grandes por linha) com "Carregar mais"; o preço e a capa de cada jogo só são pedidos
+// à loja quando o cartão aparece (antes eram todos de uma vez, mesmo com centenas de jogos). A aba "Em promoção" precisa
+// saber o preço de todos: lá os preços vêm em lotes de 50, mostrando o que já chegou.
+const WISH_PAGE = 12;
+const gw = { gid: null, sort: 'wish', data: null, shown: WISH_PAGE, q: '', cards: new Map() };
 export function renderGuildWishlist(main, gid) {
-  if (gw.gid !== gid) Object.assign(gw, { gid, data: null });
+  if (gw.gid !== gid) Object.assign(gw, { gid, data: null, shown: WISH_PAGE, q: '', cards: new Map() });
   const root = h('div#wishview'); main.replaceChildren(root);
   const g = S.guilds.get(gid);
+  const search = h('input.wsearch', { type: 'search', placeholder: 'Procurar jogo', 'aria-label': 'Procurar jogo na wishlist', value: gw.q,
+    oninput: (e) => { gw.q = e.target.value; gw.shown = WISH_PAGE; drawList(); } });
+  const listBox = h('div.wlist');
+  let saleLoading = false;
+  const titleOf = (x) => (steamCached(x.appid)?.title || '').toLowerCase();
+  const filtered = () => {
+    let items = gw.data?.items || [];
+    if (gw.sort === 'sale') items = items.filter(x => steamCached(x.appid)?.discount > 0).sort((a, b) => steamCached(b.appid).discount - steamCached(a.appid).discount);
+    if (gw.sort === 'nobody') items = items.filter(x => !x.owners.length);
+    const q = gw.q.trim().toLowerCase();
+    // busca pelo nome (dos jogos que já têm o nome carregado) ou pelo número da Steam
+    if (q) items = items.filter(x => titleOf(x).includes(q) || x.appid === q);
+    return items;
+  };
+  // na busca, os nomes de todos os jogos são necessários: pede (em lote) e redesenha quando chegam
+  let namesP = null;
+  const needNames = () => { if (namesP || !gw.data) return; namesP = Promise.all(gw.data.items.map(x => steamInfo(x.appid))).then(() => { if (root.isConnected) drawList(); }); };
+  const drawList = () => {
+    if (!root.isConnected) return;
+    const d = gw.data;
+    if (!d) return listBox.replaceChildren(skeleton('cards', 8));
+    if (gw.q.trim()) needNames();
+    const items = filtered(), page = items.slice(0, gw.shown);
+    const empty = !items.length && h('div.cempty', h('div.ceart', icon('gift', 40)),
+      h('b', gw.q.trim() ? 'Nenhum jogo com esse nome' : !d.items.length ? 'Ninguém pôs jogos na wishlist ainda' : gw.sort === 'sale' ? (saleLoading ? 'Procurando promoções…' : 'Nenhum jogo da wishlist em promoção agora') : 'Todos os jogos desejados já têm dono por aqui'),
+      !d.items.length && h('p', 'Vincule a Steam em Configurações → Contas vinculadas (a wishlist vem junto) ou clique em "Quero" no cartão de um link da Steam.'));
+    // cartões guardados por jogo: "Carregar mais" só acrescenta, sem refazer (nem pedir de novo) os que já estão na tela
+    const cards = page.map(x => { let c = gw.cards.get(x.appid); if (!c || c._x !== x) { c = wishCard(x); c._x = x; gw.cards.set(x.appid, c); } return c; });
+    const left = items.length - page.length;
+    listBox.replaceChildren(...[empty || h('div.wgrid', cards),
+      items.length > 0 && h('div.wmore', h('span', `Mostrando ${page.length} de ${items.length}`),
+        left > 0 && h('button.btn.grey', { onclick: () => { gw.shown += WISH_PAGE; drawList(); } }, `Carregar mais (${Math.min(left, WISH_PAGE)})`),
+        left > WISH_PAGE && h('button.btn.link', { onclick: () => { gw.shown = items.length; drawList(); } }, 'Mostrar todos'))].filter(Boolean));
+  };
   const draw = () => {
     if (!root.isConnected) return;
     const d = gw.data;
-    const tabs = [['wish', 'Mais desejados'], ['sale', 'Em promoção'], ['nobody', 'Ninguém tem']].map(([k, l]) => h('button.ctab' + (gw.sort === k ? '.on' : ''), { onclick: () => { gw.sort = k; draw(); } }, l));
-    let items = d?.items || [];
-    if (gw.sort === 'sale') items = items.filter(x => steamCached(x.appid)?.discount > 0).sort((a, b) => steamCached(b.appid).discount - steamCached(a.appid).discount);
-    if (gw.sort === 'nobody') items = items.filter(x => !x.owners.length);
-    const empty = d && !items.length && h('div.cempty', h('div.ceart', icon('gift', 40)),
-      h('b', !d.items.length ? 'Ninguém pôs jogos na wishlist ainda' : gw.sort === 'sale' ? 'Nenhum jogo da wishlist em promoção agora' : 'Todos os jogos desejados já têm dono por aqui'),
-      !d.items.length && h('p', 'Vincule a Steam em Configurações → Contas vinculadas (a wishlist vem junto) ou clique em "Quero" no cartão de um link da Steam.'));
+    const tabs = [['wish', 'Mais desejados'], ['sale', 'Em promoção'], ['nobody', 'Ninguém tem']].map(([k, l]) => h('button.ctab' + (gw.sort === k ? '.on' : ''), { onclick: () => { gw.sort = k; gw.shown = WISH_PAGE; draw(); if (k === 'sale') loadPrices(); } }, l));
     root.replaceChildren(
       h('div#topbar', h('span.hash', icon('gift', 24)), h('span', 'Wishlist'), h('span.topic', d ? (d.items.length ? `${d.items.length} ${d.items.length === 1 ? 'jogo desejado' : 'jogos desejados'} por ${d.wishers} ${d.wishers === 1 ? 'pessoa' : 'pessoas'} de ${g?.name || 'este servidor'}` : g?.name || '') : '')),
-      h('div.cbody', h('div.ctool', h('div.ctabs', tabs), h('button.btn.grey.sm', { onclick: openMyGames }, icon('gear', 14), 'Minha wishlist')),
-        !d ? skeleton('cards', 6) : h('div.wgrid', items.map(wishCard)), empty || null));
+      h('div.cbody', h('div.ctool', h('div.ctabs', tabs), search, h('button.btn.grey.sm', { onclick: openMyGames }, icon('gear', 14), 'Minha wishlist')), listBox));
+    drawList();
+  };
+  // aba "Em promoção": preços de todos, em lotes (o steamInfo junta até 50 por pedido); redesenha a cada lote
+  const loadPrices = async () => {
+    if (saleLoading || !gw.data) return; saleLoading = true;
+    const ids = gw.data.items.map(x => x.appid);
+    for (let i = 0; i < ids.length; i += 50) { await Promise.all(ids.slice(i, i + 50).map(id => steamInfo(id))); if (gw.sort === 'sale') drawList(); }
+    saleLoading = false; if (gw.sort === 'sale') drawList();
   };
   const load = async () => {
     const r = await tryApi('GET', `/guilds/${gid}/wishlist`); if (!r) return;
     for (const u of r.users || []) if (!S.users.has(u.id)) S.users.set(u.id, u);
-    gw.data = r; draw();
-    await Promise.all(r.items.map(x => steamInfo(x.appid))); if (gw.sort === 'sale') draw();
+    gw.data = r; namesP = null; draw();
+    if (gw.sort === 'sale') loadPrices();
   };
   const on = () => { if (!root.isConnected) return removeEventListener('rs-games', on); load(); }; addEventListener('rs-games', on);
   draw(); load();
 }
 const steamCached = (appid) => steamInfo.cached(appid);
+// o cartão só pede os dados da loja quando chega perto da tela (rolando a página)
+const wishObs = typeof IntersectionObserver === 'function' ? new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { wishObs.unobserve(e.target); e.target._fill?.(); } }, { rootMargin: '400px 0px' }) : null;
 function wishCard(x) {
   const card = h('div.wcard', { onclick: () => peopleModal(x.appid) },
     h('div.wc-img'), h('div.wc-body', h('b.wc-title', 'Carregando…'), h('div.wc-price'),
       h('div.wc-who', h('span.sc-avs', x.wish.slice(0, 5).map(uid => avatar(uOf(uid), 22, { status: false }))),
         h('span', `${x.wish.length} ${x.wish.length === 1 ? 'quer' : 'querem'}` + (x.owners.length ? ` · ${x.owners.length} ${x.owners.length === 1 ? 'tem' : 'têm'}` : ''))),
       h('div.wc-acts', wishButton(x.appid, { small: true }))));
-  steamInfo(x.appid).then(i => {
+  card._fill = () => steamInfo(x.appid).then(i => {
     if (!i) { card.querySelector('.wc-title').textContent = 'Jogo ' + x.appid; return; }
     card.querySelector('.wc-title').textContent = i.title;
     if (i.image) card.querySelector('.wc-img').append(h('img', { src: i.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: (e) => e.target.remove() }));
     card.querySelector('.wc-price').replaceChildren(...[i.discount ? h('span.sc-off', '-' + i.discount + '%') : null, i.discount && i.old ? h('s', i.old) : null, h('b', i.free ? 'Gratuito' : i.price || (i.soon ? 'Em breve' : ''))].filter(Boolean));
   });
+  if (steamCached(x.appid) || !wishObs) card._fill(); else wishObs.observe(card);
   return card;
 }
 

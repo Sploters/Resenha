@@ -36,7 +36,8 @@ try {
     return { dsum, err: out.error, vowel: rms(1.2, 2.4), hiss: rms(3.6, 5), types, gate: !!out.vadGate, underruns: stats?.underruns, latency: stats?.latency, ready: stats?.ready };
   }, prefs);
   const r = {};
-  for (const [k, p] of Object.entries({ rnOff: { noiseMode: 'rnnoise', vadGate: false }, rnOn: { noiseMode: 'rnnoise', vadDebug: !!process.env.DEBUG }, gtOff: { noiseMode: 'gtcrn', vadGate: false }, gtOn: { noiseMode: 'gtcrn' }, off: { noiseMode: 'off' }, std: { noiseMode: 'standard' } })) {
+  for (const [k, p0] of Object.entries({ rnOff: { noiseMode: 'rnnoise', vadGate: false }, rnOn: { noiseMode: 'rnnoise', vadDebug: !!process.env.DEBUG }, gtOff: { noiseMode: 'gtcrn', vadGate: false }, gtOn: { noiseMode: 'gtcrn' }, off: { noiseMode: 'off' }, std: { noiseMode: 'standard' } })) {
+    const p = { fanFilter: false, ...p0 }; // a porta sozinha (o filtro de ventilador tem teste próprio: fanfilter-unit-test e noise-bench)
     r[k] = await run(p); if (process.env.DEBUG) console.log(k, JSON.stringify(r[k]));
   }
   ok(!r.rnOn.err && !r.gtOn.err, 'cadeias com a proteção por voz montam sem erro', [r.rnOn.err, r.gtOn.err]);

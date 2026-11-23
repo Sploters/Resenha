@@ -10,6 +10,7 @@ import { inviteModal } from './rail.js';
 import { renderSide } from './side.js';
 import { isFav, toggleFav, favGroupMenuItem } from './favs.js';
 import { joinVoice } from './userbar.js';
+import { playInviteModal } from './callinvite.js';
 export function channelModal(g, type, parent) {
   const name = h('input', { placeholder: type === 2 ? 'Sala de voz' : type === 4 ? 'Nova categoria' : type === 15 ? 'ideias-e-discussões' : 'novo-canal', maxLength: 100 });
   let t = type;
@@ -29,6 +30,7 @@ export function channelModal(g, type, parent) {
 export function channelMenu(e, g, c) {
   menu(e, [
     c.type === 2 && { label: 'Entrar no canal de voz', fn: () => { go(g.id, c.id); joinVoice(c.id); } },
+    c.type === 2 && { label: 'Chamar pra jogar', fn: () => playInviteModal(c.id) },
     c.type === 2 && { label: 'Separar por jogos', checked: !!S.prefs.voiceByGame, fn: () => { S.prefs.voiceByGame = !S.prefs.voiceByGame; savePrefs(); renderSide(); } },
     c.type !== 4 && { label: isFav(c.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos', fn: () => toggleFav(c) },
     c.type !== 4 && isFav(c.id) && favGroupMenuItem(c.id),

@@ -14,7 +14,7 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
   const pub = (i) => {
     const g = get('SELECT id,name,icon FROM guilds WHERE id=?', i.guild_id), ch = get('SELECT id,name FROM channels WHERE id=?', i.channel_id);
     return { id: i.id, state: stateOf(i), from: userPub(i.from), to: i.to, guild: g || { id: i.guild_id, name: '?' }, channel: ch || { id: i.channel_id, name: '?' },
-      expires_at: i.expires, in_call: roomSize(i.channel_id), from_in_call: voiceChannelOf(i.from) === i.channel_id, member: isMember(i.guild_id, i.to), activity: i.activity || null };
+      expires_at: i.expires, in_call: roomSize(i.channel_id), from_in_call: voiceChannelOf(i.from) === i.channel_id, member: isMember(i.guild_id, i.to), activity: i.activity || null, ...(i.game ? { game: i.game } : {}) };
   };
   const notifyBoth = (i, extra = {}) => { dispatch([i.from, i.to], 'CALL_INVITE_UPDATE', { ...pub(i), ...extra }); report(i); };
   // métricas (server/social.js): cada convite conta uma vez por resultado (aceito, recusado, expirado, cancelado)
@@ -44,13 +44,15 @@ export function createCallInvites({ get, voiceChannelOf, roomSize, isFriend, isM
     // idempotente: mesmo par e mesma sala com convite pendente recente -> devolve o mesmo
     for (const i of invites.values()) {
       if (i.from === from && i.to === to && i.channel_id === cid && stateOf(i) === 'pending') {
-        if (now() - i.created < RESEND_MS && (i.activity || null) === (opts.activity || null)) return { invite: pub(i), repeated: true };
+        if (now() - i.created < RESEND_MS && (i.activity || null) === (opts.activity || null) && (i.game || null) === (opts.game || null)) return { invite: pub(i), repeated: true };
         i.state = 'canceled'; notifyBoth(i); // pendente antigo: substitui por um novo (toca de novo)
       }
     }
-    const i = { id: crypto.randomBytes(9).toString('base64url'), from, to, guild_id: ch.guild_id, channel_id: cid, created: now(), expires: now() + CALL_INVITE_TTL, state: 'pending', source: opts.source || 'manual', activity: opts.activity === 'watch' ? 'watch' : null };
+    const i = { id: crypto.randomBytes(9).toString('base64url'), from, to, guild_id: ch.guild_id, channel_id: cid, created: now(), expires: now() + CALL_INVITE_TTL, state: 'pending', source: opts.source || 'manual', activity: opts.activity === 'watch' || opts.activity === 'play' ? opts.activity : null,
+      // "chamar pra jogar" (botão da chamada): o jogo vai junto, no aviso e no cartão da DM
+      ...(opts.activity === 'play' && opts.game ? { game: String(opts.game).slice(0, 80) } : {}) };
     invites.set(i.id, i);
-    postDm(from, to, `${i.activity === 'watch' ? '📺' : '📞'} /call/${i.id}`); // o cartão da DM guarda o histórico e funciona mesmo se o aviso for perdido
+    postDm(from, to, `${i.activity === 'watch' ? '📺' : i.activity === 'play' ? '🎮' : '📞'} /call/${i.id}`); // o cartão da DM guarda o histórico e funciona mesmo se o aviso for perdido
     dispatch([to], 'CALL_INVITE', pub(i));
     return { invite: pub(i) };
   }

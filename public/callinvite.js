@@ -1,7 +1,7 @@
 // Convite para a chamada: quem está numa sala de voz chama um amigo/membro para lá.
 // Quem recebe vê um aviso com toque (Entrar/Recusar) e um cartão na DM; quem convidou fica sabendo da resposta.
 import { h, icon, avatar } from './util.js';
-import { S, api, tryApi, toast, notify, user } from './state.js';
+import { S, api, tryApi, toast, notify, user, modal, nameOf } from './state.js';
 import { playSound } from './sounds.js';
 
 let ctx = {};
@@ -20,9 +20,11 @@ export function canCallInvite(uid) {
   return !!(friend || member);
 }
 // activity 'watch': convite para assistir junto (Watch Together); aceitar entra na sala e abre a atividade
-export async function sendCallInvite(uid, { activity } = {}) {
-  const r = await tryApi('POST', '/call-invites', { user_id: uid, ...(activity ? { activity } : {}) }); if (!r) return false;
+// activity 'play' + game: "chamar pra jogar" (janela playInviteModal, abaixo); quiet: sem aviso por pessoa (a janela avisa uma vez)
+export async function sendCallInvite(uid, { activity, game, quiet } = {}) {
+  const r = await tryApi('POST', '/call-invites', { user_id: uid, ...(activity ? { activity } : {}), ...(game ? { game } : {}) }); if (!r) return false;
   cache.set(r.invite.id, Promise.resolve(r.invite));
+  if (quiet) return true;
   toast(r.repeated ? `Convite já enviado a ${user(uid).display_name}` : activity === 'watch' ? `Convite para assistir junto enviado a ${user(uid).display_name}` : `Convite para a chamada enviado a ${user(uid).display_name}`);
   return true;
 }
@@ -63,9 +65,9 @@ function paintCard(card, inv) {
     btns.push(h('button.btn.grey', { onclick: () => decline(inv.id) }, 'Recusar'));
   } else if (live && mine) btns.push(h('button.btn.grey', { onclick: () => tryApi('POST', `/call-invites/${encodeURIComponent(inv.id)}/cancel`) }, 'Cancelar convite'));
   card.classList.toggle('done', !live); card.dataset.state = st;
-  const watchInv = inv.activity === 'watch';
-  card.classList.toggle('watchinv', watchInv);
-  card.replaceChildren(h('div.cch', icon(watchInv ? 'tv' : 'voice', 16), h('span', watchInv ? 'Convite para assistir junto · Watch Together' : 'Convite para a chamada')),
+  const watchInv = inv.activity === 'watch', playInv = inv.activity === 'play';
+  card.classList.toggle('watchinv', watchInv); card.classList.toggle('playinv', playInv);
+  card.replaceChildren(h('div.cch', icon(watchInv ? 'tv' : playInv ? 'gamepad' : 'voice', 16), h('span', watchInv ? 'Convite para assistir junto · Watch Together' : playInv ? (inv.game ? 'Bora jogar ' + inv.game + '?' : 'Convite para jogar') : 'Convite para a chamada')),
     h('div.ccbody', h('span.ccicon', icon('voice', 22)), where, btns.length ? h('div.ccbtns', btns) : null),
     h('div.ccstate', status));
 }
@@ -102,14 +104,87 @@ export function onCallInvite(inv) {
   const u = inv.from; document.getElementById('call-banner')?.remove();
   let n = 0; const t = setInterval(() => { if (!document.getElementById('call-banner') || ++n > 5) return clearInterval(t); playSound('ring'); }, 2600);
   const el = h('div#call-banner.callinv', { 'data-id': inv.id }, avatar(S.users.get(u.id) || u, 48, { status: false }),
-    h('div', { style: { flex: 1, minWidth: 0 } }, h('b', u.display_name), h('div.cbsub', inv.activity === 'watch' ? 'chamou você para assistir junto (Watch Together)' : 'chamou você para a sala'), h('div.cbsub.cbwhere', `${inv.channel.name} · ${inv.guild.name}`)),
+    h('div', { style: { flex: 1, minWidth: 0 } }, h('b', u.display_name), h('div.cbsub', inviteLine(inv)), h('div.cbsub.cbwhere', `${inv.channel.name} · ${inv.guild.name}`)),
     h('button.btn.green', { onclick: () => accept(inv.id) }, 'Entrar'), h('button.btn.red', { onclick: () => decline(inv.id) }, 'Recusar'));
   document.body.append(el); playSound('ring');
-  notify(inv.activity === 'watch' ? `${u.display_name} chamou você para assistir junto` : `${u.display_name} chamou você para a chamada`, `${inv.channel.name} · ${inv.guild.name}`, () => accept(inv.id));
+  notify(`${u.display_name} ${inviteLine(inv)}`, `${inv.channel.name} · ${inv.guild.name}`, () => accept(inv.id));
   setTimeout(() => { if (document.getElementById('call-banner') === el) el.remove(); }, Math.max(5000, Math.min(60000, inv.expires_at - Date.now())));
 }
 export function onCallInviteUpdate(inv) {
   cache.set(inv.id, Promise.resolve(inv)); repaintCards(inv); if (pend.has(inv.id) || inv.to === S.me.id) { track(inv); changed(); }
   const b = document.getElementById('call-banner'); if (b?.dataset.id === inv.id && inv.state !== 'pending') b.remove();
-  if (inv.from.id === S.me.id && (inv.state === 'accepted' || inv.state === 'declined')) toast(`${user(inv.to).display_name} ${TXT[inv.state]} o convite para a chamada`);
+  if (inv.from.id === S.me.id && (inv.state === 'accepted' || inv.state === 'declined')) toast(`${user(inv.to).display_name} ${TXT[inv.state]} o convite ${inv.activity === 'play' ? 'para jogar' + (inv.game ? ' ' + inv.game : '') : 'para a chamada'}`);
+}
+
+const inviteLine = (inv) => inv.activity === 'watch' ? 'chamou você para assistir junto (Watch Together)'
+  : inv.activity === 'play' ? (inv.game ? `chamou você para jogar ${inv.game}` : 'chamou você para jogar') : 'chamou você para a sala';
+
+// ---------- "Chamar pra jogar" (botão no painel de voz e menu da sala de voz) ----------
+// Quem está numa sala de voz de servidor escolhe o jogo (já vem o que você ou a sala está jogando) e marca quem chamar:
+// amigos e membros do servidor fora da chamada, quem está online primeiro e quem tem/joga o jogo marcado no topo. Cada
+// pessoa recebe o convite com toque ("Fulano chamou você para jogar X"); aceitar entra na sala.
+const PLAY_MAX = 10; // o servidor aceita até 10 convites por minuto por pessoa
+export function playCandidates() {
+  const voice = ctx.voice?.(), ch = voice?.channelId && ctx.channelById(voice.channelId); if (!ch?.guild_id) return [];
+  const ids = new Set([...[...S.rels.values()].filter(r => r.type === 1).map(r => r.user?.id || r.id), ...(ctx.guild(ch.guild_id)?.members?.keys() || [])]);
+  return [...ids].filter(u => u && canCallInvite(u) && !S.users.get(u)?.bot);
+}
+// jogo sugerido: o que eu estou jogando; senão o que mais gente da sala está jogando; senão o último escolhido
+function suggestedGame() {
+  const voice = ctx.voice?.(), titleOf = (a) => ctx.gameTitle?.(a) || a?.game?.title || '';
+  const mine = ctx.activityOf?.(S.me.id); if (mine) return titleOf(mine);
+  const n = new Map();
+  for (const v of S.voice.values()) if (v.channel_id === voice?.channelId && v.user_id !== S.me.id) { const a = ctx.activityOf?.(v.user_id); const t = a && titleOf(a); if (t) n.set(t, (n.get(t) || 0) + 1); }
+  const top = [...n].sort((a, b) => b[1] - a[1])[0]; if (top) return top[0];
+  try { return localStorage.getItem('rs.playGame') || ''; } catch { return ''; }
+}
+// cid: sala de voz do menu da sala; se você ainda não está nela, entra primeiro e abre a janela quando a entrada terminar
+export async function playInviteModal(cid) {
+  if (cid && ctx.voice?.()?.channelId !== cid) {
+    const c = ctx.channelById(cid); if (!c) return;
+    ctx.go?.(c.guild_id, c.id); ctx.joinVoice?.(cid);
+    for (let i = 0; i < 80 && ctx.voice?.()?.channelId !== cid; i++) await new Promise(r => setTimeout(r, 100));
+    if (ctx.voice?.()?.channelId !== cid) return;
+  }
+  const voice = ctx.voice?.(), ch = voice?.channelId && ctx.channelById(voice.channelId);
+  if (!ch?.guild_id) return toast('Entre numa sala de voz de um servidor para chamar a galera.', true);
+  const online = (u) => { const st = S.users.get(u)?.status; return st && st !== 'offline' && st !== 'invisible'; };
+  const game = h('input', { value: suggestedGame(), maxLength: 80, placeholder: 'Qual jogo? (opcional)', 'aria-label': 'Jogo' });
+  const search = h('input', { placeholder: 'Procurar pessoa', 'aria-label': 'Procurar pessoa' });
+  const picked = new Set(), sent = new Set();
+  const list = h('div.pi-list'), count = h('span.pi-count');
+  const all = playCandidates();
+  // quem já está jogando o jogo, depois online, depois o resto (nome)
+  const playing = (u) => { const a = ctx.activityOf?.(u), t = game.value.trim().toLowerCase(); return !!(a && t && (ctx.gameTitle?.(a) || a.game?.title || '').toLowerCase() === t); };
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const rows = all.filter(u => !q || nameOf(u).toLowerCase().includes(q))
+      .sort((a, b) => (playing(b) - playing(a)) || (online(b) - online(a)) || nameOf(a).localeCompare(nameOf(b)));
+    list.replaceChildren(...(rows.length ? rows.slice(0, 80).map(u => {
+      const on = picked.has(u), done = sent.has(u), a = ctx.activityOf?.(u);
+      return h('label.pi-row' + (on ? '.on' : '') + (done ? '.done' : ''), { title: done ? 'Convite enviado' : '' },
+        h('input', { type: 'checkbox', checked: on || done, disabled: done, onchange: (e) => { if (e.target.checked) { if (picked.size >= PLAY_MAX) { e.target.checked = false; return toast(`Dá para chamar até ${PLAY_MAX} pessoas de uma vez.`, true); } picked.add(u); } else picked.delete(u); draw(); } }),
+        avatar(S.users.get(u) || user(u), 32), h('span.pi-who', h('b', nameOf(u, ch.guild_id)),
+          h('small', done ? 'Convite enviado' : a ? 'Jogando ' + (ctx.gameTitle?.(a) || a.game.title) : online(u) ? 'Online' : 'Offline (recebe ao abrir o app)')));
+    }) : [h('p.pi-none', all.length ? 'Ninguém com esse nome.' : 'Todo mundo que você pode chamar já está na chamada.')]));
+    count.textContent = picked.size ? `${picked.size} ${picked.size === 1 ? 'pessoa' : 'pessoas'}` : '';
+    btn.disabled = !picked.size;
+  };
+  const btn = h('button.btn.green', { onclick: async () => {
+    const g = game.value.trim(); try { if (g) localStorage.setItem('rs.playGame', g); } catch { }
+    btn.disabled = true; let ok = 0;
+    for (const u of [...picked]) { if (await sendCallInvite(u, { activity: 'play', game: g || undefined, quiet: true })) { ok++; sent.add(u); } picked.delete(u); }
+    if (ok) toast(`${ok === 1 ? 'Convite enviado' : ok + ' convites enviados'}${g ? ' para jogar ' + g : ''}. Quem aceitar entra na sala.`);
+    if (ok) m.close(); else draw();
+  } }, icon('gamepad', 16), 'Chamar');
+  // atalhos: online / jogando o jogo
+  const quick = (label, fn) => h('button.btn.grey.sm', { onclick: () => { for (const u of all.filter(fn)) { if (picked.size >= PLAY_MAX) break; if (!sent.has(u)) picked.add(u); } draw(); } }, label);
+  const body = h('div.playinv',
+    h('label.f', 'Jogo', game),
+    h('div.pi-tools', search, quick('Marcar quem está online', online), quick('Quem joga esse jogo', playing)),
+    list, h('div.pi-foot', count, btn));
+  game.addEventListener('input', draw); search.addEventListener('input', draw);
+  const m = modal('Chamar pra jogar', `Quem você marcar recebe um aviso com toque para entrar em ${ch.name}.`, body, [], { width: 'min(520px, 94vw)' });
+  m.el.querySelector('.mf')?.remove();
+  draw(); setTimeout(() => (game.value ? search : game).focus(), 50);
 }

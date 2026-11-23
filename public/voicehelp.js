@@ -18,7 +18,7 @@ import { openReport } from './diag.js';
 // configurações que "Redefinir voz e vídeo" devolve ao padrão (a mesma lista do botão do Discord: entrada, saída,
 // volumes, modo de entrada, filtros, câmera). Dispositivos voltam ao "Padrão" do sistema.
 export const VOICE_RESET = { inputId: '', outputId: '', videoId: '', inputLabel: undefined, outputLabel: undefined, videoLabel: undefined,
-  volume: 100, inputVolume: 100, inputMode: 'vad', echo: true, agc: false, noiseMode: 'rnnoise', gate: false, gateDb: -45, vadGate: true, vadSens: 50,
+  volume: 100, inputVolume: 100, inputMode: 'vad', echo: true, agc: false, noiseMode: 'rnnoise', gate: false, gateDb: -45, vadGate: true, vadSens: 50, fanFilter: true, fanStrength: 50,
   voiceBitrate: 'auto', camRes: 720, camFps: 30, micTestLoop: undefined };
 
 const STATE = { ok: ['check', 'OK'], info: ['info', 'Dica'], warn: ['warn', 'Atenção'], bad: ['warn', 'Problema'] };

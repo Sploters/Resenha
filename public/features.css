@@ -1817,7 +1817,13 @@ html.anim #voice-panel.vp-in { animation: mv-rise .22s var(--ease-out) both; } /
 #wishview .ctabs { display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--bg-sec, #2b2d31); }
 #wishview .ctab { padding: 6px 12px; border: 0; border-radius: 6px; background: none; color: var(--text-muted); font-weight: 600; font-size: 13px; cursor: pointer; } #wishview .ctab.on { background: var(--bg-mod-sel); color: var(--header); }
 #wishview .btn.sm { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; } #wishview .btn.sm .icon { fill: currentColor; }
-.wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(270px, calc((100% - 3 * 18px) / 4)), 1fr)); gap: 18px; } /* 3 ou 4 por linha */
+#wishview .wc-body { padding: 12px 14px 14px; gap: 10px; } #wishview .wc-title { font-size: 16px; }
+#wishview .wc-price { font-size: 14px; } #wishview .wcard { content-visibility: auto; contain-intrinsic-size: auto 300px; }
+.wmore { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 22px 0 8px; color: var(--text-muted); font-size: 13px; flex-wrap: wrap; }
+.wmore span { width: 100%; text-align: center; }
+#wishview .ctool { flex-wrap: wrap; gap: 8px; }
+#wishview .wsearch { flex: 1 1 180px; max-width: 280px; min-width: 0; height: 32px; padding: 0 10px; border-radius: 6px; border: 0; background: var(--bg-tert); color: var(--text); }
 .wcard { display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; background: var(--bg-sec); border: 1px solid var(--bg-mod-sel); cursor: pointer; transition: transform .12s, border-color .12s; }
 .wcard:hover { transform: translateY(-2px); border-color: var(--bg-mod-hover); }
 .wc-img { aspect-ratio: 460 / 215; background: linear-gradient(135deg, var(--bg-tert), var(--bg-mod-sel)); } .wc-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -2215,3 +2221,30 @@ body:has(#call-banner) #intent-banner { top: 112px; }
 body:has(#call-banner) #samegame-banner, body:has(#intent-banner) #samegame-banner { top: 112px; } /* convite e "a fim de jogar" ficam por cima: são mais urgentes */
 body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 @media (max-width: 520px) { #samegame-banner { left: 16px; right: 16px; width: auto; } }
+/* nome do jogo na transmissão (quadro do palco, "está transmitindo" e lista da sala) */
+.tile .label .sl-who { flex: none; }
+.tile .label .sl-game { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 600; }
+.tile .label .sl-game::before { content: '·'; margin-right: 6px; color: rgba(255,255,255,.6); font-weight: 400; }
+.tile .label .sl-game.sl-plain { font-weight: 400; color: rgba(255,255,255,.8); }
+.tile .label .sinfo:empty { display: none; }
+.cstream .cs-game { font-size: 13px; color: var(--text-muted); margin-top: -4px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vu-sgame { font-size: 11px; color: var(--text-muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; }
+/* Chamar pra jogar (public/callinvite.js playInviteModal) */
+.playinv { display: flex; flex-direction: column; gap: 10px; }
+.playinv .pi-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.playinv .pi-tools input { flex: 1 1 160px; min-width: 0; }
+.playinv .pi-list { display: flex; flex-direction: column; gap: 2px; max-height: min(46vh, 380px); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.playinv .pi-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.playinv .pi-row:hover { background: var(--bg-mod-hover); }
+.playinv .pi-row.on { background: var(--bg-mod-sel); }
+.playinv .pi-row.done { opacity: .6; cursor: default; }
+.playinv .pi-row input { accent-color: var(--green); width: 16px; height: 16px; flex: none; margin: 0; }
+.playinv .pi-who { display: flex; flex-direction: column; min-width: 0; }
+.playinv .pi-who b, .playinv .pi-who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playinv .pi-who small { color: var(--text-muted); font-size: 12px; }
+.playinv .pi-none { color: var(--text-muted); text-align: center; padding: 16px 0; }
+.playinv .pi-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.playinv .pi-count { color: var(--text-muted); font-size: 13px; margin-right: auto; }
+.playinv .pi-foot .btn { display: inline-flex; align-items: center; gap: 6px; }
+.playinv .pi-foot .btn .icon { fill: currentColor; }
+.callcard.playinv .cch { color: var(--green); }
