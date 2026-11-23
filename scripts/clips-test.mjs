@@ -56,15 +56,17 @@ try {
   ok((await call(a.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Jogada' })).status === 200, 'dono do servidor (gerenciar mensagens) renomeia');
   ok((await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Minha jogada' })).title === 'Minha jogada', 'quem clipou renomeia');
   ok((await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: '   ' })).status === 400, 'nome vazio é recusado');
-  // aba Arquivos (servidor): o vídeo do clipe aparece com o nome da galeria, não o do arquivo
-  const fm = await call(a.tok, 'GET', `/media?guild=${g.id}&kind=video`);
-  ok(fm.items?.[0]?.name === 'Minha jogada.webm' && fm.items[0].clip_id === c1.clip.id && fm.items[0].file_name === 'x.webm', 'aba Arquivos mostra o nome novo do clipe renomeado', fm.items?.[0]);
-  ok((await call(a.tok, 'GET', `/media?guild=${g.id}&q=jogada`)).items?.some(i => i.clip_id === c1.clip.id), 'buscar na aba Arquivos acha o clipe pelo nome novo');
+  // aba Arquivos (servidor): clipe não aparece (tem a aba Clipes), nem o link de compartilhar um clipe; vídeo enviado
+  // normalmente continua lá
+  const up2 = await call(b.tok, 'POST', '/upload?name=viagem.webm', null, Buffer.from('outro video qualquer'));
+  await call(b.tok, 'POST', `/channels/${vch.id}/messages`, { content: '', attachments: [{ url: up2.url, name: 'viagem.webm', size: up2.size, type: 'video/webm' }] });
+  await call(b.tok, 'POST', `/channels/${vch.id}/messages`, { content: `olha esse: http://localhost:${PORT}/#/clip/${c1.clip.id}` });
+  const fm = await call(a.tok, 'GET', `/media?guild=${g.id}&counts=1`);
+  ok(fm.items?.length === 1 && fm.items[0].name === 'viagem.webm' && !fm.items.some(i => i.clip_id) && fm.counts?.video === 1 && fm.counts?.link === 0, 'aba Arquivos do servidor: sem o clipe e sem o link dele; o vídeo enviado normalmente fica', { items: fm.items?.map(i => i.name), counts: fm.counts });
+  ok(!(await call(a.tok, 'GET', `/media?guild=${g.id}&q=jogada`)).items?.length && !(await call(a.tok, 'GET', `/media?guild=${g.id}&kind=video`)).items?.some(i => i.clip_id), 'nem buscando pelo nome nem no filtro Vídeos o clipe aparece');
   await A.evaluate((gid) => window.__lc.go(gid, 'files'), g.id);
-  await A.waitForFunction(() => /Minha jogada\.webm/.test(document.querySelector('#filesview')?.innerText || ''), { timeout: 8000 }).then(() => ok(true, 'tela Arquivos com o nome do clipe'), () => ok(false, 'tela Arquivos com o nome do clipe'));
-  await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Ace' });
-  await A.waitForFunction(() => /Ace\.webm/.test(document.querySelector('#filesview')?.innerText || ''), { timeout: 8000 }).then(() => ok(true, 'renomear com a aba Arquivos aberta atualiza na hora'), () => ok(false, 'renomear com a aba Arquivos aberta atualiza na hora'));
-  await call(b.tok, 'PATCH', `/clips/${c1.clip.id}`, { title: 'Minha jogada' });
+  await A.waitForFunction(() => /viagem\.webm/.test(document.querySelector('#filesview')?.innerText || ''), { timeout: 8000 }).then(() => ok(true, 'tela Arquivos com o vídeo enviado'), () => ok(false, 'tela Arquivos com o vídeo enviado'));
+  ok(await A.evaluate(() => !/Minha jogada/.test(document.querySelector('#filesview')?.innerText || '')), 'e sem o clipe');
   await call(b.tok, 'PUT', `/clips/${c1.clip.id}/fav`);
   ok((await call(b.tok, 'GET', `/guilds/${g.id}/clips?filter=fav`)).clips.length === 1 && (await call(a.tok, 'GET', `/guilds/${g.id}/clips?filter=fav`)).clips.length === 0, 'favorito é por pessoa');
   ok((await call(a.tok, 'GET', `/guilds/${g.id}/clips?filter=mine`)).clips.length === 1, '"Meus" inclui os clipes em que eu transmitia');
