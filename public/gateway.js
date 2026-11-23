@@ -20,6 +20,7 @@ import { syncThrottle, startUsageWatch, startPressureWatch } from './lite.js';
 import { onRemoteEvent, remoteReconnected } from './remote.js';
 import { onLfgEvent, onLfgActivity } from './lfg.js';
 import { loadIntents, onIntentEvent } from './intents.js';
+import { loadBora, onBoraEvent } from './bora.js';
 import { initCallRating } from './callrate.js';
 import { initVrrFix } from './vrrfix.js';
 import { reportVideoCaps } from './codecs.js';
@@ -277,6 +278,7 @@ export function onEvent(t, d) {
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); releaseBoot(); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
       loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
+      loadBora(); // "Bora?" vivos dos meus servidores (public/bora.js)
       loadIntents(); // "A fim de jogar": minha intenção e os convites que chegaram enquanto estava fora (public/intents.js)
       // administrador da instalação? As configurações mostram a seção "Administração" na hora (antes ela entrava depois de abrir)
       if (S.uxAdmin === undefined) (window.requestIdleCallback || setTimeout)(() => { if (S.uxAdmin === undefined) api('GET', '/ux/access').then(r => { S.uxAdmin ??= !!r?.admin; }, () => { }); }, { timeout: 3000 });
@@ -416,6 +418,7 @@ export function onEvent(t, d) {
     case 'STREAM_VIEWERS': if (d.viewers.length) S.viewers.set(d.streamer_id, d.viewers); else S.viewers.delete(d.streamer_id); renderVoiceUI(); break;
     case 'SOUNDBOARD': sbIncoming(d, voice); break;
     case 'CALL_INVITE': onCallInvite(d); break;
+    case 'BORA_NEW': case 'BORA_UPDATE': case 'BORA_FORMED': case 'BORA_START': case 'BORA_ANSWER': onBoraEvent(t, d); break;
     case 'INTENT_INVITE': case 'INTENT_UPDATE': case 'INTENT_RESPONSE': case 'INTENT_FORMED': case 'INTENT_EXPIRED': onIntentEvent(t, d); break;
     case 'ADMIN_DIGEST': { // resumo da semana (só o administrador recebe, server/ux.js)
       toast('Resumo da semana: ' + d.titulo + ' Veja em Configurações → Estatísticas de uso.');

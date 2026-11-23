@@ -7,6 +7,7 @@ import { fxIcon } from './fxicons.js';
 import { h, icon, avatar } from './util.js';
 import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, CH_KINDS, channelMuted } from './state.js';
 import { playInviteModal } from './callinvite.js';
+import { openBoraModal } from './bora.js';
 import { openDM } from './usermenu.js';
 import { openMusic } from './music.js';
 import { openSoundboard, quickSoundsHover } from './soundboard.js';
@@ -63,6 +64,7 @@ export const srcInfo = (src) => (src ? { id: src.id, name: src.name, type: src.t
 export const voiceAct = (fn) => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // botões "Experimentar" da janela de Novidades (public/changelog.js)
 export const newsActions = {
+  bora: () => openBoraModal(),
   fx: () => { const b = document.querySelector('#voice-panel .vp-voice'); if (voice?.active && b) openVoiceFx(b); else toast('Entre numa sala de voz e clique no botão "Sua voz" do painel de voz (ou Ctrl+Shift+E).'); },
   gifs: () => { const b = $('#composer .gifbtn'); if (b) b.click(); else toast('Abra um chat e clique em GIF, ao lado do emoji.'); },
   clips: () => { const gid = S.view.gid && S.view.gid !== '@me' ? S.view.gid : [...S.guilds.keys()][0]; if (gid) go(gid, 'clips'); else toast('Entre num servidor para ver a galeria de clipes.'); },

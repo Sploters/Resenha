@@ -17,6 +17,7 @@ import { refreshFreeze } from './freeze.js';
 import { refreshAwayPause } from './awaypause.js';
 import { connectionsPage } from './activity.js';
 import { intentPrefsBlock } from './intents.js';
+import { boraPrefsBlock } from './bora.js';
 import { litePage, liteOn } from './lite.js';
 import { openNativeTest } from './nativetest.js';
 import { codecPanel } from './codecs.js';
@@ -890,6 +891,7 @@ function notificationsPage() {
             prev: h('span.nb-prev.blink', h('span.nb-ic', icon('dm', 22))), fn: (v) => { S.prefs.taskbarFlash = v; save(); } },
           { on: S.prefs.notifSound !== false, label: 'Som com o aviso', desc: 'Toca o som de menção junto com o aviso (volume acima; os sons de cada tipo ficam em Sons).',
             prev: h('span.nb-prev', icon('vol', 24)), fn: (v) => { S.prefs.notifSound = v; save(); } }]))),
+      ...boraPrefsBlock({ section, row, seg, toggle }), // "Bora?" e avisos no celular pelo ntfy (public/bora.js)
       ...intentPrefsBlock({ section, row, seg }), // "A fim de jogar": quem pode me chamar e jogos silenciados (public/intents.js)
       section('Modo foco'),
       card(h('div.np-focus',

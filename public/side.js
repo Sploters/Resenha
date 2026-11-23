@@ -1,5 +1,6 @@
 // Barra lateral: lista de canais do servidor, conversas diretas, quem está em cada sala de voz e mover arrastando.
 import { openNights } from './nights.js';
+import { liveIn, boraCard, openBoraModal } from './bora.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
 import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh } from './state.js';
@@ -88,7 +89,10 @@ export function renderSide() {
     const wishRow = h('div.ch.clipsrow.wishrow' + (S.view.kind === 'wishlist' ? '.active' : ''), { onclick: () => go(g.id, 'wishlist'), title: 'Jogos que o pessoal deste servidor quer, com preço e promoção' }, icon('gift', 20), h('span.name', 'Wishlist'));
     const evRow = h('div.ch.clipsrow.evrow' + (S.view.kind === 'events' ? '.active' : ''), { onclick: () => go(g.id, 'events'), title: 'Jogatinas marcadas: dia, hora, sala e quem vai' }, icon('calendar', 20), h('span.name', 'Eventos'));
     const nightsRow = h('div.ch.clipsrow.nightsrow', { onclick: () => openNights(g.id), title: 'As noites da turma: quem esteve, o que jogaram, clipes, pérolas e GG' }, icon('moon', 20), h('span.name', 'Noites'));
-    list = h('div#side-list', h('div.side-tools', nightsRow, clipsRow, filesRow, wishRow, evRow), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    // "Bora?": botão de chamar a turma e, quando houver, os cartões com o contador ao vivo (public/bora.js)
+    const boraRow = h('div.ch.clipsrow.borarow', { onclick: () => openBoraModal(g.id), title: 'Chamar a turma para jogar ou resenhar, agora ou mais tarde' }, icon('megaphone', 20), h('span.name', 'Bora?'));
+    const boras = liveIn(g.id);
+    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), h('div.side-tools', boraRow, nightsRow, clipsRow, filesRow, wishRow, evRow), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais

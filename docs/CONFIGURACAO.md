@@ -85,6 +85,8 @@ Explicados em [ADMINISTRACAO.md](ADMINISTRACAO.md).
 | Variável | O que faz |
 |---|---|
 | `ALERT_WEBHOOK` | Tópico do [ntfy](https://ntfy.sh) ou webhook de canal do Discord para os alertas chegarem no celular. |
+| `NTFY_URL` | Servidor do [ntfy](https://ntfy.sh) usado para os avisos no celular das pessoas ("Bora?" e convites para a call). Padrão `https://ntfy.sh`; use o seu se tiver um ntfy próprio. |
+| `PUBLIC_URL` | Endereço do Resenha (ex.: `https://resenha.minha-vpn.ts.net`): tocar no aviso do celular abre o app. Sem ele, o aviso só mostra o texto. |
 | `ALERT_MS` | Limite do alerta de lentidão (padrão 1 s). |
 | `SLOW_MS` | Respostas acima disso vão para `<dados>/slow.log` (padrão 400 ms). |
 | `HEALTH_CPU_PCT`, `HEALTH_MEM_PCT`, `HEALTH_DISK_PCT` | Limites dos alertas de CPU (85%), memória livre (10%) e disco livre (10%). |

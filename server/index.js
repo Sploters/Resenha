@@ -37,6 +37,8 @@ import { mountPerf } from './perf.js';
 import { mountUx, uxSeen, uxFirst } from './ux.js';
 import { mountLfg, GAMES as LFG_GAMES } from './lfg.js';
 import { mountIntents } from './intents.js';
+import { mountBora } from './bora.js';
+import { createPush } from './push.js';
 import { createSocial, mountSocial } from './social.js';
 import { createVoiceSessions } from './sessions.js';
 import { initSessions } from './accounts.js';
@@ -490,7 +492,11 @@ mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSessi
 mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
 mountGuilds(app, { ...core, renumberRoles, guildFull, memberObj, vsObj, auditSince, AUDIT_DAYS, dropViewers, get activity() { return activity; } }); // servidores, membros e cargos (server/routes/guilds.js)
 mountChannels(app, { ...core, get forum() { return forum; }, get intents() { return intents; } }); // canais e permissões (server/routes/channels.js)
-const { callInv } = mountInvites(app, { ...core, postDm: (a, b, c) => postDm(a, b, c), get activity() { return activity; } }); // convites do servidor e da chamada (server/routes/invites.js)
+// aviso no celular (ntfy) para quem configurou: "Bora?" e convite direto para a chamada (server/push.js)
+const prefsOfUser = (uid) => { try { return JSON.parse(getUser(uid)?.settings || '{}') || {}; } catch { return {}; } };
+const push = createPush({ prefsOf: prefsOfUser, isOnline: (uid) => conns.has(uid), statusOf: (uid) => getUser(uid)?.status || 'online' });
+app.post('/api/me/push-test', auth, wrap((req, res) => { push.test(req.uid, String(req.body?.topic || '')).then(() => res.json({ ok: true, server: push.server() }), (e) => { if (!res.headersSent) res.status(400).json({ error: e.message }); }); }));
+const { callInv } = mountInvites(app, { ...core, postDm: (a, b, c) => postDm(a, b, c), get activity() { return activity; }, push }); // convites do servidor e da chamada (server/routes/invites.js)
 mountEmojis(app, core); // emojis e soundboard (server/routes/emojis.js)
 mountMessages(app, { ...core, get forum() { return forum; }, get clips() { return clips; } }); // mensagens, busca e caixa de entrada (server/routes/messages.js)
 // ---------- Procurar jogadores (server/lfg.js) ----------
@@ -606,6 +612,9 @@ const activity = createActivityService({ all, get, run, newId, dispatch, presenc
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
+// "Bora?": chamar a turma do servidor (server/bora.js)
+mountBora(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, userPub, clean, can, P, prefsOf: prefsOfUser, push,
+  voiceChannelOf: (uid) => currentVoice(uid), canConnect: (uid, cid) => { const ch = get('SELECT * FROM channels WHERE id=?', cid); return !!ch && !timedOut(ch.guild_id, uid) && chp.chCan(ch, uid, CH.CONNECT); } });
 const intents = mountIntents(app, {
   auth, wrap, bad, db, get, all, run, newId, dispatch, userPub, clean, log: console.log,
   audienceOf: lfgAudience, isFriend: (a, b) => !!get('SELECT 1 x FROM relationships WHERE user_id=? AND other_id=? AND type=1', a, b),

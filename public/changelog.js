@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-23-3', title: 'Bora?',
+    items: [
+      { i: 'megaphone', t: 'Bora? Chame a turma', d: 'No topo dos canais do servidor (ou no Ativo agora), "Bora?": escolha o jogo ou "Só resenhar", agora ou um horário de hoje, e quantos precisam topar. Todo mundo do servidor vê o contador ao vivo e responde Tô dentro, Mais tarde ou Hoje não. Quando bate, chega "Formou!" com a sala para entrar. Para outro dia, vira evento.', try: 'bora' },
+      { i: 'bell', t: 'Avisos no celular', d: 'Com o Resenha fechado, o Bora e os convites para a call chegam no celular pelo app ntfy. Em Configurações → Notificações: gere o seu tópico, assine no ntfy e toque em Testar.', try: 'notifications' },
+    ],
+  },
+  {
     id: '2026-11-23-2', title: 'Rewind e jogos para a turma',
     items: [
       { i: 'star', t: 'Rewind da semana, do mês e do ano', d: 'Em Noites (topo dos canais do servidor), "Rewind": as setinhas trocam entre Semana, Mês e Ano, e "anterior" volta para semanas, meses e anos passados. As noites, os jogos, a dupla, a mensagem, a pérola e o clipe do período, e o seu cartão, que só você vê.' },

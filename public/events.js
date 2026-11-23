@@ -160,12 +160,13 @@ export function renderGuildEvents(main, gid) {
 const DUR = [[30, '30 min'], [60, '1 hora'], [90, '1 h 30'], [120, '2 horas'], [180, '3 horas'], [240, '4 horas'], [360, '6 horas']];
 const pad = (n) => String(n).padStart(2, '0');
 const localInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-export function eventModal(gid, ev = null) {
+// pre: só valores iniciais de um evento novo (ex.: "Outro dia…" do Bora: título e jogo)
+export function eventModal(gid, ev = null, pre = null) {
   const g = guild(gid); if (!g) return;
   const voices = g.channels.filter(c => c.type === 2), texts = g.channels.filter(c => c.type === 0);
   const def = new Date(Date.now() + 864e5); def.setHours(21, 0, 0, 0); if (def - Date.now() > 864e5) def.setDate(def.getDate() - 1); // hoje 21h (ou amanhã se já passou)
-  const title = h('input', { maxLength: 100, value: ev?.title || '', placeholder: 'Ex.: Sexta de CS2' });
-  const game = h('input', { maxLength: 300, value: ev?.game || '', placeholder: 'Nome do jogo ou link da loja (Steam, Epic, Battle.net, Riot…)', list: 'ev-games' });
+  const title = h('input', { maxLength: 100, value: ev?.title || pre?.title || '', placeholder: 'Ex.: Sexta de CS2' });
+  const game = h('input', { maxLength: 300, value: ev?.game || pre?.game || '', placeholder: 'Nome do jogo ou link da loja (Steam, Epic, Battle.net, Riot…)', list: 'ev-games' });
   const cover = coverPicker(gid, ev, game);
   const when = h('input', { type: 'datetime-local', value: localInput(ev?.starts_at || def.getTime()) });
   const dur = h('select', DUR.map(([v, l]) => h('option', { value: v, selected: v === (ev?.duration_min || 120) }, l)));

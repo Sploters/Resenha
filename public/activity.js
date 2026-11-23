@@ -13,6 +13,7 @@ import { openClip } from './clipsgallery.js';
 import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
 import { intentSection } from './intents.js';
+import { liveIn, boraCard, openBoraModal } from './bora.js';
 import { toggle, section, seg } from './ui.js';
 
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
@@ -773,7 +774,7 @@ export function activityPanel(box) {
     if (recent.length) now.push(h('div.an-cap.an-pastcap', 'Nos últimos dias'), ...recent.map(recentRow));
     // "Desde a última vez" no topo; "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho;
     // embaixo a retrospectiva da semana
-    body.replaceChildren(back || '', intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
+    body.replaceChildren(back || '', boraSection(), intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
     // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
     document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);
   };
@@ -855,4 +856,11 @@ function pcActivityBlock() {
     ctl,
     h('div.lk-opt.sg-opt', h('span', h('b', 'Avisar quando um amigo jogar o mesmo que eu'), h('small', 'Um aviso no canto para entrar na sala dele ou chamá-lo para a sua. Não toca em "não perturbe".')), toggle(sameGameOn(), (on) => { S.prefs.sameGameAlert = on; savePrefs(); })),
     h('p.lk-note', icon('clock', 14), 'As horas só contam enquanto você está numa call (servidor ou DM, mesmo mutado). Em "Ninguém" ou no modo invisível, só você vê o jogo, mas as horas entram na semana da galera sem seu nome.'));
+}
+
+// "Bora?" no topo do Ativo agora: os vivos dos meus servidores (com o contador) e o botão de chamar a turma
+function boraSection() {
+  const list = liveIn(null);
+  return h('section.an-bora', list.length > 0 && h('div.an-cap', list.length === 1 ? 'Bora' : `Bora · ${list.length}`), ...list.slice(0, 3).map(b => boraCard(b)),
+    S.guilds.size > 0 && h('button.bora-cta', { onclick: () => openBoraModal() }, h('span.in-ctaic', icon('megaphone', 20)), h('span.in-ctatx', h('b', 'Bora?'), h('small', 'Chama a turma do servidor, agora ou mais tarde')), icon('chevr', 16)));
 }

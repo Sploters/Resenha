@@ -1985,12 +1985,12 @@ html.anim #voice-panel.vp-in { animation: mv-rise .22s var(--ease-out) both; } /
 #active-now .an-intents { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
 #active-now .an-intents:empty { display: none; }
 #active-now .an-intents .an-cap { margin-top: 0; }
-.in-cta { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+.in-cta, .bora-cta { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
   background: var(--bg-sec); color: var(--text-normal); cursor: pointer; text-align: left; font: inherit; }
-.in-cta:hover { background: var(--bg-mod-hover); }
-.in-cta .in-ctaic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--green); color: #fff; flex: none; }
-.in-cta .in-ctatx { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.in-cta .in-ctatx b { color: var(--header); font-size: 14px; } .in-cta .in-ctatx small { color: var(--text-muted); font-size: 12px; }
+.in-cta:hover, .bora-cta:hover { background: var(--bg-mod-hover); }
+.in-cta .in-ctaic, .bora-cta .in-ctaic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--green); color: #fff; flex: none; }
+.in-cta .in-ctatx, .bora-cta .in-ctatx { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.in-cta .in-ctatx b, .bora-cta .in-ctatx b { color: var(--header); font-size: 14px; } .in-cta .in-ctatx small, .bora-cta .in-ctatx small { color: var(--text-muted); font-size: 12px; }
 .in-card { position: relative; background: var(--bg-sec); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-left: 3px solid var(--brand, #5865f2); }
 .in-card.mine { border-left-color: var(--green); }
 .in-card.formed { border-left-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--bg-sec)); }
@@ -2248,3 +2248,63 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .playinv .pi-foot .btn { display: inline-flex; align-items: center; gap: 6px; }
 .playinv .pi-foot .btn .icon { fill: currentColor; }
 .callcard.playinv .cch { color: var(--green); }
+/* "Bora?" (public/bora.js): cartão com o contador ao vivo, janela de criar, aviso */
+.bora-card { background: var(--bg-sec); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; border-left: 3px solid var(--brand); }
+.bora-card.formed { border-left-color: var(--green); }
+.bora-card.done { opacity: .6; border-left-color: var(--text-muted); }
+.bora-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bora-head .gicon, .bora-chat { border-radius: 8px; }
+.bora-chat { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; background: var(--bg-mod-sel); color: var(--header); }
+.bora-chat .icon { fill: currentColor; }
+.bora-card.compact .bora-chat { width: 28px; height: 28px; }
+.bora-who { display: flex; flex-direction: column; min-width: 0; }
+.bora-who b { color: var(--header); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bora-who small { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bora-note { font-size: 13px; color: var(--text); font-style: italic; }
+.bora-bar { height: 6px; border-radius: 999px; background: var(--bg-mod-sel); overflow: hidden; }
+.bora-bar i { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .35s ease; }
+.bora-card.formed .bora-bar i { background: var(--green); }
+.bora-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.bora-faces { display: inline-flex; align-items: center; }
+.bora-faces .avatar + .avatar { margin-left: -6px; } .bora-faces .avatar { box-shadow: 0 0 0 2px var(--bg-sec); border-radius: 50%; }
+.bora-faces small { margin-left: 4px; color: var(--text-muted); }
+.bora-st { color: var(--header); font-weight: 600; font-size: 12.5px; }
+.bora-later { color: var(--text-muted); font-size: 12px; }
+.bora-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.bora-btns .btn { display: inline-flex; align-items: center; gap: 4px; }
+.bora-btns .btn .icon { fill: currentColor; }
+.bora-btns .btn.on { box-shadow: 0 0 0 2px var(--header) inset; }
+.bora-btns .btn.link.on { text-decoration: underline; }
+.bora-card.compact { padding: 8px 10px; gap: 6px; }
+.bora-card.compact .bora-who b { font-size: 13.5px; }
+#side-list .side-bora { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 8px; }
+.an-bora { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.bora-cta .in-ctaic { background: var(--brand) !important; } .bora-cta { margin-bottom: 4px; }
+.bora-modal { display: flex; flex-direction: column; gap: 12px; }
+.bora-sec { display: flex; flex-direction: column; gap: 6px; }
+.bora-sec > b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.bora-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bora-chip, .bora-time { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--bg-mod-sel); background: var(--bg-sec); color: var(--text); font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.bora-chip .icon, .bora-time .icon { fill: currentColor; }
+.bora-chip:hover, .bora-time:hover { border-color: var(--bg-mod-hover); }
+.bora-chip.on, .bora-time.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.bora-chip .gicon { border-radius: 4px; }
+.bora-time input { background: transparent; border: 0; color: inherit; font: inherit; width: 88px; color-scheme: dark; }
+.bora-chips > input { flex: 1 1 140px; min-width: 0; height: 32px; border-radius: 999px; padding: 0 12px; }
+.bora-modal > input { height: 36px; }
+.bora-hint { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+.bora-foot { display: flex; justify-content: flex-end; }
+.bora-foot .btn { display: inline-flex; align-items: center; gap: 6px; } .bora-foot .btn .icon { fill: currentColor; }
+.bora-banner .ib-btns { flex-wrap: wrap; }
+.bora-push { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
+.bora-topic { display: flex; gap: 6px; flex-wrap: wrap; } .bora-topic input { flex: 1 1 220px; min-width: 0; font-family: var(--font-code, monospace); }
+.bora-pushout { font-size: 12.5px; color: var(--text-muted); min-height: 16px; }
+/* campos soltos (fora de label.f) com o mesmo visual dos campos do app */
+.bora-modal input:not([type=time]), .bora-topic input, .playinv .pi-tools input { background: var(--bg-tert); color: var(--text); border: 0; border-radius: 6px; outline: none; padding: 0 12px; font-size: 15px; }
+.bora-modal input:not([type=time]):focus, .bora-topic input:focus, .playinv .pi-tools input:focus { outline: 1px solid var(--brand); }
+.bora-modal > input, .bora-topic input, .playinv .pi-tools input { height: 36px; }
+.bora-chips > input { border-radius: 999px !important; }
+/* cartão compacto (lista de canais): os três botões cabem numa linha */
+.bora-card.compact .bora-btns { flex-wrap: nowrap; gap: 4px; }
+.bora-card.compact .bora-btns .btn { padding: 4px 8px; font-size: 12.5px; min-height: 0; height: 28px; white-space: nowrap; }
+.bora-card.compact .bora-btns .btn .icon { width: 12px; height: 12px; }

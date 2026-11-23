@@ -82,6 +82,9 @@ export function mountInvites(app, d) {
     const r = callInv.create(req.uid, String(req.body.user_id || ''), req.body.activity === 'watch' ? { activity: 'watch', source: 'watch' }
       : req.body.activity === 'play' ? { activity: 'play', source: 'play', game: String(req.body.game ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 80) || null } : {});
     if (r.invite && !r.repeated && !conns.has(r.invite.to)) social.pull(r.invite.to, 'call_invite');
+    // app fechado: o convite chega no celular (quem configurou o ntfy em Configurações → Notificações)
+    if (r.invite && !r.repeated) d.push?.send(r.invite.to, 'invite', { title: `${r.invite.from?.display_name || 'Alguém'} chamou você ${r.invite.activity === 'play' ? 'para jogar' + (r.invite.game ? ' ' + r.invite.game : '') : 'para a call'}`,
+      body: `${r.invite.channel?.name || 'Sala'} · ${r.invite.guild?.name || ''} (vale por 5 min)`, tags: 'telephone_receiver', priority: 4, path: '/' });
     if (!r.error && !r.repeated) callInvRate.set(req.uid, [...recent, t]);
     callOut(res, r);
   }));
