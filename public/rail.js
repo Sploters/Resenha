@@ -32,7 +32,8 @@ export function renderRail() {
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
   // um botão só para a tela inicial (Amigos, Jogar e Descobrir em abas no topo, conversas na lista ao lado): a barra
   // fica para os servidores e as conversas fixadas
-  const meView = S.view.gid === '@me' && !S.favMode;
+  // numa conversa (ou nos arquivos dela) o destaque fica só na própria conversa: o botão leva para os Amigos
+  const meView = S.view.gid === '@me' && !S.favMode && S.view.kind !== 'dm' && !(S.view.kind === 'files' && S.view.dm);
   rail.replaceChildren(
     wrap('.rail-fly.rail-msgs' + (meView ? '.active' : ''), 'Amigos, conversas e jogos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
