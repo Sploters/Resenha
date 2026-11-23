@@ -4,7 +4,7 @@ import { S, api, tryApi } from './state.js';
 import { inviteFrom, acceptInvite, declineInvite } from './callinvite.js';
 import { styleName } from './themes.js';
 import { STATUS_TXT } from './card.js';
-import { activityPanel, refreshFeedView, activityOf, gameIcon, titleEl, gameTitle, friendRoom, myVoiceRoom, enterRoom } from './activity.js';
+import { activityPanel, setAnOff, refreshFeedView, activityOf, gameIcon, titleEl, gameTitle, friendRoom, myVoiceRoom, enterRoom } from './activity.js';
 import { chName } from './chnames.js';
 import { viewTransition, stagger } from './motion.js';
 import { $ } from './gateway.js';
@@ -79,7 +79,7 @@ export function renderHome(main) {
       r.type === 3 && btn('check', 'Aceitar', () => tryApi('PUT', `/relationships/${u.id}`, {}), '.ok'),
       (r.type === 3 || r.type === 4 || r.type === 2 || (r.type === 1 && !inv)) && btn('x', r.type === 1 ? 'Remover' : r.type === 2 ? 'Desbloquear' : 'Ignorar', () => tryApi('DELETE', `/relationships/${u.id}`), '.no')));
   };
-  main.replaceChildren(h('div#home',
+  main.replaceChildren(h('div#home' + (S.prefs.anOff ? '.an-off' : ''),
     // abas da tela inicial: Amigos | Jogar | Descobrir (gamestabs.js); "Adicionar amigo" ao lado
     h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
       topTabs('friends', () => { if (S.view.tab === 'add') { S.view.tab = 'list'; viewTransition(() => renderHome(main)); } }), h('div.mtab-sep'),
@@ -87,7 +87,8 @@ export function renderHome(main) {
         h('div.tab.green' + (tab === 'add' ? '.active' : ''), { onclick: () => { if (S.view.tab === 'add') return; S.view.tab = 'add'; viewTransition(() => renderHome(main)); } }, icon('plus', 18), 'Adicionar amigo',
           reqs > 0 && h('span.tab-badge', { title: `${reqs} pedido${reqs > 1 ? 's' : ''} de amizade` }, reqs > 99 ? '99+' : reqs))),
       // janela estreita: o painel "Ativo agora" não cabe ao lado e abre como gaveta por este botão
-      h('button.ibtn.an-toggle', { title: 'Ativo agora', onclick: () => $('#home').classList.toggle('an-open') }, icon('gamepad', 22))),
+      // coluna oculta (⋯ → Ocultar o Ativo agora): o mesmo botão traz ela de volta
+      h('button.ibtn.an-toggle', { title: 'Ativo agora', onclick: () => { const hm = $('#home'); if (hm.classList.contains('an-off') && matchMedia('(min-width: 1101px)').matches) setAnOff(false); else hm.classList.toggle('an-open'); } }, icon('gamepad', 22))),
     h('div#homebody', pane, h('aside#active-now'), h('div.an-scrim', { onclick: () => $('#home').classList.remove('an-open') }))));
   S.redrawHome = draw; draw(); renderActiveNow();
   if (S.staggerNext) { S.staggerNext = false; stagger(pane); } // só ao chegar na tela/trocar de aba (não nos redesenhos por eventos)

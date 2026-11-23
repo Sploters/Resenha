@@ -49,7 +49,7 @@ try {
   ok(await B.evaluate(() => !!window.__lc.voice?.channelId), 'Beto: Entrar coloca na sala de voz');
   // Ativo agora mostra o Bora e o botão
   await A.evaluate(() => window.__lc.go('@me')); await sleep(800);
-  ok(await A.evaluate(() => !!document.querySelector('.an-bora .bora-cta') && !!document.querySelector('.an-bora .bora-card')), 'Ativo agora: o Bora com o contador e o botão "Bora?"');
+  ok(await A.evaluate(() => !!document.querySelector('#active-now .play-cta') && !!document.querySelector('.an-bora .bora-card')), 'Ativo agora: o Bora com o contador e o botão único "Bora jogar?"');
   await A.evaluate(() => document.querySelector('.an-bora')?.scrollIntoView()); await sleep(300); await A.screenshot({ path: `${SH}/bora-ativo.png` });
   // Configurações → Notificações: Bora e celular
   await A.evaluate(async () => { const n = await window.__lc.import('nav.js'); n.openSettings('notifications', n.ctxSettings()); }); await sleep(800);

@@ -89,3 +89,51 @@
 
 /* linhas de configuração (ui.js row/vrow): o botão fica no meio da altura da linha, não grudado embaixo */
 .perm { align-items: center; }
+
+/* ---------- Ativo agora: seções que recolhem, mudam de lugar e somem (activity.js anSection) ---------- */
+#active-now .an-head { display: flex; align-items: center; gap: 8px; margin: 0 4px 8px; }
+#active-now .an-head h3 { margin: 0; flex: 1; }
+#active-now .an-head .an-cfg { width: 30px; height: 30px; flex: none; }
+#active-now .an-body { gap: 8px; }
+#active-now .ansec { border-radius: 10px; position: relative; }
+#active-now .ansec-h { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 2px 0 0; border-radius: 8px; cursor: grab; user-select: none; }
+#active-now .ansec-h:active { cursor: grabbing; }
+#active-now .ansec-t { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 0; background: none; cursor: pointer;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); text-align: left; }
+#active-now .ansec-t:hover { color: var(--header); }
+#active-now .ansec-t .icon { flex: none; transition: transform .15s ease-out; }
+#active-now .ansec.col .ansec-t .icon { transform: rotate(-90deg); }
+#active-now .ansec-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .ansec-t small { font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--bg-mod-hover); border-radius: 999px; padding: 1px 7px; text-transform: none; }
+#active-now .ansec-grip, #active-now .ansec-x { opacity: 0; transition: opacity .12s; color: var(--text-muted); }
+#active-now .ansec-grip { display: grid; place-items: center; width: 20px; }
+#active-now .ansec-x { width: 26px; height: 26px; }
+#active-now .ansec-h:hover .ansec-grip, #active-now .ansec-h:hover .ansec-x, #active-now .ansec-x:focus-visible { opacity: 1; }
+@media (hover: none) { #active-now .ansec-x { opacity: 1; } }
+#active-now .ansec-b { display: flex; flex-direction: column; gap: 6px; }
+#active-now .ansec-b > section { margin: 0; }
+#active-now .ansec.dragging { opacity: .45; }
+#active-now .ansec.drop-a::before, #active-now .ansec.drop-b::after { content: ""; position: absolute; left: 4px; right: 4px; height: 3px; border-radius: 2px; background: var(--brand); }
+#active-now .ansec.drop-a::before { top: -6px; } #active-now .ansec.drop-b::after { bottom: -6px; }
+/* a seção já tem título: tira o rótulo repetido de dentro */
+#active-now .ansec[data-k="since"] .an-sinceh b { display: none; }
+/* coluna inteira oculta (⋯ → Ocultar o Ativo agora): o botão do topo traz de volta */
+@media (min-width: 1101px) {
+  #home.an-off #active-now { display: none; }
+  #home.an-off .an-toggle { display: flex; }
+}
+
+/* ---------- "Jogam aqui" (activity.js guildGamesPanel): faixa de ícones com setas; clicar no meio abre a lista ---------- */
+.ggp-bar { display: flex; align-items: center; gap: 2px; margin: 0 4px 6px; padding: 4px 2px; border-radius: 8px; cursor: pointer; }
+.ggp-bar:hover { background: var(--bg-mod-hover); }
+.ggp-strip { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; padding: 6px 4px 4px; }
+.ggp-strip::-webkit-scrollbar { display: none; }
+.ggp-ic { position: relative; flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: var(--bg-tert); cursor: pointer; scroll-snap-align: start; }
+.ggp-ic:hover { background: var(--bg-mod-sel); transform: translateY(-1px); }
+.ggp-ic .ggp-live { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 2px var(--bg-sec); }
+.ggp-ic .gg-hot { position: absolute; top: -3px; right: -3px; }
+.ggp-arr { flex: none; width: 22px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--interactive); cursor: pointer; }
+.ggp-arr:hover:not(:disabled) { background: var(--bg-mod-sel); color: var(--header); }
+.ggp-arr:disabled { opacity: .25; cursor: default; }
+.ggp.open .ggp-list { max-height: 260px; }
+.ggp-bar.fits .ggp-arr { display: none; }

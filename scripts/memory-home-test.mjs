@@ -109,11 +109,12 @@ try {
   const pa = past.find(x => x.uid === ana.id), pb = past.find(x => x.uid === beto.id);
   ok(pa && pa.secs === anaSecs && /Ana/.test(pa.t) && /Jogou Valheim/.test(pa.t) && /hoje/.test(pa.t), 'linha da Ana soma o tempo das duas partidas e diz quando', { pa, anaSecs });
   ok(pb && /Beto/.test(pb.t) && /Jogou Hades/.test(pb.t), 'linha do Beto: Hades', pb);
-  ok((await texts(V, '#active-now .an-now .an-cap')).includes('NOS ÚLTIMOS DIAS') || (await V.evaluate(() => [...document.querySelectorAll('#active-now .an-cap')].some(c => c.textContent === 'Nos últimos dias'))), 'seção "Nos últimos dias" dentro do "Ativo agora"');
+  ok(await V.evaluate(() => !!document.querySelector('#actfeed .ansec[data-k="recent"] .an-past')), 'seção "Nos últimos dias" dentro do "Ativo agora"');
   ok(await V.evaluate(() => !!document.querySelector('#active-now .an-past .gicon') && !!document.querySelector('#active-now .an-past .an-av')), 'cada linha tem a foto da pessoa e o ícone do jogo');
 
   ok(await waitFor(() => V.evaluate(() => !!document.querySelector('#active-now .an-since'))), 'sumido 5 h: a faixa "Desde a última vez" aparece');
-  ok(await V.evaluate(() => document.querySelector('#actfeed').firstElementChild?.classList.contains('an-since')), 'a faixa fica no topo do "Ativo agora"');
+  // quem está online fazendo algo vem primeiro; a faixa "Desde a última vez" é uma seção do painel
+  ok(await V.evaluate(() => !!document.querySelector('#actfeed .ansec[data-k="since"] .an-since')), 'a faixa "Desde a última vez" aparece no "Ativo agora"');
   const si = await texts(V, '#active-now .an-si');
   ok(si.length === 3, 'três itens: sessão, evento e clipe', si);
   ok(new RegExp(`Ana, Beto e \\+1 ficaram 2h10 na ${vch.name} jogando Counter-Strike 2 · 2 clipes`).test(si[0] || ''), 'sessão: "Ana, Beto e +1 ficaram 2h10 na sala jogando CS2 · 2 clipes"', si[0]);

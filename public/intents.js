@@ -105,8 +105,8 @@ function declineMenu(it, btn) {
 export function intentSection() {
   const mine = S.intents.mine.filter(x => LIVE(x) || (Date.now() - Math.max(x.expires_at, x.formed_at || 0) < 30 * 60e3 && x.status !== 'canceled'))[0];
   const inv = S.intents.invites.filter(LIVE);
-  const cta = !myLiveIntent() && h('button.in-cta', { onclick: () => openIntentModal() }, h('span.in-ctaic', icon('gamepad', 20)), h('span.in-ctatx', h('b', 'A fim de jogar?'), h('small', 'Chama só quem tem o jogo')), icon('chevr', 16));
-  return h('section.an-intents', inv.length > 0 && h('div.an-cap', `Te chamaram — ${inv.length}`), ...inv.map(inviteCard), mine && myCard(mine), cta);
+  // o atalho "A fim de jogar?" virou uma das opções do botão único "Bora jogar?" (activity.js playCta)
+  return h('section.an-intents', inv.length > 0 && h('div.an-cap', `Te chamaram — ${inv.length}`), ...inv.map(inviteCard), mine && myCard(mine));
 }
 function myCard(it) {
   const live = LIVE(it), formed = it.status === 'formed';

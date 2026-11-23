@@ -8,6 +8,9 @@ import fs from 'node:fs';
 const PORT = 3293, BASE = `http://localhost:${PORT}`, DATA = './.testdata-intui', OUT = '.testshots/intents';
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined && !c ? '  ' + JSON.stringify(x).slice(0, 300) : '')); if (!c) fails++; };
+// "A fim de jogar" virou uma opção do botão único "Bora jogar?" do Ativo agora (menu com as duas formas de chamar)
+async function openIntentFromCta(P) { await P.click('#active-now .play-cta'); await new Promise(r => setTimeout(r, 300)); await P.evaluate(() => [...document.querySelectorAll('.menu .it')].find(x => /quem tem o jogo/.test(x.textContent))?.click()); }
+async function ctaHasIntent(P) { if (!(await P.$('#active-now .play-cta'))) return false; await P.click('#active-now .play-cta'); await new Promise(r => setTimeout(r, 300)); const has = await P.evaluate(() => [...document.querySelectorAll('.menu .it')].some(x => /quem tem o jogo/.test(x.textContent))); await P.keyboard.press('Escape'); return has; }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 fs.rmSync(DATA, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
 const ENV = { PORT, HTTPS: '0', DATA_DIR: DATA, RTC: '0', GAMES_SYNC: '0', DEALS: '0', INTENT_SWEEP_MS: '300' };
@@ -50,11 +53,11 @@ try {
   await sleep(2500);
 
   console.log('Ativo agora');
-  ok(await waitTxt(E, '#active-now .in-cta', 'A fim de jogar'), 'atalho "A fim de jogar?" no topo do Ativo agora');
+  ok(await waitTxt(E, '#active-now .play-cta', 'Bora jogar'), 'botão único "Bora jogar?" no Ativo agora');
   await shot(E, 'after-1-ativo-agora');
 
   console.log('janela e prévia');
-  await E.click('#active-now .in-cta');
+  await openIntentFromCta(E);
   ok(await waitTxt(E, '.modal .in-cands', 'ana'), 'janela abre com a prévia de quem será chamado');
   await click(E, '.modal .in-games .lchip', '^Valorant'); await sleep(900);
   const cands = await txt(E, '.modal .in-cand');
@@ -69,7 +72,7 @@ try {
   await click(E, '.modal .mf .btn', '^Chamar$');
   ok(await waitTxt(E, '#active-now .in-card.mine', 'Você está a fim de Valorant'), 'minha intenção aparece no Ativo agora');
   ok((await txt(E, '#active-now .in-card.mine'))[0]?.includes('1 de 3 · faltam 2'), 'mostra 1 de 3 e quanto falta', await txt(E, '#active-now .in-card.mine'));
-  ok(!(await E.$('#active-now .in-cta')), 'com uma intenção aberta o atalho some (uma por vez)');
+  ok(!(await ctaHasIntent(E)), 'com uma intenção aberta, "Chamar só quem tem o jogo" some do botão (uma por vez)');
 
   console.log('quem recebe');
   ok(await A.waitForSelector('#intent-banner', { timeout: 5000 }).then(() => true, () => false), 'ana recebe o aviso com Topo / Agora não');
@@ -138,7 +141,7 @@ try {
   const D = await page(U.duda); await D.evaluate(() => window.__lc.go('@me')); await sleep(1200);
   await D.setRequestInterception(true);
   D.on('request', (r) => { if (r.url().includes('/api/intents/preview')) r.respond({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Erro interno do servidor' }) }); else r.continue(); });
-  await D.click('#active-now .in-cta');
+  await openIntentFromCta(D);
   ok(await waitTxt(D, '.modal .in-err', 'Erro interno'), 'servidor com erro na prévia: mensagem e "Tentar de novo"');
   await click(D, '.modal .mf .btn', '^Chamar$');
   ok(await waitTxt(D, '#toast', 'Espere a lista'), 'não deixa chamar sem a lista');

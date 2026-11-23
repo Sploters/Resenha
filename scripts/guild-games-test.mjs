@@ -53,15 +53,16 @@ try {
   await p.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
   await p.goto(BASE); await p.evaluate((t) => localStorage.lc_token = t, U.beto.tok); await p.reload(); await p.waitForSelector('#rail .rail-wrap');
   await p.evaluate((gid) => window.__lc.go(gid), g.id);
-  ok(await p.waitForSelector('#members .ggp .ggp-row', { timeout: 6000 }).then(() => true, () => false), 'a lista de membros mostra "Jogam aqui"');
-  ok(!(await p.$('#side-head .srv-games')), 'o cabeçalho do servidor não mostra mais os jogos (fica só "Amigos aqui")');
-  const titles = await p.$$eval('#members .ggp-row', els => els.map(e => e.getAttribute('title')));
+  // normal: faixa só com os ícones (setas quando não cabem); clicar no meio abre a lista; o título volta para a faixa
+  ok(await p.waitForSelector('#members .ggp .ggp-ic', { timeout: 6000 }).then(() => true, () => false), 'a lista de membros mostra "Jogam aqui" (faixa de ícones)');
+  const titles = await p.$$eval('#members .ggp-ic', els => els.map(e => e.getAttribute('title')));
   ok(titles[0]?.startsWith('Marvel Rivals — 3 pessoas jogaram'), 'passar o mouse diz o nome e quantos jogaram', titles[0]);
-  ok(await p.$('#members .ggp-row .gg-hot') !== null, 'chama no jogo movimentado');
-  ok((await p.$$('#members .ggp-row')).length === 4 && !(await p.$('#members .ggp-more')), 'com 4 jogos, todos à vista (sem "Mostrar mais")');
+  ok(await p.$('#members .ggp-ic .gg-hot') !== null, 'chama no jogo movimentado');
+  ok((await p.$$('#members .ggp-ic')).length === 4 && !!(await p.$('#members .ggp-bar.fits')), 'com 4 jogos, todos à vista (sem setas)');
+  await p.evaluate(() => document.querySelector('#members .ggp-bar').click()); await new Promise(r => setTimeout(r, 300));
+  ok((await p.$$('#members .ggp-row')).length === 4, 'clicar no meio da faixa abre a lista com os 4 jogos');
   await p.evaluate(() => document.querySelector('#members .ggp-head').click()); await new Promise(r => setTimeout(r, 300));
-  ok(!(await p.$('#members .ggp-row')) && !!(await p.$('#members .ggp-head.col')), 'o título recolhe a lista');
-  await p.evaluate(() => document.querySelector('#members .ggp-head').click()); await new Promise(r => setTimeout(r, 300));
+  ok(!(await p.$('#members .ggp-row')) && !!(await p.$('#members .ggp-head.col')) && !!(await p.$('#members .ggp-ic')), 'o título volta para a faixa de ícones');
   fs.mkdirSync('.testshots', { recursive: true }); await p.screenshot({ path: '.testshots/guild-games-members.png' });
   const dm = await call(U.beto.tok, 'POST', '/dms', { user_id: U.hugo.id });
   await call(U.beto.tok, 'POST', `/channels/${dm.id}/messages`, { content: `${BASE}/invite/${code}` });

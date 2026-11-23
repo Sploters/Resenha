@@ -7,7 +7,8 @@ import { h, icon, avatar, skeleton, thumbUrl } from './util.js';
 import { knownGame } from './gamecatalog.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
-import { S, api, tryApi, toast, notify, confirmBox, guild, channelById, modal, savePrefs } from './state.js';
+import { S, api, tryApi, toast, notify, confirmBox, guild, channelById, modal, savePrefs, menu } from './state.js';
+import { openIntentModal, myLiveIntent } from './intents.js';
 import { playSound } from './sounds.js';
 import { openClip } from './clipsgallery.js';
 import { gamesBlock } from './games.js';
@@ -247,21 +248,33 @@ export function guildGamesRow(list, { size = 24, show = 5 } = {}) {
   return h('div.gg', { role: 'list', 'aria-label': 'Jogos que a galera mais joga' }, ...head.map(btn), more, extra);
 }
 
-// "Jogam aqui" no topo da lista de membros: um jogo por linha (ícone, nome, quantos jogaram e quantos jogam agora),
-// os 4 primeiros à vista e "Mostrar mais" com o resto, tudo em coluna (no cabeçalho do servidor, abrir a lista quebrava
-// o layout). O bloco recolhe pelo título e lembra (lc_gg_col)
-const ggState = { col: (() => { try { return localStorage.getItem('lc_gg_col') === '1'; } catch { return false; } })(), all: false };
+// "Jogam aqui" no topo da lista de membros. Normal: só os ícones dos jogos, um ao lado do outro, com setinhas para andar
+// para os lados; clicar no meio (fora de um ícone) abre a lista completa (um jogo por linha, com quantos jogaram e quantos
+// jogam agora), que fecha pelo título. Lembra o modo aberto (lc_gg_open)
+const ggState = { open: (() => { try { return localStorage.getItem('lc_gg_open') === '1'; } catch { return false; } })() };
+const ggSet = (v, redraw) => { ggState.open = v; try { localStorage.setItem('lc_gg_open', v ? '1' : '0'); } catch { } redraw(); };
 export function guildGamesPanel(list, redraw) {
   if (!list?.length) return null;
-  const col = ggState.col, shown = ggState.all ? list : list.slice(0, 4);
-  const row = (x) => h('button.ggp-row', { type: 'button', title: ggTip(x), onclick: openGame(x) }, gameIcon(x, 24),
-    h('span.ggp-t', titleEl(x, 'b'), h('small', `${x.players} ${x.players === 1 ? 'pessoa' : 'pessoas'}` + (x.playing ? ` · ${x.playing} jogando agora` : ''))),
-    x.hot && h('span.gg-hot.ggp-hot', { title: 'Muita gente jogando nesta semana' }, icon('fire', 12)));
-  return h('div.ggp',
-    h('button.mgroup.ggp-head' + (col ? '.col' : ''), { type: 'button', 'aria-expanded': String(!col), title: col ? 'Mostrar os jogos' : 'Recolher', onclick: () => { ggState.col = !col; try { localStorage.setItem('lc_gg_col', ggState.col ? '1' : '0'); } catch { } redraw(); } },
-      icon('caret', 12), h('span.mg-name', 'Jogam aqui'), h('span.mg-n', list.length)),
-    !col && h('div.ggp-list', shown.map(row),
-      list.length > 4 && h('button.ggp-more', { type: 'button', onclick: () => { ggState.all = !ggState.all; redraw(); } }, ggState.all ? 'Mostrar menos' : `Mostrar mais ${list.length - 4}`)));
+  const open = ggState.open;
+  const head = h('button.mgroup.ggp-head' + (open ? '' : '.col'), { type: 'button', 'aria-expanded': String(open), title: open ? 'Mostrar só os ícones' : 'Mostrar a lista', onclick: () => ggSet(!open, redraw) },
+    icon('caret', 12), h('span.mg-name', 'Jogam aqui'), h('span.mg-n', list.length));
+  if (open) {
+    const row = (x) => h('button.ggp-row', { type: 'button', title: ggTip(x), onclick: openGame(x) }, gameIcon(x, 24),
+      h('span.ggp-t', titleEl(x, 'b'), h('small', `${x.players} ${x.players === 1 ? 'pessoa' : 'pessoas'}` + (x.playing ? ` · ${x.playing} jogando agora` : ''))),
+      x.hot && h('span.gg-hot.ggp-hot', { title: 'Muita gente jogando nesta semana' }, icon('fire', 12)));
+    return h('div.ggp.open', head, h('div.ggp-list', list.map(row)));
+  }
+  // faixa de ícones: quem está jogando agora ganha um pontinho verde
+  const strip = h('div.ggp-strip', { role: 'list', 'aria-label': 'Jogos que a galera joga aqui' }, list.map(x => h('button.ggp-ic', { type: 'button', role: 'listitem', title: ggTip(x), 'aria-label': ggTip(x),
+    onclick: (e) => { e.stopPropagation(); openGame(x)(e); } }, gameIcon(x, 28), x.playing > 0 && h('span.ggp-live'), x.hot && h('span.gg-hot', icon('fire', 9)))));
+  const step = (dir) => (e) => { e.stopPropagation(); strip.scrollBy({ left: dir * strip.clientWidth * 0.8, behavior: 'smooth' }); };
+  const prev = h('button.ggp-arr.prev', { type: 'button', title: 'Anteriores', 'aria-label': 'Jogos anteriores', onclick: step(-1) }, icon('chevl', 16));
+  const next = h('button.ggp-arr.next', { type: 'button', title: 'Mais jogos', 'aria-label': 'Mais jogos', onclick: step(1) }, icon('chevr', 16));
+  const bar = h('div.ggp-bar', { title: 'Clique para ver a lista', onclick: () => ggSet(true, redraw) }, prev, strip, next);
+  // setas só quando há mais ícones do que cabem; a da ponta apaga quando não há mais para aquele lado
+  const edges = () => { prev.disabled = strip.scrollLeft <= 2; next.disabled = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2; bar.classList.toggle('fits', prev.disabled && next.disabled); };
+  strip.addEventListener('scroll', edges, { passive: true }); requestAnimationFrame(edges);
+  return h('div.ggp', head, bar);
 }
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando
 export function voiceGameIcon(uid) {
@@ -645,10 +658,7 @@ function serverSection(friendsNow, redraw) {
     .sort((x, y) => y.score - x.score || (x.p.u.display_name || '').localeCompare(y.p.u.display_name || '')).slice(0, 3);
   const sugIds = new Set(sugs.map(x => x.p.u.id));
   const rest = peers.filter(p => !sugIds.has(p.u.id)).sort((x, y) => (!!y.a - !!x.a) || (x.a && y.a ? x.a.since - y.a.since : 0) || (x.u.display_name || '').localeCompare(y.u.display_name || ''));
-  const closed = !!S.prefs.anSrvClosed;
-  const cap = h('button.an-cap.an-capbtn', { 'aria-expanded': String(!closed), title: closed ? 'Mostrar' : 'Esconder', onclick: () => { S.prefs.anSrvClosed = !closed; savePrefs(); redraw(); } },
-    h('span.an-capchev' + (closed ? '.closed' : ''), icon('chevdown', 14)), `Nos seus servidores — ${peers.length}`);
-  if (closed) return [cap];
+  // título, contador e recolher ficam no cabeçalho da seção do painel (anSection 'servers')
   const sub = (p) => p.a ? h('small.an-sub', gameIcon(p.a, 14), h('span', playingLine(p.a))) : h('small.an-sub', icon('voice', 14), h('span', `${chName(p.r.ch)} · ${p.r.g.name}`));
   const sugCard = ({ p, why }) => h('div.an-sug', { onclick: (e) => ctx.profile(e.currentTarget, p.u.id), oncontextmenu: (e) => ctx.userMenu(e, p.u.id) },
     h('div.an-sugtop', avatar(p.u, 36, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(p.u), h('small.an-why', why)),
@@ -658,11 +668,13 @@ function serverSection(friendsNow, redraw) {
     avatar(p.u, 32, { ring: 'var(--bg-sec)' }), h('div.an-who', nameEl(p.u), sub(p)),
     p.rt === 0 || p.rt === 4 ? addBtn(p, redraw, false) : null);
   const shown = srvMore ? rest : rest.slice(0, SRV_MAX), more = rest.length - shown.length;
-  return [cap,
+  const out = [
     sugs.length ? h('div.an-sugs', h('div.an-sugh', icon('users', 14), 'Talvez você conheça'), ...sugs.map(sugCard)) : null,
     ...shown.map(rowEl),
     more > 0 && h('button.hl-more', { onclick: () => { srvMore = true; redraw(); } }, icon('chevdown', 14), `Mostrar mais ${more}`),
     srvMore && rest.length > SRV_MAX && h('button.hl-more', { onclick: () => { srvMore = false; redraw(); } }, h('span.hl-up', icon('chevdown', 14)), 'Mostrar menos')].filter(Boolean);
+  out.count = peers.length;
+  return out;
 }
 
 // ---------------------------------------------------------------- memória do grupo: "Desde a última vez" e "Nos últimos dias"
@@ -780,11 +792,63 @@ function lfgSection() {
   if (!ads.length) return '';
   return h('section.an-lfg', h('div.an-cap', `Procurando grupo — ${ads.length}`, ads.length > 3 && h('button.an-capbtn', { type: 'button', onclick: () => ctx.go('@me', 'lfg') }, 'Ver todos')), ...ads.slice(0, 3).map(lfgMini));
 }
+// ---- seções do "Ativo agora": ordem, recolhidas e ocultas ficam salvas (S.prefs.anLay); a coluna inteira pode sumir (S.prefs.anOff)
+const AN_SECS = { now: 'Online agora', forme: 'Para você', play: 'Bora jogar', lfg: 'Procurando grupo', servers: 'Nos seus servidores', since: 'Desde a última vez', recent: 'Nos últimos dias', week: 'Destaques da semana' };
+const AN_DEFAULT = Object.keys(AN_SECS);
+const anLay = () => { const l = S.prefs.anLay ||= {}; l.col ||= {}; l.off ||= {}; if (S.prefs.anSrvClosed) { l.col.servers = true; delete S.prefs.anSrvClosed; } return l; };
+// ordem salva + seções novas (de versões futuras) no lugar padrão
+const anOrder = () => { const o = (anLay().order || []).filter(k => AN_SECS[k]); for (const k of AN_DEFAULT) if (!o.includes(k)) o.splice(AN_DEFAULT.indexOf(k), 0, k); return o; };
+const anSave = () => { savePrefs(); S.redrawFeed?.(); };
+function anMove(k, to) { // to: índice na ordem completa
+  const o = anOrder(), i = o.indexOf(k); if (i < 0) return; o.splice(i, 1); o.splice(Math.max(0, Math.min(o.length, to)), 0, k); anLay().order = o; anSave();
+}
+function anVisibleNeighbor(k, dir) { const vis = [...document.querySelectorAll('#actfeed > .ansec')].map(x => x.dataset.k), i = vis.indexOf(k); return vis[i + dir]; }
+let anDrag = null;
+function anSection(k, content, count) {
+  const col = !!anLay().col[k];
+  const head = h('div.ansec-h', { draggable: 'true', title: 'Arraste para mudar de lugar',
+    ondragstart: (e) => { anDrag = k; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', k); sec.classList.add('dragging'); },
+    ondragend: () => { anDrag = null; sec.classList.remove('dragging'); document.querySelectorAll('.ansec.drop-a, .ansec.drop-b').forEach(x => x.classList.remove('drop-a', 'drop-b')); },
+    oncontextmenu: (e) => secMenu(e, k) },
+    h('button.ansec-t', { type: 'button', 'aria-expanded': String(!col), onclick: () => { anLay().col[k] = !col; anSave(); } }, icon('chevdown', 14), h('span', AN_SECS[k]), count > 0 && h('small', String(count))),
+    h('span.ansec-grip', { 'aria-hidden': 'true' }, icon('grid', 14)),
+    h('button.ibtn.ansec-x', { type: 'button', title: 'Ocultar esta seção', 'aria-label': 'Ocultar ' + AN_SECS[k], onclick: (e) => secMenu(e, k) }, icon('more', 14)));
+  const sec = h('div.ansec' + (col ? '.col' : ''), { 'data-k': k,
+    ondragover: (e) => { if (!anDrag || anDrag === k) return; e.preventDefault(); const r = sec.getBoundingClientRect(), top = e.clientY < r.top + r.height / 2; sec.classList.toggle('drop-a', top); sec.classList.toggle('drop-b', !top); },
+    ondragleave: () => sec.classList.remove('drop-a', 'drop-b'),
+    ondrop: (e) => { if (!anDrag || anDrag === k) return; e.preventDefault(); const top = sec.classList.contains('drop-a'); sec.classList.remove('drop-a', 'drop-b');
+      const o = anOrder().filter(x => x !== anDrag), i = o.indexOf(k); anMove(anDrag, top ? i : i + 1); } },
+    head, !col && h('div.ansec-b', ...[content].flat(2).filter(Boolean)));
+  return sec;
+}
+function secMenu(e, k) {
+  const up = anVisibleNeighbor(k, -1), down = anVisibleNeighbor(k, 1), o = anOrder();
+  menu(e, [
+    up && { label: 'Mover para cima', icon: 'upvote', fn: () => anMove(k, o.indexOf(up)) },
+    down && { label: 'Mover para baixo', icon: 'chevdown', fn: () => anMove(k, o.indexOf(down)) },
+    { label: anLay().col[k] ? 'Expandir' : 'Recolher', icon: 'chevdown', fn: () => { anLay().col[k] = !anLay().col[k]; anSave(); } },
+    '-', { label: 'Ocultar esta seção', icon: 'eyeoff', hint: 'Volta pelo ⋯ no topo do Ativo agora', fn: () => { anLay().off[k] = true; anSave(); toast(`"${AN_SECS[k]}" oculta. Reexiba pelo ⋯ no topo do Ativo agora.`); } }]);
+}
+function panelMenu(e) {
+  const l = anLay();
+  menu(e, [{ head: 'Seções' },
+    ...anOrder().map(k => ({ label: AN_SECS[k], checked: !l.off[k], fn: () => { l.off[k] = !l.off[k]; anSave(); } })),
+    '-',
+    { label: 'Expandir todas', icon: 'chevdown', fn: () => { l.col = {}; anSave(); } },
+    { label: 'Ordem padrão', icon: 'refresh', fn: () => { l.order = null; anSave(); } },
+    '-',
+    { label: 'Ocultar o Ativo agora', icon: 'eyeoff', hint: 'Volta pelo botão no topo da tela de Amigos', fn: () => setAnOff(true) }]);
+}
+export function setAnOff(v) {
+  S.prefs.anOff = !!v; savePrefs();
+  document.getElementById('home')?.classList.toggle('an-off', !!v);
+  if (v) toast('Ativo agora oculto. Para mostrar de novo, use o botão de controle no topo da tela de Amigos.');
+}
 export function activityPanel(box) {
   ensureLfgPosts();
   box.id ||= 'active-now';
   const body = h('div#actfeed.an-body');
-  box.replaceChildren(h('h3', 'Ativo agora'), body);
+  box.replaceChildren(h('div.an-head', h('h3', 'Ativo agora'), h('button.ibtn.an-cfg', { type: 'button', title: 'Organizar o Ativo agora', 'aria-label': 'Organizar o Ativo agora', onclick: (e) => panelMenu(e) }, icon('more', 18))), body);
   const draw = () => {
     const friends = [...S.rels.values()].filter(r => r.type === 1).map(r => uOf(r.user.id));
     const byName = (x, y) => (x.u.display_name || '').localeCompare(y.u.display_name || '');
@@ -798,6 +862,7 @@ export function activityPanel(box) {
     const bunch = (arr, key) => { const m = new Map(); for (const x of arr) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return [...m.values()]; };
     const mine = activityOf(S.me.id);
     const forMe = requestCards();
+    // agora: quem está online fazendo algo (jogando, em chamada) primeiro, depois quem só está online
     const now = [
       ...(playing.length ? [h('div.an-cap', `Jogando — ${playing.length}`), ...bunch(playing, x => gameKey(x.a)).map(l => (l.length > 1 ? playGroupCard(l) : playCard(l[0].u.id, l[0].a)))] : []),
       ...(inVoice.length ? [h('div.an-cap', `Em chamada — ${inVoice.length}`), ...bunch(inVoice.sort(byName), x => x.r.g?.id || 'dm:' + x.u.id).map(l => (l.length > 1 ? voiceGroupCard(l[0].r.g, l) : voiceCard(l[0].u.id, l[0].r)))] : []),
@@ -812,12 +877,20 @@ export function activityPanel(box) {
     // você também está jogando: linha discreta (dá para esconder o jogo daqui)
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
       h('button.btn.link.sm', { title: 'Este jogo nunca aparece como atividade', onclick: async () => { if (await tryApi('PUT', `/activity/games/${mine.platform}/${encodeURIComponent(mine.game.id)}`, { hidden: true })) toast('Jogo escondido. Você pode reexibi-lo em Contas vinculadas.'); } }, 'Esconder jogo')));
-    now.push(...srv);
-    // o que os amigos jogaram nos últimos dias (por pessoa e jogo), depois do que está acontecendo agora
-    if (recent.length) now.push(h('div.an-cap.an-pastcap', 'Nos últimos dias'), ...recent.map(recentRow));
-    // "Desde a última vez" no topo; "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho;
-    // embaixo a retrospectiva da semana
-    body.replaceChildren(back || '', boraSection(), intentSection(), lfgSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
+    // cada pedaço do painel vira uma seção que recolhe, muda de lugar (arrastando) e pode ser ocultada (S.prefs.anLay)
+    const bora = boraSection(), ints = intentSection(), cta = playCta(), lfg = lfgSection();
+    const parts = {
+      now: now.length && h('section.an-now', ...now),
+      forme: forMe.length > 1 && h('section.an-forme', ...forMe.slice(1)), // sem o rótulo "Para você": o cabeçalho da seção já diz
+      play: (bora.childElementCount || ints.childElementCount || cta) && [bora, ints, cta],
+      lfg: lfg || null,
+      servers: srv.length && srv,
+      since: back,
+      recent: recent.length && recent.map(recentRow),
+      week: weekSections(),
+    };
+    const counts = { now: playing.length + inVoice.length + online.length, forme: forMe.length ? forMe.length - 1 : 0, servers: srv.count || 0, recent: recent.length };
+    body.replaceChildren(...anOrder().filter(k => parts[k] && !anLay().off[k]).map(k => anSection(k, parts[k], counts[k])));
     // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
     document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);
   };
@@ -904,6 +977,14 @@ function pcActivityBlock() {
 // "Bora?" no topo do Ativo agora: os vivos dos meus servidores (com o contador) e o botão de chamar a turma
 function boraSection() {
   const list = liveIn(null);
-  return h('section.an-bora', list.length > 0 && h('div.an-cap', list.length === 1 ? 'Bora' : `Bora · ${list.length}`), ...list.slice(0, 3).map(b => boraCard(b)),
-    S.guilds.size > 0 && h('button.bora-cta', { onclick: () => openBoraModal() }, h('span.in-ctaic', icon('megaphone', 20)), h('span.in-ctatx', h('b', 'Bora?'), h('small', 'Chama a turma do servidor, agora ou mais tarde')), icon('chevr', 16)));
+  return h('section.an-bora', list.length > 0 && h('div.an-cap', list.length === 1 ? 'Bora' : `Bora · ${list.length}`), ...list.slice(0, 3).map(b => boraCard(b)));
+}
+// botão único para chamar gente para jogar (eram dois: "Bora?" e "A fim de jogar?"): abre as duas formas de chamar
+function playCta() {
+  const canIntent = !myLiveIntent(), canBora = S.guilds.size > 0;
+  if (!canIntent && !canBora) return null;
+  return h('button.in-cta.play-cta', { type: 'button', 'aria-haspopup': 'menu', onclick: (e) => menu(e, [
+    canBora && { label: 'Chamar a turma do servidor', hint: 'Agora ou mais tarde, com quem topar', icon: 'megaphone', fn: () => openBoraModal() },
+    canIntent && { label: 'Chamar só quem tem o jogo', hint: 'Avisa quem joga e forma o grupo', icon: 'gamepad', fn: () => openIntentModal() }]) },
+    h('span.in-ctaic', icon('megaphone', 20)), h('span.in-ctatx', h('b', 'Bora jogar?'), h('small', canIntent ? 'Chama a turma ou só quem tem o jogo' : 'Chama a turma do servidor')), icon('chevr', 16));
 }

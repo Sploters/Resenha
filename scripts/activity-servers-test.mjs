@@ -37,7 +37,8 @@ try {
   const view = () => ana.p.evaluate(() => {
     const t = (e, s) => e?.querySelector(s)?.textContent.trim();
     return {
-      caps: [...document.querySelectorAll('#actfeed .an-now .an-cap')].map(e => e.textContent.trim()),
+      // cabeçalhos das seções do painel: "título — contador"
+      caps: [...document.querySelectorAll('#actfeed .ansec')].map(e => e.querySelector('.ansec-t span').textContent.trim() + ' — ' + (e.querySelector('.ansec-t small')?.textContent.trim() || '0')),
       sugs: [...document.querySelectorAll('#actfeed .an-sug')].map(e => ({ name: t(e, '.an-who b'), why: t(e, '.an-who > small'), btn: t(e, '.an-addbtn, .an-sent') })),
       rows: [...document.querySelectorAll('#actfeed .an-row.an-srv')].map(e => ({ name: t(e, '.an-who b'), sub: t(e, '.an-sub > span:last-child'), add: !!e.querySelector('.ibtn-add'), sent: !!e.querySelector('.an-sent') })),
     };
@@ -65,10 +66,10 @@ try {
   ok(!v.sugs.some(x => x.name === 'duda') && v.rows.some(x => x.name === 'duda'), '× tira duda das sugestões (continua na lista)', v);
   ok(await ana.p.evaluate((id) => !!window.__lc.S.prefs.anSugHide?.[id], duda.id), '"não sugerir" fica salvo na conta');
   // recolher a seção
-  await ana.p.evaluate(() => document.querySelector('#actfeed .an-capbtn').click()); await sleep(300);
+  await ana.p.evaluate(() => document.querySelector('#actfeed .ansec[data-k="servers"] .ansec-t').click()); await sleep(300);
   v = await view();
   ok(!v.rows.length && !v.sugs.length && v.caps.some(c => /Nos seus servidores/.test(c)), 'seção recolhe e fica só o título', v);
-  await ana.p.evaluate(() => document.querySelector('#actfeed .an-capbtn').click()); await sleep(300);
+  await ana.p.evaluate(() => document.querySelector('#actfeed .ansec[data-k="servers"] .ansec-t').click()); await sleep(300);
   if (process.env.SHOTS) { fs.mkdirSync('.testshots', { recursive: true }); const b = await ana.p.$('#active-now'); await b.screenshot({ path: '.testshots/activity-servers.png' }); }
   const errs = all.flatMap(u => u.p.errors);
   ok(!errs.length, 'sem erros na página', errs);
