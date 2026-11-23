@@ -1,7 +1,7 @@
 // Galeria de clipes do servidor: todos os clipes salvos nas salas de voz, num só lugar.
 // Abas Todos / Meus / Favoritos, busca, prévia que só carrega quando aparece na tela, player com anterior/próximo,
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
-import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
+import { h, icon, fsVideo, fitVideoModal, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
 import { openTrimmer } from './cliptrim.js';
 import { trackWatch } from './clipwatch.js';
 import { postClip } from './clips.js';
@@ -213,12 +213,12 @@ function player(i, list = st.clips, opts = {}) {
   };
   const keys = (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowLeft') show(cur - 1); if (e.key === 'ArrowRight') show(cur + 1); };
   addEventListener('keydown', keys); queueMicrotask(() => whenGone(box, () => { removeEventListener('keydown', keys); stopWatch?.(); players.delete(live); }));
-  const dlg = modal('Clipe', null, box, [], { width: 'min(1100px, 94vw)' });
+  const dlg = modal('Clipe', null, box);
   const md = dlg.el.querySelector('.modal');
-  md?.classList.add('clipmodal');
-  md?.querySelector('.mf')?.remove(); // sem rodapé: fechar fica no X do topo (e clicando fora)
-  md?.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
-  show(cur);
+  md.classList.add('clipmodal');
+  md.querySelector('.mf')?.remove(); // sem rodapé: fechar fica no X do topo (e clicando fora)
+  md.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
+  show(cur); fitVideoModal(md, box.querySelector('.pstage'), v); // janela do tamanho do clipe (util.js)
 }
 
 // abre um clipe pelo id, em popup, de qualquer lugar (ex.: destaque "salvou um clipe" no painel "Ativo agora")

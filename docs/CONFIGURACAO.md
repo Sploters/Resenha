@@ -52,6 +52,8 @@ público não oficial do Google Tradutor (o texto traduzido sai do servidor). `T
 |---|---|
 | `STEAM_API_KEY` | Chave da Web API da Steam (só no servidor). Precisa dela para a biblioteca (jogos e horas) e as conquistas; o cartão de link da Steam funciona sem. No `deploy/umbrel.sh`, vai no arquivo `~/resenha-steam.env`. |
 | `DEALS_MS` / `DEALS=0` | Intervalo da verificação de promoções da wishlist (padrão 3 h) / desliga (`checkDeals` em `server/games.js`). |
+| `OPENCRITIC_KEY` | Chave da [API do OpenCritic](https://rapidapi.com/opencritic-opencritic-default/api/opencritic-api) (RapidAPI, só no servidor). Com ela o popup do jogo mostra a nota da crítica; sem ela o bloco simplesmente não aparece. No `deploy/umbrel.sh`, pode ir no mesmo `~/resenha-steam.env` (linha `OPENCRITIC_KEY=suachave`). |
+| `OPENCRITIC_DAILY` | No máximo quantos pedidos por dia ao OpenCritic (padrão 100; o plano grátis é pequeno). Cada jogo fica guardado no banco por 14 dias (3 sem nota), então o mesmo jogo gasta 2 pedidos uma vez só. |
 | `ACH_GAMES` | Quantos jogos mais recentes da biblioteca trazem conquistas (padrão 40). |
 | `ACH_SYNC=0` | Desliga a sincronização de conquistas a cada 24 h. |
 | `GUILD_GAMES_MIN` | Mínimo de pessoas para um jogo aparecer em "Jogam aqui" (padrão 2). |

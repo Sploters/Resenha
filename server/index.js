@@ -38,6 +38,7 @@ import { mountPerf } from './perf.js';
 import { mountUx, uxSeen, uxFirst } from './ux.js';
 import { mountLfg, GAMES as LFG_GAMES } from './lfg.js';
 import { mountRadar } from './radar.js';
+import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
 import { createPush } from './push.js';
@@ -529,6 +530,7 @@ mountLfg(app, {
   joinGuild: (gid, uid) => joinGuild(gid, uid), guildFull: (uid, other) => other ? lim.guildJoinOther(uid) : lim.guildJoin(uid),
 });
 mountRadar(app, { auth, wrap, wrapA, bad, get, all, run, newId, userPub, clean, audienceOf: lfgAudience, postDm: (a, b, c) => postDm(a, b, c) }); // Radar: scouting do Clash (server/radar.js)
+mountOpenCritic(app, { auth, wrapA, db }); // nota da crítica no popup do jogo (server/opencritic.js; só com OPENCRITIC_KEY)
 const discover = mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
 mountPolls(app, { ...core, pollObj }); // enquetes (server/routes/polls.js)
 const clips = mountClips(app, { ...core, get activity() { return activity; } }); // galeria de clipes (server/routes/clips.js)

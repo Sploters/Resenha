@@ -477,6 +477,22 @@ for (const fn of ['append', 'prepend', 'replaceChildren']) for (const P of [Elem
 const vfmt = (s) => { s = isFinite(s) ? Math.max(0, Math.floor(s)) : 0; const hh = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, '0'); return hh ? `${hh}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`; };
 const vPref = { get: (k, d) => { try { const x = localStorage.getItem('lc_v_' + k); return x == null ? d : JSON.parse(x); } catch { return d; } }, set: (k, x) => { try { localStorage.setItem('lc_v_' + k, JSON.stringify(x)); } catch { } } };
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+// janela (modal) com vídeo do tamanho do vídeo: classe .vfit (features.css) + --ar (largura/altura do vídeo) e --chrome
+// (altura de tudo que não é vídeo: título, barra, rodapé). A largura sai da altura que sobra nos 90vh × proporção, e nada
+// rola: vídeo vertical, 4:3 ou ultrawide cabem inteiros. stage: o elemento em volta do vídeo. 2 passadas porque a largura
+// nova pode mudar a quebra de linha do título/rodapé
+export function fitVideoModal(md, stage, v) {
+  md.classList.add('vfit');
+  const t = md.querySelector('.mh h2'); if (t && !t.title) t.title = t.textContent;
+  const fit = () => {
+    if (!md.isConnected || document.fullscreenElement) return;
+    if (v.videoWidth && v.videoHeight) md.style.setProperty('--ar', (v.videoWidth / v.videoHeight).toFixed(4));
+    for (let n = 0; n < 2; n++) md.style.setProperty('--chrome', Math.ceil(md.scrollHeight - stage.offsetHeight) + 'px');
+  };
+  v.addEventListener('loadedmetadata', fit);
+  addEventListener('resize', fit); whenGone(md, () => removeEventListener('resize', fit));
+  fit(); return fit;
+}
 export function fsVideo(attrs = {}, cls = '') {
   const v = h('video', { playsInline: true, disablePictureInPicture: true, preload: 'metadata', ...attrs }); // só a duração e o 1º quadro até dar play
   v.setAttribute('controlslist', 'nofullscreen noremoteplayback');

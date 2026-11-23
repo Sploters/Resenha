@@ -142,7 +142,7 @@ try {
   // ---- aba Arquivos na tela ----
   await PC.evaluate((gid) => window.__lc.go(gid, 'files'), g.id);
   await PC.waitForSelector('#filesview .fv-tile', { timeout: 8000 });
-  const ui = await PC.evaluate(() => ({ tabs: [...document.querySelectorAll('#filesview .fv-tab')].map(t => t.textContent), tiles: document.querySelectorAll('#filesview .fv-tile').length, row: !!document.querySelector('#side-list .filesrow.active'), limit: document.querySelector('#filesview .fv-limit')?.textContent }));
+  const ui = await PC.evaluate(() => ({ tabs: [...document.querySelectorAll('#filesview .fv-tab')].map(t => t.textContent), tiles: document.querySelectorAll('#filesview .fv-tile').length, row: !!document.querySelector('#side-list .filesrow.on'), limit: document.querySelector('#filesview .fv-limit')?.textContent }));
   ok(ui.row && ui.tiles >= 60 && ui.tabs.some(t => /^Documentos1$/.test(t)) && ui.tabs.some(t => /^Links71$/.test(t)), 'tela Arquivos: item na lista de canais, abas com contagem e grade', ui);
   ok(/500 MB/.test(ui.limit || ''), 'mostra o limite por arquivo', ui.limit);
   await PC.evaluate(() => [...document.querySelectorAll('#filesview .fv-tab')].find(t => t.textContent.startsWith('Documentos')).click());

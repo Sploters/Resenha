@@ -189,14 +189,17 @@ export function mountGames(app, { auth, wrap, bad, db, all, get, run, newId, get
     if (!members.length) return res.json({ items: [], members: 0 });
     const ph = members.map(() => '?').join(','), by = new Map();
     for (const r of all(`SELECT DISTINCT appid, user_id FROM wishlist WHERE user_id IN (${ph})`, ...members)) { if (!by.has(r.appid)) by.set(r.appid, { appid: r.appid, wish: [], owners: [] }); by.get(r.appid).wish.push(r.user_id); }
-    const top = [...by.values()].sort((a, b) => b.wish.length - a.wish.length || Number(b.appid) - Number(a.appid)).slice(0, 120);
+    // só o que pelo menos duas pessoas querem: a wishlist do servidor é o que a turma quer em comum (um jogo só de uma
+    // pessoa já aparece na wishlist dela)
+    const shared = [...by.values()].filter(x => x.wish.length >= 2);
+    const top = shared.sort((a, b) => b.wish.length - a.wish.length || Number(b.appid) - Number(a.appid)).slice(0, 120);
     if (top.length) {
       const ids = top.map(x => x.appid), m = new Map(top.map(x => [x.appid, x]));
       for (const r of all(`SELECT DISTINCT appid, user_id FROM game_library WHERE appid IN (${ids.map(() => '?').join(',')}) AND user_id IN (${ph})`, ...ids, ...members)) m.get(r.appid).owners.push(r.user_id);
     }
     const uids = [...new Set(top.flatMap(x => [...x.wish, ...x.owners]))];
     res.set('Cache-Control', 'private, no-cache');
-    res.json({ items: top, members: members.length, wishers: new Set([...by.values()].flatMap(x => x.wish)).size, users: uids.map(userPub).filter(Boolean) });
+    res.json({ items: top, members: members.length, wishers: new Set(shared.flatMap(x => x.wish)).size, users: uids.map(userPub).filter(Boolean) });
   }));
 
   // ---- alerta de promoção ----

@@ -417,8 +417,15 @@ export function clipHotkey() {
   if (!voice?.active) return clipFlash(false, 'Nenhuma transmissão');
   const keys = clipKeys(), key = [S.focus, S.ctlKey].find(k => k && keys.includes(k)) || keys[0];
   if (!key) {
-    const why = S.prefs.clipsOn === false ? 'Os clipes estão desativados (botão de clipe na transmissão).'
-      : voice.screen && keys.length === 0 ? 'Ative os clipes na sua transmissão (botão de clipe no quadro dela).' : 'Nenhuma transmissão sendo gravada ainda.';
+    // clipes desligados (à mão ou pelo modo leve) e a pessoa apertou o atalho de propósito: liga na hora, como o botão de
+    // clipe da transmissão já faz (share.js). Antes só avisava "desativados" (o erro mais visto da telemetria de clipes)
+    if (S.prefs.clipsOn === false) {
+      if (S.prefs.lightPrev?.applied?.clipsOn === false) delete S.prefs.lightPrev.applied.clipsOn; // desligar o modo leve não desfaz
+      delete S.prefs.clipsOn; savePrefs(); renderVoiceUI();
+      clipFlash(true, 'Clipes ligados', 'já dá para clipar em alguns segundos'); // por cima do jogo, no app desktop
+      return toast('Os clipes estavam desligados: liguei agora. Em alguns segundos já dá para clipar.');
+    }
+    const why = voice.screen && keys.length === 0 ? 'Ative os clipes na sua transmissão (botão de clipe no quadro dela).' : 'Nenhuma transmissão sendo gravada ainda.';
     clipFlash(false, 'Clipe não salvo');
     return toast(why, true);
   }

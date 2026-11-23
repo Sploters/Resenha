@@ -87,10 +87,14 @@ const bitrateFor = (res, fps, mbps, game = false) => {
 };
 export const isGameShare = (o) => !!o && o.hint !== 'detail' && !!(o.srcInfo?.game || o.srcInfo?.fullscreen);
 
-async function ensureModule(ctx, name, url = `${NS}/${name}/workletProcessor.js`) {
-  let set = loadedModules.get(ctx); if (!set) loadedModules.set(ctx, set = new Set());
-  if (!set.has(name)) { await ctx.audioWorklet.addModule(url); set.add(name); }
+// guarda a promessa (não só "carregado"): o aquecimento (warmMic) e a montagem pedem o mesmo módulo ao mesmo tempo, e
+// registrar o mesmo processador duas vezes no worklet dá erro
+function ensureModule(ctx, name, url = `${NS}/${name}/workletProcessor.js`) {
+  let m = loadedModules.get(ctx); if (!m) loadedModules.set(ctx, m = new Map());
+  if (!m.has(name)) m.set(name, ctx.audioWorklet.addModule(url).catch((e) => { m.delete(name); throw e; }));
+  return m.get(name);
 }
+const loadNs = () => (nsLib ? Promise.resolve(nsLib) : import(`${NS}/index.js`).then((m) => (nsLib = m)));
 // o modelo (.wasm) é baixado uma vez por abertura do app; cada nó recebe uma cópia (o nó pode transferir o buffer)
 const loadWasm = (m) => (wasmCache[m] ||= (m === 'rnnoise' ? nsLib.loadRnnoise({ url: `${NS}/rnnoise.wasm`, simdUrl: `${NS}/rnnoise_simd.wasm` }) : nsLib.loadGtcrn({ url: `${NS}/gtcrn.wasm` }))
   .catch((e) => { delete wasmCache[m]; throw e; })).then((b) => b.slice(0));
@@ -115,7 +119,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
   const chain = (n) => { last.connect(n); nodes.push(n); if (last === src) first = n; if (last === out.fanFilter) out.fanOuts.push([n, 0, 0]); last = n; };
   try {
     if (mode === 'rnnoise' || mode === 'gtcrn') {
-      nsLib ||= await import(`${NS}/index.js`);
+      await loadNs();
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80; chain(hp);
       // ruído constante (ventilador, ar-condicionado, ventoinha do PC): tirado antes da IA (public/fanfilter-core.js).
       // Ligado por padrão; prefs.fanFilter === false desliga. Se não carregar, segue sem ele.
@@ -144,7 +148,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
       out.processed = true;
     }
     if (prefs.gate) {
-      nsLib ||= await import(`${NS}/index.js`);
+      await loadNs();
       await ensureModule(ctx, 'noiseGate');
       chain(new nsLib.NoiseGateWorkletNode(ctx, { openThreshold: prefs.gateDb ?? -45, closeThreshold: (prefs.gateDb ?? -45) - 6, holdMs: 250, maxChannels: 1 }));
       out.processed = true;
@@ -158,6 +162,28 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
   return Object.assign(out, { first, last });
 }
 
+// Aquecimento do microfone: baixa e registra tudo o que a cadeia (buildChain) vai pedir — biblioteca de ruído, módulos do
+// worklet e o modelo .wasm — ao mesmo tempo, e ao mesmo tempo que o getUserMedia abre o microfone. Antes era um depois
+// do outro (abrir o microfone → biblioteca → filtro de ventilador → porta por voz → modelo), cada um uma ida ao servidor:
+// no app desktop o "preparar o microfone" passava de 1 s em 1/3 das entradas. ctx null: só os downloads (sem contexto
+// de áudio ainda). Falha aqui não importa: a montagem tenta de novo e trata o erro.
+export function warmMic(prefs, ctx) {
+  const mode = prefs.noiseMode || 'standard', ai = mode === 'rnnoise' || mode === 'gtcrn', smart = vadGateOn(prefs);
+  if (!ai && !prefs.gate && prefs.agc !== true) return Promise.resolve();
+  const job = [], soft = (p) => job.push(Promise.resolve(p).catch(() => { }));
+  if (ai || prefs.gate) soft(loadNs().then(() => Promise.all([
+    mode === 'rnnoise' || (mode === 'gtcrn' && smart) ? loadWasm('rnnoise') : null,
+    mode === 'gtcrn' ? loadWasm('gtcrn') : null])));
+  if (ctx) {
+    if (fanFilterOn(prefs)) soft(ensureModule(ctx, 'fanfilter', '/fanfilter-worklet.js'));
+    if (ai && smart) soft(ensureModule(ctx, 'vadgate', '/vadgate-worklet.js'));
+    if (mode === 'gtcrn' || (mode === 'rnnoise' && !smart)) soft(ensureModule(ctx, mode));
+    if (prefs.gate) soft(ensureModule(ctx, 'noiseGate'));
+    if (prefs.agc === true) soft(ensureModule(ctx, 'agc', '/agc-worklet.js'));
+  }
+  return Promise.all(job);
+}
+
 // Cancelamento de eco: por padrão só o som da CHAMADA (vozes e transmissões, que chegam pelo WebRTC) é tirado do
 // microfone ('remote-only'). Com true, o navegador usa como referência todo som que a página toca — o vídeo do Watch
 // Together, soundboard, clipes —, e com um vídeo tocando sem parar o filtro passava a cortar a voz de quem fala por
@@ -165,21 +191,28 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
 // Navegador que não conhece 'remote-only' lê o texto como true (o cancelamento de sempre).
 export const echoConstraint = (prefs) => (prefs.echo === false ? false : prefs.echoAll === true ? true : 'remote-only');
 // Cria o microfone processado. Retorna { raw, stream, analyser, dispose, setLoopback }
-export async function createMic(prefs, ctx) {
+// opts.resolve: reencontra o microfone salvo pelo nome (id mudou). Só é chamado se o id salvo não abriu: antes listava os
+// dispositivos ANTES de toda entrada (enumerateDevices, lento no Windows com muitos aparelhos)
+export async function createMic(prefs, ctx, opts = {}) {
   const mode = prefs.noiseMode || 'standard';
+  const warm = warmMic(prefs, ctx); // em paralelo com abrir o microfone
   const want = (id) => ({ audio: { deviceId: id ? { exact: id } : undefined,
     echoCancellation: echoConstraint(prefs), noiseSuppression: mode === 'standard',
     // ganho automático do navegador SEMPRE desligado: ele baixa o volume do microfone no sistema (Windows) e quase nunca
     // sobe de volta. O "Ganho automático" das Configurações agora é o do próprio app (agc-worklet.js, abaixo), só digital
     autoGainControl: false, channelCount: 1, sampleRate: 48000 }, video: false });
-  let raw;
+  let raw; const tOpen = performance.now();
   try { raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)); } catch (e) {
     // microfone escolhido não encontrado (desconectado, id novo): usa o padrão agora, SEM apagar a escolha — volta quando ele voltar
     if (!prefs.inputId || !/Overconstrained|NotFound/.test(e?.name || '')) throw e;
-    raw = await navigator.mediaDevices.getUserMedia(want(''));
+    const before = prefs.inputId;
+    if (await opts.resolve?.().catch(() => false) && prefs.inputId && prefs.inputId !== before) raw = await navigator.mediaDevices.getUserMedia(want(prefs.inputId)).catch(() => null);
+    raw ||= await navigator.mediaDevices.getUserMedia(want(''));
   }
+  const openMs = performance.now() - tOpen; // só o sistema abrindo o microfone (telemetria voice_mic_open)
+  await warm;
   const nodes = [], gain = (prefs.inputVolume ?? 100) / 100;
-  const out = { raw, nodes, error: null, processed: false };
+  const out = { raw, nodes, error: null, processed: false, openMs };
   const src = ctx.createMediaStreamSource(raw); nodes.push(src);
   // nível do microfone CRU (antes de filtro, porta e mudo) para o vigia da captura (public/micwatch.js)
   const rawAn = ctx.createAnalyser(); rawAn.fftSize = 16384; src.connect(rawAn); nodes.push(rawAn); // ~340 ms: lido a cada 250 ms, cobre o tempo todo
@@ -285,12 +318,20 @@ export class Voice {
     }
     this.ctx.resume?.(); return this.ctx;
   }
+  // mouse em cima de uma sala de voz: deixa filtro de ruído e modelos prontos antes do clique (o contexto fica dormindo)
+  prewarm() {
+    if (this.channelId || this._joinTo || this._warmed) return;
+    this._warmed = true;
+    const c = this.getCtx(); warmMic(this.prefs, c); this.sleepCtx();
+  }
 
   async buildMic() {
     const gen = (this._micGen = (this._micGen || 0) + 1);
-    await this.resolveDevices?.(); // o id do microfone mudou (atualização, driver, outra porta USB): acha o mesmo pelo nome
     this.micGraph?.dispose(); this.micGraph = null; this.analysers.get(this.myId)?.src.disconnect(); this.analysers.delete(this.myId);
-    const g = await createMic(this.prefs, this.getCtx());
+    // o id do microfone mudou (atualização, driver, outra porta USB): createMic acha o mesmo pelo nome só se o id salvo
+    // não abrir; depois confere os nomes sem segurar a entrada
+    const g = await createMic(this.prefs, this.getCtx(), { resolve: this.resolveDevices });
+    if (gen === this._micGen) this.resolveDevices?.();
     // outra montagem começou enquanto esta carregava (ex.: trocar o filtro várias vezes): esta já nasce velha e é desligada
     // (antes ficava ligada, com a IA de ruído processando à toa, e o áudio ia acumulando atraso)
     if (gen !== this._micGen) { g.dispose(); return false; }
@@ -446,7 +487,7 @@ export class Voice {
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
     await micP;
     if (stale() || this.channelId !== channelId) return; // saiu (ou o servidor recusou) enquanto o microfone ficava pronto
-    if (micErr) this.error = micErr; else timing('voice_mic', performance.now() - t0);
+    if (micErr) this.error = micErr; else { timing('voice_mic', performance.now() - t0); if (this.micGraph?.openMs != null) timing('voice_mic_open', this.micGraph.openMs); } // o resto (até voice_mic) é filtro de ruído e listar dispositivos
     // malha (sem SFU): quem conectou antes de o microfone ficar pronto recebe a voz agora
     if (this.mic && !this.sfu) { const track = this.mic.getAudioTracks()[0]; for (const p of this.peers.values()) if (!p.senders.micaudio && track) p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
     this.sendState(); this.onUpdate();
@@ -1646,7 +1687,16 @@ export class Voice {
     this._swapWhy = null; this._natWinId = await this.gameWindowViaScreen(opts);
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('indisponível (use HTTPS ou o app desktop)');
-      try { this.screen = await gdm(); } catch (e) {
+      try { this.screen = await gdm(); } catch (e0) {
+        let e = e0;
+        // "Could not start video source" passageiro (a placa de vídeo ou a janela ainda se preparando, troca de modo do
+        // jogo): tenta mais 2 vezes antes de desistir. Era o 3º erro mais visto da transmissão
+        for (let i = 0; window.lcDesktop && e.name === 'NotReadableError' && i < 2 && !(await this.srcMinimized()); i++) { // no navegador, repetir abriria o seletor de novo
+          await new Promise(r => setTimeout(r, 600));
+          if (!this.channelId || this.channelId !== cid) return;
+          try { this.screen = await gdm(); e = null; break; } catch (e2) { e = e2; }
+        }
+        if (!e) { /* abriu na nova tentativa */ } else {
         // Jogo em TELA CHEIA (exclusiva): no Alt+Tab para a Resenha o Windows minimiza o jogo, e o Chromium não começa a
         // captura de uma janela minimizada ("Could not start video source"). Espera o jogo voltar à tela e começa.
         if (e.name !== 'NotReadableError' || !(await this.srcMinimized())) throw e;
@@ -1655,12 +1705,18 @@ export class Voice {
         for (let i = 0; ; i++) { // o jogo leva um instante para voltar a desenhar depois de restaurado
           try { this.screen = await gdm(); break; } catch (e2) { if (e2.name !== 'NotReadableError' || i >= 5) throw e2; await new Promise(r => setTimeout(r, 400)); }
         }
+        }
       }
-    } catch (e) { if (e.name === 'NotAllowedError' || e.name === 'AbortError') return; throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo.' : '') + (this._swapWhy ? ` [${this._swapWhy}]` : '')); }
+    } catch (e) {
+      if (e.name === 'NotAllowedError' || e.name === 'AbortError') return;
+      // a janela escolhida já não existe (o jogo fechou ou recriou a janela ao mudar de modo): diz isso, não "tente de novo"
+      if (e.name === 'NotReadableError' && await this.srcGone()) throw new Error('Não foi possível compartilhar a tela: a janela escolhida foi fechada. Abra o jogo e escolha a janela de novo.');
+      throw new Error('Não foi possível compartilhar a tela: ' + (e.message || e.name) + (e.name === 'NotReadableError' ? '. Se for um jogo em tela cheia, deixe-o aberto na tela (ou use "Janela sem bordas") e tente de novo. Se continuar, transmita a tela inteira.' : '') + (this._swapWhy ? ` [${this._swapWhy}]` : ''));
+    }
     if (!this.channelId || this.channelId !== cid) { this.screen?.getTracks().forEach(t => t.stop()); this.screen = null; return; } // saiu da sala enquanto abria
     const vt = this.screen.getVideoTracks()[0];
     vt.contentHint = opts.hint; vt.onended = () => this.stopLocal('screen');
-    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false;
+    this.screenOpts = opts; this._natRestarts = []; this.natRestartCount = 0; this.natLastError = null; this._fseNative = false; this.noted = null; // avisos de uma vez por transmissão (gateway.js)
     if (this._swapWhy) this.capLog({ t: 'capnote', msg: 'captura do Chromium para jogo: ' + this._swapWhy });
     this.capStats = { since: Date.now(), chromium: { frames: 0, secs: 0 }, native: { frames: 0, sent: 0, secs: 0 } }; // painel de captura (M13)
     // app desktop: troca o áudio do PC inteiro pelo áudio só do jogo (ou "tudo menos a Resenha"); se não der, fica o do sistema
@@ -1745,6 +1801,8 @@ export class Voice {
   }
   // janela escolhida está minimizada agora? (só o app desktop sabe; sem ele, não)
   async srcMinimized() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && !!s.minimized; } catch { return false; } }
+  // janela escolhida fechada? (só o app desktop sabe; sem ele, não)
+  async srcGone() { try { const s = await window.lcDesktop?.sourceState?.(); return s?.kind === 'window' && s.exists === false; } catch { return false; } }
   // espera a janela escolhida sair do minimizado (até 2 min). true = apareceu; false = desistiu/fechou/saiu da sala
   waitSourceShown() {
     const cid = this.channelId;
@@ -1945,6 +2003,14 @@ export class Voice {
   // o caminho nativo falhou: segue transmitindo pelo Chromium (até ~48 fps), sem derrubar a transmissão
   nativeFallback(why) {
     if (!this.native) return;
+    // a janela transmitida fechou (o jogo foi fechado): não há o que transmitir pelo modo normal. Antes tentava a captura
+    // do Chromium na janela que não existe mais e terminava em dois avisos vermelhos ("placa de vídeo indisponível" e
+    // "a captura nativa falhou e não consegui…"). Agora para a transmissão com um aviso só, sem cara de erro
+    if (/janela transmitida foi fechada/i.test(why)) {
+      this.capLog({ t: 'capnote', msg: 'janela transmitida fechada: transmissão encerrada' });
+      this.stopNative(); this.stopLocal('screen'); this.onScreenNote?.('gone'); this.onUpdate();
+      return;
+    }
     this._natWhy = /UDP/.test(why) ? 'udp' : /desktop sem suporte/.test(why) ? 'noexe' : 'fail'; this._natWhyText = why;
     this.capLog({ t: 'method', m: 'chromium', from: this.native.method || null, why: 'último recurso: ' + why, auto: true });
     this.stopNative();

@@ -7,7 +7,7 @@ import { S, api, user, channelById, dmPeer, toast, savePrefs, CH, chCan } from '
 import { chName } from './chnames.js';
 import { renderLfg } from './lfg.js';
 import { playTogetherBtn } from './playtogether.js';
-import { renderFiles, filesPreset, releaseFiles } from './files.js';
+import { renderFiles, releaseFiles } from './files.js';
 import { renderForum, paintLocked, forumOfPost } from './forum.js';
 import { renderClips, releaseClips } from './clipsgallery.js';
 import { profileCard } from './card.js';
@@ -93,7 +93,8 @@ export function renderMain() {
         ch.type === 16 && h('button.ibtn', { title: 'Ver em grade', 'aria-label': 'Ver em grade', onclick: () => setGalleryChat(ch.id, false) }, icon('grid')),
         h('button.ibtn.notif-btn', { title: 'Notificações', onclick: (e) => notifMenu(e, ch) }, icon('topbell')),
         !post && h('button.ibtn.pins-btn', { title: 'Mensagens fixadas', onclick: showPins }, icon('toppin')),
-        !post && h('button.ibtn.files-btn', { title: dm ? 'Mídia, arquivos e links desta conversa' : 'Mídia, arquivos e links deste canal', 'aria-label': 'Arquivos', onclick: () => { if (dm) location.hash = `#/@me/${ch.id}/files`; else { filesPreset({ channel: ch.id }); go(ch.guild_id, 'files'); } } }, icon('file')),
+        // só na conversa direta: no servidor a aba Arquivos fica nos atalhos da lista de canais
+        dm && h('button.ibtn.files-btn', { title: 'Mídia, arquivos e links desta conversa', 'aria-label': 'Arquivos', onclick: () => { location.hash = `#/@me/${ch.id}/files`; } }, icon('file')),
         !dm && h('button.ibtn' + (S.membersOpen ? '.sel' : ''), { title: 'Lista de membros', onclick: () => { S.membersOpen = !S.membersOpen; renderMain(); } }, icon('users')),
         dm && h('button.ibtn.dmp-btn' + (S.prefs.dmPanel !== false ? '.sel' : ''), { title: S.prefs.dmPanel !== false ? 'Esconder o perfil' : 'Mostrar o perfil', onclick: () => { S.prefs.dmPanel = S.prefs.dmPanel === false; savePrefs(); renderMain(); } }, icon('dmprofile'))]);
   // sala de voz: a barra do topo fica junto com o palco (mesmo fundo) e o chat ocupa a altura toda ao lado, como no Discord

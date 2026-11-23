@@ -42,7 +42,7 @@ export const UX_FLOWS = { e2ee: 'Ativar a criptografia', mymsgs: 'Apagar minhas 
 // tempos medidos no app, em faixas (guardamos só quantos caíram em cada faixa; o painel estima mediana e pior caso)
 export const UX_TIMINGS = { channel_switch: 'Trocar de canal ou conversa', msg_send: 'Mandar mensagem (até o servidor confirmar)', voice_connect: 'Entrar na voz', ws_offline: 'Tempo desconectado',
   // "entrar na voz" por etapa: microfone pronto (permissão, filtro de ruído) → servidor aceitou → mídia conectada (SFU)
-  voice_mic: 'Entrar na voz: preparar o microfone', voice_server: 'Entrar na voz: resposta do servidor', voice_media: 'Entrar na voz: conectar o áudio' };
+  voice_mic: 'Entrar na voz: preparar o microfone', voice_mic_open: 'Entrar na voz: abrir o microfone (sistema)', voice_server: 'Entrar na voz: resposta do servidor', voice_media: 'Entrar na voz: conectar o áudio' };
 export const UX_BUCKETS = [100, 250, 500, 1000, 2500, 5000, Infinity]; // faixa i: até UX_BUCKETS[i] ms
 // primeiros passos de quem é novo, na ordem do funil
 export const UX_CALL_ISSUES = { audio_cut: 'Áudio cortando', echo: 'Eco ou chiado', lag: 'Atraso', video: 'Vídeo ou tela travando', cant_hear: 'Não ouvia as pessoas', not_heard: 'Não me ouviam', other: 'Outro' };

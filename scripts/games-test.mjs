@@ -134,19 +134,20 @@ try {
   await (await P.$('.gpmodal')).screenshot({ path: OUT + '/02-popup-quem-tem.png' });
   await P.keyboard.press('Escape'); await P.evaluate(() => document.querySelectorAll('.backdrop').forEach(b => b.remove())); await sleep(200);
 
-  // Wishlist do servidor
+  // Wishlist do servidor: só os jogos que duas pessoas ou mais querem (Fazendinha é só do beto e fica de fora)
+  await call(eva.tok, 'PUT', '/wishlist/7004');
   ok(await P.evaluate(() => !!document.querySelector('#side-list .wishrow')), 'entrada "Wishlist" na lista de canais');
   await P.evaluate(() => document.querySelector('#side-list .wishrow').click());
   await P.waitForSelector('#wishview .wcard'); await sleep(1200);
   const wl = await P.evaluate(() => ({ cards: [...document.querySelectorAll('#wishview .wcard')].map(c => c.innerText.replace(/\n+/g, ' | ')), top: document.querySelector('#wishview #topbar').textContent }));
-  ok(wl.cards.length === 3 && /Arena Rápida/.test(wl.cards[0]) && /3 querem/.test(wl.cards[0]) && wl.cards.some(c => /Corrida Neon.*-25%.*R\$ 44,92/.test(c)) && wl.cards.some(c => /Fazendinha/.test(c)) && /3 jogos desejados por 3 pessoas/.test(wl.top), 'Wishlist do servidor: mais desejado primeiro (ana, beto e carla), com preço e promoção', wl);
+  ok(wl.cards.length === 2 && /Arena Rápida/.test(wl.cards[0]) && /3 querem/.test(wl.cards[0]) && /Corrida Neon.*-25%.*R\$ 44,92.*2 querem/.test(wl.cards[1]) && !wl.cards.some(c => /Fazendinha/.test(c)) && /2 jogos desejados por 4 pessoas/.test(wl.top), 'Wishlist do servidor: só o que 2+ querem, mais desejado primeiro (ana, beto e carla), com preço e promoção', wl);
   await P.screenshot({ path: OUT + '/03-wishlist-servidor.png' });
   await P.evaluate(() => [...document.querySelectorAll('#wishview .ctab')].find(b => /promoção/.test(b.textContent)).click()); await sleep(200);
   const sale = await P.evaluate(() => [...document.querySelectorAll('#wishview .wc-title')].map(x => x.textContent));
   ok(sale.join() === 'Corrida Neon', '"Em promoção" mostra só o que está com desconto', sale);
   await P.evaluate(() => [...document.querySelectorAll('#wishview .ctab')].find(b => /Ninguém tem/.test(b.textContent)).click()); await sleep(200);
   const nob = await P.evaluate(() => [...document.querySelectorAll('#wishview .wc-title')].map(x => x.textContent).sort());
-  ok(nob.join() === 'Arena Rápida,Fazendinha Tranquila 2', '"Ninguém tem" esconde os que alguém já tem (Corrida Neon é da carla)', nob);
+  ok(nob.join() === 'Arena Rápida', '"Ninguém tem" esconde os que alguém já tem (Corrida Neon é da carla)', nob);
 
   // Jogos e wishlist de alguém
   await P.evaluate(async (uid) => (await window.__lc.import('games.js')).userGamesModal(uid), beto.id);

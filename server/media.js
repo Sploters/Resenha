@@ -5,6 +5,9 @@
 // (a próxima página continua dali). A varredura vai das mais novas para as mais antigas pelo índice (channel_id, id), em
 // blocos, e para quando junta uma página: um canal com 100 mil mensagens não é lido inteiro para mostrar 60 arquivos.
 // `counts` (só na primeira página, sem filtros de tipo) diz quantos há de cada tipo, para os números das abas.
+// No servidor, os clipes ficam de fora (eles têm a aba Clipes): o vídeo que está na galeria (tabela clips, que também
+// recebeu os clipes antigos do chat) e o link de compartilhar um clipe (/#/clip/<id>). Vídeo enviado normalmente continua.
+// Numa DM (que não tem aba Clipes) eles continuam aparecendo.
 const EXT = {
   image: /\.(png|jpe?g|gif|webp|avif|bmp|svg|heic)$/i,
   video: /\.(mp4|webm|mov|m4v|mkv|avi)$/i,
@@ -35,6 +38,7 @@ export function linksOf(content) {
 }
 // "Jogada absurda" + "clipe-30s.webm" -> "Jogada absurda.webm" (mantém a extensão: o ícone e o download continuam certos)
 export const clipName = (title, file) => { const e = String(file || '').match(/\.[a-z0-9]{2,5}$/i)?.[0] || ''; const t = String(title || '').trim() || String(file || 'clipe'); return e && !t.toLowerCase().endsWith(e.toLowerCase()) ? t + e : t; };
+const CLIP_SHARE = /\/#\/clip\/\d{1,24}\b/;
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
 export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload }) {
@@ -44,7 +48,9 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
       const gid = String(q.guild);
       if (!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid)) return null;
       const chs = all('SELECT id, name FROM channels WHERE guild_id=? AND type IN (0,2,5,16)', gid);
-      return q.channel ? chs.filter(c => c.id === String(q.channel)) : chs;
+      chs.guild = gid;
+      if (!q.channel) return chs;
+      const one = chs.filter(c => c.id === String(q.channel)); one.guild = gid; return one;
     }
     if (q.channel) {
       const c = get('SELECT c.id, c.name FROM channels c JOIN dm_participants p ON p.channel_id=c.id AND p.user_id=? WHERE c.id=?', uid, String(q.channel));
@@ -68,6 +74,10 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
     const limit = Math.min(Math.max(+req.query.limit || 60, 1), 120);
     let before = req.query.before ? String(req.query.before) : '99999999999999999999';
     const ids = JSON.stringify(chs.map(c => c.id));
+    // vídeos que são clipes da galeria deste servidor (mensagem|endereço): ficam só na aba Clipes
+    const clipSet = chs.guild ? new Set(all('SELECT message_id, url FROM clips WHERE guild_id=? AND message_id IS NOT NULL', chs.guild).map(c => c.message_id + '|' + c.url)) : null;
+    const isClip = (mid, a) => !!clipSet && !!a?.url && clipSet.has(mid + '|' + a.url);
+    const isClipLink = (u) => !!clipSet && CLIP_SHARE.test(u);
     const where = [`m.channel_id IN (SELECT value FROM json_each(?))`, "m.type = 0", "(m.attachments <> '[]' OR m.content LIKE '%http%')"], args = [ids];
     if (author) { where.push('m.author_id = ?'); args.push(author); }
     if (since) { where.push('m.created_at >= ?'); args.push(since); }
@@ -75,7 +85,9 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
     if (kind === 'link') where.push("m.content LIKE '%http%'");
     else if (kind !== 'all') where.push("m.attachments <> '[]'");
     // a busca também acha o clipe pelo nome que ele ganhou na galeria (o anexo guarda o nome original do arquivo)
-    if (q && kind !== 'link') { where.push('(lower(m.attachments) LIKE ? OR lower(m.content) LIKE ? OR m.id IN (SELECT message_id FROM clips WHERE lower(title) LIKE ?))'); args.push('%' + q + '%', '%' + q + '%', '%' + q + '%'); }
+    if (q && kind !== 'link') {
+      if (clipSet) { where.push('(lower(m.attachments) LIKE ? OR lower(m.content) LIKE ?)'); args.push('%' + q + '%', '%' + q + '%'); } else { where.push('(lower(m.attachments) LIKE ? OR lower(m.content) LIKE ? OR m.id IN (SELECT message_id FROM clips WHERE lower(title) LIKE ?))'); args.push('%' + q + '%', '%' + q + '%', '%' + q + '%'); }
+    }
     const sql = `SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.attachments, m.pinned FROM messages m WHERE ${where.join(' AND ')} AND m.id < ? ORDER BY m.id DESC LIMIT 200`;
     const items = []; let next = null, scanned = 0;
     for (; ;) {
@@ -88,6 +100,7 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
           let atts = []; try { atts = JSON.parse(m.attachments || '[]'); } catch { }
           atts.forEach((a, i) => {
             if (!a || a.enc || (!a.url && !a.expired)) return; // protegido de ponta a ponta: o servidor não sabe nome nem tipo
+            if (isClip(m.id, a)) return; // clipe: está na aba Clipes
             const k = kindOf(a); if (kind !== 'all' && k !== kind) return;
             const clip = a.url && titles.get(m.id + '|' + a.url), name = clip ? clipName(clip.title, a.name) : a.name || 'arquivo';
             if (q && !String(a.name || '').toLowerCase().includes(q) && !name.toLowerCase().includes(q)) return;
@@ -96,6 +109,7 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
         }
         if (kind === 'all' || kind === 'link') for (const u of linksOf(m.content)) {
           if (q && !u.toLowerCase().includes(q)) continue;
+          if (isClipLink(u)) continue;
           items.push({ ...base, kind: 'link', url: u, name: host(u) || u, host: host(u) });
         }
         if (items.length >= limit) { next = m.id; break; }
@@ -110,9 +124,9 @@ export function mountMedia(app, { auth, wrap, bad, all, get, clean, maxUpload })
       if (since) { cw.push('created_at >= ?'); ca.push(since); }
       if (until) { cw.push('created_at <= ?'); ca.push(until); }
       const counts = { image: 0, video: 0, audio: 0, doc: 0, file: 0, link: 0 };
-      for (const r of all(`SELECT attachments a, content c FROM messages WHERE ${cw.join(' AND ')} AND (attachments <> '[]' OR content LIKE '%http%') ORDER BY id DESC LIMIT 20000`, ...ca)) {
-        if (r.a && r.a !== '[]') { try { for (const a of JSON.parse(r.a)) if (a && !a.enc && (a.url || a.expired)) counts[kindOf(a)]++; } catch { } }
-        if (r.c && r.c.includes('http')) counts.link += linksOf(r.c).length;
+      for (const r of all(`SELECT id, attachments a, content c FROM messages WHERE ${cw.join(' AND ')} AND (attachments <> '[]' OR content LIKE '%http%') ORDER BY id DESC LIMIT 20000`, ...ca)) {
+        if (r.a && r.a !== '[]') { try { for (const a of JSON.parse(r.a)) if (a && !a.enc && (a.url || a.expired) && !isClip(r.id, a)) counts[kindOf(a)]++; } catch { } }
+        if (r.c && r.c.includes('http')) counts.link += linksOf(r.c).filter(u => !isClipLink(u)).length;
       }
       out.counts = counts;
     }
