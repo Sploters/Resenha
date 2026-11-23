@@ -6,6 +6,15 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-23-4', title: 'Menos atalhos, nota da crítica e Wishlist da turma',
+    items: [
+      { i: 'gift', t: 'Wishlist da turma', d: 'A Wishlist do servidor mostra só os jogos que duas pessoas ou mais querem. E "Carregar mais" não volta mais para o topo.' },
+      { i: 'file', t: 'Arquivos sem os clipes', d: 'A aba Arquivos do servidor não repete os clipes (eles ficam na aba Clipes). Vídeos enviados normalmente continuam lá.' },
+      { i: 'star', t: 'Nota da crítica', d: 'O popup de um jogo mostra a nota do OpenCritic, com o selo e quantos críticos recomendam (quando o servidor tem a integração ligada).' },
+      { i: 'check', t: 'Barra mais limpa', d: 'Os atalhos do servidor ficaram só com Bora?, Eventos, Clipes, Arquivos e Wishlist, e o topo do canal perdeu o botão de arquivos (está nos atalhos). Numa conversa, só ela fica em destaque na barra da esquerda.' },
+    ],
+  },
+  {
     id: '2026-11-23-3', title: 'Bora?',
     items: [
       { i: 'megaphone', t: 'Bora? Chame a turma', d: 'No topo dos canais do servidor (ou no Ativo agora), "Bora?": escolha o jogo ou "Só resenhar", agora ou um horário de hoje, e quantos precisam topar. Todo mundo do servidor vê o contador ao vivo e responde Tô dentro, Mais tarde ou Hoje não. Quando bate, chega "Formou!" com a sala para entrar. Para outro dia, vira evento.', try: 'bora' },

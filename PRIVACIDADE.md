@@ -32,6 +32,7 @@ Cada item só acontece quando o recurso é usado, e a maioria pode ser desligada
 | KLIPY ou GIPHY | Busca de GIFs | O termo buscado (pelo servidor) | Sem a chave (`KLIPY_API_KEY`/`GIPHY_API_KEY`), a busca some |
 | Google Tradutor (ou LibreTranslate) | Clique em Traduzir | O texto a traduzir | `TRANSLATE=0`, ou `LIBRETRANSLATE_URL` para uma instância própria |
 | Steam (loja e API) | Cartões de link, biblioteca, wishlist, promoções | IDs de jogos e o seu Steam ID vinculado | Não vincular a Steam; desligar prévias de links |
+| OpenCritic (API) | Popup de um jogo (só com `OPENCRITIC_KEY`) | Só o nome do jogo, pelo servidor | Não definir `OPENCRITIC_KEY` |
 | YouTube (yt-dlp) | Bot de música | O que foi pedido para tocar | Não usar o bot |
 | YouTube, TikTok, Instagram, Spotify | Cartões de vídeo e música no chat | O seu aparelho carrega o player do site **só ao apertar play** | Desligar "Mostrar prévias de links" |
 | Sites de jogos e notícias | Descobrir, capas de eventos | Nada sobre você: o servidor busca páginas públicas | Não usar essas seções |

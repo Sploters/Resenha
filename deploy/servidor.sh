@@ -64,7 +64,8 @@ backup_parado() {
 }
 trocar_container() { # $1 = hash da voz, $2 = hash do app
   # cookies do YouTube (opcional): ~/resenha-data/cookies.txt. Chave da Steam (opcional): ~/resenha-steam.env com a
-  # linha STEAM_API_KEY=suachave (fora do repositório e da pasta de dados; crie em steamcommunity.com/dev/apikey)
+  # linha STEAM_API_KEY=suachave (fora do repositório e da pasta de dados; crie em steamcommunity.com/dev/apikey).
+  # O mesmo arquivo serve para OPENCRITIC_KEY=suachave (nota da crítica no popup do jogo)
   COOKIES=; [ -f "$HOME/resenha-data/cookies.txt" ] && COOKIES='-e YTDLP_COOKIES=/data/cookies.txt'
   STEAM=; [ -f "$HOME/resenha-steam.env" ] && STEAM="--env-file $HOME/resenha-steam.env"
   # docker stop (não rm -f, que mata na hora): o servidor avisa os apps que está atualizando antes de fechar
