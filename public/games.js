@@ -147,15 +147,19 @@ export function renderGuildWishlist(main, gid) {
     if (gw.q.trim()) needNames();
     const items = filtered(), page = items.slice(0, gw.shown);
     const empty = !items.length && h('div.cempty', h('div.ceart', icon('gift', 40)),
-      h('b', gw.q.trim() ? 'Nenhum jogo com esse nome' : !d.items.length ? 'Ninguém pôs jogos na wishlist ainda' : gw.sort === 'sale' ? (saleLoading ? 'Procurando promoções…' : 'Nenhum jogo da wishlist em promoção agora') : 'Todos os jogos desejados já têm dono por aqui'),
-      !d.items.length && h('p', 'Vincule a Steam em Configurações → Contas vinculadas (a wishlist vem junto) ou clique em "Quero" no cartão de um link da Steam.'));
+      h('b', gw.q.trim() ? 'Nenhum jogo com esse nome' : !d.items.length ? 'Nenhum jogo que duas pessoas ou mais querem' : gw.sort === 'sale' ? (saleLoading ? 'Procurando promoções…' : 'Nenhum jogo da wishlist em promoção agora') : 'Todos os jogos desejados já têm dono por aqui'),
+      !d.items.length && h('p', 'Aqui aparecem os jogos que pelo menos duas pessoas do servidor querem. Vincule a Steam em Configurações → Contas vinculadas (a wishlist vem junto) ou clique em "Quero" no cartão de um link da Steam.'));
     // cartões guardados por jogo: "Carregar mais" só acrescenta, sem refazer (nem pedir de novo) os que já estão na tela
     const cards = page.map(x => { let c = gw.cards.get(x.appid); if (!c || c._x !== x) { c = wishCard(x); c._x = x; gw.cards.set(x.appid, c); } return c; });
     const left = items.length - page.length;
+    // "Carregar mais" mantém onde estava: o botão clicado (com o foco) sai junto com a grade, e o layout forçado nessa
+    // hora (com a lista vazia) levava a rolagem para o topo
+    const sc = listBox.closest('.cbody'), top = sc?.scrollTop || 0;
     listBox.replaceChildren(...[empty || h('div.wgrid', cards),
       items.length > 0 && h('div.wmore', h('span', `Mostrando ${page.length} de ${items.length}`),
         left > 0 && h('button.btn.grey', { onclick: () => { gw.shown += WISH_PAGE; drawList(); } }, `Carregar mais (${Math.min(left, WISH_PAGE)})`),
         left > WISH_PAGE && h('button.btn.link', { onclick: () => { gw.shown = items.length; drawList(); } }, 'Mostrar todos'))].filter(Boolean));
+    if (sc && sc.scrollTop !== top) sc.scrollTop = top;
   };
   const draw = () => {
     if (!root.isConnected) return;
