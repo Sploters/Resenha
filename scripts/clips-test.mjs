@@ -78,8 +78,8 @@ try {
   const v1 = await makeClip(B, vch.id, a.id, 'Tela da Alice', 200), v2 = await makeClip(A, vch.id, b.id, 'Tela do Bruno', 20), v3 = await makeClip(B, vch.id, a.id, 'Clutch 1v3', 120);
   ok(v1.status === 200 && v2.status === 200 && v3.status === 200, 'três clipes de vídeo de verdade salvos');
   await A.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, vch.id); await sleep(400);
-  ok(await A.evaluate(() => document.querySelector('#side-list > .side-tools > *')?.classList.contains('clipsrow')), 'entrada "Clipes" no topo da lista de canais');
-  await A.evaluate(() => document.querySelector('#side-list .clipsrow').click());
+  ok(await A.evaluate(() => !!document.querySelector('#side-list > .side-tools.st-strip > .clipsonly')), 'atalho "Clipes" na faixa do topo da lista de canais');
+  await A.evaluate(() => document.querySelector('#side-list .clipsonly').click());
   await A.waitForSelector('#clipsview .clipcard', { timeout: 5000 }).catch(() => { });
   const cards = await A.evaluate(() => [...document.querySelectorAll('#clipsview .clipcard .ctitle')].map(x => x.textContent));
   ok(JSON.stringify(cards) === JSON.stringify(['Clipe de alice', 'Clipe de bruno', 'Clipe de alice']), 'galeria mostra os clipes, mais novos primeiro', cards);

@@ -8,6 +8,7 @@ import { activityPanel, refreshFeedView, activityOf, gameIcon, titleEl, gameTitl
 import { chName } from './chnames.js';
 import { viewTransition, stagger } from './motion.js';
 import { $ } from './gateway.js';
+import { topTabs } from './gamestabs.js';
 import { openDM, userMenu } from './usermenu.js';
 // =============== Início / amigos ===============
 // painel "Ativo agora": amigos online, com servidor e sala de voz quando estão numa chamada
@@ -25,7 +26,6 @@ const friendCol = (() => { try { return JSON.parse(localStorage.getItem('lc_fcol
 export function renderHome(main) {
   if (S.view.tab !== 'add') S.view.tab = 'list'; // Online e Todos viraram uma lista só; bloqueados: Privacidade e segurança; a atividade virou o painel "Ativo agora"
   const tab = S.view.tab, rels = [...S.rels.values()], reqs = rels.filter(r => r.type === 3).length;
-  const tabs = [['list', 'Todos']];
   const q = h('input.fsearch', { placeholder: 'Buscar', oninput: debounce(() => draw(), 120) });
   const ORD = { online: 0, idle: 1, dnd: 2, invisible: 3, offline: 4 };
   const pane = h('div.pane');
@@ -80,8 +80,10 @@ export function renderHome(main) {
       (r.type === 3 || r.type === 4 || r.type === 2 || (r.type === 1 && !inv)) && btn('x', r.type === 1 ? 'Remover' : r.type === 2 ? 'Desbloquear' : 'Ignorar', () => tryApi('DELETE', `/relationships/${u.id}`), '.no')));
   };
   main.replaceChildren(h('div#home',
-    h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')), icon('users', 24), h('span', 'Amigos'), h('div', { style: { width: '1px', height: '24px', background: 'var(--divider)', margin: '0 8px' } }),
-      h('div.tabs', tabs.map(([k, l]) => h('div.tab' + (tab === k ? '.active' : ''), { onclick: () => { if (S.view.tab === k) return; S.view.tab = k; S.staggerNext = true; viewTransition(() => renderHome(main)); } }, l)),
+    // abas da tela inicial: Amigos | Jogar | Descobrir (gamestabs.js); "Adicionar amigo" ao lado
+    h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
+      topTabs('friends', () => { if (S.view.tab === 'add') { S.view.tab = 'list'; viewTransition(() => renderHome(main)); } }), h('div.mtab-sep'),
+      h('div.tabs',
         h('div.tab.green' + (tab === 'add' ? '.active' : ''), { onclick: () => { if (S.view.tab === 'add') return; S.view.tab = 'add'; viewTransition(() => renderHome(main)); } }, icon('plus', 18), 'Adicionar amigo',
           reqs > 0 && h('span.tab-badge', { title: `${reqs} pedido${reqs > 1 ? 's' : ''} de amizade` }, reqs > 99 ? '99+' : reqs))),
       // janela estreita: o painel "Ativo agora" não cabe ao lado e abre como gaveta por este botão

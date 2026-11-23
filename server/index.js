@@ -22,6 +22,7 @@ import { mountSecurity } from './security.js';
 import { createThumbs } from './thumbs.js';
 import { mountStorage } from './storage.js';
 import { mountMyMessages } from './mymessages.js';
+import { mountMsgLog } from './msglog.js';
 import { mountE2ee, isE2ee } from './e2ee.js';
 import { mountUploads } from './uploads.js';
 import { mountMedia } from './media.js';
@@ -82,7 +83,7 @@ const DEFAULT_AVATARS = (() => { try { return fs.readdirSync(path.join(__dirname
 if (DEFAULT_AVATARS.length) for (const u of all("SELECT id, avatar FROM users WHERE avatar LIKE '/avatars/%'"))
   if (!DEFAULT_AVATARS.includes(u.avatar)) run('UPDATE users SET avatar=? WHERE id=?', DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)], u.id);
 
-const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512 };
+const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512, VIEW_MSGLOG: 1024 };
 const COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c'];
 
 // ---------- helpers ----------
@@ -481,7 +482,10 @@ function refreshVoicePerms(gid) {
 }
 // o que as rotas de server/routes/* recebem (cada módulo pega só o que usa). Serviços criados mais abaixo (activity, forum,
 // intents, clips, thumbs) vão à parte, por getter, para serem lidos só na hora da requisição.
+// registro de mensagens editadas/excluídas nos servidores (server/msglog.js); vai às rotas em core.msglog
+const msglog = mountMsgLog(app, { auth, wrap, bad, db, all, get, run, newId, can, P, userPub, audit });
 const core = {
+  msglog,
   auth, wrap, wrapA, bad, clean, lim, db, all, get, run, newId, tx, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE,
   dispatch, send, guildMemberIds, channelAudience, canAccessChannel, channelFor, getUser, userPub, pubUser, messageObj, audit, timedOut, rateOk,
   conns, voice, leaveVoice, currentVoice, isFileUrl, cssColor, privacy, statusFor, platformsFor, social, sessions, reputation,

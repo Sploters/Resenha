@@ -116,9 +116,9 @@ try {
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await p.setViewport({ width: 1280, height: 900 });
   await p.goto(BASE); await p.evaluate((t) => localStorage.lc_token = t, beto.tok); await p.reload(); await p.waitForSelector('#rail .rail-wrap');
-  await p.click('.games-btn'); await sleep(300);
-  await p.evaluate(() => [...document.querySelectorAll('#side-list .gnav')].find(b => b.dataset.k === 'trophies')?.click());
-  ok(await p.waitForSelector('#trophyview .ach-card', { timeout: 6000 }).then(() => true, () => false), 'Jogos → Conquistas abre a aba com as platinas');
+  await p.evaluate(() => [...document.querySelectorAll('#home .mtab')].find(b => /Descobrir/.test(b.textContent))?.click()); await sleep(800);
+  await p.evaluate(() => [...document.querySelectorAll('#topbar .gtabs .dtab')].find(b => /Conquistas/.test(b.textContent))?.click());
+  ok(await p.waitForSelector('#trophyview .ach-card', { timeout: 6000 }).then(() => true, () => false), 'Descobrir → Conquistas abre a aba com as platinas');
   const cards = await p.$$eval('#trophyview .ach-card b', els => els.map(e => e.textContent));
   ok(cards.length === 3 && cards.includes('Estrela Cadente') && cards.includes('God of War Ragnarök'), 'platinas da Steam e informadas juntas', cards);
   ok(await p.$$eval('#trophyview .ach-card.manual .ach-inf', els => els.length) === 2, 'as informadas aparecem marcadas como "informado"');

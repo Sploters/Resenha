@@ -83,8 +83,10 @@ const FLOW_RE = new RegExp(`^(${Object.keys(UX_FLOWS).join('|')}):(start|done)$`
 // eventos aceitos e o detalhe permitido de cada um (o que não casa é descartado: o app não consegue mandar outra coisa)
 export const UX_EVENTS = {
   back_to_friends: (d) => /^(esc|rail)$/.test(d), // saiu de uma conversa direta para Amigos: pelo Esc ou pelo ícone de Mensagens
-  games_open: (d) => d === '', // abriu a seção Jogos pela barra
-  games_tab: (d) => /^(lfg|home|news|tournaments)$/.test(d), // trocou de aba dentro de Jogos
+  games_open: (d) => d === '', // saiu dos Amigos para Jogar ou Descobrir (abas do topo da tela inicial)
+  games_tab: (d) => /^(lfg|radar|home|trophies|news|tournaments)$/.test(d), // trocou de área dentro de Jogar/Descobrir
+  home_tab: (d) => /^(friends|play|discover)$/.test(d), // aba do topo da tela inicial (Amigos | Jogar | Descobrir)
+  play_together: (d) => /^(open|invite|intent|ad)$/.test(d), // "Jogar juntos" na conversa direta (playtogether.js)
   info_tip: free(80), // abriu a explicação ⓘ: "Página › opção"
   settings_search_empty: free(40), // busca nas Configurações que não achou nada (o termo, em minúsculas)
   flow: (d) => FLOW_RE.test(d), // começou / terminou um fluxo (funil)

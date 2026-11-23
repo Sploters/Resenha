@@ -3,7 +3,8 @@ import { h, morph, place, icon, avatar, debounce, platformIcons } from './util.j
 import { S, user, guild, channelById, loadMembers, roleColor, roleDot } from './state.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
-import { activityOf, playingLine, gameIcon, titleEl } from './activity.js';
+import { activityOf, playingLine, gameIcon, titleEl, guildGamesPanel } from './activity.js';
+import { guildGames } from './rail.js';
 import { $, deferRender } from './gateway.js';
 import { profile, userMenu } from './usermenu.js';
 // ---------- lista de membros ----------
@@ -90,6 +91,10 @@ export function renderMembers() {
   }
   const top = box.querySelector('.mem-top') || h('div.mem-top');
   if (top.firstChild?.lastChild !== box._q) top.replaceChildren(h('label.mem-search', icon('search', 14), box._q));
+  // "Jogam aqui": jogos que a galera do servidor mais joga, logo abaixo da busca (fora da lista virtual)
+  const gg = !q && guildGamesPanel(guildGames(g, () => renderMembers()), () => renderMembers());
+  const oldGg = top.querySelector(':scope > .ggp');
+  if (gg && oldGg) morph(oldGg, gg); else if (gg) top.append(gg); else oldGg?.remove();
   // a lista já está na página: atualiza só o que mudou (a rolagem fica onde estava e as fotos não recarregam)
   let list = box.querySelector(':scope > .mem-list');
   const foot = meCard && h('div.mem-foot', meCard), oldFoot = box.querySelector(':scope > .mem-foot');

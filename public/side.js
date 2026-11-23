@@ -8,9 +8,7 @@ import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
 import { chName } from './chnames.js';
 import { streamHover } from './livepip.js';
-import { openLfgCreate, openLfgProfile } from './lfg.js';
-import { gamesNav } from './gamestabs.js';
-import { openIntentModal } from './intents.js';
+import { setLfgGuild, ensureLfgPosts, openPosts, lfgMini } from './lfg.js';
 import { styleName } from './themes.js';
 import { canMoveVoice, canMoveTo, moveVoice } from './mod.js';
 import { activityOf, sameGameAs, gameIcon, voiceGameIcon } from './activity.js';
@@ -18,7 +16,7 @@ import { voice, $, syncView, deferRender, roomVoice } from './gateway.js';
 import { botRow } from './botmusic.js';
 import { appBadge } from './appver.js';
 import { go } from './nav.js';
-import { inGames, srvGames, callTimer, friendsIn, avStack, friendsInServer, guildMenu, inviteModal } from './rail.js';
+import { callTimer, friendsIn, avStack, friendsInServer, guildMenu, inviteModal } from './rail.js';
 import { favList, isFav, favSide } from './favs.js';
 import { channelModal, channelMenu, channelSettings } from './chmenu.js';
 import { voicePanel, rejoinPanel, joinVoice, userbar } from './userbar.js';
@@ -33,12 +31,7 @@ export function renderSide() {
   if (vDrag) return; // arrastando alguém para outra sala: redesenha ao soltar (senão o arrasto é cancelado)
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
-  else if ((S.view.gid === '@me' || !guild(S.view.gid)) && inGames()) {
-    // seção Jogos: própria, como um servidor (antes ficava dentro de Amigos)
-    head = h('div#side-head.sh-plain', h('span.sh-title', 'Jogos'));
-    // as quatro áreas (Procurar jogadores, Início, Notícias, Torneios) e atalhos do mural (gamestabs.js)
-    list = gamesNav({ create: () => openLfgCreate(), intent: () => openIntentModal(), profile: () => openLfgProfile() });
-  } else if (S.view.gid === '@me' || !guild(S.view.gid)) {
+  else if (S.view.gid === '@me' || !guild(S.view.gid)) {
     // Mensagens e Amigos juntos: Amigos no topo da lista (abre a página de amigos no meio) e as conversas embaixo,
     // com buscar e ordenar; fixadas no topo
     const SORT_L = { recent: 'Mais recentes', unread: 'Não lidas', name: 'Nome (A–Z)' };
@@ -63,7 +56,6 @@ export function renderSide() {
       g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         canInvite(g) && h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
-      srvGames(g),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
     const cats = g.channels.filter(c => c.type === 4), byParent = new Map();
     for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
@@ -83,16 +75,23 @@ export function renderSide() {
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
-    // atalhos do servidor (clipes, arquivos, wishlist, eventos): bloco próprio no topo, separado dos canais por uma linha
-    const clipsRow = h('div.ch.clipsrow' + (S.view.kind === 'clips' ? '.active' : ''), { onclick: () => go(g.id, 'clips'), title: 'Todos os clipes salvos neste servidor' }, icon('clip', 20), h('span.name', 'Clipes'));
-    const filesRow = h('div.ch.clipsrow.filesrow' + (S.view.kind === 'files' ? '.active' : ''), { onclick: () => go(g.id, 'files'), title: 'Fotos, vídeos, áudios, documentos e links enviados neste servidor' }, icon('file', 20), h('span.name', 'Arquivos'));
-    const wishRow = h('div.ch.clipsrow.wishrow' + (S.view.kind === 'wishlist' ? '.active' : ''), { onclick: () => go(g.id, 'wishlist'), title: 'Jogos que o pessoal deste servidor quer, com preço e promoção' }, icon('gift', 20), h('span.name', 'Wishlist'));
-    const evRow = h('div.ch.clipsrow.evrow' + (S.view.kind === 'events' ? '.active' : ''), { onclick: () => go(g.id, 'events'), title: 'Jogatinas marcadas: dia, hora, sala e quem vai' }, icon('calendar', 20), h('span.name', 'Eventos'));
-    const nightsRow = h('div.ch.clipsrow.nightsrow', { onclick: () => openNights(g.id), title: 'As noites da turma: quem esteve, o que jogaram, clipes, pérolas e GG' }, icon('moon', 20), h('span.name', 'Noites'));
-    // "Bora?": botão de chamar a turma e, quando houver, os cartões com o contador ao vivo (public/bora.js)
-    const boraRow = h('div.ch.clipsrow.borarow', { onclick: () => openBoraModal(g.id), title: 'Chamar a turma para jogar ou resenhar, agora ou mais tarde' }, icon('megaphone', 20), h('span.name', 'Bora?'));
+    // atalhos do servidor numa faixa de ícones (uma linha só; o nome aparece ao passar o mouse e o da tela aberta fica
+    // marcado): Bora?, Jogadores (Procurar jogadores já filtrado aqui), Eventos, Noites, Clipes, Arquivos e Wishlist
+    const tool = (cls, ic, label, tip, fn, on = false) => h('button.st-btn.' + cls + (on ? '.on' : ''), { type: 'button', 'aria-label': `${label}: ${tip}`, 'data-tip': label, onclick: fn }, icon(ic, 20));
+    const tools = h('div.side-tools.st-strip', { role: 'toolbar', 'aria-label': 'Atalhos do servidor' },
+      tool('borarow', 'megaphone', 'Bora?', 'chamar a turma para jogar ou resenhar, agora ou mais tarde', () => openBoraModal(g.id)),
+      tool('lfgrow', 'users', 'Jogadores', 'quem deste servidor está montando grupo agora', () => { setLfgGuild(g.id); go('@me', 'lfg'); }),
+      tool('evrow', 'calendar', 'Eventos', 'jogatinas marcadas: dia, hora, sala e quem vai', () => go(g.id, 'events'), S.view.kind === 'events'),
+      tool('nightsrow', 'moon', 'Noites', 'as noites da turma: quem esteve, o que jogaram, clipes e GG', () => openNights(g.id)),
+      tool('clipsonly', 'clip', 'Clipes', 'todos os clipes salvos neste servidor', () => go(g.id, 'clips'), S.view.kind === 'clips'),
+      tool('filesrow', 'file', 'Arquivos', 'fotos, vídeos, áudios, documentos e links enviados aqui', () => go(g.id, 'files'), S.view.kind === 'files'),
+      tool('wishrow', 'gift', 'Wishlist', 'jogos que o pessoal quer, com preço e promoção', () => go(g.id, 'wishlist'), S.view.kind === 'wishlist'));
     const boras = liveIn(g.id);
-    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), h('div.side-tools', boraRow, nightsRow, clipsRow, filesRow, wishRow, evRow), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    // gente deste servidor procurando grupo agora (Procurar jogadores), com Entrar direto; "Ver todos" abre o mural filtrado
+    ensureLfgPosts(); const ads = openPosts(g.id);
+    const adsBox = ads.length > 0 && h('div.side-lfg', h('div.side-lfg-cap', icon('users', 14), h('span', ads.length === 1 ? 'Procurando grupo' : `${ads.length} grupos procurando gente`),
+      ads.length > 2 && h('button.side-lfg-all', { type: 'button', onclick: () => { setLfgGuild(g.id); go('@me', 'lfg'); } }, 'Ver todos')), ads.slice(0, 2).map(lfgMini));
+    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), adsBox, tools, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
@@ -117,7 +116,7 @@ export function renderSide() {
   uaObs.disconnect(); uaObs.observe(area);
   syncView();
 }
-const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : inGames() ? '@games' : '@msgs');
+const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : '@msgs');
 // servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
 // outras viram um espaço do mesmo tamanho e são montadas quando chegam perto da tela (e ficam montadas). Antes cada
 // renderSide montava as 1.000 linhas (~45 ms; scripts/perf-big.mjs)
@@ -173,7 +172,7 @@ function dmRow(dm, pin) {
 // tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
 // cartões (foto, nome, prévia da última mensagem, hora e não lidas) para escolher com um clique
 // nova mensagem: escolher um amigo (ou qualquer pessoa dos seus servidores)
-function newMessageModal() {
+export function newMessageModal() {
   const q = h('input', { type: 'search', placeholder: 'Digite o nome de um amigo' }), box = h('div.nm-list');
   const friends = new Set([...S.rels.values()].filter(r => r.type === 1).map(r => r.user?.id || r.id));
   const people = [...new Set([...friends, ...[...S.guilds.values()].flatMap(g => [...g.members.keys()])])].filter(id => id !== S.me.id && S.users.has(id));

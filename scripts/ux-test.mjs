@@ -50,9 +50,9 @@ try {
   ok(await P.evaluate(() => window.__lc.S.view.kind === 'dm'), 'conversa aberta');
   await P.keyboard.press('Escape'); await sleep(400);
   await P.evaluate((id) => window.__lc.go('@me', id), dm); await sleep(700);
-  await P.evaluate(() => document.querySelector('#rail .rail-fly .rail-item').click()); await sleep(400);
-  // Jogos: abrir pela barra e trocar para Notícias
-  await P.evaluate(() => document.querySelector('#rail .rail-games .rail-item').click()); await sleep(1200);
+  await P.evaluate(() => document.querySelector('#rail .rail-msgs .rail-item').click()); await sleep(400);
+  // Jogos: aba Descobrir no topo da tela inicial e trocar para Notícias
+  await P.evaluate(() => [...document.querySelectorAll('#home .mtab')].find(b => /Descobrir/.test(b.textContent)).click()); await sleep(1200);
   await P.evaluate(() => [...document.querySelectorAll('.gtabs .dtab')].find(b => /Notícias/.test(b.textContent)).click()); await sleep(800);
   // Configurações: abrir uma ⓘ duas vezes (conta uma) e buscar algo que não existe
   await P.evaluate(() => window.__lc.openSettings('privacy')); await sleep(900);

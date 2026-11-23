@@ -1,48 +1,46 @@
-// Seção Jogos: uma tela só com abas no topo. "Jogadores" é o mural de Procurar jogadores (lfg.js), "Conquistas" é a
-// achievements.js; as outras são o Descobrir (discover.js). Cada módulo desenha a própria barra de cima, mas as abas são estas, iguais nos dois.
-// Com a lista lateral aberta (#side), as áreas ficam nela (gamesNav, desenhada pelo app.js) e o topo mostra só o título;
-// com a lista fechada (ou no celular), as abas voltam para o topo.
+// Abas do topo da tela inicial (botão principal da barra): Amigos | Jogar | Descobrir. A lista ao lado fica só com as
+// conversas; as áreas de Jogos não ocupam a barra nem a lista. Jogar = Procurar jogadores e Radar; Descobrir = Para você,
+// Conquistas, Notícias e Torneios. "Procurar jogadores" é o mural (lfg.js), "Conquistas" é achievements.js, "Radar" é
+// radar.js; Para você, Notícias e Torneios são o Descobrir (discover.js). Cada módulo desenha a própria barra de cima com
+// estas abas (gamesTabs); a tela de Amigos usa as de cima (homeTabs).
 import { h, icon } from './util.js';
 import { track } from './ux.js';
 
-export const GAME_TABS = [['lfg', 'Procurar jogadores', 'gamepad'], ['trophies', 'Conquistas', 'medal'], ['radar', 'Radar', 'radar'], ['home', 'Início', 'compass'], ['news', 'Notícias', 'news'], ['tournaments', 'Torneios', 'trophy']];
-const SUB = { lfg: 'Monte um grupo agora', trophies: 'Platinas e conquistas dos seus jogos', radar: 'Scouting do time adversário no Clash', home: 'Para você, promoções e lançamentos', news: 'O que saiu nos seus jogos', tournaments: 'Campeonatos com inscrição aberta' };
-const PENDING = 'lc_disc_tab'; // aba do Descobrir pedida a partir do mural (lida quando o Descobrir abre)
+export const GAME_TABS = [['lfg', 'Procurar jogadores', 'gamepad'], ['radar', 'Radar', 'radar'], ['home', 'Para você', 'compass'], ['trophies', 'Conquistas', 'medal'], ['news', 'Notícias', 'news'], ['tournaments', 'Torneios', 'trophy']];
+export const GROUPS = { play: ['lfg', 'radar'], discover: ['home', 'trophies', 'news', 'tournaments'] };
+const groupOf = (k) => (GROUPS.play.includes(k) ? 'play' : 'discover');
+const OWN = new Set(['lfg', 'trophies', 'radar']); // têm rota própria; as outras são abas do Descobrir
+const PENDING = 'lc_disc_tab'; // aba do Descobrir pedida de fora dele (lida quando o Descobrir abre)
+const LAST = { play: 'lc_tab_play', discover: 'lc_tab_disc' }; // última área aberta em cada aba de cima
+const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { } } };
 export const takeDiscoverTab = () => { try { const t = localStorage.getItem(PENDING); localStorage.removeItem(PENDING); return t; } catch { return null; } };
-const cur = { active: null, onDiscover: null }; // aba aberta agora (a lista lateral acompanha)
-const pick = (k) => {
+const cur = { active: null, onDiscover: null }; // área aberta agora
+
+// abre uma área de Jogos de qualquer tela
+export function openGameTab(k) {
   const { active, onDiscover } = cur;
-  if (k === active) return;
-  track('games_tab', k);
-  if (k === 'lfg' || k === 'trophies' || k === 'radar') { location.hash = '#/@me/' + k; return; }
-  if (active && active !== 'lfg' && active !== 'trophies' && active !== 'radar' && onDiscover) return onDiscover(k);
-  try { localStorage.setItem(PENDING, k); } catch { }
+  if (k === active && location.hash.startsWith('#/@me/')) return;
+  track('games_tab', k); ls.set(LAST[groupOf(k)], k);
+  if (OWN.has(k)) { location.hash = '#/@me/' + k; return; }
+  if (active && !OWN.has(active) && onDiscover && location.hash === '#/@me/discover') return onDiscover(k);
+  ls.set(PENDING, k);
   location.hash = '#/@me/discover';
-};
-const syncNav = () => {
-  for (const el of document.querySelectorAll('#side-list .gnav')) { const on = el.dataset.k === cur.active; el.classList.toggle('active', on); el.setAttribute('aria-current', on ? 'page' : 'false'); }
-  const acts = document.querySelector('#side-list .gnav-acts'); if (acts) acts.hidden = cur.active === 'lfg';
-};
-// active: 'lfg' ou a aba do Descobrir; onDiscover(k): troca de aba quando já está no Descobrir
-export function gamesTabs(active, onDiscover) {
-  Object.assign(cur, { active, onDiscover }); syncNav();
-  const [, label, ic] = GAME_TABS.find(t => t[0] === active) || GAME_TABS[0];
-  return [h('span.hash', icon(ic, 24)), h('span.gtitle', label),
-    h('div.dtabs.gtabs', { role: 'tablist' }, GAME_TABS.map(([k, l, i]) => h('button.dtab' + (active === k ? '.on' : ''), { type: 'button', role: 'tab', 'aria-selected': String(active === k), onclick: () => pick(k) }, icon(i, 16), h('span', l))))];
 }
-// lista lateral da seção Jogos: as áreas (com o que tem em cada uma) e atalhos do mural
-// acts: { create(), intent(), profile() }
-export function gamesNav(acts = {}) {
-  const act = (ic, label, fn, cls = '') => h('button.gact' + cls, { type: 'button', onclick: fn }, h('span.gact-ic', icon(ic, 18)), h('span.name', label));
-  const el = h('div#side-list.gnav-list',
-    h('div.gnav-cap', 'Explorar'),
-    GAME_TABS.map(([k, l, ic]) => h('button.ch.gnav.gnav-' + k + (cur.active === k ? '.active' : ''), { type: 'button', 'data-k': k, 'aria-current': cur.active === k ? 'page' : 'false', onclick: () => pick(k) },
-      h('span.gnav-ic', icon(ic, 20)), h('span.gnav-t', h('span.name', l), h('small', SUB[k])))),
-    // atalhos: escondidos em Procurar jogadores, que já tem os mesmos três botões no topo (syncNav)
-    h('div.gnav-acts', { hidden: cur.active === 'lfg' },
-      h('div.gnav-cap', 'Atalhos'),
-      act('plus', 'Criar anúncio', () => { if (cur.active !== 'lfg') location.hash = '#/@me/lfg'; setTimeout(() => acts.create?.(), cur.active === 'lfg' ? 0 : 120); }, '.green'),
-      act('gamepad', 'A fim de jogar', () => acts.intent?.()),
-      act('edit', 'Meu perfil de jogador', () => acts.profile?.())));
-  return el;
+const openGroup = (g) => { const last = ls.get(LAST[g]); openGameTab(GROUPS[g].includes(last) ? last : GROUPS[g][0]); };
+
+// abas de cima: main = 'friends' | 'play' | 'discover'
+export function topTabs(main, goFriends) {
+  const t = (k, label, ic, fn) => h('button.mtab' + (main === k ? '.on' : ''), { type: 'button', role: 'tab', 'aria-selected': String(main === k), onclick: () => { if (main === k) { if (k === 'friends') fn(); return; } track('home_tab', k); if (main === 'friends') track('games_open'); fn(); } }, icon(ic, 18), h('span', label));
+  return h('div.mtabs', { role: 'tablist' },
+    t('friends', 'Amigos', 'users', goFriends || (() => { location.hash = '#/@me'; })),
+    t('play', 'Jogar', 'gamepad', () => openGroup('play')),
+    t('discover', 'Descobrir', 'compass', () => openGroup('discover')));
+}
+// barra de cima das telas de Jogos: as abas principais e, ao lado, as áreas da aba aberta
+// active: a área aberta; onDiscover(k): troca de aba quando já está no Descobrir
+export function gamesTabs(active, onDiscover) {
+  Object.assign(cur, { active, onDiscover });
+  const g = groupOf(active);
+  return [topTabs(g), h('div.mtab-sep'),
+    h('div.dtabs.gtabs', { role: 'tablist' }, GROUPS[g].map(k => GAME_TABS.find(t => t[0] === k)).map(([k, l, i]) => h('button.dtab' + (active === k ? '.on' : ''), { type: 'button', role: 'tab', 'aria-selected': String(active === k), onclick: () => openGameTab(k) }, icon(i, 16), h('span', l))))];
 }

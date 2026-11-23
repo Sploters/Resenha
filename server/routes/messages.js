@@ -9,7 +9,7 @@ import { messageContent, isE2ee } from '../e2ee.js';
 import { uxFirst } from '../ux.js';
 
 export function mountMessages(app, d) {
-  const { auth, wrap, bad, clean, db, all, get, run, newId, P, CH, chp, can, timedOut, rateOk, reputation, dispatch, channelAudience, channelFor, canAccessChannel, messageObj, audit, isFileUrl, unlinkIfUnused, UPLOAD_DIR } = d;
+  const { auth, wrap, bad, clean, db, all, get, run, newId, P, CH, chp, can, timedOut, rateOk, reputation, dispatch, channelAudience, channelFor, canAccessChannel, messageObj, audit, isFileUrl, unlinkIfUnused, UPLOAD_DIR, msglog } = d;
   // Messages
   app.get('/api/channels/:id/messages', auth, wrap((req, res) => {
     const ch = channelFor(req, res); if (!ch) return;
@@ -215,6 +215,7 @@ export function mountMessages(app, d) {
     if (get('SELECT 1 x FROM polls WHERE message_id=?', m.id)) return bad(res, 'Enquetes não podem ser editadas');
     if (get('SELECT 1 x FROM events WHERE message_id=?', m.id)) return bad(res, 'Anúncios de evento não podem ser editados (edite o evento)');
     run('UPDATE messages SET content=?,edited_at=? WHERE id=?', content, Date.now(), m.id);
+    msglog.record('edit', ch, m, req.uid, content); // registro de mensagens (só servidores; server/msglog.js)
     // editar para pôr @everyone conta como uma nova @everyone; editar uma que já notificava mantém
     saveMentions(m, ch, resolveMentions(content, ch, req.uid, !/@everyone|@here/.test(m.content || '')));
     dispatch(channelAudience(ch), 'MESSAGE_UPDATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', m.id)), guild_id: ch.guild_id });
@@ -226,6 +227,7 @@ export function mountMessages(app, d) {
     if (!m || (m.author_id !== req.uid && !(ch.guild_id && can(ch.guild_id, req.uid, P.MANAGE_MESSAGES)))) return bad(res, 'Sem permissão', 403);
     const sharedIds = all('SELECT clip_id FROM clip_shares WHERE message_id=?', m.id).map(r => r.clip_id); // a mensagem levava o link: o compartilhamento sai
     run('DELETE FROM messages WHERE id=?', m.id);
+    msglog.record('delete', ch, m, req.uid);
     d.clips.dropClipsOfMessage(m.id);
     for (const cid of sharedIds) d.clips.pushClipStats(cid);
     if (m.author_id !== req.uid) audit(ch.guild_id, req.uid, 'message_delete', m.author_id, `#${ch.name}: ${(m.content || '').slice(0, 200)}`);

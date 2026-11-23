@@ -1173,8 +1173,6 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 .gact-ic { flex: none; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-tert); }
 .gact-ic .icon { fill: currentColor; }
 .gact.green .gact-ic { background: color-mix(in srgb, var(--green) 22%, var(--bg-tert)); color: var(--green); }
-/* com a lista lateral aberta as áreas estão nela: o topo mostra só o título (as abas voltam com a lista fechada e no celular) */
-@media (min-width: 641px) { #app:not(.hide-side) #lfgview .gtabs, #app:not(.hide-side) #discoverview .gtabs { display: none; } }
 #lfgview .gtitle, #discoverview .gtitle { white-space: nowrap; }
 #lfgview #topbar .btn.sm, #discoverview #topbar .btn.sm { white-space: nowrap; flex: none; }
 #lfgview #topbar .btn .icon { fill: currentColor; flex: none; }
@@ -1409,3 +1407,87 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 .dturma-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .dturma-g { height: 30px; border-radius: 6px; border: 0; background: var(--bg-tert); color: var(--text); padding: 0 8px; max-width: 220px; }
 @media (max-width: 520px) { .rt-sug-img, .rt-sug.big .rt-sug-img { width: 72px; } .rt-pname span { padding: 5px 10px; } }
+
+/* ---------- atalhos do servidor numa faixa de ícones (side.js): uma linha, nome ao passar o mouse ---------- */
+#side-list .side-tools.st-strip { display: flex; justify-content: space-between; gap: 2px; padding: 2px 2px 8px; }
+.st-btn { position: relative; flex: 1; max-width: 38px; height: 34px; border: 0; border-radius: 8px; background: none; color: var(--interactive, var(--text-muted)); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.st-btn .icon { fill: currentColor; }
+.st-btn:hover { background: var(--bg-mod-hover); color: var(--header); }
+.st-btn.on { background: var(--bg-mod-selected, #404249); color: var(--header); }
+.st-btn.lfgrow { color: var(--green, #23a55a); }
+.st-btn:hover::after, .st-btn:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); z-index: 30; pointer-events: none;
+  background: var(--bg-float, #111214); color: var(--text-strong, #fff); font-size: 12.5px; font-weight: 600; padding: 5px 9px; border-radius: 6px; white-space: nowrap; box-shadow: 0 6px 14px rgba(0,0,0,.3); }
+
+/* ---------- "Jogam aqui" no topo da lista de membros (activity.js guildGamesPanel) ---------- */
+.ggp { margin: 4px 0 2px; }
+.ggp-head.mgroup { padding-top: 10px; }
+.ggp-list { display: flex; flex-direction: column; gap: 1px; max-height: 260px; overflow-y: auto; padding-bottom: 4px; border-bottom: 1px solid var(--divider); }
+.ggp-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ggp-row:hover { background: var(--bg-mod-hover); }
+.ggp-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ggp-t b { color: var(--header); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ggp-t small { color: var(--text-muted); font-size: 12px; }
+.ggp-hot { position: static; flex: none; }
+.ggp-more { align-self: flex-start; margin: 2px 8px 0; border: 0; background: none; color: var(--text-link, #00a8fc); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 2px 0; }
+
+/* ---------- Registro de auditoria › Mensagens (public/msglog.js) ---------- */
+.audit-tabs { margin: 4px 0 16px; }
+.ml-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.ml-sel, .ml-q { height: 34px; border-radius: 8px; border: 1px solid var(--divider); background: var(--bg-tert); color: var(--text); padding: 0 10px; font: inherit; font-size: 14px; max-width: 220px; }
+.ml-q { flex: 1; min-width: 180px; max-width: none; }
+.ml-list { display: flex; flex-direction: column; gap: 8px; }
+.ml-entry { background: var(--bg-sec); border-radius: 10px; padding: 12px; border-left: 3px solid var(--brand); }
+.ml-entry.ml-delete { border-left-color: var(--red, #f23f43); }
+.ml-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ml-who { flex: 1; min-width: 0; display: flex; flex-direction: column; } .ml-who b { color: var(--header); } .ml-who small { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.ml-ch { color: var(--text-link, #00a8fc) !important; }
+.ml-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 10px; background: var(--bg-pri); color: var(--text-muted); flex: none; }
+.ml-tag .icon, .ml-empty .icon { fill: currentColor; }
+.ml-body { margin: 10px 0 0 42px; }
+.ml-text { background: var(--bg-pri); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.45; color: var(--text); }
+.ml-gone { text-decoration: none; color: var(--text-muted); }
+.ml-diff del { background: rgba(242, 63, 67, .22); color: #ff9ea0; text-decoration: line-through; border-radius: 3px; }
+.ml-diff ins { background: rgba(35, 165, 90, .25); color: #7ee2a8; text-decoration: none; border-radius: 3px; }
+:root[data-theme="light"] .ml-diff del { color: #a1181c; } :root[data-theme="light"] .ml-diff ins { color: #146c3a; }
+.ml-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .ml-cmp small { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin: 0 0 4px 2px; }
+.ml-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-muted); padding: 28px 0; } .ml-empty p { margin: 0; }
+.ml-more { margin-top: 12px; }
+.ml-keep { margin-top: 14px; }
+@media (max-width: 640px) { .ml-body { margin-left: 0; } .ml-cmp { grid-template-columns: 1fr; } .ml-sel { flex: 1; max-width: none; } }
+.ml-diff del + ins { margin-left: 3px; }
+
+/* ---------- tela inicial: abas Amigos | Jogar | Descobrir no topo (gamestabs.js) ---------- */
+.mtabs { display: flex; align-items: center; gap: 4px; flex: none; }
+.mtab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--interactive, var(--text-muted)); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.mtab .icon { fill: currentColor; flex: none; }
+.mtab:hover { background: var(--bg-mod-hover); color: var(--header); }
+.mtab.on { background: var(--bg-mod-selected, #404249); color: var(--header); }
+.mtab-sep { width: 1px; height: 24px; background: var(--divider); margin: 0 6px; flex: none; }
+#topbar .gtabs { min-width: 0; overflow-x: auto; scrollbar-width: none; } #topbar .gtabs::-webkit-scrollbar { display: none; }
+@media (max-width: 640px) { .mtab span { display: none; } .mtab.on span { display: inline; } .mtab { padding: 0 8px; } }
+
+/* ---------- anúncios compactos (lfg.js lfgMini): topo dos canais do servidor, Ativo agora e Jogar juntos ---------- */
+.lfgm { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; background: var(--bg-tert); border-left: 3px solid var(--gc, var(--brand)); cursor: pointer; min-width: 0; }
+.lfgm + .lfgm { margin-top: 6px; }
+.lfgm:hover { background: var(--bg-mod-hover); }
+.lfgm-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lfgm-t b { color: var(--header); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.lfgm-t small { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+.lfgm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gc, var(--brand)); flex: none; }
+.lfgm .btn.sm { flex: none; padding: 0 10px; height: 26px; font-size: 12.5px; }
+.lfgm-st { flex: none; font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 3px; } .lfgm-st.ok { color: var(--green); } .lfgm-st .icon { fill: currentColor; }
+.side-lfg { margin: 0 0 8px; padding: 0 0 8px; border-bottom: 1px solid var(--divider); }
+.side-lfg-cap { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--green); margin: 2px 4px 6px; }
+.side-lfg-cap .icon { fill: currentColor; } .side-lfg-cap span { flex: 1; }
+.side-lfg-all, .an-capbtn { border: 0; background: none; color: var(--text-link, #00a8fc); font: inherit; font-size: 12px; font-weight: 600; text-transform: none; cursor: pointer; padding: 0; }
+#active-now .an-lfg .an-cap { display: flex; justify-content: space-between; align-items: center; }
+#active-now .an-lfg { margin-bottom: 8px; }
+/* ---------- Jogar juntos (playtogether.js) ---------- */
+.pt-btn { display: inline-flex; align-items: center; gap: 6px; background: color-mix(in srgb, var(--green) 20%, var(--bg-tert)); color: var(--header); height: 30px; padding: 0 12px; margin-right: 6px; white-space: nowrap; }
+.pt-btn .icon, .pt .icon { fill: currentColor; } .pt-btn:hover { background: var(--green); color: #fff; }
+.pt-now { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--green) 14%, var(--bg-tert)); color: var(--text); margin-bottom: 12px; } .pt-now b { color: var(--header); }
+.pt-cap { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin: 14px 0 8px; } .pt-cap:first-child { margin-top: 0; }
+.pt-hint, .pt-load { color: var(--text-muted); font-size: 13.5px; margin: 6px 0; }
+.pt-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; } .pt-acts .btn { display: inline-flex; align-items: center; gap: 6px; }
+.pt-acts .btn[disabled] { opacity: .5; cursor: not-allowed; }
+@media (max-width: 640px) { .pt-btn span { display: none; } .pt-btn { padding: 0 8px; } }

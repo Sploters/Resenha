@@ -75,7 +75,7 @@ try {
   await P.goto(BASE); await P.waitForSelector('#rail');
   await P.evaluate(() => window.__lc.go('@me', 'discover')); // seção Jogos, aba Início
   await P.waitForSelector('#discoverview .dint'); await sleep(1500);
-  ok(await P.evaluate(() => [...document.querySelectorAll('.dtab')].map(x => x.textContent).join(',') === 'Procurar jogadores,Conquistas,Radar,Início,Notícias,Torneios'), 'abas da seção Jogos: Procurar jogadores, Conquistas, Radar, Início, Notícias, Torneios');
+  ok(await P.evaluate(() => [...document.querySelectorAll('.mtab')].map(x => x.textContent).join(',') === 'Amigos,Jogar,Descobrir' && [...document.querySelectorAll('.dtab')].map(x => x.textContent).join(',') === 'Para você,Conquistas,Notícias,Torneios'), 'abas: Amigos, Jogar, Descobrir no topo; Descobrir com Para você, Conquistas, Notícias e Torneios');
   const secs = () => P.evaluate(() => [...document.querySelectorAll('.dhsec')].map(s => ({ k: s.dataset.sec, cards: s.querySelectorAll('.dcard').length, rail: !!s.querySelector('.drail'), rows: s.querySelectorAll('.drow').length, more: s.querySelector('.dmore')?.textContent || '' })));
   const home = await secs();
   ok(['charts', 'deals', 'upcoming', 'tournaments', 'news'].every(k => home.some(x => x.k === k)), 'Início: Na Steam, Promoções, Lançamentos, Torneios e Notícias', home);
@@ -133,7 +133,7 @@ try {
   ok(await P.evaluate(() => document.querySelectorAll('.dtimg img').length === 3), 'imagens dos torneios (og:image) carregadas', await P.evaluate(() => document.querySelectorAll('.dtimg img').length));
   await P.screenshot({ path: OUT + '/disc-torneios.png' });
 
-  await tab('Início');
+  await tab('Para você');
   const addInt = async (t) => { await P.waitForSelector('.dint-in'); await P.evaluate(() => document.querySelector('.dint-in').focus()); await P.keyboard.type(t); await P.keyboard.press('Enter'); await sleep(400); };
   await addInt('Estrela Cadente'); await addInt('Valorant');
   const fy = await P.evaluate(() => { const s = document.querySelector('.dhsec[data-sec="foryou"]'); return { titles: [...s.querySelectorAll('.dcard .dtitle')].map(x => x.textContent), kinds: [...s.querySelectorAll('.dcard .dmeta b')].map(x => x.textContent), more: s.querySelector('.dmore')?.textContent }; });

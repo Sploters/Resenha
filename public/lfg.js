@@ -1,7 +1,7 @@
 // Procurar jogadores: mural de anúncios (quem divide servidor com você ou é seu amigo), "Quero entrar" → o autor
 // aceita e você vai para a chamada, "Copiar anúncio" para colar em grupos de LFG, perfil de jogador e atalhos para sites.
 import { h, icon, avatar } from './util.js';
-import { S, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
+import { S, api, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
 import { toggle } from './ui.js';
 import { gamesTabs } from './gamestabs.js';
 import { flow } from './ux.js';
@@ -61,7 +61,32 @@ export function adText(p) {
 async function load() {
   await meta();
   const r = await tryApi('GET', '/lfg/posts'); if (!r) return;
-  st.posts = r; draw();
+  st.posts = r; postsAt = Date.now(); draw(); changedPosts();
+}
+
+// ---------- anúncios fora do mural: no topo dos canais do servidor, no Ativo agora e no "Jogar juntos" da DM ----------
+// carregados uma vez por minuto no máximo; os eventos (LFG_POST) mantêm a lista em dia depois disso
+let postsAt = 0, postsP = null;
+const changedPosts = () => ctx.onPosts?.();
+export function ensureLfgPosts(maxAge = 60e3) {
+  if (postsP) return postsP;
+  if (Date.now() - postsAt < maxAge) return Promise.resolve();
+  postsAt = Date.now();
+  postsP = (async () => { try { await meta(); st.posts = await api('GET', '/lfg/posts'); changedPosts(); } catch { /* fora do ar: tenta na próxima */ } finally { postsP = null; } })();
+  return postsP;
+}
+// grupos abertos de outras pessoas (agora ou nas próximas 3 h); gid: só de quem está naquele servidor com você
+export const openPosts = (gid) => st.posts.filter(p => !p.closed && p.author.id !== S.me.id && (!gid || p.guilds?.includes(gid)) && (!p.when_at || p.when_at < Date.now() + 3 * 3600e3))
+  .sort((a, b) => (a.when_at || a.created_at) - (b.when_at || b.created_at));
+// cartão compacto: quem procura, jogo, modo e quando, com Entrar/Pedir para entrar sem sair da tela
+export function lfgMini(p) {
+  const g = G(p.game) || { color: '#5865f2' }, myReq = p.requests.find(r => r.user.id === S.me.id);
+  const act = myReq?.state === 'accepted' ? h('span.lfgm-st.ok', icon('check', 14), 'No grupo')
+    : myReq?.state === 'pending' ? h('span.lfgm-st', 'Pedido enviado')
+      : h('button.btn.green.sm', { type: 'button', title: p.join_mode === 'open' ? 'Entra direto no grupo' : `${p.author.display_name} aceita ou recusa`, onclick: (e) => { e.stopPropagation(); join(p); } }, p.join_mode === 'open' ? 'Entrar' : 'Pedir');
+  return h('div.lfgm', { style: { '--gc': g.color }, title: adText(p), role: 'button', tabindex: 0, onclick: () => ctx.go('@me', 'lfg') },
+    avatar(p.author, 28, { status: false }),
+    h('div.lfgm-t', h('b', h('i.lfgm-dot'), `${p.game_name} · ${p.mode}`), h('small', `${p.author.display_name} procura ${p.slots === 1 ? '1' : p.slots} · ${whenText(p)}`)), act);
 }
 export async function renderLfg(main) {
   st.root = h('div#lfgview'); main.replaceChildren(st.root);
@@ -168,7 +193,7 @@ async function enterRoom(room) {
   ctx.go(room.guild_id, room.channel_id);
   if (ctx.voiceChannel?.() !== room.channel_id) ctx.joinVoice?.(room.channel_id);
 }
-function upsert(p) { const i = st.posts.findIndex(x => x.id === p.id); if (i >= 0) st.posts[i] = p; else st.posts.push(p); draw(); }
+function upsert(p) { const i = st.posts.findIndex(x => x.id === p.id); if (i >= 0) st.posts[i] = p; else st.posts.push(p); draw(); changedPosts(); }
 
 // replaceChildren não achata listas nem ignora partes ocultas (false/null): esta versão faz as duas coisas
 const put = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(k => k || k === 0));
@@ -311,7 +336,7 @@ export function onLfgEvent(t, d) {
       playSound('mention'); toast(`${d.author.display_name} procura ${d.slots === 1 ? '1 pessoa' : d.slots + ' pessoas'} para ${d.game_name} (${d.mode})`);
       notify(`Procurando grupo: ${d.game_name}`, `${d.author.display_name} · ${d.mode} · precisa de ${d.slots}`, () => ctx.go('@me', 'lfg'));
     }
-    if (st.root && document.body.contains(st.root)) upsert(d); else { const i = st.posts.findIndex(p => p.id === d.id); if (i >= 0) st.posts[i] = d; else st.posts.push(d); }
+    upsert(d); // desenha o mural se estiver aberto e avisa as outras telas (changedPosts)
   }
   if (t === 'LFG_REQUEST') {
     if (alertAllowed('dm')) playSound('mention'); toast(`${d.user.display_name} quer entrar no seu grupo de ${d.game_name}`);

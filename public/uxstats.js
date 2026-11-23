@@ -14,7 +14,7 @@ import { seg } from './ui.js';
 import { UX_VERSION } from './ux.js';
 
 const DEV = { desktop: 'PC', mobile: 'Celular', app: 'App desktop' };
-const TABS = { lfg: 'Procurar jogadores', home: 'Início', news: 'Notícias', tournaments: 'Torneios' };
+const TABS = { lfg: 'Procurar jogadores', radar: 'Radar', home: 'Para você', trophies: 'Conquistas', news: 'Notícias', tournaments: 'Torneios' };
 // consumo real do app desktop (evento perf, public/lite.js): por modo, a faixa da metade e dos 90% das amostras de 5 min
 const PERF_MODES = [['ocioso', 'Parado'], ['voz', 'Em chamada'], ['assistindo', 'Assistindo transmissão'], ['transmitindo', 'Transmitindo']];
 const PERF_CPU_L = ['1%', '2,5%', '5%', '10%', '20%', '40%', 'mais de 40%'], PERF_MEM_L = ['250 MB', '400 MB', '600 MB', '900 MB', '1,3 GB', '2 GB', 'mais de 2 GB'];

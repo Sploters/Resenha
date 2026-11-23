@@ -5,7 +5,7 @@ import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
 import { openViewer } from './viewer.js';
 import { e2eeOutgoing, decryptDeep } from './e2ee.js';
 
-export const PERM = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512 };
+export const PERM = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512, VIEW_MSGLOG: 1024 };
 export const PERM_LABELS = [
   [PERM.ADMIN, 'Administrador', 'Todas as permissões; ignora qualquer restrição.'],
   [PERM.MANAGE_GUILD, 'Gerenciar servidor', 'Alterar nome e ícone do servidor.'],
@@ -17,6 +17,7 @@ export const PERM_LABELS = [
   [PERM.BAN, 'Banir membros', 'Banir e desbanir membros do servidor.'],
   [PERM.MODERATE, 'Castigar membros', 'Impedir temporariamente que alguém fale, reaja ou entre em voz.'],
   [PERM.VOICE_MOD, 'Moderar voz', 'Mutar e ensurdecer pessoas nas salas de voz, mover entre salas e desconectar da chamada (só quem está abaixo do seu cargo).'],
+  [PERM.VIEW_MSGLOG, 'Ver registro de mensagens', 'Consultar no Registro de auditoria as mensagens editadas e excluídas dos canais do servidor (com o texto antes e depois). Conversas diretas nunca entram.'],
 ];
 
 export const S = {

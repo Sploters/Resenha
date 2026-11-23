@@ -76,8 +76,9 @@ export function mountGuilds(app, d) {
     run('INSERT INTO bans(guild_id,user_id,reason,by_id,created_at) VALUES(?,?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET reason=excluded.reason', gid, target, reason, req.uid, Date.now());
     if (get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, target)) removeMember(gid, target, true);
     if (req.body.delete_messages) { // apaga as mensagens das últimas 24 h
-      for (const m of all('SELECT m.id,m.channel_id FROM messages m JOIN channels c ON c.id=m.channel_id WHERE c.guild_id=? AND m.author_id=? AND m.created_at>?', gid, target, Date.now() - 86400000)) {
+      for (const m of all('SELECT m.*, c.name ch_name FROM messages m JOIN channels c ON c.id=m.channel_id WHERE c.guild_id=? AND m.author_id=? AND m.created_at>?', gid, target, Date.now() - 86400000)) {
         run('DELETE FROM messages WHERE id=?', m.id);
+        d.msglog.record('delete', { id: m.channel_id, guild_id: gid, name: m.ch_name }, m, req.uid);
         dispatch(guildMemberIds(gid), 'MESSAGE_DELETE', { id: m.id, channel_id: m.channel_id, guild_id: gid });
       }
     }

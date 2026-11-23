@@ -6,6 +6,7 @@ import { h, icon, avatar, screenSkeleton } from './util.js';
 import { S, api, user, channelById, dmPeer, toast, savePrefs, CH, chCan } from './state.js';
 import { chName } from './chnames.js';
 import { renderLfg } from './lfg.js';
+import { playTogetherBtn } from './playtogether.js';
 import { renderFiles, filesPreset, releaseFiles } from './files.js';
 import { renderForum, paintLocked, forumOfPost } from './forum.js';
 import { renderClips, releaseClips } from './clipsgallery.js';
@@ -85,6 +86,7 @@ export function renderMain() {
       // sala de voz: só o botão que mostra o chat; aberto, ele vira o X no topo do próprio chat
       vc && h('div#vc-layout-slot'),
       vc ? !chatOpen && h('button#vc-chat-btn.ibtn' + (S.unread[ch.id] ? '.unread' : ''), { title: 'Mostrar chat', onclick: () => toggleVcChat(ch) }, icon('dm')) : [
+        dm && peer && !user(peer.id).bot && playTogetherBtn(peer), // "Jogar juntos" (playtogether.js)
         dm && h('button#e2-btn.ibtn.e2-off', { title: 'Criptografia de ponta a ponta', 'aria-label': 'Criptografia de ponta a ponta', onclick: () => e2eeClick(ch) }, icon('lock')),
         dm && h('button.ibtn', { title: voice.channelId === ch.id ? 'Desligar' : 'Iniciar chamada de voz', onclick: () => voice.channelId === ch.id ? voice.leave() : joinVoice(ch.id) }, icon(voice.channelId === ch.id ? 'phoneoff' : 'callstart')),
         dm && h('button.ibtn' + (voice.channelId === ch.id && voice.cam ? '.sel' : ''), { title: voice.channelId === ch.id ? (voice.cam ? 'Desligar câmera' : 'Ligar câmera') : 'Iniciar chamada de vídeo', onclick: () => videoCall(ch.id) }, icon('video')),

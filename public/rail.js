@@ -7,8 +7,7 @@ import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
 import { setLfgGuild } from './lfg.js';
 import { track, flow } from './ux.js';
-import { isRepMod, repModal } from './mod.js';
-import { guildGamesRow } from './activity.js';
+import { isRepMod, repModal, auditModal } from './mod.js';
 import { voice, $, deferRender, logout } from './gateway.js';
 import { ack } from './unread.js';
 import { openSettings, go } from './nav.js';
@@ -31,9 +30,11 @@ export function renderRail() {
   const pending = [...S.rels.values()].filter(r => r.type === 3).length;
   const wrap = (cls, tip, el, extra, id) => h('div.rail-wrap' + cls, { 'data-tip': tip, 'data-id': id || null }, el, extra);
   const badge = (n) => n > 0 ? h('div.badge', n > 99 ? '99+' : n) : null;
-  const meView = S.view.gid === '@me' && !inGames() && !S.favMode;
+  // um botão só para a tela inicial (Amigos, Jogar e Descobrir em abas no topo, conversas na lista ao lado): a barra
+  // fica para os servidores e as conversas fixadas
+  const meView = S.view.gid === '@me' && !S.favMode;
   rail.replaceChildren(
-    wrap('.rail-fly' + (meView ? '.active' : ''), 'Mensagens e amigos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
+    wrap('.rail-fly.rail-msgs' + (meView ? '.active' : ''), 'Amigos, conversas e jogos', h('div.rail-item.rail-tool', { onclick: () => openMeSection(), style: { fontSize: '0' } }, icon('dm', 26)), badge(dmMentions + pending)),
     wrap('.rail-fly' + (S.searchOpen ? '.active' : ''), 'Buscar em tudo (Ctrl+Shift+F)', h('div.rail-item.rail-tool', { 'data-fly': 'gs', onclick: () => toggleGlobalSearch(), style: { fontSize: '0' } }, icon('search', 26))),
     // canais favoritos (de qualquer servidor, juntos): aparece quando há pelo menos um
     favList().length > 0 && wrap('.rail-fly' + (S.favMode ? '.active' : '') + (!S.favMode && favList().some(f => S.unread[f.c]) ? '.unread' : ''), 'Canais favoritos',
@@ -51,8 +52,6 @@ export function renderRail() {
       return w;
     }),
     wrap('', 'Adicionar um servidor', h('div.rail-item.add', { onclick: addServerModal, style: { fontSize: '0' } }, icon('plus', 24))),
-    // Jogos: Procurar jogadores e Descobrir, uma seção própria (como um servidor), logo abaixo de adicionar servidor
-    wrap('.rail-games' + (inGames() ? '.active' : ''), 'Jogos: procurar jogadores e descobrir', h('div.rail-item.rail-tool.games-btn', { onclick: () => openGames(), style: { fontSize: '0' } }, icon('gamepad', 24))),
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
 }
@@ -71,22 +70,22 @@ export function railSortable(rail) {
 }
 export function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
 export const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover' || S.view.kind === 'trophies' || S.view.kind === 'radar');
-function openGames() { track('games_open'); S.favMode = false; const last = localStorage.getItem('lc_games'); go('@me', last === 'discover' || last === 'trophies' || last === 'radar' ? last : 'lfg'); } // volta para a última aberta
 // ícone de mensagens da barra: Amigos no meio e as conversas na lista
 function openMeSection() { if (S.view.kind === 'dm') track('back_to_friends', 'rail'); S.favMode = false; go('@me'); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
-const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
+export const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
 // jogos que a galera do servidor mais joga (como no cartão do servidor no Discord): pedido no máximo a cada 10 min por
 // servidor; quando chega, a lista redesenha. Sem jogos com gente suficiente, não aparece nada
 const ggCache = new Map();
-export function srvGames(g) {
+// onReady: chamado quando a lista chega (quem mostra redesenha); devolve a lista guardada (ou null enquanto carrega)
+export function guildGames(g, onReady) {
   let c = ggCache.get(g.id);
   if ((!c || Date.now() - c.at > 10 * 60e3) && !c?.p) {
     const e = { at: c?.at || 0, list: c?.list || null, p: null }; ggCache.set(g.id, c = e);
-    e.p = api('GET', `/guilds/${g.id}/games`).then(r => { e.list = r?.games || []; }).catch(() => { }).finally(() => { e.at = Date.now(); e.p = null; if (S.view.gid === g.id && e.list?.length) renderSide(); });
+    e.p = api('GET', `/guilds/${g.id}/games`).then(r => { e.list = r?.games || []; }).catch(() => { }).finally(() => { e.at = Date.now(); e.p = null; if (S.view.gid === g.id && e.list?.length) onReady?.(); });
   }
-  return c.list?.length ? h('div.srv-games', h('span.sg-l', 'Jogam aqui'), guildGamesRow(c.list, { size: 20, show: 6 })) : null;
+  return c.list?.length ? c.list : null;
 }
 function voiceCard(anchor, g) {
   document.getElementById('vcard')?.remove();
@@ -104,7 +103,7 @@ const srvNow = () => Date.now() + (S.clockOff || 0);
 export const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t, 'data-srv': '' }, fmtDur(srvNow() - t)) : null; };
 setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur((e.hasAttribute('data-srv') ? srvNow() : Date.now()) - +e.dataset.start); }), 1000);
 
-function addServerModal() {
+export function addServerModal() {
   flow('add_server', 'start');
   const name = h('input', { value: `Servidor de ${S.me.display_name}`, maxLength: 100 }), code = h('input', { placeholder: 'https://… ou código do convite' });
   modal('Crie seu servidor', 'Seu servidor é onde você e seus amigos conversam.', h('div',
@@ -154,6 +153,7 @@ export function guildMenu(e, g) {
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar canal', fn: () => channelModal(g, 0) },
     can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar categoria', fn: () => channelModal(g, 4) },
     isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
+    (can(g.id, PERM.MANAGE_GUILD) || can(g.id, PERM.VIEW_MSGLOG)) && { label: 'Registro de auditoria', fn: () => auditModal(g.id) },
   ].filter(Boolean);
   menu(e, [
     canInvite(g) && { label: 'Convidar pessoas', fn: () => inviteModal(g) },

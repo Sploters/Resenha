@@ -20,6 +20,8 @@ function parts(t) {
   if (t.cid === 'events') return ['calendar', 'Eventos']; // eventos do servidor (events.js)
   if (t.cid === 'lfg') return ['gamepad', 'Procurar jogadores'];
   if (t.cid === 'discover') return ['compass', 'Descobrir'];
+  if (t.cid === 'trophies') return ['medal', 'Conquistas'];
+  if (t.cid === 'radar') return ['radar', 'Radar'];
   if (t.cid === 'messages') return ['dm', 'Mensagens'];
   const ch = D.channelById(t.cid);
   if (!ch) return [null, 'Canal removido'];

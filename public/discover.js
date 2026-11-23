@@ -10,7 +10,7 @@ import { S, api, savePrefs } from './state.js';
 import { gamesTabs, takeDiscoverTab } from './gamestabs.js';
 import { loadSuggestions, suggestionRow, openRetro } from './retro.js';
 
-const TABS = [['home', 'Início'], ['news', 'Notícias'], ['tournaments', 'Torneios']];
+const TABS = [['home', 'Para você'], ['news', 'Notícias'], ['tournaments', 'Torneios']];
 const ALL = ['charts', 'deals', 'upcoming', 'tournaments', 'news'];
 const PER_PAGE = 12;
 const st = { tab: 'home', data: {}, loading: {}, error: {}, at: {}, root: null, srcFilter: null, game: null, prize: false, page: 1, open: {}, editInt: false };

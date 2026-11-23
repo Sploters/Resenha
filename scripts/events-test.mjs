@@ -46,7 +46,7 @@ try {
   await P.evaluate((gid, cid) => window.__lc.go(gid, cid), g.id, text); await sleep(500);
 
   // marcar pela tela Eventos
-  ok(await P.evaluate(() => { const r = document.querySelector('#side-list .evrow'), f = document.querySelector('#side-list .wishrow'); return !!r && getComputedStyle(r).display === getComputedStyle(f).display && Math.abs(r.querySelector('.name').getBoundingClientRect().left - f.querySelector('.name').getBoundingClientRect().left) < 2; }), 'entrada "Eventos" na lista de canais, alinhada com as outras');
+  ok(await P.evaluate(() => { const r = document.querySelector('#side-list .evrow'), f = document.querySelector('#side-list .wishrow'); return !!r && !!f && r.parentElement === f.parentElement && r.parentElement.classList.contains('st-strip') && r.dataset.tip === 'Eventos' && Math.abs(r.getBoundingClientRect().top - f.getBoundingClientRect().top) < 2; }), 'atalho "Eventos" na faixa de ícones do servidor, na mesma linha dos outrras');
   await P.evaluate(() => document.querySelector('#side-list .evrow').click()); await P.waitForSelector('#eventsview .ev-empty');
   ok(await P.evaluate(() => /Nenhum evento marcado/.test(document.querySelector('#eventsview').innerText)), 'tela Eventos vazia explica como funciona');
   await P.evaluate(() => [...document.querySelectorAll('#eventsview .btn')].find(b => /Marcar evento/.test(b.textContent)).click());

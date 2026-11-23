@@ -33,19 +33,19 @@ try {
   await P.reload(); await P.waitForSelector('#rail .rail-wrap'); await sleep(800);
   await P.evaluate(() => window.__lc.go('@me')); await sleep(800);
   const st = () => P.evaluate(() => ({
-    tabs: [...document.querySelectorAll('#home #topbar .tab')].map(t => t.textContent.trim()),
+    tabs: [...document.querySelectorAll('#home #topbar .mtab, #home #topbar .tab')].map(t => t.textContent.trim()),
     groups: [...document.querySelectorAll('#home .pane .fgroup')].map(g => g.textContent.replace(/\s+/g, ' ').trim()),
     rows: [...document.querySelectorAll('#home .pane .frow b')].map(b => b.textContent),
     sideHead: document.querySelector('#side-head')?.textContent.trim(), metabs: document.querySelectorAll('.metab').length,
     friendsRow: !!document.querySelector('#side-list .friendsrow'), dmHead: !!document.querySelector('#side-head #dm-q') && !!document.querySelector('#side-head .dm-sort') && !document.querySelector('#side-head .sh-btn'),
-    lfgInSide: !!document.querySelector('#side-list .lfgrow-side'), games: !!document.querySelector('#rail .rail-games'),
+    lfgInSide: !!document.querySelector('#side-list .lfgrow-side'), games: !document.querySelector('#rail .rail-games') && document.querySelectorAll('#rail > .rail-wrap.rail-fly').length === 2,
   }));
   let s = await st();
-  ok(!s.tabs.includes('Online') && s.tabs.includes('Todos'), 'Online e Todos viraram uma aba só', s.tabs);
+  ok(/^Amigos,Jogar,Descobrir,Adicionar amigo\d*$/.test(s.tabs.join()), 'abas do topo: Amigos, Jogar, Descobrir e Adicionar amigo', s.tabs);
   ok(s.groups.length === 3 && /^Pedidos/.test(s.groups[0]) && /^Online/.test(s.groups[1]) && /^Offline/.test(s.groups[2]), 'grupos Pedidos / Online / Offline', s.groups);
   ok(s.rows.join() === 'caio,duda,ana,bia', 'ordem: pedidos, online, offline', s.rows);
   ok(s.metabs === 0 && s.dmHead && !s.friendsRow, 'sem abas Mensagens|Amigos e sem a linha "Amigos": só as conversas ao lado; no topo, busca e ordenar', s);
-  ok(!s.lfgInSide && s.games, 'Procurar jogadores/Descobrir saíram da lista; ícone Jogos na barra', s);
+  ok(!s.lfgInSide && s.games, 'Jogos fora da lista e da barra: um botão principal + busca', s);
   await P.screenshot({ path: `${SHOTS}/fm-01-amigos.png` });
   // recolher Offline
   await P.evaluate(() => [...document.querySelectorAll('#home .fgroup')].find(g => /Offline/.test(g.textContent)).click()); await sleep(300);
@@ -70,25 +70,26 @@ try {
   await P.keyboard.press('Escape'); await sleep(500);
   ok(await P.evaluate(() => window.__lc.S.view.kind === 'home'), 'Esc com o foco fora do campo também volta');
   await P.evaluate(() => window.__lc.go('@me', [...window.__lc.S.dms.values()][0].id)); await sleep(700);
-  await P.evaluate(() => document.querySelector('#rail .rail-fly .rail-item').click()); await sleep(600);
+  await P.evaluate(() => document.querySelector('#rail .rail-msgs .rail-item').click()); await sleep(600);
   ok(await P.evaluate(() => !!document.querySelector('#home .fgroup') && window.__lc.S.view.kind === 'home'), 'o ícone de Mensagens na barra volta para a lista de amigos');
   await P.evaluate(() => { location.hash = '#/@me/messages'; }); await sleep(600);
   ok(await P.evaluate(() => window.__lc.S.view.kind === 'home' && !!document.querySelector('#home')), 'link antigo #/@me/messages abre a mesma tela');
-  // seção Jogos
-  await P.evaluate(() => document.querySelector('#rail .rail-games .rail-item').click()); await sleep(1200);
-  s = await P.evaluate(() => ({ kind: window.__lc.S.view.kind, head: document.querySelector('#side-head')?.textContent.trim(), rows: [...document.querySelectorAll('#side-list .ch .name')].map(e => e.textContent), railActive: !!document.querySelector('#rail .rail-games.active'), meActive: !!document.querySelector('#rail .rail-wrap.rail-fly.active') }));
-  ok(s.kind === 'lfg' && s.head === 'Jogos' && s.rows.join() === 'Procurar jogadores,Conquistas,Início,Notícias,Torneios' && s.railActive && !s.meActive, 'ícone Jogos abre a seção: a lista ao lado navega entre as cinco áreas', s);
-  ok(await P.evaluate(() => document.querySelector('#side-list .gnav.active')?.dataset.k === 'lfg'), 'a área aberta fica marcada na lista ao lado');
-  ok(await P.evaluate(() => [...document.querySelectorAll('#lfgview .gtabs .dtab')].map(x => x.textContent).join() === 'Procurar jogadores,Conquistas,Início,Notícias,Torneios'), 'Procurar jogadores e Descobrir são abas da mesma tela');
+  // Jogos: abas Jogar e Descobrir no topo da tela inicial; a lista ao lado continua com as conversas
+  await P.evaluate(() => window.__lc.go('@me')); await sleep(500);
+  await P.evaluate(() => [...document.querySelectorAll('#home .mtab')].find(b => /Jogar/.test(b.textContent)).click()); await sleep(1200);
+  s = await P.evaluate(() => ({ kind: window.__lc.S.view.kind, dmList: !!document.querySelector('#side-list.dmlist'), on: document.querySelector('#topbar .mtab.on')?.textContent.trim(),
+    sub: [...document.querySelectorAll('#lfgview .gtabs .dtab')].map(x => x.textContent).join(), meActive: !!document.querySelector('#rail .rail-msgs.active') }));
+  ok(s.kind === 'lfg' && s.dmList && s.on === 'Jogar' && s.sub === 'Procurar jogadores,Radar' && s.meActive, 'Jogar abre Procurar jogadores (com Radar ao lado); a lista ao lado continua com as conversas', s);
   await P.screenshot({ path: `${SHOTS}/fm-03-jogos.png` });
-  await P.evaluate(() => [...document.querySelectorAll('#lfgview .gtabs .dtab')].find(e => /Notícias/.test(e.textContent)).click()); await sleep(1200);
+  await P.evaluate(() => [...document.querySelectorAll('#topbar .mtab')].find(e => /Descobrir/.test(e.textContent)).click()); await sleep(1200);
+  s = await P.evaluate(() => ({ kind: window.__lc.S.view.kind, sub: [...document.querySelectorAll('#discoverview .gtabs .dtab')].map(x => x.textContent).join() }));
+  ok(s.kind === 'discover' && s.sub === 'Para você,Conquistas,Notícias,Torneios', 'Descobrir: Para você, Conquistas, Notícias e Torneios', s);
+  await P.evaluate(() => [...document.querySelectorAll('#discoverview .gtabs .dtab')].find(e => /Notícias/.test(e.textContent)).click()); await sleep(800);
   ok(await P.evaluate(() => window.__lc.S.view.kind === 'discover' && /Notícias/.test(document.querySelector('#discoverview .dtab.on')?.textContent)), 'aba Notícias abre o Descobrir já em Notícias');
-  await P.evaluate(() => [...document.querySelectorAll('#discoverview .gtabs .dtab')].find(e => /Procurar/.test(e.textContent)).click()); await sleep(800);
-  ok(await P.evaluate(() => window.__lc.S.view.kind === 'lfg'), 'aba Procurar jogadores volta ao mural');
-  await P.evaluate(() => window.__lc.go('@me', 'discover')); await sleep(800);
-  await P.evaluate(() => window.__lc.go('@me')); await sleep(400);
-  await P.evaluate(() => document.querySelector('#rail .rail-games .rail-item').click()); await sleep(800);
-  ok(await P.evaluate(() => window.__lc.S.view.kind === 'discover'), 'Jogos lembra a última (Descobrir)');
+  await P.evaluate(() => [...document.querySelectorAll('#topbar .mtab')].find(e => /Amigos/.test(e.textContent)).click()); await sleep(800);
+  ok(await P.evaluate(() => window.__lc.S.view.kind === 'home'), 'aba Amigos volta para os amigos');
+  await P.evaluate(() => [...document.querySelectorAll('#home .mtab')].find(e => /Descobrir/.test(e.textContent)).click()); await sleep(1000);
+  ok(await P.evaluate(() => /Notícias/.test(document.querySelector('#discoverview .dtab.on')?.textContent || '')), 'Descobrir lembra a última área aberta (Notícias)');
 } catch (e) { console.log('  FAIL', e.stack); fails++; }
 await browser.close(); srv.kill(); fs.rmSync('.testdata-fm', { recursive: true, force: true });
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); process.exit(fails ? 1 : 0);

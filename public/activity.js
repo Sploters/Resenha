@@ -16,6 +16,7 @@ import { intentSection } from './intents.js';
 import { liveIn, boraCard, openBoraModal } from './bora.js';
 import { toggle, section, seg } from './ui.js';
 
+import { openPosts, lfgMini, ensureLfgPosts } from './lfg.js';
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
 export const initActivity = (c) => Object.assign(ctx, c);
 S.activities = new Map();      // 'uid:platform' -> { user_id, platform, game:{id,title}, since, state }
@@ -229,6 +230,22 @@ export function guildGamesRow(list, { size = 24, show = 5 } = {}) {
   return h('div.gg', { role: 'list', 'aria-label': 'Jogos que a galera mais joga' }, ...head.map(btn), more, extra);
 }
 
+// "Jogam aqui" no topo da lista de membros: um jogo por linha (ícone, nome, quantos jogaram e quantos jogam agora),
+// os 4 primeiros à vista e "Mostrar mais" com o resto, tudo em coluna (no cabeçalho do servidor, abrir a lista quebrava
+// o layout). O bloco recolhe pelo título e lembra (lc_gg_col)
+const ggState = { col: (() => { try { return localStorage.getItem('lc_gg_col') === '1'; } catch { return false; } })(), all: false };
+export function guildGamesPanel(list, redraw) {
+  if (!list?.length) return null;
+  const col = ggState.col, shown = ggState.all ? list : list.slice(0, 4);
+  const row = (x) => h('button.ggp-row', { type: 'button', title: ggTip(x), onclick: openGame(x) }, gameIcon(x, 24),
+    h('span.ggp-t', titleEl(x, 'b'), h('small', `${x.players} ${x.players === 1 ? 'pessoa' : 'pessoas'}` + (x.playing ? ` · ${x.playing} jogando agora` : ''))),
+    x.hot && h('span.gg-hot.ggp-hot', { title: 'Muita gente jogando nesta semana' }, icon('fire', 12)));
+  return h('div.ggp',
+    h('button.mgroup.ggp-head' + (col ? '.col' : ''), { type: 'button', 'aria-expanded': String(!col), title: col ? 'Mostrar os jogos' : 'Recolher', onclick: () => { ggState.col = !col; try { localStorage.setItem('lc_gg_col', ggState.col ? '1' : '0'); } catch { } redraw(); } },
+      icon('caret', 12), h('span.mg-name', 'Jogam aqui'), h('span.mg-n', list.length)),
+    !col && h('div.ggp-list', shown.map(row),
+      list.length > 4 && h('button.ggp-more', { type: 'button', onclick: () => { ggState.all = !ggState.all; redraw(); } }, ggState.all ? 'Mostrar menos' : `Mostrar mais ${list.length - 4}`)));
+}
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando
 export function voiceGameIcon(uid) {
   const a = activityOf(uid); if (!a) return null;
@@ -738,7 +755,16 @@ const recentRow = (x) => {
 };
 
 // painel inteiro. Topo, em destaque: o que os amigos estão fazendo AGORA (jogando, em chamada, online). Embaixo: os destaques.
+// "Procurando grupo": anúncios abertos de amigos e de quem divide servidor com você (Procurar jogadores), amigos primeiro,
+// com Entrar direto; "Ver todos" abre o mural
+function lfgSection() {
+  const fr = (p) => S.rels.get(p.author.id)?.type === 1;
+  const ads = openPosts().sort((a, b) => fr(b) - fr(a));
+  if (!ads.length) return '';
+  return h('section.an-lfg', h('div.an-cap', `Procurando grupo — ${ads.length}`, ads.length > 3 && h('button.an-capbtn', { type: 'button', onclick: () => ctx.go('@me', 'lfg') }, 'Ver todos')), ...ads.slice(0, 3).map(lfgMini));
+}
 export function activityPanel(box) {
+  ensureLfgPosts();
   box.id ||= 'active-now';
   const body = h('div#actfeed.an-body');
   box.replaceChildren(h('h3', 'Ativo agora'), body);
@@ -774,7 +800,7 @@ export function activityPanel(box) {
     if (recent.length) now.push(h('div.an-cap.an-pastcap', 'Nos últimos dias'), ...recent.map(recentRow));
     // "Desde a última vez" no topo; "A fim de jogar" (public/intents.js): minha intenção, convites para mim e o atalho;
     // embaixo a retrospectiva da semana
-    body.replaceChildren(back || '', boraSection(), intentSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
+    body.replaceChildren(back || '', boraSection(), intentSection(), lfgSection(), forMe.length ? h('section.an-forme', ...forMe) : '', h('section.an-now', ...now), ...weekSections());
     // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
     document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);
   };

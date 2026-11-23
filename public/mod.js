@@ -2,6 +2,7 @@
 import { h, icon, avatar, stamp, busy } from './util.js';
 import { S, tryApi, toast, modal, nameOf, user, guild, member, can, outranks, chCan, CH, PERM, channelById } from './state.js';
 import { seg, toggle, row, section } from './ui.js';
+import { msglogPanel, canMsgLog } from './msglog.js';
 
 const DURATIONS = { 60: '60 s', 300: '5 min', 600: '10 min', 3600: '1 hora', 86400: '1 dia', 604800: '1 semana' };
 export const timedOutUntil = (gid, uid) => { const t = member(gid, uid)?.timeout_until; return t && t > Date.now() ? t : null; };
@@ -69,7 +70,7 @@ export function bansPage(gid) {
 const ACTIONS = {
   voice_mute: 'mutou na voz', voice_unmute: 'desmutou na voz', voice_deaf: 'ensurdeceu na voz', voice_undeaf: 'tirou o ensurdecer de', voice_move: 'moveu de sala', voice_disconnect: 'desconectou da chamada',
   member_kick: 'expulsou', member_ban: 'baniu', member_unban: 'desbaniu', member_timeout: 'deu castigo a', member_timeout_remove: 'tirou o castigo de',
-  member_roles: 'alterou os cargos de', message_delete: 'apagou uma mensagem de', message_spoiler: 'marcou como spoiler uma mensagem de', message_unspoiler: 'tirou o spoiler de uma mensagem de', role_create: 'criou o cargo', role_update: 'editou o cargo', role_delete: 'excluiu o cargo',
+  member_roles: 'alterou os cargos de', message_delete: 'apagou uma mensagem de', msglog_settings: 'mudou a retenção do registro de mensagens para', message_spoiler: 'marcou como spoiler uma mensagem de', message_unspoiler: 'tirou o spoiler de uma mensagem de', role_create: 'criou o cargo', role_update: 'editou o cargo', role_delete: 'excluiu o cargo',
   channel_create: 'criou o canal', channel_update: 'editou o canal', channel_delete: 'excluiu o canal', guild_update: 'editou o servidor', guild_transfer: 'transferiu o servidor para', invite_delete: 'revogou o convite',
 };
 const USER_TARGET = /^(member_|voice_|message_delete|message_spoiler|message_unspoiler|guild_transfer)/;
@@ -95,8 +96,14 @@ export function auditPage(gid) {
     if (!box.children.length) box.append(hint('Nenhuma ação registrada ainda.'));
   };
   const keep = hint('Ações de moderação e de administração feitas neste servidor. Cada registro fica guardado por 45 dias e depois é apagado.');
-  load();
-  return h('div', h('h2', 'Registro de auditoria'), keep, box, more);
+  // duas partes: Moderação (quem gerencia o servidor) e Mensagens editadas/excluídas (cargo com "Ver registro de mensagens")
+  const modOk = can(gid, PERM.MANAGE_GUILD), msgOk = canMsgLog(gid);
+  if (modOk) load();
+  const modPane = h('div', keep, box, more), pane = h('div');
+  const show = (k) => pane.replaceChildren(k === 'msgs' ? msglogPanel(gid) : modPane);
+  const tabs = modOk && msgOk ? seg([['mod', 'Moderação'], ['msgs', 'Mensagens editadas e excluídas']], 'mod', show) : null;
+  show(modOk ? 'mod' : 'msgs');
+  return h('div', h('h2', 'Registro de auditoria'), !modOk && !msgOk ? hint('Você não tem permissão para ver o registro de auditoria deste servidor.') : [tabs && h('div.audit-tabs', tabs), pane]);
 }
 
 // ---------- Reputação (moderação comunitária) ----------
@@ -139,6 +146,9 @@ export function repPage(gid, { onJump } = {}) {
   root._refresh = draw;
   return root;
 }
+// Registro de auditoria fora das Configurações (menu do servidor): moderador com "Ver registro de mensagens" que não
+// gerencia o servidor chega aqui sem abrir páginas que não pode usar
+export const auditModal = (gid) => { const page = auditPage(gid); page.querySelector('h2')?.remove(); return modal('Registro de auditoria', guild(gid)?.name || '', page, [{ label: 'Fechar', cls: 'grey' }], { width: '820px' }); };
 export function repModal(gid, onJump) {
   let m; const page = repPage(gid, { onJump: (msg) => { m?.close(); onJump?.(msg); } });
   m = modal('Reputação', guild(gid)?.name || '', page, [{ label: 'Fechar', cls: 'grey' }], { width: '640px' });
