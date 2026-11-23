@@ -57,6 +57,12 @@ export function stopTimer(name, key = '') {
 }
 export const cancelTimer = (name) => marks.delete(name);
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') for (const k of [...marks.keys()]) if (k !== 'ws_offline') marks.delete(k); });
+// medidas que terminam num quadro desenhado (troca de canal): no app desktop a página fica "visível" mesmo minimizada ou
+// atrás do jogo (backgroundThrottling desligado, desktop/main.js), mas a janela não desenha. Clicar num canal e voltar
+// para o jogo virava uma "troca de 5 s+" (o tempo até a pessoa voltar): eram os "espera:chamada" da telemetria. Perdeu o
+// foco no meio: descarta
+const FRAME_TIMERS = ['channel_switch'];
+addEventListener('blur', () => { for (const k of FRAME_TIMERS) marks.delete(k); });
 
 // ---------- erros: agrupados pela forma, sem números, aspas, endereços ou ids ----------
 // o nome da propriedade de "Cannot read properties of null (reading 'x')" fica (é do código, não da pessoa): sem ele o erro não acha o lugar
