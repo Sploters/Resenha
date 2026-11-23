@@ -163,17 +163,18 @@ export function gameModal(a) {
   const hero = h('div.gm-hero', ic ? h('img.gm-icon', { src: ic, alt: '', referrerPolicy: 'no-referrer' }) : h('span.gm-icon.gm-ph', icon('gamepad', 44)));
   const swapIcon = (src) => { const old = hero.querySelector('.gm-icon'); const img = h('img.gm-icon.cover', { src, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => e.target.replaceWith(old) }); old.replaceWith(img); };
   if (kg?.banner) { hero.prepend(h('img.gm-art', { src: kg.banner, alt: '', referrerPolicy: 'no-referrer', onerror: (e) => { e.target.remove(); hero.classList.remove('has-art'); } })); hero.classList.add('has-art'); }
-  const meta = h('div.gm-meta'), tags = h('div.gm-tags');
+  const meta = h('div.gm-meta'), tags = h('div.gm-tags'), critic = h('div.gm-critic');
   const ext = (name, url) => h('a.btn.gm-steam', { href: url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 16), name);
   const store = [...(kg?.links || []).map(l => ext(l.name, l.url)), sid && ext('Ver na Steam', `https://store.steampowered.com/app/${sid}/`)].filter(Boolean);
   const people = gamePeople(a);
   const body = h('div.gm', hero, h('div.gm-main',
     h('div.gm-head', titleEl(a, 'h2'), store.length > 0 && h('div.gm-links', store)),
-    meta, tags,
+    meta, critic, tags,
     people.length ? [h('div.gm-cap', 'Amigos que jogaram'), h('div.gm-people', people)] : h('p.gm-none', 'Nenhum amigo jogou isto esta semana.')));
   const m = modal('', null, body, [], { width: 'min(560px, 94vw)' });
   const md = m.el.querySelector('.modal'); md.classList.add('gamemodal'); md.querySelector('.mf')?.remove(); md.querySelector('.mh')?.remove();
   hero.append(h('button.inv-x.gm-x', { title: 'Fechar', onclick: m.close }, icon('x', 20)));
+  criticScore(gameTitle(a)).then(c => { if (c && critic.isConnected) critic.replaceChildren(criticEl(c)); });
   if (sid) steamArt(sid).then(x => {
     if (!x) return;
     if (!kg?.icon && x.icon) swapIcon(x.icon);
@@ -182,6 +183,22 @@ export function gameModal(a) {
     tags.replaceChildren(...(x.tags || []).map(t => h('span.gm-tag', t)));
   });
   return m;
+}
+// nota da crítica (OpenCritic) no popup do jogo, como informação extra: só aparece quando o servidor tem a chave e o jogo
+// tem nota (GET /api/critic, server/opencritic.js). Guardada por nome nesta sessão
+const critics = new Map();
+function criticScore(title) {
+  const t = String(title || '').trim(); if (t.length < 2) return Promise.resolve(null);
+  if (!critics.has(t)) critics.set(t, api('GET', '/critic?title=' + encodeURIComponent(t)).then(r => (r && r.score >= 0 ? r : null), () => { critics.delete(t); return null; }));
+  return critics.get(t);
+}
+const TIER_CLS = { Poderoso: 'mighty', Forte: 'strong', 'Razoável': 'fair', Fraco: 'weak' };
+function criticEl(c) {
+  const tip = `Nota média da crítica no OpenCritic${c.reviews ? ` (${c.reviews} análises)` : ''}`;
+  return h('a.gm-oc' + (TIER_CLS[c.tier] ? '.oc-' + TIER_CLS[c.tier] : ''), { href: c.url, target: '_blank', rel: 'noopener noreferrer', title: tip, 'aria-label': `${tip}: ${c.score}` },
+    h('span.oc-score', String(c.score)),
+    h('span.oc-txt', h('b', 'OpenCritic' + (c.tier ? ' · ' + c.tier : '')), h('small', [c.pct != null && `${c.pct}% dos críticos recomendam`, c.reviews && `${c.reviews} análises`].filter(Boolean).join(' · ') || 'Nota da crítica')),
+    icon('external', 14));
 }
 const openGame = (a) => (e) => { e?.stopPropagation(); gameModal(a); };
 

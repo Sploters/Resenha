@@ -336,6 +336,14 @@ html:not(.anim) .clipflash { animation: cfFade 2s step-end forwards; }
 .gm-steam { display: inline-flex; align-items: center; gap: 6px; flex: none; text-decoration: none; } .gm-steam .icon { fill: currentColor; }
 .gm-links { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; } .gm-head { flex-wrap: wrap; }
 .gm-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-muted); } .gm-meta:empty { display: none; }
+/* nota da crítica (OpenCritic) no popup do jogo */
+.gm-critic:empty { display: none; } .gm-critic { margin-top: 10px; }
+.gm-oc { display: inline-flex; align-items: center; gap: 10px; padding: 6px 10px 6px 6px; border-radius: 8px; background: var(--bg-sec, #2b2d31); color: var(--text); text-decoration: none; max-width: 100%; }
+.gm-oc:hover { background: var(--bg-mod-hover, #35373c); text-decoration: none; }
+.gm-oc .oc-score { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-weight: 800; font-size: 15px; color: #fff; background: #6d6f78; }
+.gm-oc.oc-mighty .oc-score { background: #fc430a; } .gm-oc.oc-strong .oc-score { background: #9d40c6; } .gm-oc.oc-fair .oc-score { background: #4aa1ce; } .gm-oc.oc-weak .oc-score { background: #80b06a; }
+.gm-oc .oc-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; } .gm-oc .oc-txt b { font-size: 13px; } .gm-oc .oc-txt small { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-oc .icon { flex: none; fill: var(--text-muted); }
 .gm-rev { display: inline-flex; align-items: center; gap: 4px; } .gm-rev .icon { fill: #f0b232; }
 .gm-tags { display: flex; flex-wrap: wrap; gap: 6px; } .gm-tags:empty { display: none; }
 .gm-tag { font-size: 12px; padding: 3px 9px; border-radius: 10px; background: var(--bg-tert); color: var(--text); }
