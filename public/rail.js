@@ -70,8 +70,8 @@ export function railSortable(rail) {
     } });
 }
 export function openMessages() { go('@me'); } // Mensagens e Amigos são uma tela só: amigos no meio, conversas na lista ao lado
-export const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover' || S.view.kind === 'trophies');
-function openGames() { track('games_open'); S.favMode = false; const last = localStorage.getItem('lc_games'); go('@me', last === 'discover' || last === 'trophies' ? last : 'lfg'); } // volta para a última aberta
+export const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S.view.kind === 'discover' || S.view.kind === 'trophies' || S.view.kind === 'radar');
+function openGames() { track('games_open'); S.favMode = false; const last = localStorage.getItem('lc_games'); go('@me', last === 'discover' || last === 'trophies' || last === 'radar' ? last : 'lfg'); } // volta para a última aberta
 // ícone de mensagens da barra: Amigos no meio e as conversas na lista
 function openMeSection() { if (S.view.kind === 'dm') track('back_to_friends', 'rail'); S.favMode = false; go('@me'); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]

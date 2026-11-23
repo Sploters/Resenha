@@ -23,6 +23,7 @@ import { renderMembers, releaseMembers } from './members.js';
 import { renderHome } from './home.js';
 import { releaseStage, renderVoiceUI } from './stage.js';
 let discoverMod = null;
+const renderRadar = (main) => { main.replaceChildren(screenSkeleton('Radar')); return import('./radar.js').then(m => { if (S.view.kind === 'radar') m.renderRadar(main); }); }; // aba Radar da seção Jogos (scouting do Clash)
 const renderTrophies = (main) => { main.replaceChildren(screenSkeleton('Conquistas')); return import('./achievements.js').then(m => { if (S.view.kind === 'trophies') m.renderTrophies(main); }); }; // aba Conquistas da seção Jogos
 const renderDiscover = (main) => { main.replaceChildren(screenSkeleton('Descobrir')); return import('./discover.js').then(m => { discoverMod = m; if (S.view.kind === 'discover') m.renderDiscover(main); }); }; // não sobrescreve se a pessoa já saiu da tela
 // Caches que apontam para elementos de uma tela que já saiu (heap de uma sessão real, 2026-11-11): a linha guardada da
@@ -63,6 +64,7 @@ export function renderMain() {
   if (v.kind === 'lfg') return renderLfg(main);
   if (v.kind === 'discover') return renderDiscover(main);
   if (v.kind === 'trophies') return renderTrophies(main);
+  if (v.kind === 'radar') return renderRadar(main);
   if (v.pendingPost) return main.replaceChildren(h('div.empty', { style: { margin: 'auto' } }, h('p', 'Abrindo o post…')));
   const ch = channelById(v.cid);
   if (ch?.type === 15) return renderForum(main, ch);

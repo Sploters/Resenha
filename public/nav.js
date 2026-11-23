@@ -34,7 +34,7 @@ document.addEventListener('settings-closed', () => { if (!ready || chNameKey() =
 window.addEventListener('hashchange', () => { hidePreview(); if (ready) { S.staggerNext = true; S.inVT = true; viewTransition(() => { applyRoute(); S.inVT = false; }); S.inVT = false; if (voice) updatePip(pipCtx); } }); // troca de tela com as duas versões sobrepostas (motion.js)
 let routeBack = '#/@me'; // última tela "de verdade" (o link de clipe abre por cima dela)
 // telemetria: nome do tipo de tela (nunca o nome do canal ou da pessoa) e a chave para reconhecer "voltou para a mesma"
-const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', files: 'Arquivos', clips: 'Clipes', wishlist: 'Wishlist', events: 'Eventos' };
+const SCREEN = { home: 'Amigos', dm: 'Conversa direta', guild: 'Canal', lfg: 'Jogos', discover: 'Jogos (Descobrir)', radar: 'Jogos (Radar)', files: 'Arquivos', clips: 'Clipes', wishlist: 'Wishlist', events: 'Eventos' };
 export function applyRoute(first) {
   const prevCid = S.view?.cid;
   queueMicrotask(applyCamFlow); // saiu da sala (ou voltou): as câmeras pausam/voltam
@@ -50,7 +50,8 @@ export function applyRoute(first) {
     if (cid === 'lfg') S.view = { kind: 'lfg', gid: '@me', cid: 'lfg', tab: S.view.tab }; // seção Jogos: Procurar jogadores (não é uma DM)
     if (cid === 'discover') S.view = { kind: 'discover', gid: '@me', cid: 'discover', tab: S.view.tab }; // seção Jogos: Descobrir (notícias, promoções, lançamentos)
     if (cid === 'trophies') S.view = { kind: 'trophies', gid: '@me', cid: 'trophies', tab: S.view.tab }; // seção Jogos: Conquistas (platinas e conquistas)
-    if (cid === 'lfg' || cid === 'discover' || cid === 'trophies') localStorage.setItem('lc_games', cid);
+    if (cid === 'radar') S.view = { kind: 'radar', gid: '@me', cid: 'radar', tab: S.view.tab }; // seção Jogos: Radar (scouting do Clash)
+    if (cid === 'lfg' || cid === 'discover' || cid === 'trophies' || cid === 'radar') localStorage.setItem('lc_games', cid);
     { const fm = /^(\d+)\/files$/.exec(cid || ''); if (fm && S.dms.has(fm[1])) S.view = { kind: 'files', gid: '@me', cid: 'files', dm: fm[1], tab: S.view.tab }; } // Arquivos de uma DM
   } else {
     const g = guild(gid);

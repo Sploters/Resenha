@@ -249,4 +249,15 @@ CREATE INDEX IF NOT EXISTS idx_clips_channel ON clips(channel_id);
 CREATE INDEX IF NOT EXISTS idx_lfg_author ON lfg_posts(author_id);
 CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at, id);
 `);
+// Radar (scouting de Clash, server/radar.js): scoutings, os jogadores de cada um (dados já resumidos), quem recebeu,
+// observações do time, cache das respostas da Riot e o maior elo que o Radar já viu de cada conta
+db.exec(`CREATE TABLE IF NOT EXISTS radar_scouts(id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, platform TEXT NOT NULL, created_at INTEGER, updated_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_radar_owner ON radar_scouts(owner_id, updated_at);
+CREATE TABLE IF NOT EXISTS radar_players(scout_id TEXT NOT NULL REFERENCES radar_scouts(id) ON DELETE CASCADE, slot INTEGER NOT NULL, riot_id TEXT NOT NULL, puuid TEXT, status TEXT NOT NULL, error TEXT, progress TEXT, data TEXT, fetched_at INTEGER, PRIMARY KEY(scout_id, slot));
+CREATE TABLE IF NOT EXISTS radar_members(scout_id TEXT NOT NULL REFERENCES radar_scouts(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, added_by TEXT, added_at INTEGER, PRIMARY KEY(scout_id, user_id));
+CREATE INDEX IF NOT EXISTS idx_radar_members_user ON radar_members(user_id);
+CREATE TABLE IF NOT EXISTS radar_notes(id TEXT PRIMARY KEY, scout_id TEXT NOT NULL REFERENCES radar_scouts(id) ON DELETE CASCADE, author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, slot INTEGER, content TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_radar_notes ON radar_notes(scout_id, created_at);
+CREATE TABLE IF NOT EXISTS radar_cache(k TEXT PRIMARY KEY, body TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS radar_peaks(puuid TEXT NOT NULL, queue TEXT NOT NULL, tier TEXT, rank TEXT, lp INTEGER, score INTEGER, seen_at INTEGER, first_seen INTEGER, PRIMARY KEY(puuid, queue));`);
 db.exec('PRAGMA optimize'); // o SQLite atualiza as estatísticas que usa para escolher os índices

@@ -36,6 +36,7 @@ import { mountQrLogin } from './qrlogin.js';
 import { mountPerf } from './perf.js';
 import { mountUx, uxSeen, uxFirst } from './ux.js';
 import { mountLfg, GAMES as LFG_GAMES } from './lfg.js';
+import { mountRadar } from './radar.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
 import { createPush } from './push.js';
@@ -518,6 +519,7 @@ mountLfg(app, {
   isBanned: (gid, uid) => !!get('SELECT 1 x FROM bans WHERE guild_id=? AND user_id=?', gid, uid),
   joinGuild: (gid, uid) => joinGuild(gid, uid), guildFull: (uid, other) => other ? lim.guildJoinOther(uid) : lim.guildJoin(uid),
 });
+mountRadar(app, { auth, wrap, wrapA, bad, get, all, run, newId, userPub, clean, audienceOf: lfgAudience, postDm: (a, b, c) => postDm(a, b, c) }); // Radar: scouting do Clash (server/radar.js)
 const discover = mountDiscover(app, { auth, dataDir: DATA_DIR }); // aba Descobrir: notícias, promoções e lançamentos (server/discover.js)
 mountPolls(app, { ...core, pollObj }); // enquetes (server/routes/polls.js)
 const clips = mountClips(app, { ...core, get activity() { return activity; } }); // galeria de clipes (server/routes/clips.js)
