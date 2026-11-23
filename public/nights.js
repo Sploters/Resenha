@@ -3,6 +3,7 @@
 import { h, icon, avatar } from './util.js';
 import { S, api, tryApi, toast, modal, closeFloating } from './state.js';
 import { openClip } from './clipsgallery.js';
+import { openRetro } from './retro.js';
 
 const uOf = (id) => S.users.get(id) || { id, display_name: '?', username: '?' };
 const addUsers = (list) => { for (const u of list || []) if (u && !S.users.has(u.id)) S.users.set(u.id, u); };
@@ -75,7 +76,9 @@ export async function openNights(gid) {
   const body = h('div.nt', tabs, list);
   modal('Nossas noites', 'As sessões de voz da turma, guardadas para sempre', body, [], { width: 'min(720px, 96vw)' });
   const show = async (tab) => {
-    tabs.replaceChildren(...[['nights', 'Noites'], ['pearls', 'Pérolas']].map(([k, l]) => h('button.ctab' + (k === tab ? '.active' : ''), { onclick: () => show(k) }, l)));
+    const yr = new Date().getFullYear();
+    tabs.replaceChildren(...[['nights', 'Noites'], ['pearls', 'Pérolas']].map(([k, l]) => h('button.ctab' + (k === tab ? '.active' : ''), { onclick: () => show(k) }, l)),
+      h('button.btn.green.sm.nt-retro', { onclick: () => openRetro(gid, yr) }, icon('star', 14), `Retrospectiva ${yr}`));
     list.replaceChildren(h('div.nt-load', 'Carregando…'));
     if (tab === 'pearls') {
       const r = await tryApi('GET', `/guilds/${gid}/pearls`); addUsers(r?.users);

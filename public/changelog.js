@@ -6,6 +6,12 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-22-5', title: 'Retrospectiva da turma',
+    items: [
+      { i: 'star', t: 'Retrospectiva 2026', d: 'Em Noites (topo dos canais do servidor), "Retrospectiva": as noites, as horas juntos, a noite mais longa, os jogos, a dupla do ano, a mensagem, a pérola e o clipe do ano, e um cartão com o seu ano que só você vê. Cresce com cada noite nova até o fim do ano.' },
+    ],
+  },
+  {
     id: '2026-11-22-4', title: 'A Noite: as noites da turma viram história',
     items: [
       { i: 'moon', t: 'A Noite', d: 'Cada sessão de voz com a turma vira uma página: quem esteve, quanto tempo, o que jogaram, clipes (com o lance da noite), pérolas, conquistas e uma linha do tempo. Abra pelo "Desde a última vez" ("A Noite de ontem está pronta") ou em Noites, no topo dos canais do servidor.' },

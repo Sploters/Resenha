@@ -75,6 +75,10 @@ try {
     ok(pr.pearl === true && wall.pearls?.[0]?.content === 'eu nunca erro um flick' && wall.pearls[0].author_id === beto.id && wall.pearls[0].by_id === caio.id, 'pérola guardada aparece no mural', wall.pearls);
     ok((await call(beto.tok, 'POST', `/messages/${msg.id}/pearl`)).pearl === false, 'o autor da mensagem tira a pérola');
     ok((await call(dani.tok, 'GET', `/guilds/${g.id}/pearls`))._status === 404, 'dani não vê o mural de outro servidor');
+    const rt = await call(ana.tok, 'GET', `/guilds/${g.id}/retro`);
+    ok(rt.group?.nights >= 1 && rt.group.secs > 0 && rt.group.longest?.id && rt.group.duo?.ids?.includes(beto.id) && rt.group.messages >= 1, 'retrospectiva: noites, horas, noite mais longa, dupla e mensagens', rt.group);
+    ok(rt.me?.nights >= 1 && rt.me.buddy?.id === beto.id, 'retrospectiva: "o seu ano" com quem mais esteve com você', rt.me);
+    ok((await call(dani.tok, 'GET', `/guilds/${g.id}/retro`))._status === 404, 'dani não vê a retrospectiva de outro servidor');
   }
 
   // ---- 3) beto invisível agora: vira "+1 pessoa" ----

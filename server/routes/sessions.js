@@ -185,5 +185,60 @@ export function mountVoiceSessions(app, d) {
       .filter(p => canAccessChannel(req.uid, get('SELECT * FROM channels WHERE id=?', p.channel_id))).map(pearlObj);
     res.set('Cache-Control', 'no-store').json({ pearls: list, users: usersOf(list.flatMap(p => [p.author_id, p.by_id])) });
   }));
+  // ---------- Retrospectiva do ano (GET /api/guilds/:id/retro?year=) ----------
+  // Calculada na hora a partir do que já é guardado: noites (sessões), mensagens e reações dos canais que a pessoa vê,
+  // clipes, pérolas. Só dados do grupo e "o seu cartão" (só você vê). Sem ranking de pessoas; a "dupla do ano" só com
+  // quem aparece pelo nome (mesmas regras das noites). Jogos: do resumo das sessões (já sem nomes e sem partidas escondidas).
+  app.get('/api/guilds/:id/retro', auth, wrap((req, res) => {
+    const gid = String(req.params.id), me = req.uid; if (!isMember(gid, me)) return bad(res, 'Servidor não encontrado', 404);
+    const year = Math.min(2100, Math.max(2000, +req.query.year || new Date().getFullYear()));
+    const from = new Date(year, 0, 1).getTime(), to = new Date(year + 1, 0, 1).getTime();
+    const chans = all('SELECT * FROM channels WHERE guild_id=?', gid).filter(c => canAccessChannel(me, c)), cids = chans.map(c => c.id);
+    const inC = cids.length ? `(${cids.map(() => '?').join(',')})` : "('')";
+    // noites
+    const ss = all('SELECT * FROM voice_sessions WHERE guild_id=? AND ended_at IS NOT NULL AND started_at>=? AND started_at<?', gid, from, to)
+      .filter(s => { const ch = chans.find(c => c.id === s.channel_id); return ch || !get('SELECT 1 x FROM channels WHERE id=?', s.channel_id); });
+    const nights = ss.map(s => nightBase(me, s, chans.find(c => c.id === s.channel_id)));
+    const secsAll = nights.reduce((a, n) => a + n.secs, 0), longest = [...nights].sort((a, b) => b.secs - a.secs)[0] || null;
+    const games = new Map(); for (const n of nights) for (const g of n.games) { const k = g.title; const x = games.get(k) || { title: k, mins: 0, nights: 0 }; x.mins += g.mins || 0; x.nights++; games.set(k, x); }
+    const topGames = [...games.values()].sort((a, b) => b.mins - a.mins).slice(0, 3);
+    const pairs = new Map();
+    for (const n of nights) { const ids = n.members.map(m => m.id).sort(); for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) { const k = ids[i] + ':' + ids[j]; pairs.set(k, (pairs.get(k) || 0) + 1); } }
+    const duo = [...pairs].sort((a, b) => b[1] - a[1])[0];
+    const WD = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'], wd = Array(7).fill(0);
+    for (const n of nights) wd[new Date(n.started_at).getDay()]++;
+    const bestDay = nights.length ? WD[wd.indexOf(Math.max(...wd))] : null;
+    // mensagens e reações
+    const msgN = get(`SELECT COUNT(*) n FROM messages WHERE channel_id IN ${inC} AND created_at>=? AND created_at<? AND COALESCE(type,0)=0`, ...cids, from, to)?.n || 0;
+    const topMsg = get(`SELECT m.id, m.author_id, m.content, m.created_at, COUNT(r.user_id) n FROM messages m JOIN reactions r ON r.message_id=m.id
+      WHERE m.channel_id IN ${inC} AND m.created_at>=? AND m.created_at<? AND COALESCE(m.type,0)=0 AND m.content<>'' GROUP BY m.id ORDER BY n DESC, m.created_at LIMIT 1`, ...cids, from, to);
+    const topEmoji = get(`SELECT r.emoji, COUNT(*) n FROM reactions r JOIN messages m ON m.id=r.message_id WHERE m.channel_id IN ${inC} AND m.created_at>=? AND m.created_at<? GROUP BY r.emoji ORDER BY n DESC LIMIT 1`, ...cids, from, to);
+    // clipes e pérolas
+    const clips = all(`SELECT c.id, c.title, c.author_id, c.streamer_id, c.created_at, (SELECT COUNT(*) FROM clip_likes l WHERE l.clip_id=c.id) likes FROM clips c
+      WHERE c.channel_id IN ${inC} AND c.created_at>=? AND c.created_at<? ORDER BY likes DESC, c.created_at LIMIT 200`, ...cids, from, to);
+    const pearls = all(`SELECT p.*, m.author_id, m.content, m.created_at FROM pearls p JOIN messages m ON m.id=p.message_id
+      WHERE p.channel_id IN ${inC} AND m.created_at>=? AND m.created_at<? ORDER BY (SELECT COUNT(*) FROM reactions r WHERE r.message_id=m.id) DESC, p.at LIMIT 50`, ...cids, from, to).map(pearlObj);
+    // o seu cartão (só você vê)
+    const myNights = nights.filter(n => n.members.some(m => m.id === me));
+    const company = new Map(); for (const n of myNights) for (const m of n.members) if (m.id !== me) company.set(m.id, (company.get(m.id) || 0) + 1);
+    const buddy = [...company].sort((a, b) => b[1] - a[1])[0];
+    const mine = {
+      nights: myNights.length, secs: myNights.reduce((a, n) => a + (n.members.find(m => m.id === me)?.secs || 0), 0),
+      buddy: buddy ? { id: buddy[0], nights: buddy[1] } : null,
+      messages: get(`SELECT COUNT(*) n FROM messages WHERE channel_id IN ${inC} AND author_id=? AND created_at>=? AND created_at<? AND COALESCE(type,0)=0`, ...cids, me, from, to)?.n || 0,
+      reactions_got: get(`SELECT COUNT(*) n FROM reactions r JOIN messages m ON m.id=r.message_id WHERE m.channel_id IN ${inC} AND m.author_id=? AND r.user_id<>? AND m.created_at>=? AND m.created_at<?`, ...cids, me, me, from, to)?.n || 0,
+      clips: clips.filter(c => c.author_id === me).length, clipped: clips.filter(c => c.streamer_id === me && c.author_id !== me).length,
+      pearls: pearls.filter(p => p.author_id === me).length,
+    };
+    const out = { year, guild_name: get('SELECT name FROM guilds WHERE id=?', gid)?.name || '',
+      group: { nights: nights.length, secs: secsAll, longest: longest && { id: longest.id, title: longest.title, secs: longest.secs, ended_at: longest.ended_at, members: longest.members.map(m => m.id) },
+        games: topGames, duo: duo && { ids: duo[0].split(':'), nights: duo[1] }, best_day: bestDay, messages: msgN,
+        top_message: topMsg && { id: topMsg.id, author_id: topMsg.author_id, content: String(topMsg.content).slice(0, 280), reactions: topMsg.n, created_at: topMsg.created_at },
+        top_emoji: topEmoji && { emoji: topEmoji.emoji, n: topEmoji.n }, clips: clips.length, top_clip: clips[0] && clips[0].likes ? clips[0] : null,
+        pearls: pearls.length, top_pearl: pearls[0] || null, first_night: nights.length ? Math.min(...nights.map(n => n.started_at)) : null },
+      me: mine };
+    const ids = [...(out.group.longest?.members || []), ...(out.group.duo?.ids || []), out.group.top_message?.author_id, out.group.top_clip?.author_id, out.group.top_clip?.streamer_id, out.group.top_pearl?.author_id, mine.buddy?.id];
+    res.set('Cache-Control', 'no-store').json({ ...out, users: usersOf(ids) });
+  }));
   return { sinceFor };
 }
