@@ -58,6 +58,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     dispatch(audience(uid, platform), 'ACTIVITY_UPDATE', { user_id: uid, platform, activity: pub(entry) });
   };
   const record = (uid, platform, kind, game, data) => {
+    learnArt(platform, game.id, game.title, data);
     if (data && !Object.keys(data).length) data = null;
     run('INSERT INTO activities(id,user_id,platform,kind,game_id,title,data,created_at) VALUES(?,?,?,?,?,?,?,?)', newId(), uid, platform, kind, game.id, game.title, data ? JSON.stringify(data) : null, now());
     run('DELETE FROM activities WHERE user_id=? AND created_at<?', uid, now() - KEEP_DAYS * 864e5);
@@ -65,6 +66,34 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   };
   // imagem do jogo guardada junto com o evento (o histórico mostra o ícone/arte mesmo depois que a pessoa parou de jogar)
   const artOf = (game, platform) => { const o = {}; if (game.icon) o.icon = game.icon; const st = platform === 'steam' ? game.id : game.steam; if (st) o.steam = String(st); return Object.keys(o).length ? o : null; };
+  // Arte que faltou numa partida (número da Steam e ícone do programa): vem de outra partida do MESMO jogo. Sem isso, o
+  // histórico ("Ativo agora", Noites, ranking da semana, jogos do servidor) mostrava o controle genérico para jogos como
+  // Deadlock, Subnautica e Isaac: a partida guardada sem o número da Steam (a loja respondeu depois de 5 s, jogo da Epic,
+  // partida antiga) não tinha de onde tirar a imagem, e ao juntar várias partidas o número só sobrevivia se a mais
+  // antiga fosse lida primeiro. Memória por jogo (plataforma:id e nome) + consulta ao banco uma vez por jogo (10 min).
+  const artMemo = new Map(), artMiss = new Map();
+  const nameKey = (t) => 'n:' + String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const learnArt = (platform, gid, title, d) => {
+    const st = platform === 'steam' ? gid : d?.steam; if (!st && !d?.icon) return;
+    for (const k of [platform + ':' + gid, nameKey(title)]) { const o = artMemo.get(k) || {}; artMemo.set(k, { steam: st ? String(st) : o.steam, icon: d?.icon || o.icon }); }
+    if (artMemo.size > 5000) artMemo.delete(artMemo.keys().next().value);
+  };
+  function artFor(platform, gid, title) {
+    if (platform === 'steam') return { steam: String(gid) };
+    const k = platform + ':' + gid, hit = artMemo.get(k) || artMemo.get(nameKey(title)); if (hit) return hit;
+    if (now() - (artMiss.get(k) || 0) < 10 * 60e3) return {};
+    artMiss.set(k, now()); if (artMiss.size > 5000) artMiss.delete(artMiss.keys().next().value);
+    try {
+      for (const r of all("SELECT game_id, title, data FROM activities WHERE (game_id=? OR title=?) AND data LIKE '%\"steam\"%' ORDER BY created_at DESC LIMIT 5", gid, title || '')) learnArt(platform, r.game_id, r.title, parse(r.data));
+      if (!artMemo.has(k)) for (const r of all("SELECT game_id, title, data FROM activities WHERE (game_id=? OR title=?) AND data LIKE '%\"icon\"%' ORDER BY created_at DESC LIMIT 5", gid, title || '')) learnArt(platform, r.game_id, r.title, parse(r.data));
+    } catch { /* sem banco: fica sem */ }
+    return artMemo.get(k) || artMemo.get(nameKey(title)) || {};
+  }
+  // jogo com a arte completa: a da própria partida (d) e, no que faltar, a de outra partida do mesmo jogo
+  const gameOf = (id, title, d, platform = 'pc') => {
+    const a = d?.steam && d?.icon ? {} : artFor(platform, id, title), steam = d?.steam || a.steam, icon = d?.icon || a.icon;
+    return { id, title, ...(icon ? { icon } : {}), ...(steam && platform !== 'steam' ? { steam } : {}) };
+  };
   const hiddenGame = (uid, platform, gameId) => !!get('SELECT 1 x FROM game_prefs WHERE user_id=? AND platform=? AND game_id=? AND hidden=1', uid, platform, gameId);
   // resumo diário permanente por pessoa e jogo (activities some em 30 dias): segundos em call e partidas, no dia (fuso de
   // weekFor) em que a partida terminou. Partida privada (invisível / "Ninguém"), jogo escondido e launcher não entram.
@@ -188,7 +217,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const events = all(`SELECT a.* FROM activities a LEFT JOIN linked_accounts la ON la.user_id=a.user_id AND la.platform=a.platform
       WHERE a.user_id IN (${ids.map(() => '?').join(',')}) AND (la.visibility='friends' OR a.user_id=? OR a.platform='pc') AND a.created_at>? ORDER BY a.created_at DESC LIMIT ?`, ...ids, viewer, now0 - 7 * 864e5, limit * 3)
       .filter(ev => (ev.user_id === viewer || !parse(ev.data).priv) && canSee(viewer, ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })).slice(0, limit)
-      .map(ev => ({ id: ev.id, user_id: ev.user_id, platform: ev.platform, kind: ev.kind, game: { id: ev.game_id, title: ev.title }, seconds: ev.data ? JSON.parse(ev.data).seconds : null, at: ev.created_at }));
+      .map(ev => ({ id: ev.id, user_id: ev.user_id, platform: ev.platform, kind: ev.kind, game: gameOf(ev.game_id, ev.title, parse(ev.data), ev.platform), seconds: ev.data ? JSON.parse(ev.data).seconds : null, at: ev.created_at }));
     return { friends, events };
   }
 
@@ -211,7 +240,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       let x = ks.map(k => games.get(k)).find(Boolean);
       if (!x) x = { platform, game: { id: gameId, title }, at: 0, players: new Set(), week: new Set(), now: new Set(), secs: 0 };
       for (const k of ks) games.set(k, x);
-      if (t >= x.at) { x.at = t; x.platform = platform; x.game = { id: gameId, title, ...(d?.icon ? { icon: d.icon } : x.game.icon ? { icon: x.game.icon } : {}), ...(d?.steam ? { steam: d.steam } : x.game.steam ? { steam: x.game.steam } : {}) }; }
+      if (t >= x.at) { x.at = t; x.platform = platform; const ng = gameOf(gameId, title, d, platform); x.game = { ...ng, ...(!ng.icon && x.game.icon ? { icon: x.game.icon } : {}), ...(!ng.steam && x.game.steam && platform !== 'steam' ? { steam: x.game.steam } : {}) }; }
+      else { if (!x.game.icon && d?.icon) x.game.icon = d.icon; if (!x.game.steam && d?.steam && x.platform !== 'steam') x.game.steam = String(d.steam); } // partida mais antiga lida depois: completa a arte que faltou
       x.players.add(uid); if (t >= week) x.week.add(uid); if (live) x.now.add(uid);
       if (d?.seconds) x.secs += d.seconds;
     };
@@ -243,7 +273,6 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const dayKey = (t) => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: TZ }); } catch { return new Date(t).toISOString().slice(0, 10); } };
   const runOf = (flags) => { let best = 0, cur = 0; for (const f of flags) { cur = f ? cur + 1 : 0; if (cur > best) best = cur; } return best; };
   const parse = (s) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
-  const gameOf = (id, title, d) => ({ id, title, ...(d?.icon ? { icon: d.icon } : {}), ...(d?.steam ? { steam: d.steam } : {}) });
   // clipes da semana: ranking ponderado, categorias e recomendações vêm de server/clipstats.js (clipsWeek)
   const WEEK_DAYS = 7;
   function weekFor(viewer, { top = 3 } = {}) {
@@ -258,11 +287,12 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       const di = dayIdx.get(dayKey(t)); if (di === undefined) return;
       const ks = ggKeys(platform, gid, title, d);
       let x = ks.map(k => games.get(k)).find(Boolean);
-      if (!x) x = { platform, game: gameOf(gid, title, d), at: 0, secs: 0, players: new Map(), day: Array(WEEK_DAYS).fill(0), active: Array(WEEK_DAYS).fill(false), live: new Set() };
+      if (!x) x = { platform, game: gameOf(gid, title, d, platform), at: 0, secs: 0, players: new Map(), day: Array(WEEK_DAYS).fill(0), active: Array(WEEK_DAYS).fill(false), live: new Set() };
       for (const k of ks) games.set(k, x);
       if (pub && live) x.live.add(uid);
       if (!(secs > 0)) return; // sem horas em call não conta (nem o dia)
-      if (t >= x.at) { x.at = t; x.platform = platform; x.game = { ...x.game, ...gameOf(gid, title, d), ...(x.game.icon && !d?.icon ? { icon: x.game.icon } : {}), ...(x.game.steam && !d?.steam ? { steam: x.game.steam } : {}) }; }
+      if (t >= x.at) { x.at = t; x.platform = platform; const ng = gameOf(gid, title, d, platform); x.game = { ...x.game, ...ng, ...(x.game.icon && !ng.icon ? { icon: x.game.icon } : {}), ...(x.game.steam && !ng.steam && platform !== 'steam' ? { steam: x.game.steam } : {}) }; }
+      else { if (!x.game.icon && d?.icon) x.game.icon = d.icon; if (!x.game.steam && d?.steam && x.platform !== 'steam') x.game.steam = String(d.steam); } // partida mais antiga lida depois: completa a arte
       x.secs += secs; x.day[di] += secs; x.active[di] = true;
       const p = x.players.get(uid) || { secs: 0, days: Array(WEEK_DAYS).fill(false), pub: false, psecs: 0, pdays: Array(WEEK_DAYS).fill(false) };
       p.secs += secs; p.days[di] = true; if (pub) { p.pub = true; p.psecs += secs; p.pdays[di] = true; } x.players.set(uid, p);
@@ -334,7 +364,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const end = get(`SELECT created_at t FROM activities WHERE user_id=? AND platform=? AND game_id=? AND kind='game_stop' AND created_at>=? ORDER BY created_at LIMIT 1`, uid, st.platform, st.game_id, st.created_at);
     if (end && end.t < c.created_at - 60e3) return null; // a partida já tinha acabado
     if (!canSee(viewer, uid, st.platform) || hiddenGame(uid, st.platform, st.game_id) || isLauncher({ id: st.game_id, title: st.title })) return null;
-    return { platform: st.platform, game: gameOf(st.game_id, st.title, parse(st.data)) };
+    return { platform: st.platform, game: gameOf(st.game_id, st.title, parse(st.data), st.platform) };
   }
 
   // ---- ganchos chamados pelas rotas ----

@@ -305,13 +305,20 @@ export function mountDiscover(app, { auth, dataDir }) {
     } catch { res.json({}); }
   });
   // arte oficial de jogos da Steam para a atividade "Jogando X" (endereço certo vem da loja: jogos novos não têm o caminho antigo)
+  // ?titles=Nome|Outro (até 10): jogo sem o número da Steam (ex.: o histórico de uma partida guardada sem ele) é procurado
+  // pelo nome exato na loja; a resposta vem com a chave "t:<nome>"
   app.get('/api/steam-art', auth, async (req, res) => {
     const ids = [...new Set(String(req.query.ids || '').split(',').filter(x => /^\d{1,10}$/.test(x)))].slice(0, 20);
-    if (!ids.length || off() || conf().steam === false) return res.json({});
+    const titles = [...new Set(String(req.query.titles || '').split('|').map(t => t.trim()).filter(t => t.length >= 2 && t.length <= 80))].slice(0, 10);
+    if ((!ids.length && !titles.length) || off() || conf().steam === false) return res.json({});
     try {
+      const found = titles.length ? await Promise.all(titles.map(t => findApp(t).catch(() => null))) : [];
+      const byTitle = new Map(titles.map((t, i) => [t, found[i]?.appid]).filter(([, a]) => a));
+      for (const a of byTitle.values()) if (!ids.includes(a)) ids.push(a);
       const it = await storeItems(ids.map(Number));
+      for (const [t, a] of byTitle) if (it[a]) it['t:' + t] = it[a];
       res.set('Cache-Control', 'private, max-age=3600');
-      res.json(Object.fromEntries(Object.values(it).map(x => [x.appid, { image: x.image, thumb: x.thumb, cover: x.cover, icon: x.icon, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
+      res.json(Object.fromEntries(Object.entries(it).map(([k, x]) => [k, { appid: x.appid, image: x.image, thumb: x.thumb, cover: x.cover, icon: x.icon, title: x.title, url: x.url, tags: x.tags, reviews: x.reviews, price: x.price, free: x.free }])));
     } catch { res.json({}); }
   });
   // jogo aberto no PC sem o número da Steam (EA app, Battle.net, Epic, Xbox…): procura pelo nome na loja da Steam

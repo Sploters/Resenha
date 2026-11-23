@@ -13,7 +13,7 @@ export const NEWS = [
       { i: 'waves', t: 'Filtro de ventilador', d: 'Com a redução Forte, o app aprende o som que não para (ventilador, ar-condicionado, ventoinha do PC) e tira só ele, antes da IA. Dá para ajustar quanto tira em Configurações → Voz e vídeo. A Máxima já tirava bem o ventilador.' },
       { i: 'mic', t: 'Ganho automático que sobe e desce', d: 'O ganho automático agora é do próprio app: sobe a voz baixa, desce a alta e não mexe nas pausas. Ele nunca mais muda o volume do microfone no Windows (o antigo baixava e não subia de volta). Se o seu microfone ficou baixo, volte para 100% em Configurações do Windows → Som → Entrada.' },
       { i: 'gift', t: 'Wishlist mais leve', d: 'Cartões maiores (3 ou 4 por linha), 12 jogos por vez com "Carregar mais", busca por nome, e o preço de cada jogo só é buscado quando o cartão aparece.' },
-      { i: 'check', t: 'Ícones de jogos', d: 'Com muitos jogos na tela (Ativo agora, ranking da semana, conquistas), a maioria dos ícones virava o controle genérico. Agora todos carregam, e um ícone que falha cai para a próxima imagem do jogo.' },
+      { i: 'check', t: 'Ícones de jogos', d: 'Com muitos jogos na tela (Ativo agora, ranking da semana, conquistas), a maioria dos ícones virava o controle genérico. Agora todos carregam, e um ícone que falha cai para a próxima imagem do jogo. No histórico (quem jogou nos últimos dias, ranking da semana, jogos do servidor), jogos como Deadlock, Subnautica e Isaac também perdiam o ícone quando a partida tinha sido guardada sem o número da Steam: agora ela pega o de outra partida do mesmo jogo, ou procura o jogo pelo nome.' },
     ],
   },
   {

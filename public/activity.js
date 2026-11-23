@@ -75,6 +75,22 @@ function steamArt(id) { // Promise<{ image, thumb, icon… } | null>, em lote (v
   }, 30);
   return p;
 }
+// jogo sem o número da Steam (e sem o ícone do programa): procura pelo nome na loja (o servidor só aceita o nome exato).
+// Em lote, até 10 nomes por pedido; "não achou" fica guardado (não pergunta de novo nesta abertura do app)
+const artT = new Map(); let artTQ = new Set(), artTTimer = null;
+function steamArtByTitle(title) {
+  const t = String(title || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); if (t.length < 2 || t.length > 80 || t.includes('|')) return Promise.resolve(null);
+  const c = artT.get(t); if (c && (!c.failed || Date.now() - c.at < 60e3)) return c.p;
+  let res; const p = new Promise(r => (res = r)); artT.set(t, { p, res, at: Date.now() }); artTQ.add(t);
+  clearTimeout(artTTimer); artTTimer = setTimeout(async () => {
+    const ts = [...artTQ]; artTQ = new Set();
+    await Promise.all(Array.from({ length: Math.ceil(ts.length / 10) }, (_, i) => ts.slice(i * 10, (i + 1) * 10)).map(async (part) => {
+      const r = await tryApi('GET', '/steam-art?titles=' + encodeURIComponent(part.join('|'))).catch(() => null);
+      for (const x of part) { const e = artT.get(x); if (!e) continue; if (!r) { e.failed = true; e.at = Date.now(); } e.res(r?.['t:' + x] || null); }
+    }));
+  }, 40);
+  return p;
+}
 // quadradinho do jogo (lista de membros, cartão, painel). Ordem: ícone do catálogo (Valorant, LoL…) > ícone oficial do
 // jogo na Steam > ícone do programa > recorte da capa da Steam > controle. O do programa vem depois do da Steam porque
 // pode ser o do anticheat (Easy Anti-Cheat), o do Java ou o padrão do motor do jogo. Cada imagem que não carrega passa
@@ -92,10 +108,16 @@ export function gameIcon(a, size = 20) {
   const kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam, exe = iconUrl(a);
   const exeC = exe && { src: exe };
   if (kg?.icon) { tryList([{ src: kg.icon, cover: !/\.svg(\?|$)/.test(kg.icon) }, exeC]); return box; }
-  if (!sid) { tryList([exeC]); return box; }
+  const steamList = (x, withExe) => [x.icon && { src: x.icon, cover: true }, withExe && exeC, (x.thumb || x.image) && { src: x.thumb || x.image, cover: true }];
+  if (!sid) {
+    tryList([exeC]);
+    // sem número da Steam e sem ícone do programa: procura o jogo pelo nome (antes ficava o controle)
+    if (!exe) steamArtByTitle(gameTitle(a)).then(x => { if (x) tryList(steamList(x, false)); });
+    return box;
+  }
   // enquanto a Steam responde (o pedido é em lote e guardado): o ícone do programa, se houver; senão o controle
   tryList([exeC]);
-  steamArt(sid).then(x => { if (x) tryList([x.icon && { src: x.icon, cover: true }, exeC, (x.thumb || x.image) && { src: x.thumb || x.image, cover: true }]); });
+  steamArt(sid).then(x => { if (x) tryList(steamList(x, true)); });
   return box;
 }
 // nome do jogo: o do catálogo, ou o da loja da Steam quando chega (o título da janela pode ser "Pagoda" ou um aviso)
@@ -110,9 +132,9 @@ export function titleEl(a, tag = 'span') {
 export function gameBanner(a) {
   const kg = knownGame(a.game);
   if (kg?.banner) { const el = h('div.gbanner', h('img', { src: kg.banner, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => el.remove() })); return el; }
-  const sid = steamIdOf(a) || kg?.steam; if (!sid) return null;
+  const sid = steamIdOf(a) || kg?.steam;
   const el = h('div.gbanner.hidden');
-  steamArt(sid).then(x => { if (!x?.image) return; el.replaceChildren(h('img', { src: x.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => el.remove() })); el.classList.remove('hidden'); });
+  (sid ? steamArt(sid) : steamArtByTitle(gameTitle(a))).then(x => { if (!x?.image) return; el.replaceChildren(h('img', { src: x.image, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer', onerror: () => el.remove() })); el.classList.remove('hidden'); });
   return el;
 }
 
