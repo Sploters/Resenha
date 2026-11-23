@@ -1,7 +1,7 @@
 // Aba "Arquivos" (estilo Drive) de um servidor ou de uma DM: tudo o que foi enviado numa grade organizada por tipo
 // (imagens, vídeos, áudios, documentos, outros arquivos e links), agrupada por mês, com filtros de quem enviou, período,
 // canal e nome. Achar o PDF de três meses atrás sem rolar o chat. Dados: GET /api/media (server/media.js).
-import { h, icon, imgUrl, thumbUrl, bytes, skeleton, fsVideo } from './util.js';
+import { h, icon, imgUrl, thumbUrl, bytes, skeleton, fsVideo, fitVideoModal } from './util.js';
 import { S, tryApi, toast, guild, user, nameOf, channelById, dmPeer, lightbox, modal, menu } from './state.js';
 
 let ctx = {}; // injetado por app.js: go(gid, cid), jumpTo(mid)
@@ -57,7 +57,12 @@ function itemMenu(e, it) {
 function open(it) {
   if (it.expired || !it.url) return toast('Este arquivo expirou e foi apagado do servidor.', true);
   if (it.kind === 'image') return lightbox(it.url, { list: st.items.filter(x => x.kind === 'image' && x.url).map(x => ({ src: x.url, name: x.name, size: x.size })) });
-  if (it.kind === 'video') { const poster = thumbUrl(it.url); return modal(it.name, `${who(it.author_id)} · ${when(it.created_at)}`, h('div.fv-video', fsVideo({ src: it.url, autoplay: true, ...(poster ? { poster } : {}) })), [{ label: 'Ir para a mensagem', cls: 'grey', fn: () => jump(it) }, { label: 'Fechar' }], { width: '880px' }); }
+  if (it.kind === 'video') {
+    const poster = thumbUrl(it.url), vb = fsVideo({ src: it.url, autoplay: true, ...(poster ? { poster } : {}) }), stage = h('div.fv-video', vb);
+    const dlg = modal(it.name, `${who(it.author_id)} · ${when(it.created_at)}`, stage, [{ label: 'Ir para a mensagem', cls: 'grey', fn: () => jump(it) }, { label: 'Fechar' }]);
+    fitVideoModal(dlg.el.querySelector('.modal'), stage, vb.video); // janela do tamanho do vídeo, sem rolagem (util.js)
+    return dlg;
+  }
   if (it.kind === 'audio') return modal(it.name, `${who(it.author_id)} · ${when(it.created_at)}`, h('audio', { src: it.url, controls: true, autoplay: true, style: { width: '100%' } }), [{ label: 'Ir para a mensagem', cls: 'grey', fn: () => jump(it) }, { label: 'Fechar' }]);
   if (it.kind === 'link') return window.open(it.url, '_blank', 'noopener');
   if (/\.pdf$/i.test(it.name) || it.type === 'application/pdf') return window.open(it.url, '_blank', 'noopener'); // o navegador abre o PDF

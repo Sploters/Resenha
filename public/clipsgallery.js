@@ -1,7 +1,7 @@
 // Galeria de clipes do servidor: todos os clipes salvos nas salas de voz, num só lugar.
 // Abas Todos / Meus / Favoritos, busca, prévia que só carrega quando aparece na tela, player com anterior/próximo,
 // renomear, favoritar, baixar, ir para a mensagem e apagar. Atualiza em tempo real (CLIP_CREATE/UPDATE/DELETE).
-import { h, icon, fsVideo, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
+import { h, icon, fsVideo, fitVideoModal, whenGone, thumbUrl, skeleton, clipLink, clipVideoLink } from './util.js';
 import { openTrimmer } from './cliptrim.js';
 import { trackWatch } from './clipwatch.js';
 import { postClip } from './clips.js';
@@ -215,18 +215,7 @@ function player(i, list = st.clips, opts = {}) {
   md.classList.add('clipmodal');
   md.querySelector('.mf')?.remove(); // sem rodapé: fechar fica no X do topo (e clicando fora)
   md.querySelector('.mh')?.append(h('button.inv-x', { title: 'Fechar', onclick: dlg.close }, icon('x', 20)));
-  // tamanho da janela pela proporção do clipe (features.css .clipmodal): --ar = largura/altura do vídeo,
-  // --chrome = altura de tudo que não é vídeo (título, barra, botões que quebram linha); 2 passadas porque a largura
-  // nova pode mudar a quebra da barra
-  const stage = box.querySelector('.pstage');
-  const fit = () => {
-    if (!md.isConnected || document.fullscreenElement) return;
-    if (v.videoWidth && v.videoHeight) md.style.setProperty('--ar', (v.videoWidth / v.videoHeight).toFixed(4));
-    for (let n = 0; n < 2; n++) md.style.setProperty('--chrome', Math.ceil(md.scrollHeight - stage.offsetHeight) + 'px');
-  };
-  v.addEventListener('loadedmetadata', fit);
-  addEventListener('resize', fit); whenGone(md, () => removeEventListener('resize', fit));
-  show(cur); fit();
+  show(cur); fitVideoModal(md, box.querySelector('.pstage'), v); // janela do tamanho do clipe (util.js)
 }
 
 // abre um clipe pelo id, em popup, de qualquer lugar (ex.: destaque "salvou um clipe" no painel "Ativo agora")

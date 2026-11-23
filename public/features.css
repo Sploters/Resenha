@@ -774,10 +774,15 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 /* a janela segue a proporção do vídeo (vertical, 4:3, ultrawide…): largura = altura que sobra × proporção, entre 560 px
    (cabem nome e botões) e 1100 px. --ar e --chrome (altura do resto da janela) vêm do player (clipsgallery.js).
    Sem rolagem: o vídeo encolhe para tudo caber nos 90vh */
-.modal.clipmodal { --vmax: max(160px, calc(90vh - var(--chrome, 190px))); max-width: 94vw;
-  width: calc(clamp(min(512px, 94vw - 48px), var(--vmax) * var(--ar, 1.7778), min(1052px, 94vw - 48px)) + 48px); }
+/* janela de vídeo (fitVideoModal, util.js): mesma regra para o player de clipe e o vídeo da aba Arquivos. --vmin: largura
+   mínima do vídeo (cabem título e botões) */
+.modal.vfit { --vmax: max(160px, calc(90vh - var(--chrome, 190px))); max-width: 94vw;
+  width: calc(clamp(min(var(--vmin, 400px), 94vw - 48px), var(--vmax) * var(--ar, 1.7778), min(1052px, 94vw - 48px)) + 48px); }
+.modal.vfit .mb { overflow: visible; }
+.modal.vfit .mh h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* nome de arquivo comprido: reticências (o nome inteiro no title) */
+.modal.clipmodal { --vmin: 512px; }
 .modal.clipmodal .mh { position: relative; padding-right: 48px; }
-.modal.clipmodal .mb { padding: 8px 24px 24px; overflow: visible; } /* sem rodapé: a margem de baixo fica no corpo */
+.modal.clipmodal .mb { padding: 8px 24px 24px; } /* sem rodapé: a margem de baixo fica no corpo */
 /* o palco não recorta o vídeo (sem overflow/cantos): recortar obrigava a recompor a cada quadro e travava fora da tela cheia */
 .clipplayer .pstage { position: relative; display: flex; align-items: center; justify-content: center; background: #000; }
 .clipplayer video { width: 100%; max-height: var(--vmax, calc(90vh - 200px)); background: #000; display: block; object-fit: contain; }
@@ -1560,7 +1565,8 @@ html.anim #voice-panel.vp-in { animation: mv-rise .22s var(--ease-out) both; } /
 #filesview .fv-tile.expired { opacity: .55; }
 #filesview .fv-more-row { display: flex; justify-content: center; margin: 16px 0; }
 #filesview .fv-limit { margin-top: 24px; color: var(--text-muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
-.fv-video video { width: 100%; max-height: 70vh; border-radius: 8px; background: #000; }
+.fv-video .fsvid { display: block; width: 100%; }
+.fv-video video { width: 100%; max-height: var(--vmax, 70vh); border-radius: 8px; background: #000; object-fit: contain; }
 @media (max-width: 640px) { #filesview .fv-body { padding: 12px 12px 32px; } #filesview .fv-tool { margin: -16px -12px 12px; padding: 12px; } #filesview .fv-grid { grid-template-columns: 1fr; } #filesview .fv-grid.dense { grid-template-columns: repeat(2, 1fr); } #filesview .fv-more { opacity: 1; } }
 
 /* ===== Reputação: aviso no compositor, mensagem marcada, casos ===== */
