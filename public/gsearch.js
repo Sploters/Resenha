@@ -1,6 +1,6 @@
 // Buscar em tudo (painel ao lado da lista de canais) e o atalho flutuante do servidor com a lista de canais oculta.
 import { h, icon, avatar, stripInvites, skeleton, debounce, imgUrl } from './util.js';
-import { S, api, user, guild, channelById, nameOf, dmPeer, menu, popout, savePrefs } from './state.js';
+import { S, api, user, guild, channelById, chVisible, nameOf, dmPeer, menu, popout, savePrefs } from './state.js';
 import { chName } from './chnames.js';
 import { voice, $ } from './gateway.js';
 import { go } from './nav.js';
@@ -53,7 +53,7 @@ export function gFlyHide() { clearTimeout(RG.t); gFlyCancel(); if (gFlyOpen()) R
 export function gFlyCancel() { clearTimeout(RG.wait); RG.wait = 0; }
 function gFlyLater() { clearTimeout(RG.t); RG.t = setTimeout(gFlyHide, 400); }
 // canais na ordem em que aparecem na lista: os sem categoria primeiro, depois categoria por categoria
-export const guildChOrder = (g) => { const kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid); return [...kids(null), ...g.channels.filter(c => c.type === 4).flatMap(c => kids(c.id))]; };
+export const guildChOrder = (g) => { const kids = (pid) => g.channels.filter(c => c.type !== 4 && (c.parent_id || null) === pid && chVisible(c)); return [...kids(null), ...g.channels.filter(c => c.type === 4).flatMap(c => kids(c.id))]; };
 function gFlyShow(anchor, g) {
   clearTimeout(RG.t); gFlyCancel(); if (gFlyOpen() && RG.gid === g.id) return;
   const chans = guildChOrder(g), text = chans.find(c => c.type === 0), room = chans.find(c => c.type === 2);

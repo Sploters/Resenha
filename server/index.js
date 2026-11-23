@@ -484,7 +484,12 @@ function refreshVoicePerms(gid) {
 // intents, clips, thumbs) vão à parte, por getter, para serem lidos só na hora da requisição.
 // registro de mensagens editadas/excluídas nos servidores (server/msglog.js); vai às rotas em core.msglog
 const msglog = mountMsgLog(app, { auth, wrap, bad, db, all, get, run, newId, can, P, userPub, audit });
+// mover alguém (moderação de voz) para uma sala em que a pessoa não pode entrar: o app dela entra sozinho logo depois, e
+// essa entrada vale uma vez, por 30 s, só para aquela sala. Ao sair, não volta mais (a sala nem aparece para ela)
+const movePass = new Map();
+const allowMove = (uid, cid) => { movePass.set(uid, { cid, until: Date.now() + 30e3 }); setTimeout(() => { if (movePass.get(uid)?.cid === cid && movePass.get(uid).until <= Date.now()) movePass.delete(uid); }, 31e3).unref(); };
 const core = {
+  allowMove,
   msglog,
   auth, wrap, wrapA, bad, clean, lim, db, all, get, run, newId, tx, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE,
   dispatch, send, guildMemberIds, channelAudience, canAccessChannel, channelFor, getUser, userPub, pubUser, messageObj, audit, timedOut, rateOk,
@@ -1032,7 +1037,8 @@ wss.on('connection', (ws) => {
           const ch = get('SELECT * FROM channels WHERE id=?', String(d.channel_id));
           if (!ch || (ch.type !== 2 && ch.type !== 1) || !canAccessChannel(uid, ch)) return;
           if (timedOut(ch.guild_id, uid)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, reason: 'Você está de castigo neste servidor' });
-          if (!chp.chCan(ch, uid, CH.CONNECT) && currentVoice(uid) !== ch.id) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'no_connect', reason: 'Você não tem permissão para entrar nesta sala de voz' });
+          const pass = movePass.get(uid), moved = pass?.cid === ch.id && pass.until > Date.now(); if (pass?.cid === ch.id) movePass.delete(uid);
+          if (!chp.chCan(ch, uid, CH.CONNECT) && currentVoice(uid) !== ch.id && !moved) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'no_connect', reason: 'Você não tem permissão para entrar nesta sala de voz' });
           { const min = desktopMin(); if (min && ws.app && olderVer(ws.app, min)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'outdated', min, reason: `Seu app está na versão ${ws.app}. Para entrar nas calls, atualize para a ${min} ou mais nova.` }); }
           // ligação numa DM: começar a chamada (sala vazia) toca para a outra pessoa — só se ela aceita ligações de quem liga
           if (ch.type === 1 && !(voice.get(ch.id)?.size)) {

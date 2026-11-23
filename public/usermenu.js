@@ -3,7 +3,7 @@ import { openMyMessages } from './mymessages.js';
 import { fxInfo } from './voicefx.js';
 import { userGamesModal } from './games.js';
 import { h, icon, avatar, framePos, initials, imgUrl } from './util.js';
-import { S, tryApi, user, botOf, guild, channelById, member, can, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, lightbox, closeFloating, savePrefs, profileThemeOn } from './state.js';
+import { S, tryApi, user, botOf, guild, channelById, chVisible, member, can, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, lightbox, closeFloating, savePrefs, profileThemeOn } from './state.js';
 import { volumeControl } from './quick.js';
 import { chName } from './chnames.js';
 import { canCallInvite, sendCallInvite } from './callinvite.js';
@@ -162,7 +162,7 @@ export async function openDM(uid) {
 function callUserMenu(e, uid, gid) {
   const g = gid && gid !== '@me' ? guild(gid) : null;
   if (uid === S.me.id) {
-    const others = g ? g.channels.filter(c => c.type === 2 && c.id !== voice.channelId) : [];
+    const others = g ? g.channels.filter(c => c.type === 2 && c.id !== voice.channelId && chVisible(c)) : [];
     return menu(e, [
       { label: 'Perfil', fn: () => profile(e.target, uid, gid) },
       '-',

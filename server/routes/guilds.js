@@ -4,7 +4,7 @@
 import { sfuModerate } from '../sfuapi.js';
 
 export function mountGuilds(app, d) {
-  const { auth, wrap, bad, clean, db, all, get, run, newId, tx, lim, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE, renumberRoles, dispatch, send, guildMemberIds, channelAudience, guildFull, memberObj, vsObj, getUser, userPub, audit, auditSince, AUDIT_DAYS, isFileUrl, cssColor, voice, leaveVoice, currentVoice, refreshVoicePerms, dropViewers, removeMember } = d;
+  const { auth, wrap, bad, clean, db, all, get, run, newId, tx, lim, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE, renumberRoles, dispatch, send, guildMemberIds, channelAudience, guildFull, memberObj, vsObj, getUser, userPub, audit, auditSince, AUDIT_DAYS, isFileUrl, cssColor, voice, leaveVoice, currentVoice, refreshVoicePerms, dropViewers, removeMember, allowMove } = d;
   function createGuild(owner, name) {
     const gid = newId(), now = Date.now();
     run('INSERT INTO guilds(id,name,owner_id,created_at) VALUES(?,?,?,?)', gid, name, owner, now);
@@ -173,6 +173,7 @@ export function mountGuilds(app, d) {
         if (to.id !== c) {
           // o app da pessoa entra na sala nova sozinho (a mídia é refeita lá); sala trancada para ela também vale para quem move
           if (!chp.chCan(to, req.uid, CH.CONNECT)) return bad(res, 'Você não pode entrar nessa sala, então não pode mover ninguém para ela', 403);
+          allowMove(target, to.id); // pode ser uma sala trancada para a pessoa: entra mesmo assim, só desta vez
           send(st.ws, 'VOICE_MODERATED', { action: 'move', channel_id: to.id, from: c, by: req.uid });
           audit(gid, req.uid, 'voice_move', target, `${here.name} → ${to.name}`);
         }

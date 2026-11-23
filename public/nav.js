@@ -1,6 +1,6 @@
 // Navegação entre telas (rotas #/servidor/canal), montagem da casca do app e abertura das Configurações.
 import { h } from './util.js';
-import { S, user, guild, channelById, loadMembers, dmPeer, toast, confirmBox, menu, closeFloating } from './state.js';
+import { S, user, guild, channelById, chVisible, loadMembers, dmPeer, toast, confirmBox, menu, closeFloating } from './state.js';
 import { hidePreview } from './chpreview.js';
 import { updatePip } from './livepip.js';
 import { startTimer, navTo } from './ux.js';
@@ -67,7 +67,8 @@ export function applyRoute(first) {
       loadPost(cid).then(c => { if (S.view.cid !== cid) return; if (c?.guild_id === gid) { S.view.pendingPost = false; renderSide(); renderMain(); } else { toast('Post não encontrado', true); go(gid); } });
       syncWatching(null); renderRail(); renderSide(); renderMain(); return;
     }
-    let ch = post || chans.find(c => c.id === cid) || chans.find(c => c.id === S.lastChannel[gid]) || chans.find(c => c.type === 0) || chans[0];
+    const vis = chans.filter(chVisible); // sala escondida (sem permissão de entrar) não abre nem por link
+    let ch = post || vis.find(c => c.id === cid) || vis.find(c => c.id === S.lastChannel[gid]) || vis.find(c => c.type === 0) || vis[0];
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
     if (g.partial) loadMembers(gid).catch(() => { }); // mesmo com a lista de membros fechada (menções, cores dos cargos)
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }

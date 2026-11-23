@@ -3,7 +3,7 @@ import { openNights } from './nights.js';
 import { liveIn, boraCard, openBoraModal } from './bora.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
-import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh, api, toast } from './state.js';
+import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
 import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -57,8 +57,12 @@ export function renderSide() {
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         canInvite(g) && h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
-    const cats = g.channels.filter(c => c.type === 4), byParent = new Map();
-    for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
+    // salas escondidas (sem permissão de entrar) ficam de fora; categoria que só tinha essas some junto
+    const byParent = new Map(), hiddenIn = new Set();
+    for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; if (!chVisible(c)) { hiddenIn.add(k); continue; } (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
+    const cats = g.channels.filter(c => c.type === 4 && (byParent.has(c.id) || !hiddenIn.has(c.id)));
+    // estava olhando uma sala que acabou de sumir (saiu da chamada para onde foi movido): volta para o servidor
+    if (S.view.gid === g.id && !chVisible(channelById(S.view.cid))) setTimeout(() => { if (S.view.gid === g.id && !chVisible(channelById(S.view.cid))) go(g.id); });
     const kids = (pid) => byParent.get(pid) || [];
     if (sideCats.gid !== g.id) { sideCats.gid = g.id; sideCats.open.clear(); }
     const chRow = (c) => {

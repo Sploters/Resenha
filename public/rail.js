@@ -2,7 +2,7 @@
 // servidor, convidar e criar/entrar em servidor.
 import { openMyMessages } from './mymessages.js';
 import { h, icon, avatar, debounce, imgUrl } from './util.js';
-import { S, api, tryApi, user, member, nameOf, can, canInvite, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs } from './state.js';
+import { S, api, tryApi, user, member, nameOf, can, canInvite, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs, chVisible } from './state.js';
 import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
 import { setLfgGuild } from './lfg.js';
@@ -73,7 +73,7 @@ export const inGames = () => S.view.gid === '@me' && (S.view.kind === 'lfg' || S
 // ícone de mensagens da barra: Amigos no meio e as conversas na lista
 function openMeSection() { if (S.view.kind === 'dm') track('back_to_friends', 'rail'); S.favMode = false; go('@me'); }
 // salas de voz ocupadas de um servidor: [{ ch, users: [voiceState] }]
-export const voiceRooms = (g) => g.channels.filter(c => c.type === 2).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
+export const voiceRooms = (g) => g.channels.filter(c => c.type === 2 && chVisible(c)).map(ch => ({ ch, users: [...S.voice.values()].filter(v => v.channel_id === ch.id) })).filter(r => r.users.length);
 // cartão ao passar o mouse no servidor: quem está em qual sala
 // jogos que a galera do servidor mais joga (como no cartão do servidor no Discord): pedido no máximo a cada 10 min por
 // servidor; quando chega, a lista redesenha. Sem jogos com gente suficiente, não aparece nada

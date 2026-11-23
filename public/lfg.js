@@ -1,7 +1,7 @@
 // Procurar jogadores: mural de anúncios (quem divide servidor com você ou é seu amigo), "Quero entrar" → o autor
 // aceita e você vai para a chamada, "Copiar anúncio" para colar em grupos de LFG, perfil de jogador e atalhos para sites.
 import { h, icon, avatar } from './util.js';
-import { S, api, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed } from './state.js';
+import { S, api, tryApi, toast, modal, notify, savePrefs, guild, alertAllowed, chVisible } from './state.js';
 import { toggle } from './ui.js';
 import { gamesTabs } from './gamestabs.js';
 import { flow } from './ux.js';
@@ -206,7 +206,7 @@ async function createModal(pre = null) {
   const games = await meta();
   const f = { platform: 'pc', join_mode: 'ask', game: pre?.game || st.game || 'valorant', game_name: pre?.game_name && pre.game === 'other' ? pre.game_name : '', mode: pre?.mode || '', slots: pre?.slots || 1, rank_min: '', rank_max: '', roles: new Set(), mic: true, when: 'now', at: '', note: pre?.note || '', channel_id: ctx.voiceChannel?.() || '' };
   const box = h('div.lfgform');
-  const voiceRooms = [...S.guilds.values()].flatMap(gg => gg.channels.filter(c => c.type === 2).map(c => ({ id: c.id, label: `${c.name} · ${gg.name}` })));
+  const voiceRooms = [...S.guilds.values()].flatMap(gg => gg.channels.filter(c => c.type === 2 && chVisible(c)).map(c => ({ id: c.id, label: `${c.name} · ${gg.name}` })));
   const sel = (opts, val, on, cls = '') => h('select' + cls, { onchange: (e) => on(e.target.value) }, opts.map(([v, l]) => h('option', { value: v, selected: String(v) === String(val) }, l)));
   const draw2 = () => {
     const g = G(f.game);

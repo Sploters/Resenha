@@ -446,7 +446,7 @@ export function onEvent(t, d) {
     case 'VOICE_JOINED': voice.onJoined(d); if (!d.sfu) stopTimer('voice_connect', d.channel_id); break;
     case 'VOICE_MODERATED': { // a moderação moveu ou desconectou você (server: PATCH /api/guilds/:id/voice/:uid)
       const by = d.by ? nameOf(d.by, channelById(d.channel_id)?.guild_id) : 'A moderação';
-      if (d.action === 'move' && voice?.channelId === d.from) { const to = channelById(d.channel_id); movedNotice(by, to); joinVoice(d.channel_id); }
+      if (d.action === 'move' && voice?.channelId === d.from) { const to = channelById(d.channel_id); movedNotice(by, to); joinVoice(d.channel_id, { moved: true }); }
       else if (d.action === 'disconnect') toast(`${by} desconectou você da chamada`, true);
       break;
     }

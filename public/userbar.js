@@ -5,7 +5,7 @@ import { openFxPicker } from './fxui.js';
 import { fxInfo } from './voicefx.js';
 import { fxIcon } from './fxicons.js';
 import { h, icon, avatar } from './util.js';
-import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, CH_KINDS, channelMuted } from './state.js';
+import { S, tryApi, user, guild, channelById, dmPeer, toast, modal, menu, savePrefs, focusOn, CH, chCan, chVisible, CH_KINDS, channelMuted } from './state.js';
 import { playInviteModal } from './callinvite.js';
 import { openBoraModal } from './bora.js';
 import { openDM } from './usermenu.js';
@@ -172,9 +172,10 @@ export function rejoinPanel() {
     h('div.sub', `${name}${g ? ' / ' + g.name : ''}`),
     h('button.btn.green.rj-go', { onclick: rejoinNow }, icon('phone', 16), 'Reconectar'));
 }
-export function joinVoice(cid) {
+export function joinVoice(cid, { moved = false } = {}) {
   if (voice.channelId === cid) return;
-  { const c = channelById(cid); if (c?.guild_id && !chCan(c, CH.CONNECT)) return toast('Você não tem permissão para entrar nesta sala de voz', true); }
+  // movido pela moderação: entra mesmo numa sala trancada para você (o servidor liberou essa entrada)
+  { const c = channelById(cid); if (c?.guild_id && !moved && !chCan(c, CH.CONNECT)) return toast('Você não tem permissão para entrar nesta sala de voz', true); }
   // o "Entrar" do topo some já no clique (antes ficava ~100 ms a mais, até a sala responder, e piscava). Se a entrada
   // falhar, o palco redesenhado (stage.js) mostra de novo
   document.querySelector('.vc-join-top')?.classList.add('hidden');
@@ -244,7 +245,7 @@ function qsItems() {
   for (const r of S.rels.values()) if (r.type === 1 && r.user?.id && !withDm.has(r.user.id)) { const u = user(r.user.id); items.push({ id: 'u' + u.id, kind: 'dm', label: u.display_name, alt: u.username, lead: avatar(u, 24), hint: 'Amigo · abrir conversa', fn: () => openDM(u.id) }); }
   for (const g of S.guilds.values()) {
     for (const c of g.channels) {
-      if (c.type === 4) continue;
+      if (c.type === 4 || !chVisible(c)) continue;
       const n = c.type === 2 ? inCall(c.id) : 0;
       items.push({ id: c.id, kind: c.type === 2 ? 'voice' : 'text', label: chName(c), alt: c.name, lead: icon(CH_KINDS[c.type]?.[0] || 'hash', 20), hint: (n ? `${n} na chamada · ` : '') + g.name, fn: () => go(g.id, c.id) });
     }

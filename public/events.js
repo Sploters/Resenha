@@ -3,7 +3,7 @@
 // Capa: da Steam (link/appid), de jogos fora dela (catálogo Riot/Battle.net/Epic…, ou link de qualquer loja/site) ou imagem própria.
 // Horários no fuso e formato de quem lê (o servidor guarda em UTC).
 import { h, icon, avatar, skeleton, imgUrl } from './util.js';
-import { S, api, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, guild, notify } from './state.js';
+import { S, api, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, chVisible, guild, notify } from './state.js';
 import { steamInfo, steamApp } from './steamcard.js';
 import { uploadFile } from './upload.js';
 
@@ -163,7 +163,7 @@ const localInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${
 // pre: só valores iniciais de um evento novo (ex.: "Outro dia…" do Bora: título e jogo)
 export function eventModal(gid, ev = null, pre = null) {
   const g = guild(gid); if (!g) return;
-  const voices = g.channels.filter(c => c.type === 2), texts = g.channels.filter(c => c.type === 0);
+  const voices = g.channels.filter(c => c.type === 2 && chVisible(c)), texts = g.channels.filter(c => c.type === 0);
   const def = new Date(Date.now() + 864e5); def.setHours(21, 0, 0, 0); if (def - Date.now() > 864e5) def.setDate(def.getDate() - 1); // hoje 21h (ou amanhã se já passou)
   const title = h('input', { maxLength: 100, value: ev?.title || pre?.title || '', placeholder: 'Ex.: Sexta de CS2' });
   const game = h('input', { maxLength: 300, value: ev?.game || pre?.game || '', placeholder: 'Nome do jogo ou link da loja (Steam, Epic, Battle.net, Riot…)', list: 'ev-games' });

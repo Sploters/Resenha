@@ -1,6 +1,6 @@
 // Canais favoritos: lista própria com grupos, de qualquer servidor.
 import { h, icon, imgUrl } from './util.js';
-import { S, guild, channelById, toast, promptBox, menu, savePrefs, isChatCh } from './state.js';
+import { S, guild, channelById, chVisible, toast, promptBox, menu, savePrefs, isChatCh } from './state.js';
 import { previewHooks } from './chpreview.js';
 import { chName } from './chnames.js';
 import { go } from './nav.js';
@@ -14,7 +14,7 @@ import { initialsOf } from './usermenu.js';
 // (S.prefs.favs: [{ c: id do canal, g: grupo }], S.prefs.favGroups: ordem dos grupos) e sincroniza com os outros aparelhos.
 // Post de fórum também pode ser favorito: { c: id do post, g, p: 1, gid, f: id do fórum, n: título }. Os posts não vêm no
 // READY, então o favorito guarda o servidor, o fórum e o título; abrir carrega o post (go → loadPost).
-export const favList = () => (S.prefs.favs || []).filter(f => { if (f.p) return guild(f.gid) && channelById(f.f); const c = channelById(f.c); return c && c.guild_id && guild(c.guild_id); });
+export const favList = () => (S.prefs.favs || []).filter(f => { if (f.p) return guild(f.gid) && channelById(f.f); const c = channelById(f.c); return c && c.guild_id && guild(c.guild_id) && chVisible(c); });
 const favGid = (f) => (f.p ? f.gid : channelById(f.c)?.guild_id);
 export function toggleFavPost(p) {
   const list = S.prefs.favs ||= [];

@@ -335,6 +335,9 @@ export function chPerms(ch) {
   return ((p & ~d) | a) & CH_ALL;
 }
 export const chCan = (ch, bit) => (chPerms(ch) & bit) !== 0;
+// sala de voz em que a pessoa não pode entrar nem aparece para ela; só fica visível enquanto ela está lá dentro (movida por
+// alguém com cargo) e some de novo quando ela sai. Quem gerencia canais vê todas.
+export const chVisible = (ch) => !ch || ch.type !== 2 || chCan(ch, CH.CONNECT) || S.voice.get(S.me?.id)?.channel_id === ch.id;
 // tipos de canal (ideia "Kinds of Channels", Stoat #1027): texto, anúncios e galeria têm conversa; documento é uma página
 export const CH_KINDS = { 0: ['hash', 'Texto'], 2: ['voice', 'Voz'], 5: ['megaphone', 'Anúncios'], 15: ['forum', 'Fórum'], 16: ['image', 'Galeria'], 17: ['doc', 'Documento'] };
 export const isChatCh = (c) => !!c && (c.type === 0 || c.type === 5 || c.type === 16);
