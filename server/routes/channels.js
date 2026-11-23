@@ -35,6 +35,33 @@ export function mountChannels(app, d) {
     if (req.body.name !== undefined || req.body.topic !== undefined) audit(ch.guild_id, req.uid, 'channel_update', ch.id, get('SELECT name FROM channels WHERE id=?', ch.id).name);
     res.json({});
   }));
+  // arrastar canais na barra lateral: { order: [{ id, parent_id }] } com todos os canais e categorias do servidor na ordem
+  // nova (posts de fórum ficam de fora). As posições viram 0..n; categoria nunca fica dentro de outra. Lista desatualizada
+  // (alguém criou/excluiu um canal no meio) volta 409 e o cliente redesenha com a ordem de verdade.
+  app.put('/api/guilds/:id/channels/order', auth, wrap((req, res) => {
+    const gid = req.params.id;
+    if (!can(gid, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);
+    const cur = new Map(all('SELECT id,type,name,position,parent_id FROM channels WHERE guild_id=? AND type<>11', gid).map(c => [c.id, c]));
+    const order = Array.isArray(req.body?.order) ? req.body.order : [];
+    const ids = order.map(o => String(o?.id ?? ''));
+    if (ids.length !== cur.size || new Set(ids).size !== ids.length || ids.some(id => !cur.has(id))) return bad(res, 'A lista de canais mudou; tente de novo', 409);
+    const next = order.map((o, i) => {
+      const c = cur.get(String(o.id)), p = o.parent_id == null || o.parent_id === '' ? null : String(o.parent_id);
+      return { c, position: i, parent_id: c.type === 4 || !p || cur.get(p)?.type !== 4 ? null : p };
+    });
+    const changed = next.filter(n => n.position !== n.c.position || n.parent_id !== (n.c.parent_id || null));
+    if (!changed.length) return res.json({});
+    for (const n of changed) if (n.parent_id && n.parent_id !== (n.c.parent_id || null)) { const why = lim.inCategory(n.parent_id); if (why) return bad(res, why, 409); }
+    db.exec('BEGIN');
+    try { for (const n of changed) run('UPDATE channels SET position=?,parent_id=? WHERE id=?', n.position, n.parent_id, n.c.id); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+    dispatch(guildMemberIds(gid), 'CHANNELS_ORDER', { guild_id: gid, order: next.map(n => ({ id: n.c.id, position: n.position, parent_id: n.parent_id })) });
+    // trocou de categoria: as salas de voz sincronizadas passam a seguir as permissões da categoria nova
+    const moved = changed.filter(n => n.parent_id !== (n.c.parent_id || null));
+    if (moved.length) refreshVoicePerms(gid);
+    if (moved.length === 1) audit(gid, req.uid, 'channel_update', moved[0].c.id, `${moved[0].c.name} · movido para ${moved[0].parent_id ? cur.get(moved[0].parent_id).name : 'fora das categorias'}`);
+    else audit(gid, req.uid, 'channel_update', null, 'ordem dos canais');
+    res.json({});
+  }));
   app.delete('/api/channels/:id', auth, wrap((req, res) => {
     const ch = get('SELECT * FROM channels WHERE id=?', req.params.id);
     if (!ch || !ch.guild_id || !can(ch.guild_id, req.uid, P.MANAGE_CHANNELS)) return bad(res, 'Sem permissão', 403);

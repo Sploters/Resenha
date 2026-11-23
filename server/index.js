@@ -139,7 +139,7 @@ function send(ws, type, d) { if (ws.readyState === 1) ws.send(JSON.stringify({ t
 // pessoa ficam prontos em texto. Nunca entrega dado velho: qualquer evento que muda o servidor/a pessoa passa pelo
 // dispatch e descarta o guardado; por segurança, nada vale mais que 30 s (servidor) / 60 s (pessoa).
 // Quem está em cada sala de voz, não lidas, DMs e status (online/ausente) são calculados na hora, a cada abertura.
-const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'ROLE_UPDATE', 'ROLE_DELETE',
+const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'CHANNELS_ORDER', 'ROLE_UPDATE', 'ROLE_DELETE',
   'MEMBER_ADD', 'MEMBER_REMOVE', 'MEMBER_UPDATE', 'EMOJIS_UPDATE', 'SOUNDS_UPDATE', 'CHANNEL_PERMS']);
 const guildCache = new Map(), userCache = new Map();
 function invalidateFor(type, d) {

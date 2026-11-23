@@ -3,7 +3,7 @@ import { openNights } from './nights.js';
 import { liveIn, boraCard, openBoraModal } from './bora.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
-import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh } from './state.js';
+import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, CH_KINDS, isChatCh, api, toast } from './state.js';
 import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -28,7 +28,7 @@ export const chIcon = (c, sz = 20) => icon(CH_KINDS[c.type]?.[0] || 'hash', sz);
 export function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
   const side = $('#side'); if (!side) return;
-  if (vDrag) return; // arrastando alguém para outra sala: redesenha ao soltar (senão o arrasto é cancelado)
+  if (vDrag || cDrag) return; // arrastando alguém para outra sala (ou um canal): redesenha ao soltar (senão o arrasto é cancelado)
   let head, list;
   if (S.favMode && favList().length) ({ head, list } = favSide());
   else if (S.view.gid === '@me' || !guild(S.view.gid)) {
@@ -65,12 +65,12 @@ export function renderSide() {
       const vs = c.type === 2 ? roomVoice(c.id) : [];
       const pol = isChatCh(c) ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
       return h('div', voiceDropHooks(g, c), h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
-        { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c) },
+        { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c), ...chDragHooks(g, c) },
         chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && vusersBlock(g, vs));
     };
-    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { title: c.topic || null, onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c) },
+    const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { title: c.topic || null, onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c), ...chDragHooks(g, c) },
       h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
       can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
@@ -238,6 +238,78 @@ export function voiceDropHooks(g, c) {
     ondragover: (e) => { if (ok()) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('vdrop-over'); } },
     ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('vdrop-over'); },
     ondrop: (e) => { if (!ok()) return; e.preventDefault(); const { gid, uid } = vDrag; vDragEnd(); moveVoice(gid, uid, c); },
+  };
+}
+// ---------- arrastar canais ----------
+// Quem pode Gerenciar canais arrasta um canal para cima/baixo de outro (inclusive de outra categoria) ou para logo
+// abaixo do título de uma categoria (vira o primeiro dela); soltar na metade de cima do título de uma categoria põe o canal
+// no fim da seção anterior (acima da primeira categoria: fora das categorias). Categorias arrastadas trocam de lugar entre si.
+// A ordem muda na hora aqui e vai inteira para o servidor (PUT /guilds/:id/channels/order), que avisa todo mundo.
+let cDrag = null;
+export const channelDragging = () => !!cDrag;
+export function applyChannelOrder(g, order) {
+  const at = new Map(order.map(o => [o.id, o]));
+  for (const c of g.channels) { const o = at.get(c.id); if (o) { c.position = o.position; c.parent_id = o.parent_id; } }
+  g.channels.sort((a, b) => a.position - b.position);
+}
+// seções na ordem da barra: sem categoria primeiro, depois cada categoria com seus canais
+function chSections(g) {
+  const cats = g.channels.filter(c => c.type === 4), catIds = new Set(cats.map(c => c.id));
+  const secs = [{ cat: null, kids: [] }, ...cats.map(c => ({ cat: c, kids: [] }))], by = new Map(secs.map(x => [x.cat?.id ?? null, x]));
+  for (const c of g.channels) if (c.type !== 4) by.get(catIds.has(c.parent_id) ? c.parent_id : null).kids.push(c);
+  return secs;
+}
+function cDragEnd() {
+  if (!cDrag) return; cDrag = null; document.body.classList.remove('cdrag-on');
+  document.querySelectorAll('.cdragging,.cdrop-before,.cdrop-after').forEach(el => el.classList.remove('cdragging', 'cdrop-before', 'cdrop-after'));
+  renderSide();
+}
+// onde cai o que está sendo arrastado ao soltar sobre o canal/categoria t (metade de cima: antes; de baixo: depois)
+function dropSpot(t, e) {
+  if (!cDrag || cDrag.id === t.id || (cDrag.cat && t.type !== 4)) return null;
+  const r = e.currentTarget.getBoundingClientRect();
+  return e.clientY < r.top + r.height / 2 ? 'before' : 'after';
+}
+async function dropChannel(g, id, t, spot) {
+  const secs = chSections(g), dragged = channelById(id); if (!dragged || dragged.id === t.id) return;
+  if (dragged.type === 4) {
+    const from = secs.findIndex(x => x.cat?.id === dragged.id), [sec] = secs.splice(from, 1);
+    const to = secs.findIndex(x => x.cat?.id === t.id); secs.splice(to + (spot === 'after' ? 1 : 0), 0, sec);
+  } else {
+    for (const x of secs) x.kids = x.kids.filter(c => c.id !== dragged.id);
+    if (t.type === 4) {
+      const i = secs.findIndex(x => x.cat?.id === t.id);
+      if (spot === 'after') secs[i].kids.unshift(dragged); else secs[Math.max(0, i - 1)].kids.push(dragged);
+    } else {
+      const sec = secs.find(x => x.kids.some(c => c.id === t.id)), i = sec.kids.findIndex(c => c.id === t.id);
+      sec.kids.splice(i + (spot === 'after' ? 1 : 0), 0, dragged);
+    }
+  }
+  const order = secs.flatMap(x => [...(x.cat ? [x.cat] : []), ...x.kids]).map((c, i) => ({ id: c.id, position: i, parent_id: c.type === 4 ? null : (secs.find(s => s.kids.includes(c)).cat?.id ?? null) }));
+  if (order.every(o => { const c = channelById(o.id); return c.position === o.position && (c.parent_id || null) === o.parent_id; })) return;
+  const undo = g.channels.map(c => ({ id: c.id, position: c.position, parent_id: c.parent_id || null }));
+  if (dragged.type !== 4 && order.find(o => o.id === dragged.id).parent_id) S.collapsed.delete(order.find(o => o.id === dragged.id).parent_id); // mostra onde caiu
+  applyChannelOrder(g, order); renderSide();
+  try { await api('PUT', `/guilds/${g.id}/channels/order`, { order: order.map(({ id, parent_id }) => ({ id, parent_id })) }); }
+  catch (err) { applyChannelOrder(g, undo); renderSide(); toast(err?.message || 'Não deu para mover o canal', true); }
+}
+// atributos de uma linha de canal ou do título de uma categoria para arrastar e receber canais
+function chDragHooks(g, c) {
+  if (!can(g.id, PERM.MANAGE_CHANNELS)) return {};
+  const mark = (e, spot) => { const el = e.currentTarget; el.classList.toggle('cdrop-before', spot === 'before'); el.classList.toggle('cdrop-after', spot === 'after'); };
+  return {
+    draggable: true,
+    ondragstart: (e) => {
+      if (vDrag) return;
+      e.stopPropagation(); hidePreview();
+      cDrag = { gid: g.id, id: c.id, cat: c.type === 4 };
+      e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('application/x-lc-channel', c.id); e.dataTransfer.setData('text/plain', chName(c));
+      document.body.classList.add('cdrag-on'); e.currentTarget.classList.add('cdragging');
+    },
+    ondragend: cDragEnd,
+    ondragover: (e) => { const spot = cDrag?.gid === g.id && dropSpot(c, e); if (!spot) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; mark(e, spot); },
+    ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) mark(e, null); },
+    ondrop: (e) => { const spot = cDrag?.gid === g.id && dropSpot(c, e); if (!spot) return; e.preventDefault(); e.stopPropagation(); const id = cDrag.id; cDragEnd(); dropChannel(g, id, c, spot); },
   };
 }
 let movedT = 0;

@@ -44,7 +44,7 @@ import { attention, updateTitle, ack } from './unread.js';
 import { openSettings, go, applyRoute, buildShell } from './nav.js';
 import { renderRail, joinInvite } from './rail.js';
 import { GS, renderGS } from './gsearch.js';
-import { renderSide, inMessages, movedNotice } from './side.js';
+import { renderSide, inMessages, movedNotice, applyChannelOrder } from './side.js';
 import { newsActions, setCallDropped, checkRejoinOnLoad, joinVoice } from './userbar.js';
 import { renderCallBar, renderMain, vcChatHidden } from './mainview.js';
 import { catchUp, renderMessages, appendMessage, applyUser, refreshAuthors, msgEl } from './chat.js';
@@ -335,6 +335,7 @@ export function onEvent(t, d) {
     }
     case 'CHANNEL_CREATE': { const g = guild(d.guild_id); if (g) { g.channels.push(d); g.channels.sort((a, b) => a.position - b.position); renderSide(); } break; }
     case 'CHANNEL_UPDATE': { const g = guild(d.guild_id); if (g) { const i = g.channels.findIndex(c => c.id === d.id); if (i >= 0) g.channels[i] = d; renderSide(); if (S.view.cid === d.id) renderMain(); } break; }
+    case 'CHANNELS_ORDER': { const g = guild(d.guild_id); if (g) { applyChannelOrder(g, d.order); renderSide(); } break; }
     case 'CHANNEL_DELETE': {
       const g = guild(d.guild_id); if (!g) break;
       g.channels = g.channels.filter(c => c.id !== d.id); S.messages.delete(d.id);

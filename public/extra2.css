@@ -716,6 +716,11 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .vdrag-on [data-vroom].vdrop-ok > .ch { outline: 1px dashed color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: -1px; }
 .vdrag-on [data-vroom].vdrop-over { background: color-mix(in srgb, var(--brand) 18%, transparent); border-radius: 6px; }
 .vdrag-on [data-vroom].vdrop-over > .ch { outline: 2px solid var(--brand); color: var(--header); }
+/* arrastar canais e categorias (Gerenciar canais): uma linha mostra onde vai cair */
+.cdragging { opacity: .45; }
+.cdrag-on .ch, .cdrag-on .cat { transition: none; }
+.cdrag-on .cdrop-before { box-shadow: inset 0 2px 0 var(--brand); }
+.cdrag-on .cdrop-after { box-shadow: inset 0 -2px 0 var(--brand); }
 .vmoved { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 210; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px);
   background: var(--bg-float); color: var(--text-normal); padding: 10px 12px 10px 16px; border-radius: 8px; border-left: 4px solid var(--brand); box-shadow: 0 6px 20px rgba(0,0,0,.5); animation: vmoved-in .25s ease-out; }
 .vmoved.muted { border-left-color: var(--yellow, #f0b232); animation: vmoved-in .25s ease-out, vmoved-shake .5s .3s 2; }
