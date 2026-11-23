@@ -332,7 +332,72 @@ export function mountDiscover(app, { auth, dataDir }) {
       return hit ? { appid: String(hit.id), title: String(hit.name).replace(/[™®]/g, '').replace(/\s+/g, ' ').trim() } : null;
     }).catch(() => null);
   }
+  // ---------- sugestões para a turma (GET /api/guilds/:id/suggestions, server/routes/sessions.js) ----------
+  // A partir dos jogos que a galera mais joga (sementes, com peso), procura na loja da Steam jogos com as mesmas tags
+  // marcantes (as duas mais fortes de cada semente, sem as genéricas como "Ação" ou "Indie"), em duas listas: os mais
+  // vendidos/jogados (sort 10) e os que estão em alta agora (sort 13). Pontua pela semelhança de tags com as sementes,
+  // pela posição na lista e, se a turma joga multiplayer, pelo jogo ser multiplayer também. Tira o que a turma já joga
+  // (exclude) e conteúdo adulto. Guardado por 1 h para o mesmo conjunto de sementes.
+  const GENERIC_TAGS = new Set([19, 21, 113, 492, 493, 597, 1756, 4166, 4182, 3871, 4191, 4305, 4252, 5411, 4711, 7481, 1693, 4136, 4726, 1742, 3839, 1697, 4175, 1654, 4234, 3859, 1775, 4026, 1684, 1774, 1719, 4667, 4345, 3964, 3834, 1669]);
+  const ADULT_TAGS = new Set([6650, 9130, 12095]);
+  const GROUP_TAGS = new Set([1685, 3843, 3841, 3859, 1775, 128, 5711, 7178, 7108, 10816, 745697, 3878, 176981]);
+  const GROUP_CATS = new Set([1, 9, 36, 38, 49]); // multijogador, cooperativo, online PvP/coop
+  async function itemTags(ids) {
+    const miss = ids.filter(id => !cache.get('stag:' + id) || Date.now() - cache.get('stag:' + id).at > 7 * 864e5);
+    for (let i = 0; i < miss.length; i += 50) {
+      const r = await sapi('IStoreBrowseService/GetItems', { ids: miss.slice(i, i + 50).map(appid => ({ appid: +appid })), context: ctx(), data_request: { include_tag_count: 15 } }).catch(() => null);
+      for (const it of r?.response?.store_items || []) if (it.appid) cache.set('stag:' + it.appid, { at: Date.now(), v: { name: it.name, tags: (it.tags || []).sort((a, b) => b.weight - a.weight).map(t => t.tagid), cats: it.categories?.supported_player_categoryids || [] } });
+    }
+    return Object.fromEntries(ids.map(id => [id, cache.get('stag:' + id)?.v]).filter(([, v]) => v));
+  }
+  const tagQuery = (tagids, sort) => cached('sq:' + sort + ':' + tagids.join(','), 6 * 3600e3, async () => {
+    const r = await sapi('IStoreQueryService/Query', { query: { count: 24, sort, filters: { released_only: true, type_filters: { include_games: true }, tagids_must_match: tagids.map(t => ({ tagids: [t] })) } },
+      context: ctx(), data_request: { include_tag_count: 12 } });
+    return (r?.response?.store_items || []).filter(x => x.appid && x.success !== 2).map(x => ({ appid: String(x.appid), name: x.name, tags: x.tagids || [], cats: x.categories?.supported_player_categoryids || [] }));
+  });
+  async function suggest(seeds, exclude = new Set(), { limit = 8 } = {}) {
+    seeds = seeds.filter(x => /^\d+$/.test(String(x.appid))).map(x => ({ ...x, appid: String(x.appid) })).sort((a, b) => b.weight - a.weight).slice(0, 5);
+    if (!seeds.length) return [];
+    let hx = 0; for (const ch of [...exclude].sort().join(',')) hx = (hx * 31 + ch.charCodeAt(0)) >>> 0; // o que excluir muda a resposta
+    const key = 'sug:' + seeds.map(x => x.appid).join(',') + ':' + hx.toString(36);
+    return cached(key, 3600e3, async () => {
+      const info = await itemTags(seeds.map(x => x.appid)), tagN = await Promise.race([tagNames().catch(() => ({})), new Promise(r => setTimeout(r, 2000, {}))]);
+      const maxW = Math.max(...seeds.map(x => x.weight || 1)) || 1, cand = new Map();
+      const groupy = seeds.some(x => (info[x.appid]?.tags || []).some(t => GROUP_TAGS.has(t)));
+      await Promise.all(seeds.map(async (sd) => {
+        const t = info[sd.appid]; if (!t) return;
+        const specific = t.tags.filter(x => !GENERIC_TAGS.has(x) && !ADULT_TAGS.has(x)), core = specific.slice(0, 8);
+        if (specific.length < 2) return;
+        const w = (sd.weight || 1) / maxW;
+        for (const sort of [10, 13]) {
+          const list = await tagQuery(specific.slice(0, 2), sort).catch(() => []);
+          list.forEach((x, rank) => {
+            if (x.appid === sd.appid || exclude.has(x.appid) || x.tags.some(t2 => ADULT_TAGS.has(t2))) return;
+            const shared = core.filter(c => x.tags.includes(c));
+            const c = cand.get(x.appid) || { appid: x.appid, score: 0, like: new Map(), hot: 99, top: 99, shared: new Set(), group: x.cats.some(k => GROUP_CATS.has(k)) || x.tags.some(t2 => GROUP_TAGS.has(t2)) };
+            c.score += w * (shared.length / core.length) * (1 + (24 - rank) / 24);
+            c.like.set(sd.title || t.name, (c.like.get(sd.title || t.name) || 0) + w * shared.length);
+            if (sort === 13) c.hot = Math.min(c.hot, rank); else c.top = Math.min(c.top, rank);
+            for (const s2 of shared.slice(0, 3)) c.shared.add(s2);
+            cand.set(x.appid, c);
+          });
+        }
+      }));
+      // "em alta": subindo agora (bem colocado na lista de em alta e mais para trás, ou fora, na dos mais vendidos)
+      for (const c of cand.values()) { c.trend = c.hot < 10 && c.top > c.hot + 4; if (groupy && !c.group) c.score *= 0.4; if (c.trend) c.score *= 1.15; }
+      const pool = [...cand.values()].sort((a, b) => b.score - a.score).slice(0, limit * 4);
+      const items = await storeItems(pool.map(x => +x.appid));
+      // qualidade: só jogos com avaliações suficientes e boas (tira o jogo obscuro que aparece por ter as mesmas tags)
+      const good = pool.filter(x => { const rv = items[x.appid]?.reviews; return rv && rv.count >= 300 && rv.pct >= 70; });
+      // variedade: um jogo da turma não toma a lista toda (no máximo metade + 1 para cada semente)
+      const per = new Map(), cap = Math.ceil(limit / Math.min(seeds.length, 3)) + 1, top = [];
+      for (const x of good) { const by = [...x.like].sort((a, b) => b[1] - a[1])[0]?.[0]; if ((per.get(by) || 0) >= cap) continue; per.set(by, (per.get(by) || 0) + 1); top.push(x); if (top.length >= limit) break; }
+      for (const x of good) { if (top.length >= limit) break; if (!top.includes(x)) top.push(x); }
+      return top.map(x => ({ ...items[x.appid], appid: x.appid, like: [...x.like].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 2),
+        trending: x.trend, group: x.group, why_tags: [...x.shared].map(t => tagN[t]).filter(Boolean).slice(0, 3), score: Math.round(x.score * 100) / 100 }));
+    });
+  }
   // preços para o alerta de promoção da wishlist (server/games.js): { appid: item } ou null se a Steam estiver desligada
-  return { storeItems: (ids, maxAge) => (off() || conf().steam === false ? Promise.resolve(null) : storeItems(ids.map(Number), maxAge)),
+  return { suggest: (seeds, exclude, o) => (off() || conf().steam === false ? Promise.resolve([]) : suggest(seeds, exclude, o)), storeItems: (ids, maxAge) => (off() || conf().steam === false ? Promise.resolve(null) : storeItems(ids.map(Number), maxAge)),
     findApp: (name) => (off() || conf().steam === false ? Promise.resolve(null) : findApp(name)) };
 }

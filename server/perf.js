@@ -36,7 +36,7 @@ class Stats {
 
 const ALERT_MS = +(process.env.ALERT_MS || 1000);
 const fmt = (ms) => (ms >= 1000 ? (ms / 1000).toFixed(1).replace('.', ',') + ' s' : Math.round(ms) + ' ms');
-const ALERT_IGNORE = /\/(upload|music|translate|gifs|discover|steam-art|steam-apps|desktop|files|reports|rum)\b/;
+const ALERT_IGNORE = /\/(upload|music|translate|gifs|discover|steam-art|steam-apps|suggestions|desktop|files|reports|rum)\b/;
 export function mountPerf(app, { auth, wrap, bad, isAdmin, dataDir, notifyAdmin = () => { } }) {
   const routes = new Stats(), rum = new Stats(500);
   // ---- alertas ----

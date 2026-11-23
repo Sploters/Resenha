@@ -8,6 +8,7 @@
 import { h, icon } from './util.js';
 import { S, api, savePrefs } from './state.js';
 import { gamesTabs, takeDiscoverTab } from './gamestabs.js';
+import { loadSuggestions, suggestionRow, openRetro } from './retro.js';
 
 const TABS = [['home', 'Início'], ['news', 'Notícias'], ['tournaments', 'Torneios']];
 const ALL = ['charts', 'deals', 'upcoming', 'tournaments', 'news'];
@@ -191,7 +192,29 @@ function interestsBox() {
 const mixCard = (x) => (x.kind === 'deal' ? dealCard : x.kind === 'tour' ? tourCard : x.kind === 'up' ? upCard : x.kind === 'news' ? newsCard : riseCard)(x);
 // cada seção do Início é montada sozinha (SECS[chave]()), para a resposta de uma fonte redesenhar só a seção dela
 const homeData = () => ({ ch: st.data.charts?.playing ? st.data.charts : null, deals: st.data.deals?.items || [], ups: st.data.upcoming?.items || [], news: st.data.news?.items || [], tours: (st.data.tournaments?.items || []).filter(inRegion) });
+// "Para a turma": jogos parecidos com o que a galera de um servidor mais joga, e em alta na Steam (server/routes/sessions.js
+// /suggestions). Servidor: o aberto por último (ou o primeiro); com vários, dá para trocar ali mesmo.
+const turma = { gid: null, data: null, loading: false };
+const turmaGid = () => { const ids = [...S.guilds.keys()]; if (turma.gid && S.guilds.has(turma.gid)) return turma.gid; const v = S.view?.gid; return v && v !== '@me' && S.guilds.has(v) ? v : ids[0] || null; };
+function loadTurma() {
+  const gid = turmaGid(); if (!gid || turma.loading || (turma.data && turma.data.gid === gid)) return;
+  turma.loading = true; turma.gid = gid;
+  loadSuggestions(gid).then(r => { turma.data = { gid, items: r?.items || [], seeds: r?.seeds || [] }; }).finally(() => { turma.loading = false; drawSoon('turma'); });
+}
 const SECS = {
+  turma() {
+    const gid = turmaGid(); if (!gid) return null;
+    loadTurma();
+    const d = turma.data?.gid === gid ? turma.data : null, open = st.open.turma, guilds = [...S.guilds.values()];
+    if (d && !d.items.length) return null; // nada para sugerir (ninguém compartilha o que joga): a seção não aparece
+    const pick = guilds.length > 1 && h('select.dturma-g', { 'aria-label': 'Servidor', onchange: (e) => { turma.gid = e.target.value; turma.data = null; loadTurma(); drawSoon('turma'); } },
+      guilds.map(g => h('option', { value: g.id, selected: g.id === gid }, g.name)));
+    const seeds = d?.seeds?.slice(0, 3).map(x => x.title).join(', ');
+    const body = !d ? h('div.dturma', h('p.dnote', 'Procurando jogos para a turma…'))
+      : h('div.dturma', h('div.rt-sugs.dturma-list', ...d.items.slice(0, open ? 8 : 4).map(x => suggestionRow(x, { big: true }))),
+        h('div.dturma-foot', pick, h('button.btn.grey.sm', { onclick: () => openRetro(gid) }, icon('star', 14), 'Ver o Rewind da turma')));
+    return section('turma', 'users', 'Para a turma', seeds ? `porque vocês jogam ${seeds}` : null, d?.items.length || 0, body, { shown: 4 });
+  },
   // Para você: o que combina com os interesses; cada tipo numa fila e intercalados (promoção, torneio, Steam, lançamento, notícia...)
   foryou() {
     if (!interests().length) return null;
@@ -239,7 +262,7 @@ const SECS = {
     return section('news', 'news', 'Últimas notícias', null, news.length, state('news', news, 'Nenhuma notícia por aqui.') || rail('news', news, newsCard), { tab: 'news', tabLabel: 'Ver todas' });
   },
 };
-const ORDER = ['foryou', 'charts', 'deals', 'upcoming', 'tournaments', 'news'];
+const ORDER = ['foryou', 'turma', 'charts', 'deals', 'upcoming', 'tournaments', 'news'];
 function homeTab() {
   const secs = ORDER.map(k => SECS[k]()).filter(Boolean);
   // nenhuma fonte trouxe nada (e nada está carregando): um aviso só, com o botão de tentar de novo

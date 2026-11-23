@@ -76,9 +76,8 @@ export async function openNights(gid) {
   const body = h('div.nt', tabs, list);
   modal('Nossas noites', 'As sessões de voz da turma, guardadas para sempre', body, [], { width: 'min(720px, 96vw)' });
   const show = async (tab) => {
-    const yr = new Date().getFullYear();
     tabs.replaceChildren(...[['nights', 'Noites'], ['pearls', 'Pérolas']].map(([k, l]) => h('button.ctab' + (k === tab ? '.active' : ''), { onclick: () => show(k) }, l)),
-      h('button.btn.green.sm.nt-retro', { onclick: () => openRetro(gid, yr) }, icon('star', 14), `Retrospectiva ${yr}`));
+      h('button.btn.green.sm.nt-retro', { title: 'Resumo da semana, do mês ou do ano', onclick: () => openRetro(gid) }, icon('star', 14), 'Rewind'));
     list.replaceChildren(h('div.nt-load', 'Carregando…'));
     if (tab === 'pearls') {
       const r = await tryApi('GET', `/guilds/${gid}/pearls`); addUsers(r?.users);

@@ -647,7 +647,7 @@ function socialVoice(cid, joined = null) {
   social.onVoice(cid, voicePeople(cid), { intent: isIntent, joined, friendThere });
   voiceSessions.onVoice(cid);
 }
-mountVoiceSessions(app, { ...core, voiceSessions }); // "Desde a última vez" e apagar sessões (server/routes/sessions.js)
+mountVoiceSessions(app, { ...core, voiceSessions, activity, discover }); // "Desde a última vez" e apagar sessões (server/routes/sessions.js)
 const { accountPub, accountOf, resolveLocalGame, saveGameIcon, localNames } = mountActivity(app, { ...core, activity, games, achievements, discover }); // integrações, Ativo agora e jogo no PC (server/routes/activity.js)
 app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)

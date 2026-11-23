@@ -10,7 +10,7 @@
 const DEFAULT_AWAY = 3 * 864e5, MAX_BACK = 7 * 864e5, MAX_ITEMS = 6;
 
 export function mountVoiceSessions(app, d) {
-  const { auth, wrap, bad, all, get, run, can, P, userPub, getUser, privacy, canAccessChannel, voiceSessions } = d; // d.db: tabelas da Noite
+  const { auth, wrap, bad, all, get, run, can, P, userPub, getUser, privacy, canAccessChannel, voiceSessions, activity, discover } = d; // d.db: tabelas da Noite
   const parse = (s) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
 
   function sinceFor(viewer) {
@@ -185,14 +185,38 @@ export function mountVoiceSessions(app, d) {
       .filter(p => canAccessChannel(req.uid, get('SELECT * FROM channels WHERE id=?', p.channel_id))).map(pearlObj);
     res.set('Cache-Control', 'no-store').json({ pearls: list, users: usersOf(list.flatMap(p => [p.author_id, p.by_id])) });
   }));
+  // ---------- Rewind: resumo da semana, do mês ou do ano (GET /api/guilds/:id/retro?period=week|month|year&offset=0) ----------
+  // offset 0 = o período atual, -1 = o anterior... ?year= (sem period) continua valendo: o ano pedido.
+  // Semana: de segunda a domingo. Datas no fuso do servidor (o mesmo das noites).
+  const PERIODS = new Set(['week', 'month', 'year']);
+  const MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  function periodRange(period, offset, year) {
+    const now = new Date();
+    if (period === 'week') {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 7 * offset);
+      const e = new Date(d); e.setDate(e.getDate() + 7);
+      const last = new Date(e - 1), same = d.getMonth() === last.getMonth();
+      return { from: d.getTime(), to: e.getTime(), label: same ? `${d.getDate()} a ${last.getDate()} de ${MES[d.getMonth()]}` : `${d.getDate()} de ${MES[d.getMonth()]} a ${last.getDate()} de ${MES[last.getMonth()]}`, year: last.getFullYear() };
+    }
+    if (period === 'month') {
+      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1), e = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      return { from: d.getTime(), to: e.getTime(), label: `${MES[d.getMonth()][0].toUpperCase() + MES[d.getMonth()].slice(1)} de ${d.getFullYear()}`, year: d.getFullYear() };
+    }
+    const y = year || now.getFullYear() + offset;
+    return { from: new Date(y, 0, 1).getTime(), to: new Date(y + 1, 0, 1).getTime(), label: String(y), year: y };
+  }
   // ---------- Retrospectiva do ano (GET /api/guilds/:id/retro?year=) ----------
   // Calculada na hora a partir do que já é guardado: noites (sessões), mensagens e reações dos canais que a pessoa vê,
   // clipes, pérolas. Só dados do grupo e "o seu cartão" (só você vê). Sem ranking de pessoas; a "dupla do ano" só com
   // quem aparece pelo nome (mesmas regras das noites). Jogos: do resumo das sessões (já sem nomes e sem partidas escondidas).
   app.get('/api/guilds/:id/retro', auth, wrap((req, res) => {
     const gid = String(req.params.id), me = req.uid; if (!isMember(gid, me)) return bad(res, 'Servidor não encontrado', 404);
-    const year = Math.min(2100, Math.max(2000, +req.query.year || new Date().getFullYear()));
-    const from = new Date(year, 0, 1).getTime(), to = new Date(year + 1, 0, 1).getTime();
+    const period = PERIODS.has(String(req.query.period)) ? String(req.query.period) : 'year';
+    const offset = Math.max(-520, Math.min(0, Math.trunc(+req.query.offset || 0)));
+    const askYear = !req.query.period && req.query.year ? Math.min(2100, Math.max(2000, +req.query.year)) : null;
+    const range = periodRange(period, offset, askYear), { from, to } = range, year = range.year;
+    // voltar mais: até o período em que o servidor foi criado
+    const born = get('SELECT created_at FROM guilds WHERE id=?', gid)?.created_at || 0, has_prev = !born || from > born;
     const chans = all('SELECT * FROM channels WHERE guild_id=?', gid).filter(c => canAccessChannel(me, c)), cids = chans.map(c => c.id);
     const inC = cids.length ? `(${cids.map(() => '?').join(',')})` : "('')";
     // noites
@@ -230,7 +254,7 @@ export function mountVoiceSessions(app, d) {
       clips: clips.filter(c => c.author_id === me).length, clipped: clips.filter(c => c.streamer_id === me && c.author_id !== me).length,
       pearls: pearls.filter(p => p.author_id === me).length,
     };
-    const out = { year, guild_name: get('SELECT name FROM guilds WHERE id=?', gid)?.name || '',
+    const out = { year, period, offset, label: range.label, from, to, has_prev, has_next: offset < 0, guild_name: get('SELECT name FROM guilds WHERE id=?', gid)?.name || '',
       group: { nights: nights.length, secs: secsAll, longest: longest && { id: longest.id, title: longest.title, secs: longest.secs, ended_at: longest.ended_at, members: longest.members.map(m => m.id) },
         games: topGames, duo: duo && { ids: duo[0].split(':'), nights: duo[1] }, best_day: bestDay, messages: msgN,
         top_message: topMsg && { id: topMsg.id, author_id: topMsg.author_id, content: String(topMsg.content).slice(0, 280), reactions: topMsg.n, created_at: topMsg.created_at },
@@ -240,5 +264,24 @@ export function mountVoiceSessions(app, d) {
     const ids = [...(out.group.longest?.members || []), ...(out.group.duo?.ids || []), out.group.top_message?.author_id, out.group.top_clip?.author_id, out.group.top_clip?.streamer_id, out.group.top_pearl?.author_id, mine.buddy?.id];
     res.set('Cache-Control', 'no-store').json({ ...out, users: usersOf(ids) });
   }));
+  // ---------- sugestões de jogos para a turma (GET /api/guilds/:id/suggestions) ----------
+  // Sementes: os jogos que a galera do servidor mais jogou nos últimos 30 dias (mesmas regras do cartão "Jogos que a
+  // galera mais joga": só quem compartilha a atividade, sem jogos escondidos); sem nenhum, os mais jogados das
+  // bibliotecas da Steam dos membros. Fora: o que alguém já jogou no período e o que 2+ membros já têm.
+  app.get('/api/guilds/:id/suggestions', auth, async (req, res) => { try {
+    const gid = String(req.params.id); if (!isMember(gid, req.uid)) return bad(res, 'Servidor não encontrado', 404);
+    if (!discover?.suggest || !activity?.guildGames) return res.json({ items: [], seeds: [] });
+    const played = activity.guildGames(gid, { days: 30, limit: 60, minPlayers: 1 });
+    const sid = (x) => (x.platform === 'steam' ? x.game.id : x.game.steam) || null;
+    let seeds = played.filter(sid).map(x => ({ appid: String(sid(x)), title: x.game.title, weight: x.players * 2 + x.week + x.playing * 2 + Math.min(10, x.hours / 5) })).slice(0, 5);
+    const members = all('SELECT user_id FROM members WHERE guild_id=?', gid).map(r => r.user_id), inM = members.length ? `(${members.map(() => '?').join(',')})` : "('')";
+    let owned = [];
+    try { owned = all(`SELECT appid, COUNT(*) n, SUM(minutes) mins, MAX(title) title FROM game_library WHERE user_id IN ${inM} GROUP BY appid`, ...members); } catch { /* sem a tabela de bibliotecas */ }
+    if (!seeds.length) seeds = [...owned].sort((a, b) => b.mins - a.mins).slice(0, 5).filter(x => x.mins > 0).map(x => ({ appid: String(x.appid), title: x.title, weight: Math.sqrt(x.mins / 60) + x.n }));
+    const ownN = new Map(owned.map(x => [String(x.appid), x.n]));
+    const exclude = new Set([...played.map(sid).filter(Boolean).map(String), ...owned.filter(x => x.n >= 2).map(x => String(x.appid))]);
+    const items = await discover.suggest(seeds, exclude, { limit: 8 }).catch(() => []);
+    res.set('Cache-Control', 'private, max-age=600').json({ seeds: seeds.map(x => ({ appid: x.appid, title: x.title })), items: items.map(x => ({ ...x, owners: ownN.get(String(x.appid)) || 0 })) });
+  } catch (e) { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); } });
   return { sinceFor };
 }

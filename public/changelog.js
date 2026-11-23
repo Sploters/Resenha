@@ -6,6 +6,13 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-23-2', title: 'Rewind e jogos para a turma',
+    items: [
+      { i: 'star', t: 'Rewind da semana, do mês e do ano', d: 'Em Noites (topo dos canais do servidor), "Rewind": as setinhas trocam entre Semana, Mês e Ano, e "anterior" volta para semanas, meses e anos passados. As noites, os jogos, a dupla, a mensagem, a pérola e o clipe do período, e o seu cartão, que só você vê.' },
+      { i: 'users', t: 'Jogos para a turma', d: 'Jogos parecidos com o que a galera mais joga e que estão em alta na Steam, sem repetir o que vocês já jogam. Aparecem no fim do Rewind e em Jogos → Início, em "Para a turma".' },
+    ],
+  },
+  {
     id: '2026-11-23-1', title: 'Chamar pra jogar, microfone e ícones de jogos',
     items: [
       { i: 'gamepad', t: 'Chamar pra jogar', d: 'Na chamada, o botão de controle no painel de voz (ou clique direito na sala de voz → "Chamar pra jogar") abre a lista de amigos e membros fora da chamada. Escolha o jogo e quem chamar: cada um recebe um aviso com toque, "Fulano chamou você para jogar X", e entra na sala com um clique.' },
