@@ -42,6 +42,7 @@ import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
 import { mountOnboarding } from './onboarding.js';
+import { mountAdmin } from './admin.js';
 import { createPush } from './push.js';
 import { createSocial, mountSocial } from './social.js';
 import { createVoiceSessions } from './sessions.js';
@@ -400,9 +401,12 @@ app.disable('x-powered-by');
 mountSecurity(app, { publicDir: path.join(__dirname, '..', 'public') }); // CSP da página e cabeçalhos de segurança (server/security.js)
 app.use(express.json({ limit: '1mb' }));
 
+// contas suspensas pelo administrador da instalação (server/admin.js): não usam a API nem entram
+const banned = new Set(all('SELECT id FROM users WHERE banned_at IS NOT NULL').map(r => r.id));
 const auth = (req, res, next) => {
   const s = sessions.lookup((req.headers.authorization || '').replace(/^Bearer /, ''));
   if (!s) return res.status(401).json({ error: 'Não autenticado' });
+  if (banned.has(s.user_id)) return res.status(403).json({ error: 'Conta suspensa pelo administrador', code: 'banned' });
   req.uid = s.user_id; req.tokenHash = s.hash; next();
 };
 const wrap = (fn) => (req, res) => { try { fn(req, res); } catch (e) { console.error(e); if (!res.headersSent) res.status(500).json({ error: 'Erro interno' }); } };
@@ -500,10 +504,10 @@ const core = {
   conns, voice, leaveVoice, currentVoice, isFileUrl, cssColor, privacy, statusFor, platformsFor, social, sessions, reputation,
   removeMember, joinGuild, unlinkIfUnused, reportAdmin, refreshVoicePerms, UPLOAD_DIR, DATA_DIR,
 };
-const { ipLimited } = mountAuth(app, { ...core, OPEN_REGISTRATION, COLORS, DEFAULT_AVATARS }); // registro, login e logout (server/routes/auth.js)
+const { ipLimited } = mountAuth(app, { ...core, OPEN_REGISTRATION, COLORS, DEFAULT_AVATARS, banned }); // registro, login e logout (server/routes/auth.js)
 mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSession: sessions.create }); // entrar lendo um QR Code com o celular já logado (server/qrlogin.js)
 
-mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
+const { deleteAccount } = mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
 mountGuilds(app, { ...core, renumberRoles, guildFull, memberObj, vsObj, auditSince, AUDIT_DAYS, dropViewers, get activity() { return activity; } }); // servidores, membros e cargos (server/routes/guilds.js)
 mountChannels(app, { ...core, get forum() { return forum; }, get intents() { return intents; } }); // canais e permissões (server/routes/channels.js)
 // aviso no celular (ntfy) para quem configurou: "Bora?" e convite direto para a chamada (server/push.js)
@@ -628,6 +632,8 @@ const activity = createActivityService({ all, get, run, newId, dispatch, presenc
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
+// gerenciamento de usuários pelo administrador da instalação (server/admin.js)
+mountAdmin(app, { ...core, isAdmin: (uid) => reportAdmin()?.id === uid, banned, deleteAccount });
 // central de boas-vindas do servidor (server/onboarding.js)
 onbSvc = mountOnboarding(app, { ...core, memberObj });
 // "Bora?": chamar a turma do servidor (server/bora.js)

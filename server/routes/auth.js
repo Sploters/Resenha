@@ -48,6 +48,7 @@ export function mountAuth(app, d) {
     // conta que não existe também gasta o scrypt: o tempo da resposta não diz se o nome existe
     const ok = u ? pwMatches(u, String(req.body.password ?? '')) : (hashPw('x', 'resenha-nao-existe'), false);
     if (!ok) { loginFailed(ip, name); return bad(res, 'Usuário ou senha inválidos', 401); }
+    if (d.banned?.has(u.id)) return bad(res, 'Esta conta foi suspensa pelo administrador', 403); // server/admin.js
     loginOk(name);
     res.json({ token: sessions.create(u.id, clean(req.headers['user-agent'], 200)) });
   }));

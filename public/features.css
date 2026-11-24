@@ -2498,3 +2498,30 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .onbcfg .card2 .perm { border-top: 0; }
 .newslist .newssec { margin: 10px 2px 0; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
 .newslist .newssec:first-child { margin-top: 0; }
+
+/* ---------- Configurações → Usuários (administrador da instalação; public/adminusers.js) ---------- */
+.adminusers .au-muted { color: var(--text-muted); font-size: 13px; }
+.au-bar { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.au-search { flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--divider); background: var(--bg-input, var(--bg-tert)); }
+.au-search .icon { fill: var(--text-muted); flex: none; }
+.au-search input { flex: 1; min-width: 0; padding: 9px 0; border: 0; background: none; color: var(--text); font: inherit; outline: none; }
+.au-search:focus-within { border-color: var(--brand); }
+.au-list { display: flex; flex-direction: column; gap: 4px; }
+.au-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--bg-sec); }
+.au-row.banned { opacity: .75; }
+.au-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.au-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .au-name b { color: var(--header); }
+.au-user { color: var(--text-muted); font-size: 13px; }
+.au-t small { color: var(--text-muted); font-size: 12px; } .au-t .au-why { color: var(--red); }
+.au-tag { font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+.au-tag.adm { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
+.au-tag.ban { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.au-tag.on { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.au-more { flex: none; }
+.au-pw { display: flex; align-items: center; gap: 10px; }
+.au-pw code { flex: 1; padding: 10px 12px; border-radius: 8px; background: var(--bg-tert); font-family: var(--font-code, monospace); font-size: 18px; letter-spacing: .06em; color: var(--header); user-select: all; }
+.au-pw .btn { display: inline-flex; align-items: center; gap: 6px; } .au-pw .btn .icon { fill: currentColor; }
+.au-log { display: flex; flex-direction: column; gap: 2px; }
+.au-logrow { display: flex; justify-content: space-between; gap: 12px; padding: 6px 4px; border-bottom: 1px solid var(--divider); font-size: 13px; color: var(--text); }
+.au-logrow small { color: var(--text-muted); white-space: nowrap; }
+@media (max-width: 600px) { .au-logrow { flex-direction: column; gap: 2px; } }

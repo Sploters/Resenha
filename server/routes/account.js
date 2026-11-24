@@ -105,9 +105,10 @@ export function mountAccount(app, d) {
     sessions.revoke(req.uid, req.tokenHash);
     res.json({});
   }));
-  app.post('/api/me/delete', auth, wrap((req, res) => {
-    const u = getUser(req.uid);
-    if (!pwMatches(u, String(req.body.password ?? ''))) return bad(res, 'Senha incorreta', 403);
+  // apaga a conta e tudo dela (servidores que é dono, mensagens, conversas, amizades); usada também pelo administrador
+  // da instalação (server/admin.js), que não precisa da senha
+  function deleteAccount(uid) {
+    const u = getUser(uid); if (!u) return false;
     for (const g of all('SELECT id FROM guilds WHERE owner_id=?', u.id)) {
       const ids = guildMemberIds(g.id); run('DELETE FROM guilds WHERE id=?', g.id); dispatch(ids, 'GUILD_DELETE', { id: g.id }); dropViewers(g.id);
     }
@@ -115,11 +116,19 @@ export function mountAccount(app, d) {
     const audience = sharedAudience(u.id);
     for (const gid of all('SELECT guild_id FROM members WHERE user_id=?', u.id).map(r => r.guild_id)) removeMember(gid, u.id, false);
     run('DELETE FROM messages WHERE author_id=?', u.id);
-    for (const d of all('SELECT channel_id FROM dm_participants WHERE user_id=?', u.id)) run('DELETE FROM channels WHERE id=?', d.channel_id);
+    for (const dm of all('SELECT channel_id FROM dm_participants WHERE user_id=?', u.id)) run('DELETE FROM channels WHERE id=?', dm.channel_id);
     run('DELETE FROM relationships WHERE user_id=? OR other_id=?', u.id, u.id);
     for (const ws of conns.get(u.id) || []) ws.close(4001, 'conta excluída');
     run('DELETE FROM users WHERE id=?', u.id);
+    userCache?.delete?.(u.id);
     dispatch(audience.filter(x => x !== u.id), 'USER_DELETE', { id: u.id });
+    return true;
+  }
+  app.post('/api/me/delete', auth, wrap((req, res) => {
+    const u = getUser(req.uid);
+    if (!pwMatches(u, String(req.body.password ?? ''))) return bad(res, 'Senha incorreta', 403);
+    deleteAccount(u.id);
     res.json({});
   }));
+  return { deleteAccount };
 }
