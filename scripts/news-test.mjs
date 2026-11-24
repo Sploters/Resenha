@@ -39,5 +39,17 @@ try {
   const hasItem = await B.evaluate(() => [...document.querySelectorAll('.meitem')].some(i => /Novidades/.test(i.textContent)));
   ok(hasItem, 'menu do perfil tem "Novidades"');
   if (hasItem) { await B.evaluate(() => [...document.querySelectorAll('.meitem')].find(i => /Novidades/.test(i.textContent)).click()); ok(await newsOpen(B), 'e abre a janela'); }
+  // jogo do PC: quem tinha escolhido algo mais restrito antes de a opção sair (migração pc-always-on-1) recebe uma
+  // mensagem uma vez; quem não tinha, nada
+  const { DatabaseSync } = await import('node:sqlite');
+  const dbx = new DatabaseSync((process.env.DATA_DIR || './.testdata23') + '/resenha.db');
+  dbx.prepare("UPDATE users SET pc_notice_at=? WHERE username='alice'").run(Date.now()); dbx.close();
+  const pcMsg = (p) => p.waitForFunction(() => /jogo do PC agora aparece/.test(document.querySelector('.modal .mh h2')?.textContent || ''), { timeout: 5000 }).then(() => true, () => false);
+  const A3 = await page(a.token);
+  ok(await pcMsg(A3), 'quem tinha escondido o jogo do PC recebe a mensagem ao abrir');
+  await sleep(1500);
+  const A4 = await page(a.token);
+  ok(!(await pcMsg(A4)), 'a mensagem aparece uma vez só (nem em outro aparelho)');
+  ok(!(await pcMsg(await page(b.token))), 'quem não tinha escondido não recebe nada');
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); srv.kill(); console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

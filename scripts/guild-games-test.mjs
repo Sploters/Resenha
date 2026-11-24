@@ -28,9 +28,7 @@ try {
   played('gui', 'palworld.exe', 'Palworld', 1);
   played('hugo', 'palworld.exe', 'Palworld', 1); // hugo não é membro: não conta
   played('ana', 'velho.exe', 'Jogo Antigo', 40); played('beto', 'velho.exe', 'Jogo Antigo', 40); // fora dos 30 dias
-  // privacidade: duda está em "Só amigos (sem aparecer para mim)" (era "Ninguém"; continua contando aqui); enzo escondeu
-  // ARC Raiders → ARC fica com 2 (beto, caio)
-  db.prepare("UPDATE users SET pc_activity='off' WHERE id=?").run(U.duda.id);
+  // privacidade: enzo escondeu ARC Raiders → ARC fica com 2 (beto, caio)
   db.prepare("INSERT INTO game_prefs(user_id,platform,game_id,hidden) VALUES(?,'pc','arc-raiders.exe',1)").run(U.enzo.id);
   // gui e enzo estão jogando Palworld AGORA (app desktop): Palworld passa a ter 2 + gui = gui conta uma vez
   const live = [];
@@ -38,7 +36,7 @@ try {
   await sleep(400);
 
   const r = await call(U.beto.tok, 'GET', `/guilds/${g.id}/games`), list = r.games || [], by = (t) => list.find(x => x.game.title === t);
-  ok(list[0]?.game.title === 'Marvel Rivals' && by('Marvel Rivals').players === 4, 'mais jogado primeiro (Marvel Rivals, 4: duda em "Só amigos (sem aparecer para mim)" também conta)', list.map(x => [x.game.title, x.players]));
+  ok(list[0]?.game.title === 'Marvel Rivals' && by('Marvel Rivals').players === 4, 'mais jogado primeiro (Marvel Rivals, 4 pessoas)', list.map(x => [x.game.title, x.players]));
   ok(by('Marvel Rivals').hot === true, 'muita gente na semana: chama acesa');
   ok(by('ARC Raiders')?.players === 2 && !by('ARC Raiders').hot, 'jogo escondido por quem jogou não conta; jogado há 20 dias: sem chama', by('ARC Raiders'));
   ok(by('UNO')?.players === 2, 'o mesmo jogo com e sem número da Steam vira um só', by('UNO'));

@@ -1,6 +1,6 @@
 // Chamada recebida, jogo aberto no PC (atividade "Jogando"), migrações de preferências e atalhos globais do app desktop.
 import { h, avatar } from './util.js';
-import { S, api, user, notify, desktop, savePrefs, alertAllowed } from './state.js';
+import { S, user, notify, desktop, savePrefs, alertAllowed } from './state.js';
 import { playSound } from './sounds.js';
 import { handleKey as sbKey, syncSoundKeys, playSoundById } from './soundboard.js';
 import { gameChanged, liteAutoOn } from './lite.js';
@@ -31,7 +31,6 @@ export let gameTimer = null, sentGame, gameTick = null; // undefined = nada envi
 export function startGameDetect() {
   sentGame = undefined; // (re)conectou: manda o estado de novo
   if (!desktop?.detectGame || gameTimer) return;
-  api('GET', '/activity/pc').then(r => { S.pcActivity = r.visibility; }).catch(() => { });
   const tick = gameTick = async () => {
     const share = ws?.readyState === 1; // em "Ninguém" também: o servidor só mostra para a própria pessoa, mas as horas em call contam na semana
     if (!share && !liteAutoOn() && !voice?.active) return;

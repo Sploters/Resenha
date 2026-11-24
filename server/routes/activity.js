@@ -102,15 +102,8 @@ export function mountActivity(app, d) {
     res.set({ 'Content-Type': 'image/png', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'public, max-age=31536000, immutable' });
     res.end(Buffer.from(r.png));
   });
-  // jogo aberto no PC (app desktop): quem pode ver — 'servers' (amigos + quem está nos seus servidores), 'friends' ou 'off'
-  const PC_VIS = new Set(['servers', 'friends', 'off']);
-  app.get('/api/activity/pc', auth, wrap((req, res) => res.json({ visibility: getUser(req.uid).pc_activity || 'servers' })));
-  app.patch('/api/activity/pc', auth, wrap((req, res) => {
-    const v = String(req.body?.visibility || ''); if (!PC_VIS.has(v)) return bad(res, 'Visibilidade inválida');
-    const before = getUser(req.uid).pc_activity || 'servers';
-    run('UPDATE users SET pc_activity=? WHERE id=?', v, req.uid);
-    if (before !== v) activity.onPcVisibility(req.uid, before, v);
-    res.json({ visibility: v });
-  }));
+  // jogo aberto no PC (app desktop): aparece sempre para amigos e quem divide servidor (a opção de escolher saiu em
+  // 24/11/2026). notice_at: a pessoa tinha escolhido algo mais restrito e recebe uma mensagem uma vez (public/activity.js)
+  app.get('/api/activity/pc', auth, wrap((req, res) => res.json({ visibility: 'servers', notice_at: getUser(req.uid).pc_notice_at || null })));
   return { accountPub, accountOf, resolveLocalGame, saveGameIcon, localNames };
 }

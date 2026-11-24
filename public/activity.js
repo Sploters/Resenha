@@ -15,7 +15,7 @@ import { gamesBlock } from './games.js';
 import { stagger } from './motion.js';
 import { intentSection } from './intents.js';
 import { liveIn, boraCard, openBoraModal } from './bora.js';
-import { toggle, section, seg } from './ui.js';
+import { toggle, section } from './ui.js';
 
 import { openPosts, lfgMini, ensureLfgPosts } from './lfg.js';
 const ctx = {}; // injetado por app.js: openDM, profile, userMenu, go, joinVoice, watchFriend, voice(), openSettings, renderActiveNow
@@ -28,9 +28,16 @@ const PLATFORM = { steam: 'Steam', pc: 'No PC' };
 export const platformName = (p) => PLATFORM[p] || p;
 export function setActivities(list) { S.activities.clear(); for (const a of list || []) S.activities.set(a.user_id + ':' + a.platform, a); }
 export const activityOf = (uid) => { let pc = null; for (const a of S.activities.values()) if (a.user_id === uid) { if (a.platform !== 'pc') return a; pc = a; } return pc; };
-// para MOSTRAR na tela: com o jogo do PC em "Só amigos (sem aparecer para mim)" (pcActivity 'off') a pessoa não vê o
-// próprio jogo do PC (perfil, lista de membros, sala de voz). O resto do app (aviso de mesmo jogo, Bora?) usa activityOf
-export const shownActivity = (uid) => { const a = activityOf(uid); return a && uid === S.me?.id && a.platform === 'pc' && S.pcActivity === 'off' ? null : a; };
+// jogo do PC: a opção "Quem pode ver meu jogo do PC" saiu em 24/11/2026 (sempre amigos + quem divide servidor). Quem
+// tinha escolhido algo mais restrito recebe esta mensagem uma vez (server/db.js pc-always-on-1). Chamado ao abrir o app
+export function pcNoticeCheck() {
+  api('GET', '/activity/pc').then(r => {
+    if (!r?.notice_at || S.prefs.pcNoticeSeen === r.notice_at) return;
+    S.prefs.pcNoticeSeen = r.notice_at; savePrefs();
+    modal('Seu jogo do PC agora aparece para a turma', null, h('p', { style: { margin: 0, lineHeight: 1.5 } }, 'A opção "Quem pode ver meu jogo do PC" saiu do Resenha. O jogo que você abre no PC agora aparece para seus amigos e para quem está nos seus servidores, inclusive no Ativo agora. Para não aparecer, use o status Invisível.'),
+      [{ label: 'Entendi', cls: 'green' }], { width: '480px' });
+  }).catch(() => { });
+}
 export function onActivityUpdate(d) {
   const k = d.user_id + ':' + d.platform, prev = activityOf(d.user_id);
   if (d.activity) S.activities.set(k, d.activity); else S.activities.delete(k);
@@ -287,7 +294,7 @@ export function guildGamesPanel(list, redraw) {
 }
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando
 export function voiceGameIcon(uid) {
-  const a = shownActivity(uid); if (!a) return null;
+  const a = activityOf(uid); if (!a) return null;
   const el = h('span.vgame', { title: '', 'aria-label': `Jogando ${a.game.title}`, onclick: (e) => { hideGameCard(); openGame(a)(e); } }, gameIcon(a, 16));
   el.addEventListener('mouseenter', () => { clearTimeout(gameCardTimer); gameCardTimer = setTimeout(() => showGameCard(el, uid), 250); });
   el.addEventListener('mouseleave', (e) => { clearTimeout(gameCardTimer); if (!e.relatedTarget?.closest?.('.gamecard')) setTimeout(() => { if (gameCard && !gameCard.matches(':hover')) hideGameCard(); }, 150); });
@@ -969,20 +976,17 @@ export function connectionsPage(reg) {
 }
 // jogo aberto no PC (app desktop detecta, como na transmissão): quem pode ver
 // 'off' era "Ninguém" até 24/11/2026: agora só os amigos veem (o valor guardado continua 'off'; server/activity.js)
-export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigos', off: 'Só amigos (sem aparecer para mim)' };
+// jogo aberto no PC (app desktop): aparece sempre para amigos e quem divide servidor (sem opção desde 24/11/2026)
 function pcActivityBlock() {
   const on = !!window.lcDesktop?.detectGame;
-  const ctl = h('div.lk-ctl', h('div.lk-ctlh', 'Quem pode ver meu jogo do PC'), h('div.lk-seg', skeleton('rows', 1)));
-  // "Ninguém" de antes de 24/11/2026: continua escondido de todos até a pessoa escolher outra (server/activity.js)
-  const draw = (v) => ctl.lastChild.replaceChildren(seg(v === 'legacy_off' ? { ...PC_VIS, legacy_off: 'Ninguém (opção antiga)' } : PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seus amigos veem o que você está jogando, inclusive no Ativo agora.' : 'Pronto.'); } if (v === 'legacy_off') draw(r ? r.visibility : v); }));
-  tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
+  const ctl = h('p.lk-note', icon('users', 14), 'Aparece para seus amigos e para quem está nos seus servidores. Para não aparecer, use o status Invisível.');
   return h('div.lk-card',
     h('div.lk-top', logo('pc', 'screen'), h('div.lk-name', h('b', 'Jogo aberto no PC'), h('small', 'App desktop do Resenha')), on ? pill('ok', 'Ativo neste PC') : pill('off', 'Só no app desktop')),
     feats([['gamepad', 'Reconhece qualquer jogo aberto, não só os da Steam'], ['link', 'Não precisa vincular nenhuma conta'], ['lock', 'Só o nome do jogo é enviado']]),
     !on && h('p.lk-note', icon('info', 14), 'Funciona no app desktop para Windows (1.0.24 ou mais novo).'),
     ctl,
     h('div.lk-opt.sg-opt', h('span', h('b', 'Avisar quando um amigo jogar o mesmo que eu'), h('small', 'Um aviso no canto para entrar na sala dele ou chamá-lo para a sua. Não toca em "não perturbe".')), toggle(sameGameOn(), (on) => { S.prefs.sameGameAlert = on; savePrefs(); })),
-    h('p.lk-note', icon('clock', 14), 'As horas só contam enquanto você está numa call (servidor ou DM, mesmo mutado). Em "Ninguém" ou no modo invisível, só você vê o jogo, mas as horas entram na semana da galera sem seu nome.'));
+    h('p.lk-note', icon('clock', 14), 'As horas só contam enquanto você está numa call (servidor ou DM, mesmo mutado). No modo invisível, só você vê o jogo, mas as horas entram na semana da galera sem seu nome.'));
 }
 
 // "Bora?" no topo do Ativo agora: os vivos dos meus servidores (com o contador) e o botão de chamar a turma

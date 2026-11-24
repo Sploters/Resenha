@@ -107,6 +107,7 @@ addCol('users', 'status_emoji', "TEXT DEFAULT ''");
 addCol('users', 'theme_primary', 'TEXT'); // tema do perfil: gradiente principal → destaque
 addCol('users', 'theme_accent', 'TEXT');
 addCol('users', 'pinned_clip', 'TEXT'); // clipe fixado no perfil (banner animado do cartão)
+addCol('users', 'pc_notice_at', 'INTEGER'); // jogo do PC passou a aparecer para mais gente (migração pc-always-on-1): mensagem uma vez (public/activity.js)
 addCol('users', 'banned_at', 'INTEGER'); addCol('users', 'banned_reason', 'TEXT'); // conta suspensa pelo administrador da instalação (server/admin.js)
 addCol('users', 'pc_activity', "TEXT DEFAULT 'servers'"); // jogo aberto no PC (app desktop): 'servers' (amigos + quem está nos seus servidores) | 'friends' | 'off'
 addCol('users', 'avatar_pos', 'TEXT'); // enquadramento da imagem: "x,y,zoom" (x/y em %, zoom 1–3)
@@ -158,9 +159,9 @@ if (!hadMentions) { // preenche com o histórico (menções diretas e respostas)
 // migrações que só podem rodar uma vez ficam marcadas em meta
 db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)');
 const once = (k, fn) => { if (!get('SELECT 1 x FROM meta WHERE k=?', k)) { fn(); run('INSERT INTO meta VALUES(?,?)', k, String(Date.now())); } };
-// jogo do PC: "Ninguém" ('off') virou "Só amigos (sem aparecer para mim)" em 24/11/2026. Quem já tinha escolhido "Ninguém"
-// continua escondido de todos ('legacy_off') até escolher outra opção (server/activity.js)
-once('pc-off-legacy-1', () => run("UPDATE users SET pc_activity='legacy_off' WHERE pc_activity='off'"));
+// jogo do PC: a opção "Quem pode ver meu jogo do PC" saiu em 24/11/2026 e o jogo aparece sempre para amigos e para quem divide
+// servidor (server/activity.js). Quem tinha escolhido algo mais restrito ("Ninguém" ou "Só amigos") recebe uma mensagem uma vez
+once('pc-always-on-1', () => run("UPDATE users SET pc_notice_at=?, pc_activity='servers' WHERE pc_activity IS NOT NULL AND pc_activity<>'servers'", Date.now()));
 // avatares padrão renomeados para ficar na ordem certa (mapeado pelo conteúdo dos arquivos)
 once('avatars-rename-1', () => db.exec(`UPDATE users SET avatar = CASE avatar
   WHEN '/avatars/6.png' THEN '/avatars/1.png' WHEN '/avatars/9.png' THEN '/avatars/4.png'

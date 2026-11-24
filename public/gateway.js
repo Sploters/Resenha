@@ -34,7 +34,7 @@ const clipOfMe = (c) => toast(h('span', { style: { display: 'inline-flex', align
 import { onWatchEvent } from './watch.js';
 import { onCallInvite, onCallInviteUpdate, loadPendingInvites } from './callinvite.js';
 import { themeText } from './themes.js';
-import { setActivities, onActivityUpdate, onIntegrationUpdate, refreshFeedView, onClipStats as onFeedClipStats } from './activity.js';
+import { setActivities, onActivityUpdate, onIntegrationUpdate, refreshFeedView, onClipStats as onFeedClipStats, pcNoticeCheck } from './activity.js';
 import { e2eeLoad, onE2eeKey, decryptDeep, callKey } from './e2ee.js';
 import { rumReady } from './rum.js';
 import { myDesktopVersion, refreshDesktopVersion, latestDesktop } from './appupdate.js';
@@ -299,14 +299,14 @@ export function onEvent(t, d) {
         // mudança feita aqui que não chegou à conta (o app fechou/atualizou antes de enviar): vale a daqui, e vai para a conta agora
         // migrações (migrateClipKey) antes do envio: senão sai o valor antigo, as outras abas o adotam e ele volta para esta
         // com a versão da conta que este aparelho conhecia (base): junta as duas (o que mudou lá entra, o pendente daqui fica)
-        if (prefsBase() && Object.keys(r.settings || {}).length) { mergeRemote(r.settings); S.synced = true; migrateClipKey(); if (prefsDirty()) pushPrefsNow(); applyTheme(); maybeShowNews(); renderSide(); return; }
-        if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; migrateClipKey(); pushPrefsNow(); applyTheme(); maybeShowNews(); renderSide(); return; }
+        if (prefsBase() && Object.keys(r.settings || {}).length) { mergeRemote(r.settings); S.synced = true; migrateClipKey(); if (prefsDirty()) pushPrefsNow(); applyTheme(); maybeShowNews(); pcNoticeCheck(); renderSide(); return; }
+        if (prefsDirty() && Object.keys(r.settings || {}).length) { S.synced = true; migrateClipKey(); pushPrefsNow(); applyTheme(); maybeShowNews(); pcNoticeCheck(); renderSide(); return; }
         setPrefsBase(r.settings || {});
         const keep = Object.fromEntries(DEVICE_PREF_KEYS.map(k => [k, S.prefs[k]]));
         const local = { ...S.prefs }; Object.assign(S.prefs, r.settings || {}, keep); for (const k in keep) if (keep[k] === undefined) delete S.prefs[k]; relite(r.settings || {}, local); S.synced = true;
         localStorage.setItem('lc_prefs', JSON.stringify(S.prefs)); applyTheme();
         migrateClipKey();
-        if (!Object.keys(r.settings || {}).length) { markNewsSeen(); savePrefs(); } else maybeShowNews(); // conta nova não precisa da lista do que mudou
+        if (!Object.keys(r.settings || {}).length) { markNewsSeen(); savePrefs(); } else maybeShowNews(); pcNoticeCheck(); // conta nova não precisa da lista do que mudou
         renderSide();
       }).catch(() => { S.synced = true; });
       if (pendingInvite) { const c = pendingInvite; pendingInvite = null; history.replaceState({}, '', '/'); joinInvite(c); }

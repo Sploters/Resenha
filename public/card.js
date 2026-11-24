@@ -7,7 +7,7 @@ import { isLightPair, styleName } from './themes.js';
 // "Jogando agora" no cartão: Steam vinculada ou jogo detectado no PC pelo app desktop (o servidor já filtrou quem pode ver)
 function playing(uid) {
   let a = null; for (const x of S.activities?.values() || []) if (x.user_id === uid && (!a || a.platform === 'pc')) a = x;
-  if (!a || (uid === S.me?.id && a.platform === 'pc' && S.pcActivity === 'off')) return null; // "sem aparecer para mim" (activity.js shownActivity)
+  if (!a) return null;
   const m = Math.max(0, Math.round((Date.now() - a.since) / 60000)), t = m < 1 ? 'agora' : m < 60 ? `há ${m} min` : `há ${Math.floor(m / 60)}h${m % 60 ? ' ' + (m % 60) + 'min' : ''}`;
   return [h('h4.pplay-h', 'Jogando agora'), h('div.pplaybox', { title: `Sobre ${a.game.title}`, onclick: (e) => { e.stopPropagation(); gameModal(a); } }, gameBanner(a), h('div.pplay', gameIcon(a, 40), h('div', titleEl(a, 'b'), h('small', `${a.platform === 'pc' ? 'No PC' : 'Steam'} · ${t}`))))];
 }

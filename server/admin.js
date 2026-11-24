@@ -2,7 +2,6 @@
 // primeira conta criada). Listar e buscar contas, suspender/reativar (a conta inteira, não só num servidor), redefinir a
 // senha (gera uma senha temporária mostrada uma vez ao admin e encerra as sessões), encerrar sessões e excluir a conta.
 // Tudo fica registrado em admin_log (quem, o quê, em quem, quando), visível no próprio painel.
-// Não mexe nas escolhas de privacidade de ninguém: essas só a própria pessoa muda.
 //
 // Rotas (só o administrador):
 //   GET  /api/admin/users?q=          contas (até 200, mais recentes primeiro; q busca no usuário e no nome)

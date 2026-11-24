@@ -26,7 +26,7 @@ try {
   for (const u of all) await open(u);
   for (const u of [beto, caio, duda, eva]) await call(u.tok, 'POST', '/invites/' + code); // gil não está no servidor
   await call(ana.tok, 'POST', '/relationships', { username: 'beto' }); await call(beto.tok, 'PUT', '/relationships/' + ana.id, {});
-  await call(eva.tok, 'PATCH', '/activity/pc', { visibility: 'friends' }); // eva só mostra o jogo para amigos
+  await call(eva.tok, 'PATCH', '/me', { status: 'invisible' }); // eva invisível: ninguém vê o jogo dela
   await sleep(800);
   const vc = await duda.p.evaluate((gid) => window.__lc.S.guilds.get(gid).channels.find(c => c.type === 2).id, g.id);
   const game = (u, id, title) => u.p.evaluate((id, title) => window.__lc.voice.send('ACTIVITY_LOCAL', { game: id ? { id, title } : null }), id, title);
@@ -47,7 +47,7 @@ try {
   ok(v.caps.some(c => /^Nos seus servidores — 2$/.test(c)), 'seção "Nos seus servidores" com caio (jogando) e duda (em chamada)', v.caps);
   ok(v.sugs.length === 1 && v.sugs[0].name === 'caio' && /VALORANT, como beto/.test(v.sugs[0].why), 'caio joga VALORANT como o amigo beto: "Talvez você conheça"', v.sugs);
   ok(v.rows.length === 1 && v.rows[0].name === 'duda' && /Geral · Galera/.test(v.rows[0].sub) && v.rows[0].add, 'duda em chamada aparece na lista, com botão de adicionar', v.rows);
-  ok(![...v.sugs, ...v.rows].some(x => x.name === 'eva' || x.name === 'gil' || x.name === 'beto'), 'eva (jogo só para amigos), gil (outro servidor) e beto (amigo, já em cima) não aparecem aqui');
+  ok(![...v.sugs, ...v.rows].some(x => x.name === 'eva' || x.name === 'gil' || x.name === 'beto'), 'eva (invisível), gil (outro servidor) e beto (amigo, já em cima) não aparecem aqui');
   if (process.env.SHOTS) { fs.mkdirSync('.testshots', { recursive: true }); await (await ana.p.$('#active-now')).screenshot({ path: '.testshots/activity-servers-sug.png' }); }
   // Adicionar
   await ana.p.evaluate(() => document.querySelector('#actfeed .an-sug .an-addbtn').click()); await sleep(1200);

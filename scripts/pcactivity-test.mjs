@@ -81,20 +81,9 @@ try {
   ok(sent.length >= 2 && sent[0]?.icon === true && sent.slice(1).every(x => x && !x.icon), 'ícone enviado uma vez só por jogo (depois só o nome)', sent);
   ok((await B.evaluate((uid) => { for (const a of window.__lc.S.activities.values()) if (a.user_id === uid) return a.game.icon; }, alice.id)) === gB.icon, 'e o ícone continua o mesmo depois das outras rodadas');
 
-  // privacidade: só amigos
-  await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'friends' }); await sleep(400);
-  ok((await seen(B, alice.id)) === null && (await seen(D, alice.id)) === 'pc:VALORANT', '"Só amigos": quem só divide servidor deixa de ver na hora; a amiga continua', [await seen(B, alice.id), await seen(D, alice.id)]);
-  // "Só amigos (sem aparecer para mim)" (era "Ninguém" até 24/11/2026): a amiga vê, quem só divide servidor não, e a
-  // própria alice não vê o próprio jogo do PC na tela (o app continua sabendo: aviso de mesmo jogo, Bora?)
-  await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'off' }); await sleep(400);
-  ok((await seen(D, alice.id)) === 'pc:VALORANT' && (await seen(B, alice.id)) === null, '"Só amigos (sem aparecer para mim)": a amiga continua vendo, quem só divide servidor não', [await seen(D, alice.id), await seen(B, alice.id)]);
-  await A.evaluate(() => { window.__lc.S.pcActivity = 'off'; }); await sleep(3500);
-  const self = await A.evaluate((uid) => window.__lc.import('activity.js').then(m => [m.activityOf(uid)?.game?.title || null, m.shownActivity(uid)]), alice.id);
-  ok(self[0] === 'VALORANT' && self[1] === null && (await seen(D, alice.id)) === 'pc:VALORANT', 'e a própria alice não vê o próprio jogo na tela (o app segue sabendo); a amiga continua vendo', self);
-  // volta para o padrão: reaparece na próxima detecção
-  await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'servers' }); await A.evaluate(() => { window.__lc.S.pcActivity = 'servers'; });
-  await A.evaluate(() => new Promise(r => setTimeout(r, 20500))); await sleep(500);
-  ok((await seen(B, alice.id)) === 'pc:VALORANT', 'religado: volta a aparecer na próxima detecção', await seen(B, alice.id));
+  // sem opção de esconder (saiu em 24/11/2026): a amiga e quem divide servidor veem; quem não tem vínculo, não
+  ok((await seen(B, alice.id)) === 'pc:VALORANT' && (await seen(D, alice.id)) === 'pc:VALORANT' && (await seen(C, alice.id)) === null, 'jogo do PC: amiga e quem divide servidor veem; quem não tem vínculo, não', [await seen(B, alice.id), await seen(D, alice.id), await seen(C, alice.id)]);
+  ok((await call(alice.tok, 'GET', '/activity/pc')).visibility === 'servers', 'a opção de escolher não existe mais (sempre amigos + servidores)');
 
   // fechou o jogo
   await A.evaluate(() => { window.__game = null; }); await A.evaluate(() => new Promise(r => setTimeout(r, 20500))); await sleep(500);

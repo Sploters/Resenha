@@ -1,5 +1,5 @@
-// Horas de jogo só contam em call + invisível conta na semana da galera sem identificar + jogo do PC em "Só amigos (sem
-// aparecer para mim)" (era "Ninguém" até 24/11/2026) aparece para os amigos (server/activity.js).
+// Horas de jogo só contam em call + invisível conta na semana da galera sem identificar + jogo do PC sempre aparece para
+// os amigos (server/activity.js).
 // Testa o serviço direto, com banco em memória e relógio falso (não sobe o servidor).
 // Uso: node scripts/activity-voice-test.mjs
 import { DatabaseSync } from 'node:sqlite';
@@ -44,16 +44,16 @@ ok(w?.secs === 50 * 60, 'semana da galera usa só as horas em call', w);
 A.reportLocal('beto', { id: 'peak', title: 'PEAK' }); min(120); A.reportLocal('beto', null);
 ok(stops('beto').at(-1).seconds === 0 && !A.weekFor('eu').played.some(p => p.user_id === 'beto'), 'sem call: 0 h e o dia não conta');
 
-// 5) "Só amigos (sem aparecer para mim)" (pc_activity 'off', era "Ninguém"): o amigo vê ao vivo, no READY e no feed; conta com nome
-run("UPDATE users SET pc_activity='off' WHERE id='beto'"); sent.length = 0;
+// 5) jogo do PC sempre visível para amigos (a opção "Quem pode ver meu jogo do PC" saiu em 24/11/2026): o amigo vê ao vivo,
+// no READY e no feed; conta com nome
+sent.length = 0;
 join('beto'); A.reportLocal('beto', { id: 'hades', title: 'Hades' });
-ok(sent.some(e => e.to.includes('eu') && e.d.activity?.game.id === 'hades'), '"Só amigos (sem aparecer para mim)": o amigo recebe o jogo', sent.map(e => e.to));
+ok(sent.some(e => e.to.includes('eu') && e.d.activity?.game.id === 'hades'), 'jogo do PC: o amigo recebe o jogo', sent.map(e => e.to));
 ok(A.readyFor('eu').length === 1 && A.readyFor('beto').length === 1, 'aparece no READY do amigo (Ativo agora)');
 min(90); A.reportLocal('beto', { id: 'hades', title: 'Hades' }); A.reportLocal('beto', null); leave('beto');
 ok(!stops('beto').at(-1).priv, 'a partida não fica privada');
 ok(A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'hades'), 'o feed do amigo mostra a partida');
 ok(A.weekFor('eu', { top: 5 }).played.some(p => p.user_id === 'beto' && p.game.id === 'hades'), 'e conta na semana com o nome');
-run("UPDATE users SET pc_activity='servers' WHERE id='beto'");
 
 // 6) invisível: ninguém vê ao vivo; conta sem nome
 run("UPDATE users SET status='invisible' WHERE id='ana'"); sent.length = 0;
@@ -82,13 +82,6 @@ min(15); A.reportLocal('beto', null); leave('beto');
 const dota = A.weekFor('eu', { top: 9 }).played.find(p => p.user_id === 'beto' && p.game.id === 'dota');
 ok(dota?.secs === 900, 'na semana, com nome só o trecho visível (15 min)', dota);
 ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'dota' && e.data?.priv), 'o trecho invisível não aparece com nome no feed');
-
-// 9) "Ninguém" de antes da mudança ('legacy_off', server/db.js): continua escondido de todos, partida privada
-run("UPDATE users SET pc_activity='legacy_off' WHERE id='beto'"); sent.length = 0;
-join('beto'); A.reportLocal('beto', { id: 'celeste', title: 'Celeste' });
-ok(sent.length && sent.every(e => e.to.length === 1 && e.to[0] === 'beto') && A.readyFor('eu').length === 0, '"Ninguém" antigo: só o próprio beto recebe; nada para o amigo', sent.map(e => e.to));
-min(30); A.reportLocal('beto', null); leave('beto');
-ok(stops('beto').at(-1).priv === 1 && !A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'celeste'), 'e a partida fica privada, fora do feed do amigo');
 
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

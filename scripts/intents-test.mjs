@@ -89,11 +89,11 @@ try {
   ok(!by('hugo'), 'quem bloqueou não é chamado');
   ok(!by('max'), 'jogou há 40 dias: fora');
   ok(pv.guilds[0]?.name === 'Turma', 'servidor sugerido para a sala');
-  // privacidade: eva passa a mostrar o jogo do PC só para amigos → o histórico dela some para o eu
-  await call(U.eva.tok, 'PATCH', '/activity/pc', { visibility: 'friends' });
+  // privacidade: eva fica invisível → o histórico dela some para o eu
+  await call(U.eva.tok, 'PATCH', '/me', { status: 'invisible' });
   pv = await call(U.eu.tok, 'POST', '/intents/preview', { game: VAL });
-  ok(!pv.candidates.some(c => c.user.username === 'eva'), 'eva esconde o jogo do PC de quem não é amigo: o histórico dela não é usado');
-  await call(U.eva.tok, 'PATCH', '/activity/pc', { visibility: 'servers' });
+  ok(!pv.candidates.some(c => c.user.username === 'eva'), 'eva invisível: o histórico dela não é usado');
+  await call(U.eva.tok, 'PATCH', '/me', { status: 'online' });
 
   console.log('compatibilidade (CS2: biblioteca e wishlist da Steam)');
   const cs = await call(U.eu.tok, 'POST', '/intents/preview', { game: { lfg: 'cs2' } });
