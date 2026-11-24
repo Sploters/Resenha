@@ -1,5 +1,6 @@
 // Barra lateral: lista de canais do servidor, conversas diretas, quem está em cada sala de voz e mover arrastando.
 import { liveIn, boraCard } from './bora.js';
+import { onbRow } from './onboarding.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
 import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
@@ -93,7 +94,7 @@ export function renderSide() {
     ensureLfgPosts(); const ads = openPosts(g.id);
     const adsBox = ads.length > 0 && h('div.side-lfg', h('div.side-lfg-cap', icon('users', 14), h('span', ads.length === 1 ? 'Procurando grupo' : `${ads.length} grupos procurando gente`),
       ads.length > 2 && h('button.side-lfg-all', { type: 'button', onclick: () => { setLfgGuild(g.id); go('@me', 'lfg'); } }, 'Ver todos')), ads.slice(0, 2).map(lfgMini));
-    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), adsBox, tools, kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), adsBox, tools, onbRow(g), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais

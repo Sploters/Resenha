@@ -1,4 +1,5 @@
 // Compositor: caixa de texto, rascunhos, anexos (com compressão de imagem), envio otimista, autocompletar e digitando.
+import { needsRules, rulesLock } from './onboarding.js';
 import { gifPicker } from './gifs.js';
 import { mediaFavPicker } from './mediafavs.js';
 import { uploadFile, compressVideo, maxUpload, isVideo } from './upload.js';
@@ -32,6 +33,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) flush
 const MSG_MAX = 4000, MSG_WARN = 500; // limite do servidor para texto comum (server/e2ee.js)
 export function composer(ch, label) {
   // sem permissão de enviar (canal só leitura para os seus cargos): no lugar do campo, um aviso
+  if (ch.guild_id && needsRules(ch.guild_id)) return rulesLock(ch.guild_id); // regras do servidor ainda não aceitas (onboarding.js)
   if (ch.guild_id && !chCan(ch, CH.SEND)) return h('div#composer-wrap', h('div.composer-locked', { role: 'status' }, icon('lock', 18), h('span', 'Você não tem permissão para enviar mensagens neste canal.')));
   const ta = h('textarea', { placeholder: label == null ? 'Escreva um comentário…' : `Conversar em ${label}`, rows: 1, maxLength: MSG_MAX, value: readDrafts()[ch.id]?.t || '' });
   // perto do limite de 4000 caracteres aparece quanto falta (antes o campo só parava de aceitar letras, sem dizer por quê)

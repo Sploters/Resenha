@@ -145,6 +145,7 @@ export function mountMessages(app, d) {
     if (ch.type === 4 || ch.type === 15 || ch.type === 17) return bad(res, 'Canal não aceita mensagens');
     if (!d.forum.canReply(ch, req.uid)) return bad(res, 'Este post está trancado: só a moderação comenta', 403);
     if (timedOut(ch.guild_id, req.uid)) return bad(res, 'Você está de castigo neste servidor', 403);
+    if (d.onb?.mustAccept(ch.guild_id, req.uid)) return res.status(403).json({ error: 'Aceite as regras do servidor para mandar mensagens', code: 'rules' }); // server/onboarding.js
     if (!chp.chCan(ch, req.uid, CH.SEND)) return bad(res, 'Você não tem permissão para enviar mensagens neste canal', 403);
     if (!rateOk(req.uid)) return bad(res, 'Você está enviando mensagens rápido demais', 429);
     { const wait = reputation.slowWait(ch.guild_id, req.uid); // soft-mute da reputação: 1 mensagem a cada N segundos

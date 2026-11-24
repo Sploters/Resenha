@@ -18,6 +18,7 @@ function parts(t) {
   if (t.cid === 'files') return ['file', 'Arquivos']; // aba Arquivos (servidor ou DM)
   if (t.cid === 'wishlist') return ['gift', 'Wishlist']; // wishlist do servidor (games.js)
   if (t.cid === 'events') return ['calendar', 'Eventos']; // eventos do servidor (events.js)
+  if (t.cid === 'welcome') return ['sparkle', 'Boas-vindas']; // central de boas-vindas do servidor (onboarding.js)
   if (t.cid === 'lfg') return ['gamepad', 'Procurar jogadores'];
   if (t.cid === 'discover') return ['compass', 'Descobrir'];
   if (t.cid === 'trophies') return ['medal', 'Conquistas'];

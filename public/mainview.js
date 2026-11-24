@@ -1,4 +1,5 @@
 // Área principal: escolhe o que desenhar (chat, palco, fórum, galeria, Amigos, Jogos…) e o painel da DM.
+import { renderWelcome } from './onboarding.js';
 import { renderGallery, renderDoc } from './chkinds.js';
 import { renderGuildEvents } from './events.js';
 import { renderGuildWishlist } from './games.js';
@@ -58,6 +59,7 @@ export function renderMain() {
   const v = S.view;
   setTimeout(releaseOldScreens); // depois de trocar a tela: solta o que guardava a tela anterior
   if (v.kind === 'home') return renderHome(main);
+  if (v.kind === 'welcome') return renderWelcome(main, v.gid);
   if (v.kind === 'clips') return renderClips(main, v.gid);
   if (v.kind === 'wishlist') return renderGuildWishlist(main, v.gid);
   if (v.kind === 'events') return renderGuildEvents(main, v.gid);

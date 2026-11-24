@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-24-3', title: 'Central de boas-vindas',
+    items: [
+      { i: 'sparkle', t: 'Boas-vindas no servidor', d: 'Quem entra num servidor vê uma central com a apresentação, as regras, perguntas sobre o que curte e os canais recomendados. As respostas já dão os cargos certos. Fica no topo da lista de canais, para voltar quando quiser.' },
+      { i: 'shield', t: 'Regras com aceite', d: 'O admin pode exigir que a pessoa aceite as regras antes de conversar. Até aceitar, ela lê o servidor mas não manda mensagem.' },
+      { i: 'edit', t: 'Sem bot', d: 'Tudo se configura em Configurações do servidor → Boas-vindas, com "Ver como membro" para conferir antes.' },
+    ],
+  },
+  {
     id: '2026-11-24-2', title: 'Bora? no "+" e atalhos em ordem',
     items: [
       { i: 'megaphone', t: 'Bora? no "+"', d: 'O "+" da barra dos servidores agora pergunta: Bora? (chamar a turma) ou Adicionar um servidor. Os atalhos do servidor ficaram só com Eventos, Clipes, Arquivos e Wishlist.' },

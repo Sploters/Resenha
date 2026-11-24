@@ -1,5 +1,6 @@
 // Conexão com o servidor (gateway): WebSocket, reconexão, tela de entrar/sair e o tratamento de cada evento (onEvent).
 // Guarda o estado da conexão (ws, voice, ready…): só este módulo escreve nele; os outros leem pelo import (valor ao vivo).
+import { onbUpdated } from './onboarding.js';
 import { nativeEnded } from './nativetest.js';
 import { setNewsActions, maybeShowNews, markSeen as markNewsSeen } from './changelog.js';
 import { onKindsEvent } from './chkinds.js';
@@ -334,6 +335,7 @@ export function onEvent(t, d) {
 
     case 'GUILD_CREATE': ingestGuild(d); renderRail(); if (!S.view.gid || S.view.gid === 'new') go(d.id); else { renderSide(); } break;
     case 'GUILD_UPDATE': Object.assign(S.guilds.get(d.id) || {}, d); renderRail(); renderSide(); break;
+    case 'GUILD_ONBOARDING_UPDATE': if (onbUpdated(d)) { renderSide(); if (S.view.kind === 'welcome' || S.view.kind === 'guild') renderMain(); } break; // central de boas-vindas mudou (onboarding.js)
     case 'GUILD_DELETE': {
       const g = S.guilds.get(d.id);
       if (g) for (const [uid, v] of S.voice) if (g.channels.some(c => c.id === v.channel_id)) { S.voice.delete(uid); if (uid === S.me.id) voice.leave(); }

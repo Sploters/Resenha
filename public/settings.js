@@ -1,4 +1,5 @@
 import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
+import { onboardingPage } from './onboarding.js';
 import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, perms, outranks, roleBelow, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById, roleColorMode, systemContrast, systemReduceMotion } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHODS, captureMode } from './voice.js';
 import { profileCard } from './card.js';
@@ -119,9 +120,9 @@ const USER_GROUPS = [
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
 ];
-const NAV_ICONS = { uxstats: 'sliders', health: 'bolt', storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', clips: 'clip', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
+const NAV_ICONS = { onboarding: 'sparkle', uxstats: 'sliders', health: 'bolt', storage: 'file', account: 'user', profile: 'sparkle', privacy: 'shield', connections: 'link', appearance: 'palette', accessibility: 'eye', lite: 'bolt', voice: 'mic', stream: 'screen', clips: 'clip', sounds: 'vol', soundboard: 'soundboard', notifications: 'bell', keys: 'keyboard', extras: 'star', advanced: 'sliders', news: 'news', report: 'warn', app: 'layout',
   overview: 'gear', channels: 'hash', roles: 'tag', emojis: 'smile', members: 'users', bans: 'shield', reputation: 'shield', audit: 'clock', invites: 'invite' };
-const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
+const SERVER_PAGES = [['overview', 'Visão geral', 'nome ícone banner dono'], ['channels', 'Canais', 'ordem renomear'], ['roles', 'Cargos', 'permissões'], ['emojis', 'Emojis', ''], ['sounds', 'Soundboard do servidor', 'sons áudio'], ['members', 'Membros', 'expulsar banir castigo'], ['bans', 'Banimentos', 'banir desbanir'], ['reputation', 'Reputação', 'spam trolls denúncia limite soft-mute comunidade'], ['audit', 'Registro de auditoria', 'log moderação histórico'], ['invites', 'Convites', 'link'], ['onboarding', 'Boas-vindas', 'onboarding regras entrada novos membros perguntas interesses cargos canais recomendados'], ['storage', 'Armazenamento', 'espaço disco mídias apagar antigas expirar']];
 
 export function openSettings(kind, ctx) {
   const prev = document.getElementById('settings'); if (prev) (prev._close ? prev._close('swap') : prev.remove()); // abrir de novo: fecha direito a anterior (solta os ouvintes; a entrada do voltar fica para esta)
@@ -139,7 +140,7 @@ export function openSettings(kind, ctx) {
     // painel de estatísticas de uso: só o administrador da instalação vê (carregado sob demanda)
     health: () => { const box = h('div', h('h2', 'Saúde do servidor'), h('p.ux-empty', 'Carregando…')); import('./health.js').then(m => box.replaceWith(m.healthPage())); return box; },
     uxstats: () => { const box = h('div', h('h2', 'Estatísticas de uso'), h('p.ux-empty', 'Carregando…')); import('./uxstats.js').then(m => box.replaceWith(m.uxStatsPage())); return box; },
-    overview: () => overviewPage(gid), channels: () => channelsPage(gid), roles: () => rolesPage(gid), emojis: () => emojisPage(gid), sounds_srv: () => serverSoundsPage(gid), members: () => membersPage(gid), bans: () => bansPage(gid), reputation: () => repPage(gid), audit: () => auditPage(gid), invites: () => invitesPage(gid),
+    overview: () => overviewPage(gid), channels: () => channelsPage(gid), roles: () => rolesPage(gid), emojis: () => emojisPage(gid), sounds_srv: () => serverSoundsPage(gid), members: () => membersPage(gid), bans: () => bansPage(gid), reputation: () => repPage(gid), audit: () => auditPage(gid), invites: () => invitesPage(gid), onboarding: () => onboardingPage(gid),
   };
   const sKey = (k) => (isServer && k === 'sounds' ? 'sounds_srv' : k);
   let current;
@@ -171,7 +172,7 @@ export function openSettings(kind, ctx) {
   };
   root.append(nav, content, h('button.close', { onclick: close, title: 'Fechar (Esc)' }, icon('x', 20), h('small', 'ESC')));
   document.getElementById('layer').append(root); document.addEventListener('keydown', esc);
-  const first = isServer ? (ctx?.page === 'storage' ? 'storage' : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'clips', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats', 'health'].includes(kind) ? kind : 'account');
+  const first = isServer ? (['storage', 'onboarding'].includes(ctx?.page) ? ctx.page : 'overview') : (['account', 'profile', 'privacy', 'connections', 'appearance', 'accessibility', 'voice', 'stream', 'clips', 'sounds', 'soundboard', 'notifications', 'keys', 'extras', 'advanced', 'app', 'lite', 'news', 'report', 'storage', 'uxstats', 'health'].includes(kind) ? kind : 'account');
   current = first; drawNav(); show(first, true);
   root._close = close;
   const unBack = backCloses(() => close('back')); whenGone(root, () => unBack()); // voltar do navegador/celular fecha as configurações

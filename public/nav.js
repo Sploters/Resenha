@@ -17,6 +17,7 @@ import { inboxBadge, showInbox } from './inbox.js';
 import { clearPending, addFile } from './composer.js';
 import { syncWatching, applyCamFlow } from './stage.js';
 import { pipCtx } from './share.js';
+import { onbAutoOpen } from './onboarding.js';
 // telas abertas sob demanda: o código só é baixado na primeira vez que a pessoa abre (a abertura do app fica mais leve)
 const lazySettings = () => import('./settings.js');
 export const openSettings = (...a) => { lazySettings().then(m => m.openSettings(...a)); };
@@ -59,6 +60,7 @@ export function applyRoute(first) {
     if (cid === 'files') { S.view = { kind: 'files', gid, cid: 'files' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'events') { S.view = { kind: 'events', gid, cid: 'events' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     if (cid === 'wishlist') { S.view = { kind: 'wishlist', gid, cid: 'wishlist' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
+    if (cid === 'welcome') { S.view = { kind: 'welcome', gid, cid: 'welcome' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; } // central de boas-vindas (onboarding.js)
     if (cid === 'clips') { S.view = { kind: 'clips', gid, cid: 'clips' }; S.replyTo = null; S.editing = null; clearPending(); closeFloating(); $('#app').classList.remove('nav-open'); syncWatching(null); renderRail(); renderSide(); renderMain(); return; }
     const chans = g.channels.filter(c => c.type !== 4);
     const post = cid && S.posts.get(cid)?.guild_id === gid ? S.posts.get(cid) : null;
@@ -70,6 +72,7 @@ export function applyRoute(first) {
     const vis = chans.filter(chVisible); // sala escondida (sem permissão de entrar) não abre nem por link
     let ch = post || vis.find(c => c.id === cid) || vis.find(c => c.id === S.lastChannel[gid]) || vis.find(c => c.type === 0) || vis[0];
     S.view = { kind: 'guild', gid, cid: ch?.id || null };
+    onbAutoOpen(gid); // primeira visita da sessão sem ter concluído a central de boas-vindas: abre ela
     if (g.partial) loadMembers(gid).catch(() => { }); // mesmo com a lista de membros fechada (menções, cores dos cargos)
     if (ch) { S.lastChannel[gid] = ch.id; localStorage.setItem('lc_last', JSON.stringify(S.lastChannel)); }
   }

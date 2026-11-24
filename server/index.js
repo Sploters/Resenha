@@ -41,6 +41,7 @@ import { mountRadar } from './radar.js';
 import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
+import { mountOnboarding } from './onboarding.js';
 import { createPush } from './push.js';
 import { createSocial, mountSocial } from './social.js';
 import { createVoiceSessions } from './sessions.js';
@@ -140,7 +141,7 @@ function send(ws, type, d) { if (ws.readyState === 1) ws.send(JSON.stringify({ t
 // pessoa ficam prontos em texto. Nunca entrega dado velho: qualquer evento que muda o servidor/a pessoa passa pelo
 // dispatch e descarta o guardado; por segurança, nada vale mais que 30 s (servidor) / 60 s (pessoa).
 // Quem está em cada sala de voz, não lidas, DMs e status (online/ausente) são calculados na hora, a cada abertura.
-const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'CHANNELS_ORDER', 'ROLE_UPDATE', 'ROLE_DELETE',
+const GUILD_EVENTS = new Set(['GUILD_CREATE', 'GUILD_ONBOARDING_UPDATE', 'GUILD_UPDATE', 'GUILD_DELETE', 'CHANNEL_CREATE', 'CHANNEL_UPDATE', 'CHANNEL_DELETE', 'CHANNELS_ORDER', 'ROLE_UPDATE', 'ROLE_DELETE',
   'MEMBER_ADD', 'MEMBER_REMOVE', 'MEMBER_UPDATE', 'EMOJIS_UPDATE', 'SOUNDS_UPDATE', 'CHANNEL_PERMS']);
 const guildCache = new Map(), userCache = new Map();
 function invalidateFor(type, d) {
@@ -286,10 +287,12 @@ function guildFull(gid, { users = true } = {}) {
     sounds: all('SELECT id,name,emoji,url,volume FROM sounds WHERE guild_id=? ORDER BY created_at', gid),
     channel_perms: chp.guildOverwrites(gid),
     users: users ? all('SELECT u.* FROM users u JOIN members m ON m.user_id=u.id WHERE m.guild_id=?', gid).map(pubUser) : [],
+    onboarding: onbSvc?.summary(gid) || null, // central de boas-vindas (server/onboarding.js)
     voice_states: voiceStatesFor(gid) };
 }
 
 let eventsSvc = null; // server/events.js (montado mais abaixo)
+let onbSvc = null; // server/onboarding.js (montado mais abaixo)
 function messageObj(m) {
   const rx = {};
   for (const r of all('SELECT emoji,user_id FROM reactions WHERE message_id=?', m.id)) (rx[r.emoji] ||= []).push(r.user_id);
@@ -509,7 +512,7 @@ const push = createPush({ prefsOf: prefsOfUser, isOnline: (uid) => conns.has(uid
 app.post('/api/me/push-test', auth, wrap((req, res) => { push.test(req.uid, String(req.body?.topic || '')).then(() => res.json({ ok: true, server: push.server() }), (e) => { if (!res.headersSent) res.status(400).json({ error: e.message }); }); }));
 const { callInv } = mountInvites(app, { ...core, postDm: (a, b, c) => postDm(a, b, c), get activity() { return activity; }, push }); // convites do servidor e da chamada (server/routes/invites.js)
 mountEmojis(app, core); // emojis e soundboard (server/routes/emojis.js)
-mountMessages(app, { ...core, get forum() { return forum; }, get clips() { return clips; } }); // mensagens, busca e caixa de entrada (server/routes/messages.js)
+mountMessages(app, { ...core, get forum() { return forum; }, get clips() { return clips; }, get onb() { return onbSvc; } }); // mensagens, busca e caixa de entrada (server/routes/messages.js)
 // ---------- Procurar jogadores (server/lfg.js) ----------
 // quem vê os anúncios de alguém: quem divide algum servidor com a pessoa ou é amigo dela, menos bloqueios (nos dois sentidos)
 function lfgAudience(uid) {
@@ -625,6 +628,8 @@ const activity = createActivityService({ all, get, run, newId, dispatch, presenc
 const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, userPub, store: discover, roomOf: (cid) => voice.has(cid) ? [...voice.get(cid)].filter(([, st]) => !st.bot).map(([id]) => id) : null }); // biblioteca e wishlist: quem tem e quem quer cada jogo (server/games.js)
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
+// central de boas-vindas do servidor (server/onboarding.js)
+onbSvc = mountOnboarding(app, { ...core, memberObj });
 // "Bora?": chamar a turma do servidor (server/bora.js)
 mountBora(app, { auth, wrap, bad, db, all, get, run, newId, dispatch, guildMemberIds, userPub, clean, can, P, prefsOf: prefsOfUser, push,
   voiceChannelOf: (uid) => currentVoice(uid), canConnect: (uid, cid) => { const ch = get('SELECT * FROM channels WHERE id=?', cid); return !!ch && !timedOut(ch.guild_id, uid) && chp.chCan(ch, uid, CH.CONNECT); } });
