@@ -34,8 +34,6 @@ export function pcNoticeCheck() {
   api('GET', '/activity/pc').then(r => {
     if (!r?.notice_at || S.prefs.pcNoticeSeen === r.notice_at) return;
     S.prefs.pcNoticeSeen = r.notice_at; savePrefs();
-    modal('Seu jogo do PC agora aparece para a turma', null, h('p', { style: { margin: 0, lineHeight: 1.5 } }, 'A opção "Quem pode ver meu jogo do PC" saiu do Resenha. O jogo que você abre no PC agora aparece para seus amigos e para quem está nos seus servidores, inclusive no Ativo agora. Para não aparecer, use o status Invisível.'),
-      [{ label: 'Entendi', cls: 'green' }], { width: '480px' });
   }).catch(() => { });
 }
 export function onActivityUpdate(d) {
