@@ -214,3 +214,60 @@
 #active-now .wk-rsub .wk-av:first-child { margin-left: 0; }
 #active-now .wk-rsub .wk-av.more { font-size: 9px; }
 #active-now .wk-rsub small { min-width: 0; }
+
+/* ---------- topo do servidor: capa gerada e botões sobre a capa (side.js coverOf / srvCta) ----------
+   Servidor sem banner ganha uma capa desenhada em tons frios (--cv1..3); convidar e "mais" ficam translúcidos sobre a
+   capa (ou o banner); embaixo do nome, o botão azul de largura total. No Visual clássico tudo volta como era. */
+#side-head .srv-cover { display: none; }
+#side-head .srv-cbtns, #side-head .srv-cta { display: none; }
+:root:not(.classic) #side-head.srv-head.has-cover { border-top: 0 !important; background: none; }
+:root:not(.classic) #side-head .srv-cover { display: block; height: 96px; background:
+  radial-gradient(circle at 14% 135%, var(--cv2) 0 34%, transparent 34.5%),
+  radial-gradient(circle at 92% -20%, var(--cv3) 0 36%, transparent 36.5%),
+  radial-gradient(circle at 62% 70%, rgba(255,255,255,.16) 0 9%, transparent 9.5%),
+  repeating-linear-gradient(125deg, transparent 0 16px, rgba(255,255,255,.09) 16px 19px),
+  linear-gradient(135deg, var(--cv1), color-mix(in srgb, var(--cv1), #0b1430 45%)); }
+:root:not(.classic) #side-head .srv-banner { position: relative; }
+:root:not(.classic) #side-head .srv-cbtns { display: flex; gap: 6px; position: absolute; top: 10px; right: 10px; }
+:root:not(.classic) #side-head .srv-cbtn { width: 30px; height: 30px; border: 0; border-radius: var(--r-m); display: grid; place-items: center; cursor: pointer; color: #fff;
+  background: rgba(8,10,14,.45); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: background .12s; }
+:root:not(.classic) #side-head .srv-cbtn:hover { background: rgba(8,10,14,.65); }
+:root:not(.classic) #side-head .srv-cbtn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+:root:not(.classic) #side-head .srv-cbtn .icon { fill: currentColor; }
+:root:not(.classic) #side-head.srv-head .srv-name > .sh-btn { display: none; } /* o convite foi para a capa */
+:root:not(.classic) #side-head .srv-cta { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); height: 38px; margin: var(--sp-1) var(--sp-4) var(--sp-3);
+  border: 0; border-radius: var(--r-m); background: var(--brand); color: #fff; font: 600 14px var(--font, inherit); cursor: pointer; transition: background .12s; }
+:root:not(.classic) #side-head .srv-cta:hover { background: var(--brand-hover, color-mix(in srgb, var(--brand) 85%, #000)); }
+:root:not(.classic) #side-head .srv-cta:focus-visible { outline: 2px solid var(--text-strong); outline-offset: 2px; }
+:root:not(.classic) #side-head .srv-cta .icon { fill: currentColor; flex: none; }
+:root:not(.classic) #side-head .srv-cta .vtimer { font: 500 12px var(--font-code); color: #fff; padding: 1px 6px; border-radius: var(--r-s); background: rgba(255,255,255,.18); }
+:root:not(.classic) #side-head .srv-cta.in { background: color-mix(in srgb, var(--green) 22%, transparent); color: var(--text-strong); }
+:root:not(.classic) #side-head .srv-cta.inv { background: var(--bg-mod-sel); color: var(--text-strong); }
+:root:not(.classic) #side-head .srv-cta.inv:hover { background: color-mix(in srgb, var(--bg-mod-sel), #fff 8%); }
+
+/* ---------- lista de canais do servidor: seções e linhas (só #side-list.srv-list) ----------
+   Seções em letra normal, cinza, seta à direita e uma linha fina entre os grupos. Linha de canal em três camadas da cor
+   de destaque: ícone num círculo a 10%, linha aberta com fundo leve, contador de não lidas sólido (menção segue vermelha). */
+#side-list .ch .chic { display: contents; }
+:root:not(.classic) #side-list.srv-list .catblk { border-top: 1px solid var(--divider); margin: var(--sp-2) calc(-1 * var(--sp-2)) 0; padding: 0 var(--sp-2); }
+:root:not(.classic) #side-list.srv-list .cat { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 500; padding: var(--sp-3) var(--sp-2) 6px; }
+:root:not(.classic) #side-list.srv-list .cat > span:first-child { flex: 1; min-width: 0; gap: var(--sp-1); }
+:root:not(.classic) #side-list.srv-list .catblk > .cat > span > .icon:first-child { order: 2; margin: 0 0 0 auto; width: 14px; height: 14px; opacity: .8; }
+:root:not(.classic) #side-list.srv-list .cat .add { margin-left: var(--sp-1); }
+
+:root:not(.classic) #side-list.srv-list .ch { gap: 10px; min-height: 38px; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-m); color: var(--text-muted); }
+:root:not(.classic) #side-list.srv-list .ch.unread { color: var(--text-strong); }
+:root:not(.classic) #side-list.srv-list .ch.unread::before { display: none; }
+:root:not(.classic) #side-list.srv-list .ch.active { background: color-mix(in srgb, var(--brand) 10%, transparent); color: var(--text-strong); }
+:root:not(.classic) #side-list.srv-list .ch .chic { display: grid; place-items: center; width: 26px; height: 26px; flex: none; border-radius: 50%; color: var(--interactive);
+  background: color-mix(in srgb, var(--brand) 10%, transparent); transition: background .12s, color .12s; }
+:root:not(.classic) #side-list.srv-list .ch .chic .icon { width: 15px !important; height: 15px !important; fill: currentColor; }
+:root:not(.classic) #side-list.srv-list .ch:is(.active, .unread, :hover) .chic { color: var(--text-strong); }
+:root:not(.classic) #side-list.srv-list .ch.active .chic { background: color-mix(in srgb, var(--brand) 22%, transparent); }
+:root:not(.classic) #side-list.srv-list .ch :is(.pill, .ubadge) { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 7px; display: grid; place-items: center; flex: none;
+  font: 600 12px var(--font-code); line-height: 1; font-variant-numeric: tabular-nums; color: #fff; }
+:root:not(.classic) #side-list.srv-list .ch .ubadge { background: var(--brand); }
+#side-list .ch .ubadge { display: none; } /* contador de não lidas só no visual novo; o clássico mostra só a barrinha */
+:root:not(.classic) #side-list.srv-list .ch .ubadge { display: grid; }
+/* as pessoas na sala alinham com o nome do canal (círculo de 26 px + respiro) */
+:root:not(.classic) #side-list.srv-list .vusers:not(.bygame) { margin-left: 36px; }

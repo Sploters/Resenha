@@ -11,7 +11,7 @@ export const NEWS = [
   {
     id: '2026-11', title: 'Novembro de 2026',
     items: [
-      { sec: 'Visual', i: 'palette', t: 'Resenha 2.0', d: 'Grafite com azul elétrico e a fonte Geist. Prefere como era? Aparência → Layout → Visual clássico.', try: 'appearance' },
+      { sec: 'Visual', i: 'palette', t: 'Resenha 2.0', d: 'Grafite com azul elétrico e a fonte Geist. No servidor: capa nova, botão para entrar na call de quem já está lá e contador de mensagens não lidas em cada canal. Prefere como era? Aparência → Layout → Visual clássico.', try: 'appearance' },
       { sec: 'Jogar com a turma', i: 'megaphone', t: 'Bora?', d: 'Chame a turma do servidor para jogar ou só resenhar, agora ou mais tarde, com o contador de quem topou ao vivo. Fica no "+" da barra dos servidores.', try: 'bora' },
       { sec: 'Jogar com a turma', i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores com conversa em cada anúncio, "A fim de jogar" que forma o grupo sozinho e as suas Conquistas.', try: 'lfg' },
       { sec: 'Jogar com a turma', i: 'users', t: 'Ativo agora', d: 'O que cada amigo está jogando, quem está em chamada e o que você perdeu. Se adapta a você: quem está chegando vê os primeiros passos; quem já usa, só o que está rolando (dá para escolher no ⋯).' },

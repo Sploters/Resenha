@@ -53,11 +53,18 @@ export function renderSide() {
   } else {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
-    head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : ''), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
-      g.banner && h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }),
+    // Resenha 2.0: convidar e "mais" ficam sobre a capa (banner ou a capa gerada em tons frios, coverOf); no Visual clássico
+    // a capa gerada e esses botões somem (v2.css) e o convite volta para a linha do nome
+    const cbtns = h('div.srv-cbtns',
+      canInvite(g) && h('button.srv-cbtn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 16)),
+      h('button.srv-cbtn', { type: 'button', title: 'Ações do servidor', 'aria-label': 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, icon('more', 16)));
+    head = h('div#side-head.srv-head' + (g.banner ? '.has-banner' : '.has-cover'), { style: !g.banner && g.accent ? { borderTop: `3px solid ${g.accent}` } : null },
+      g.banner ? h('div.srv-banner', { style: { backgroundImage: `url("${String(imgUrl(g.banner, 480)).replace(/["\\\n]/g, encodeURIComponent)}")` } }, cbtns)
+        : h('div.srv-banner.srv-cover', { style: coverOf(g) }, cbtns),
       h('div.srv-name', h('div.gd', { title: 'Ações do servidor', onclick: (e) => menuAt(e.currentTarget) }, h('span', g.name), icon('chevdown', 16)),
         canInvite(g) && h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
-      (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })());
+      (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })(),
+      srvCta(g));
     // salas escondidas (sem permissão de entrar) ficam de fora; categoria que só tinha essas some junto
     const byParent = new Map(), hiddenIn = new Set();
     for (const c of g.channels) if (c.type !== 4) { const k = c.parent_id || null; if (!chVisible(c)) { hiddenIn.add(k); continue; } (byParent.get(k) || byParent.set(k, []).get(k)).push(c); }
@@ -71,7 +78,7 @@ export function renderSide() {
       const pol = isChatCh(c) ? notifPolicy(c) : null, live = pol && serverMuted(g.id) && !pol.muted; // reativado num servidor silenciado
       return h('div', voiceDropHooks(g, c), h('div.ch' + (S.view.cid === c.id || (c.type === 15 && S.posts.get(S.view.cid)?.parent_id === c.id) ? '.active' : '') + (S.unread[c.id] && isChatCh(c) ? '.unread' : '') + (pol?.muted ? '.muted' : ''),
         { onclick: () => { go(g.id, c.id); }, ondblclick: c.type === 2 ? () => { hidePreview(); joinVoice(c.id); } : null, onpointerenter: c.type === 2 ? () => voice?.prewarm?.() : null, oncontextmenu: (e) => channelMenu(e, g, c), ...previewHooks(c), ...chDragHooks(g, c) },
-        chIcon(c), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]),
+        h('span.chic', chIcon(c)), h('span.name', chName(c)), (c.type === 2 ? !chCan(c, CH.CONNECT) : !chCan(c, CH.SEND)) && h('span.lockmark', { title: c.type === 2 ? 'Você não pode entrar nesta sala' : 'Só leitura para você' }, icon('lock', 12)), isFav(c.id) && h('span.favmark', { title: 'Nos seus favoritos' }, icon('star', 12)), live && h('span.unmutemark', { title: 'Reativado: avisa mesmo com o servidor silenciado' }, icon('bell', 12)), vs.length > 0 && callTimer(vs), S.mentions[c.id] > 0 && h('span.pill', S.mentions[c.id]), !(S.mentions[c.id] > 0) && !pol?.muted && S.unread[c.id]?.count > 0 && isChatCh(c) && h('span.ubadge', { title: 'Mensagens não lidas' }, S.unread[c.id].count > 99 ? '99+' : S.unread[c.id].count),
         can(g.id, PERM.MANAGE_CHANNELS) && h('span.actions', { onclick: (e) => { e.stopPropagation(); channelSettings(g, c); } }, icon('gear', 16))),
         vs.length > 0 && vusersBlock(g, vs));
     };
@@ -94,7 +101,7 @@ export function renderSide() {
     ensureLfgPosts(); const ads = openPosts(g.id);
     const adsBox = ads.length > 0 && h('div.side-lfg', h('div.side-lfg-cap', icon('users', 14), h('span', ads.length === 1 ? 'Procurando grupo' : `${ads.length} grupos procurando gente`),
       ads.length > 2 && h('button.side-lfg-all', { type: 'button', onclick: () => { setLfgGuild(g.id); go('@me', 'lfg'); } }, 'Ver todos')), ads.slice(0, 2).map(lfgMini));
-    list = h('div#side-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), adsBox, tools, onbRow(g), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
+    list = h('div#side-list.srv-list', boras.length > 0 && h('div.side-bora', ...boras.slice(0, 2).map(b => boraCard(b, { compact: true }))), adsBox, tools, onbRow(g), kids(null).map(chRow), cats.map((c, i) => (sideCats.i = i, catRow(c))));
   }
   // painel do usuário: aberto (nome, status, microfone, fone, engrenagem) ou recolhido na barra dos servidores
   // a barra do perfil fica sempre aberta com a lista visível; o painel de voz ocupa só a largura da lista de canais
@@ -118,6 +125,33 @@ export function renderSide() {
   // offsetHeight logo depois de recriar a lista forçava o layout da página inteira na hora (até ~400 ms na abertura)
   uaObs.disconnect(); uaObs.observe(area);
   syncView();
+}
+// capa gerada do servidor sem banner (Resenha 2.0): só tons frios. A cor do servidor escolhe a mais próxima (azul, ciano ou
+// violeta); cor quente, cinza ou sem cor: sorteada pelo id, sempre a mesma para o servidor
+const COVERS = [['#4b8bff', '#22c3e6', '#7c5cff', 220], ['#13a8c9', '#2ee6c4', '#4b8bff', 190], ['#7c5cff', '#c05cff', '#4b8bff', 262], ['#3a3f4b', '#5b6475', '#4b8bff', -1]];
+const hueOf = (hex) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return null;
+  const n = parseInt(m[1], 16), r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  if (d < .15) return null; // quase cinza
+  const hh = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (hh * 60 + 360) % 360;
+};
+function coverOf(g) {
+  const hu = hueOf(g.accent); let p;
+  if (hu != null && hu >= 170 && hu <= 300) p = COVERS.slice(0, 3).reduce((a, c) => Math.abs(c[3] - hu) < Math.abs(a[3] - hu) ? c : a);
+  else { let s = 0; for (const ch of String(g.id)) s = (s * 31 + ch.charCodeAt(0)) >>> 0; p = COVERS[s % COVERS.length]; }
+  return { '--cv1': p[0], '--cv2': p[1], '--cv3': p[2] };
+}
+// botão principal do topo do servidor (Resenha 2.0): com gente em call, "Bora? Entrar na call" com o tempo da call (a sala
+// mais cheia que dá para ver); você já nela: "Você está na call" (abre a sala); ninguém em call: "Convidar amigos"
+function srvCta(g) {
+  let best = null, bv = [];
+  for (const c of g.channels) if (c.type === 2 && chVisible(c)) { const vs = roomVoice(c.id); if (vs.length > bv.length) { best = c; bv = vs; } }
+  if (best) {
+    const mine = voice?.active && voice.channelId === best.id, canJoin = chCan(best, CH.CONNECT);
+    return h('button.srv-cta' + (mine ? '.in' : ''), { type: 'button', title: chName(best), onclick: () => { if (mine || !canJoin) go(g.id, best.id); else { hidePreview(); joinVoice(best.id); } } },
+      icon('headset', 16), h('span.srv-cta-l', mine ? 'Você está na call' : canJoin ? 'Bora? Entrar na call' : 'Ver a call'), callTimer(bv));
+  }
+  return canInvite(g) && h('button.srv-cta.inv', { type: 'button', onclick: () => inviteModal(g) }, icon('invite', 16), h('span.srv-cta-l', 'Convidar amigos'));
 }
 const sideScroll = new Map(), sideKey = () => (S.favMode ? 'fav' : guild(S.view.gid) ? S.view.gid : '@msgs');
 // servidor com muitas categorias (1.000 canais): só as primeiras, a do canal aberto e as com gente em sala saem montadas; as
