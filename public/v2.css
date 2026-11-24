@@ -176,3 +176,34 @@
 
 /* prévia do tema Escuro nas Configurações mostra o grafite novo */
 :root:not(.classic) .ncard.theme-dark { background: linear-gradient(135deg, #1b1c21 60%, color-mix(in srgb, var(--brand) 35%, #1b1c21)); }
+
+/* ---------- Ativo agora por fase de uso (activity.js anStage): primeiros passos, explicações e guia vazio ---------- */
+#active-now .ansec-hint { margin: -2px 8px 8px; font-size: 12px; line-height: 1.4; color: var(--text-muted); }
+#active-now .an-start { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--brand) 9%, var(--bg-sec)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+#active-now .an-starth { display: flex; align-items: flex-start; gap: 8px; }
+#active-now .an-starth > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#active-now .an-starth b { font-size: 14px; color: var(--header); }
+#active-now .an-starth small { font-size: 12px; color: var(--text-muted); }
+#active-now .an-starth .btn.link { flex: none; color: var(--text-muted); }
+#active-now .an-startbar { height: 4px; border-radius: 2px; background: var(--bg-mod-hover); margin: 8px 0 6px; overflow: hidden; }
+#active-now .an-startbar i { display: block; height: 100%; background: var(--brand); border-radius: inherit; transition: width .3s ease-out; }
+#active-now .an-step { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 8px; }
+#active-now .an-step.next { flex-wrap: wrap; padding: 8px; background: var(--bg-mod-hover); }
+#active-now .an-step.next .an-steptx { flex-basis: calc(100% - 40px); }
+#active-now .an-step.next .btn { margin-left: 30px; margin-top: 4px; }
+#active-now .an-stepck { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--text-muted); color: #fff; }
+#active-now .an-step.next .an-stepck { border-color: var(--brand); }
+#active-now .an-step.done .an-stepck { border-color: var(--brand); background: var(--brand); }
+#active-now .an-steptx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#active-now .an-steptx b { font-size: 13px; font-weight: 600; color: var(--header); }
+#active-now .an-steptx small { font-size: 12px; line-height: 1.4; color: var(--text-muted); }
+#active-now .an-step.done .an-steptx b { color: var(--text-muted); text-decoration: line-through; font-weight: 500; }
+#active-now .an-guide { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 12px; color: var(--text-muted); }
+#active-now .an-guide > .icon { color: var(--brand); }
+#active-now .an-guide p { margin: 0 0 6px; font-size: 13px; line-height: 1.45; }
+#active-now .an-guide .act-btns { justify-content: center; flex-wrap: wrap; }
+#active-now .an-faces-more { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: none;
+  color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+#active-now .an-faces-more:hover { background: var(--bg-mod-hover); color: var(--header); }
+#active-now .an-faces-more > span:nth-child(2) { flex: 1; }

@@ -808,12 +808,102 @@ function lfgSection() {
   if (!ads.length) return '';
   return h('section.an-lfg', h('div.an-cap', `Procurando grupo — ${ads.length}`, ads.length > 3 && h('button.an-capbtn', { type: 'button', onclick: () => ctx.go('@me', 'lfg') }, 'Ver todos')), ...ads.slice(0, 3).map(lfgMini));
 }
+// ---------------------------------------------------------------- fase de uso: o painel se adapta a quem está chegando
+// Quem acabou de criar a conta (ou quase não tem amigos/servidores) vê os "Primeiros passos", uma explicação curta em cada
+// seção e o que ajuda a se enturmar primeiro (destaques da semana, gente dos servidores). Quem já usa há tempo vê o painel
+// enxuto: o que pede resposta, o que perdeu e quem está jogando agora; nada de explicação. Conta: idade da conta, amigos,
+// servidores e o quanto a pessoa fala e entra em chamada nos servidores (últimos 14 dias, GET /activity/feed → me).
+// A pessoa pode fixar a fase no ⋯ do painel (S.prefs.anStage); a ordem que ela arrastou continua valendo em qualquer fase.
+const STAGES = { novo: 'Começando agora', chegando: 'Pegando o jeito', veterano: 'Já conheço tudo' };
+const STAGE_HINT = { novo: 'Primeiros passos e explicações em cada parte', chegando: 'Atalhos para jogar e conhecer a turma', veterano: 'Só o que está rolando e o que você perdeu' };
+const AN_STAGE_ORDER = {
+  // "Desde a última vez" só aparece depois de 2 h fora e some ao dispensar: fica no alto em qualquer fase
+  novo: ['forme', 'since', 'start', 'now', 'play', 'servers', 'week', 'lfg', 'recent'],
+  chegando: ['forme', 'since', 'start', 'now', 'play', 'lfg', 'servers', 'week', 'recent'],
+  veterano: ['forme', 'since', 'now', 'play', 'lfg', 'recent', 'servers', 'week', 'start'],
+};
+function usageStats() {
+  const m = feed?.me, friends = [...S.rels.values()].filter(r => r.type === 1).length;
+  return { friends, guilds: S.guilds.size, age: S.me?.created_at ? (Date.now() - S.me.created_at) / 864e5 : 365,
+    msgs14: m?.msgs14 || 0, calls14: m?.calls14 || 0, msgsAny: !!m?.msgs_any, callsAny: !!m?.calls_any, known: !!m };
+}
+// pontos de uso: amigos (3+, 10+), servidor, conversa (30+ mensagens em 14 dias), chamadas (3+ em 14 dias), conta de 30+ dias
+function autoStage(x) {
+  const pts = (x.friends >= 3) + (x.friends >= 10) + (x.guilds >= 1) + (x.msgs14 >= 30) + (x.calls14 >= 3) + (x.age >= 30);
+  if (x.age < 3 && pts < 4) return 'novo'; // conta de poucos dias: ainda está conhecendo, mesmo que já tenha amigos
+  return pts <= 1 ? 'novo' : pts <= 3 ? 'chegando' : 'veterano';
+}
+// antes do feed chegar faltam mensagens e chamadas: usa a última fase calculada (não pula de "novo" para "veterano" na tela)
+let stageMemo = null;
+function anStageAuto() {
+  const x = usageStats();
+  if (!x.known) { if (!stageMemo) try { stageMemo = localStorage.getItem('lc_anstage'); } catch { /* sem armazenamento */ } return STAGES[stageMemo] ? stageMemo : autoStage(x); }
+  const s = autoStage(x);
+  if (s !== stageMemo) { stageMemo = s; try { localStorage.setItem('lc_anstage', s); } catch { /* sem armazenamento */ } }
+  return s;
+}
+export const anStage = () => (STAGES[S.prefs.anStage] ? S.prefs.anStage : anStageAuto());
+// explicação curta embaixo do título de cada seção (só para quem está começando)
+const AN_HINT = {
+  forme: 'Pedidos de amizade e convites para entrar numa chamada.', now: 'Seus amigos jogando, em chamada ou online. Clique em alguém para conversar.',
+  play: 'Chame a turma para jogar agora ou mais tarde. Quem topar entra no grupo.', lfg: 'Gente procurando grupo para jogar. Dá para entrar direto.',
+  servers: 'Quem está jogando ou em chamada nos seus servidores. Bom jeito de achar amigos novos.', since: 'O que rolou enquanto você estava fora.',
+  recent: 'O que seus amigos jogaram nos últimos dias.', week: 'Os jogos e clipes que a galera mais curtiu nos últimos 7 dias.',
+};
+
+// "Primeiros passos": lista do que faz o Resenha valer a pena, marcada pelo que a pessoa já fez de verdade (não por clique)
+function startSteps(x) {
+  const out = (S.rels && [...S.rels.values()].some(r => r.type === 4));
+  const firstGuild = [...S.guilds.values()][0];
+  const playOn = !!S.integrations?.some(i => i.account) || !!window.lcDesktop?.detectGame;
+  const me = S.me || {};
+  return [
+    { k: 'friend', t: 'Adicione um amigo', d: 'Pelo nome de usuário. Quando ele aceitar, aparece aqui o que ele está fazendo.', done: x.friends > 0, wait: !x.friends && out && 'Pedido enviado, esperando a resposta',
+      btn: 'Adicionar amigo', ic: 'plus', fn: () => { S.view.tab = 'add'; ctx.go('@me'); } },
+    { k: 'guild', t: 'Entre num servidor', d: 'Crie o da sua turma ou entre com um convite.', done: x.guilds > 0, btn: 'Adicionar servidor', ic: 'grid', fn: () => import('./rail.js').then(m => m.addServerModal()) },
+    { k: 'talk', t: 'Mande a primeira mensagem', d: 'Diga um oi num canal do servidor ou para um amigo.', done: x.msgsAny, btn: firstGuild ? 'Ir para o servidor' : null, ic: 'dm', fn: () => firstGuild && ctx.go(firstGuild.id) },
+    { k: 'call', t: 'Entre numa chamada de voz', d: 'As salas de voz ficam na lista de canais do servidor. É só clicar para entrar.', done: x.callsAny, btn: firstGuild ? 'Ver as salas' : null, ic: 'voice', fn: () => firstGuild && ctx.go(firstGuild.id) },
+    { k: 'game', t: 'Mostre o que você joga', d: 'Vincule a Steam ou use o app para PC: a turma vê seu jogo e chama você.', done: playOn, btn: 'Mostrar meu jogo', ic: 'gamepad', fn: () => ctx.openSettings('connections') },
+    { k: 'profile', t: 'Deixe o perfil com a sua cara', d: 'Uma bio, um banner ou pronomes ajudam a turma a te reconhecer.', done: !!(me.bio || me.banner || me.pronouns || me.custom_status), btn: 'Editar perfil', ic: 'sparkle', fn: () => ctx.openSettings('profile') },
+  ];
+}
+function startSection(stage, redraw) {
+  if (S.prefs.anStartOff || stage === 'veterano') return null;
+  const x = usageStats(), steps = startSteps(x), done = steps.filter(s => s.done).length;
+  if (done === steps.length) return null;
+  const next = steps.find(s => !s.done && !s.wait) || steps.find(s => !s.done);
+  const row = (s) => h('div.an-step' + (s.done ? '.done' : '') + (s === next ? '.next' : ''), { 'data-step': s.k },
+    h('span.an-stepck', { 'aria-hidden': 'true' }, s.done ? icon('check', 14) : null),
+    h('div.an-steptx', h('b', s.t), s === next && h('small', s.wait || s.d), s !== next && !s.done && s.wait && h('small', s.wait)),
+    s === next && !s.done && s.btn && h('button.btn.sm', { type: 'button', onclick: (e) => { e.stopPropagation(); s.fn(); } }, icon(s.ic, 14), s.btn));
+  return h('section.an-start', { 'aria-label': 'Primeiros passos' },
+    h('div.an-starth', h('div', h('b', done ? `${done} de ${steps.length} feitos` : 'Comece por aqui'), h('small', done ? 'Continue de onde parou.' : 'O básico para aproveitar o Resenha com a sua turma.')),
+      h('button.btn.link.sm', { type: 'button', title: 'Esconder os primeiros passos (volta pelo ⋯ do painel)', onclick: () => { S.prefs.anStartOff = true; savePrefs(); redraw(); } }, 'Já sei usar')),
+    h('div.an-startbar', { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': steps.length, 'aria-valuenow': done }, h('i', { style: { width: Math.round(done / steps.length * 100) + '%' } })),
+    // o próximo passo vem primeiro; os feitos vão para o fim (riscados)
+    ...[next, ...steps.filter(s => s !== next && !s.done), ...steps.filter(s => s.done)].map(row));
+}
+// painel sem nada para mostrar: em vez de "tudo quieto", o caminho certo para cada um
+function emptyNow(stage, x) {
+  if (!x.friends) return h('div.an-empty.an-guide', icon('users', 28), h('b', 'Aqui aparece a sua turma'),
+    h('p', 'Quando você tiver amigos no Resenha, aparece aqui quem está jogando, em chamada ou online, com atalho para entrar junto.'),
+    h('div.act-btns', h('button.btn.sm', { type: 'button', onclick: () => { S.view.tab = 'add'; ctx.go('@me'); } }, icon('plus', 14), 'Adicionar amigo'),
+      !x.guilds && h('button.btn.grey.sm', { type: 'button', onclick: () => import('./rail.js').then(m => m.addServerModal()) }, icon('grid', 14), 'Entrar num servidor')));
+  return h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', stage === 'veterano' ? 'Ninguém jogando nem em chamada agora.' : 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
+    !S.integrations?.some(i => i.account) && !window.lcDesktop?.detectGame && h('button.btn.sm', { onclick: () => ctx.openSettings('connections') }, 'Mostrar o que eu jogo'));
+}
+
 // ---- seções do "Ativo agora": ordem, recolhidas e ocultas ficam salvas (S.prefs.anLay); a coluna inteira pode sumir (S.prefs.anOff)
-const AN_SECS = { now: 'Online agora', forme: 'Para você', play: 'Bora jogar', lfg: 'Procurando grupo', servers: 'Nos seus servidores', since: 'Desde a última vez', recent: 'Nos últimos dias', week: 'Destaques da semana' };
-const AN_DEFAULT = Object.keys(AN_SECS);
+const AN_SECS = { start: 'Primeiros passos', now: 'Online agora', forme: 'Para você', play: 'Bora jogar', lfg: 'Procurando grupo', servers: 'Nos seus servidores', since: 'Desde a última vez', recent: 'Nos últimos dias', week: 'Destaques da semana' };
 const anLay = () => { const l = S.prefs.anLay ||= {}; l.col ||= {}; l.off ||= {}; if (S.prefs.anSrvClosed) { l.col.servers = true; delete S.prefs.anSrvClosed; } return l; };
-// ordem salva + seções novas (de versões futuras) no lugar padrão
-const anOrder = () => { const o = (anLay().order || []).filter(k => AN_SECS[k]); for (const k of AN_DEFAULT) if (!o.includes(k)) o.splice(AN_DEFAULT.indexOf(k), 0, k); return o; };
+// sem ordem arrastada: a ordem da fase de uso. Com ordem salva: ela, e seções novas (de versões futuras) no lugar da fase
+const anOrder = () => {
+  const def = AN_STAGE_ORDER[anStage()], saved = anLay().order;
+  if (!saved) return [...def];
+  const o = saved.filter(k => AN_SECS[k]);
+  for (const k of def) if (!o.includes(k)) o.splice(Math.min(o.length, def.indexOf(k)), 0, k);
+  return o;
+};
 const anSave = () => { savePrefs(); S.redrawFeed?.(); };
 function anMove(k, to) { // to: índice na ordem completa
   const o = anOrder(), i = o.indexOf(k); if (i < 0) return; o.splice(i, 1); o.splice(Math.max(0, Math.min(o.length, to)), 0, k); anLay().order = o; anSave();
@@ -834,7 +924,7 @@ function anSection(k, content, count) {
     ondragleave: () => sec.classList.remove('drop-a', 'drop-b'),
     ondrop: (e) => { if (!anDrag || anDrag === k) return; e.preventDefault(); const top = sec.classList.contains('drop-a'); sec.classList.remove('drop-a', 'drop-b');
       const o = anOrder().filter(x => x !== anDrag), i = o.indexOf(k); anMove(anDrag, top ? i : i + 1); } },
-    head, !col && h('div.ansec-b', ...[content].flat(2).filter(Boolean)));
+    head, !col && anStage() === 'novo' && AN_HINT[k] && h('p.ansec-hint', AN_HINT[k]), !col && h('div.ansec-b', ...[content].flat(2).filter(Boolean)));
   return sec;
 }
 function secMenu(e, k) {
@@ -847,8 +937,15 @@ function secMenu(e, k) {
 }
 function panelMenu(e) {
   const l = anLay();
-  menu(e, [{ head: 'Seções' },
-    ...anOrder().map(k => ({ label: AN_SECS[k], checked: !l.off[k], fn: () => { l.off[k] = !l.off[k]; anSave(); } })),
+  const auto = anStageAuto(), cur = S.prefs.anStage;
+  const pick = (v) => { if (v) S.prefs.anStage = v; else delete S.prefs.anStage; if (v === 'novo') delete S.prefs.anStartOff; anSave(); };
+  menu(e, [{ head: 'Mostrar como' },
+    { label: 'Automático', hint: `Pelo seu uso: ${STAGES[auto].toLowerCase()}`, checked: !STAGES[cur], fn: () => pick(null) },
+    ...Object.entries(STAGES).map(([k, t]) => ({ label: t, hint: STAGE_HINT[k], checked: cur === k, fn: () => pick(k) })),
+    '-', { head: 'Seções' },
+    ...anOrder().map(k => k === 'start'
+      ? { label: AN_SECS[k], checked: !l.off[k] && !S.prefs.anStartOff, fn: () => { const on = !l.off[k] && !S.prefs.anStartOff; l.off[k] = on; if (!on) delete S.prefs.anStartOff; anSave(); } }
+      : { label: AN_SECS[k], checked: !l.off[k], fn: () => { l.off[k] = !l.off[k]; anSave(); } }),
     '-',
     { label: 'Expandir todas', icon: 'chevdown', fn: () => { l.col = {}; anSave(); } },
     { label: 'Ordem padrão', icon: 'refresh', fn: () => { l.order = null; anSave(); } },
@@ -859,6 +956,19 @@ export function setAnOff(v) {
   S.prefs.anOff = !!v; savePrefs();
   document.getElementById('home')?.classList.toggle('an-off', !!v);
   if (v) toast('Ativo agora oculto. Para mostrar de novo, use o botão de controle no topo da tela de Amigos.');
+}
+// quem só está online (sem jogo nem chamada): em linhas. Muita gente (quem já usa há tempo costuma ter): as primeiras em
+// linha e o resto numa fileira de rostos, que abre a lista inteira
+const ONLINE_ROWS = 5;
+let onlineMore = false;
+function onlineList(list, redraw) {
+  const row = ({ u }) => h('div.an-row', { onclick: () => ctx.openDM(u.id), oncontextmenu: (e) => ctx.userMenu(e, u.id) }, avatar(u, 32, { ring: 'var(--bg-sec)' }),
+    h('div.an-who', nameEl(u), h('small', u.custom_status || STATUS[u.status] || 'Online')), ...voiceActions(u.id).slice(0, 1));
+  if (onlineMore || list.length <= ONLINE_ROWS + 2) return [...list.map(row), onlineMore && list.length > ONLINE_ROWS + 2 && h('button.hl-more', { type: 'button', onclick: () => { onlineMore = false; redraw(); } }, h('span.hl-up', icon('chevdown', 14)), 'Mostrar menos')];
+  const rest = list.slice(ONLINE_ROWS);
+  return [...list.slice(0, ONLINE_ROWS).map(row),
+    h('button.an-faces-more', { type: 'button', title: 'Ver todos que estão online', onclick: () => { onlineMore = true; redraw(); } },
+      h('span.an-faces', ...rest.slice(0, 6).map(({ u }) => avatar(u, 24, { status: false }))), h('span', `+${rest.length} online`), icon('chevdown', 14))];
 }
 export function activityPanel(box) {
   ensureLfgPosts();
@@ -882,20 +992,21 @@ export function activityPanel(box) {
     const now = [
       ...(playing.length ? [h('div.an-cap', `Jogando — ${playing.length}`), ...bunch(playing, x => gameKey(x.a)).map(l => (l.length > 1 ? playGroupCard(l) : playCard(l[0].u.id, l[0].a)))] : []),
       ...(inVoice.length ? [h('div.an-cap', `Em chamada — ${inVoice.length}`), ...bunch(inVoice.sort(byName), x => x.r.g?.id || 'dm:' + x.u.id).map(l => (l.length > 1 ? voiceGroupCard(l[0].r.g, l) : voiceCard(l[0].u.id, l[0].r)))] : []),
-      ...(online.length ? [h('div.an-cap', `Online — ${online.length}`), ...online.sort(byName).map(({ u }) => h('div.an-row', { onclick: () => ctx.openDM(u.id), oncontextmenu: (e) => ctx.userMenu(e, u.id) }, avatar(u, 32, { ring: 'var(--bg-sec)' }),
-        h('div.an-who', nameEl(u), h('small', u.custom_status || STATUS[u.status] || 'Online')), ...voiceActions(u.id).slice(0, 1)))] : []),
+      ...(online.length ? [h('div.an-cap', `Online — ${online.length}`), ...onlineList(online.sort(byName), draw)] : []),
     ];
     // gente dos seus servidores que não é amiga (jogando ou em chamada) e, no topo dela, sugestões de amizade
     const srv = serverSection([...playing.map(x => ({ u: x.u, a: x.a, r: roomOf(x.u.id) })), ...inVoice.map(x => ({ u: x.u, a: null, r: x.r }))], draw);
     const recent = recentGames(), back = sinceStrip(); // com a faixa "Desde a última vez" não está "tudo quieto"
-    if (!now.length && !forMe.length && !srv.length && !recent.length && !back) now.push(h('div.an-empty', h('b', 'Tudo quieto por aqui…'), h('p', 'Quando seus amigos jogarem, entrarem numa chamada ou ficarem online, eles aparecem aqui.'),
-      !S.integrations?.some(i => i.account) && !window.lcDesktop?.detectGame && h('button.btn.sm', { onclick: () => ctx.openSettings('connections') }, 'Mostrar o que eu jogo')));
+    const stage = anStage(), start = startSection(stage, draw);
+    // sem amigos, o vazio vira o guia (mesmo com outras seções); com amigos, só quando o painel inteiro está vazio
+    if (!now.length && (!friends.length || (!forMe.length && !srv.length && !recent.length && !back))) now.push(emptyNow(stage, usageStats()));
     // você também está jogando: linha discreta (dá para esconder o jogo daqui)
     if (mine) now.push(h('div.an-me', gameIcon(mine, 18), h('span', 'Você está jogando ', h('b', mine.game.title)),
       h('button.btn.link.sm', { title: 'Este jogo nunca aparece como atividade', onclick: async () => { if (await tryApi('PUT', `/activity/games/${mine.platform}/${encodeURIComponent(mine.game.id)}`, { hidden: true })) toast('Jogo escondido. Você pode reexibi-lo em Contas vinculadas.'); } }, 'Esconder jogo')));
     // cada pedaço do painel vira uma seção que recolhe, muda de lugar (arrastando) e pode ser ocultada (S.prefs.anLay)
     const bora = boraSection(), ints = intentSection(), cta = playCta(), lfg = lfgSection();
     const parts = {
+      start,
       now: now.length && h('section.an-now', ...now),
       forme: forMe.length > 1 && h('section.an-forme', ...forMe.slice(1)), // sem o rótulo "Para você": o cabeçalho da seção já diz
       play: (bora.childElementCount || ints.childElementCount || cta) && [bora, ints, cta],
@@ -906,6 +1017,7 @@ export function activityPanel(box) {
       week: weekSections(),
     };
     const counts = { now: playing.length + inVoice.length + online.length, forme: forMe.length ? forMe.length - 1 : 0, servers: srv.count || 0, recent: recent.length };
+    box.classList.toggle('an-stage-novo', stage === 'novo'); box.dataset.stage = stage;
     body.replaceChildren(...anOrder().filter(k => parts[k] && !anLay().off[k]).map(k => anSection(k, parts[k], counts[k])));
     // janela estreita: o painel é uma gaveta fechada; um ponto no botão avisa que há novidade lá dentro
     document.querySelector('#home .an-toggle')?.classList.toggle('an-new', !!back);

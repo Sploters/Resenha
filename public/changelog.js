@@ -14,7 +14,7 @@ export const NEWS = [
       { sec: 'Visual', i: 'palette', t: 'Resenha 2.0', d: 'Grafite com azul elétrico e a fonte Geist. Prefere como era? Aparência → Layout → Visual clássico.', try: 'appearance' },
       { sec: 'Jogar com a turma', i: 'megaphone', t: 'Bora?', d: 'Chame a turma do servidor para jogar ou só resenhar, agora ou mais tarde, com o contador de quem topou ao vivo. Fica no "+" da barra dos servidores.', try: 'bora' },
       { sec: 'Jogar com a turma', i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores com conversa em cada anúncio, "A fim de jogar" que forma o grupo sozinho e as suas Conquistas.', try: 'lfg' },
-      { sec: 'Jogar com a turma', i: 'users', t: 'Ativo agora', d: 'O que cada amigo está jogando, quem está em chamada e o que você perdeu. O jogo aberto no PC aparece sem vincular conta.' },
+      { sec: 'Jogar com a turma', i: 'users', t: 'Ativo agora', d: 'O que cada amigo está jogando, quem está em chamada e o que você perdeu. Se adapta a você: quem está chegando vê os primeiros passos; quem já usa, só o que está rolando (dá para escolher no ⋯).' },
       { sec: 'Jogar com a turma', i: 'eye', t: 'Seu jogo do PC aparece para a turma', d: 'O jogo que você abre no PC aparece para seus amigos e para quem está nos seus servidores, inclusive no Ativo agora. A opção de esconder saiu; para não aparecer, use o status Invisível.' },
       { sec: 'Jogar com a turma', i: 'screen', t: 'Jogar junto', d: 'Na sua transmissão, até 3 amigos entram como jogador 2, 3 e 4, com controle, teclado ou mouse que você libera.' },
       { sec: 'Transmissão e clipes', i: 'screen', t: 'Transmissão de jogos', d: 'Pela placa de vídeo até 120 FPS, só a janela e o áudio do jogo. O Modo leve deixa mais folga para o jogo.', try: 'stream' },

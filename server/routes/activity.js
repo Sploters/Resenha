@@ -61,8 +61,20 @@ export function mountActivity(app, d) {
   app.get('/api/activity/feed', auth, wrap((req, res) => { // amigos (e você), o que estão jogando e eventos recentes — tudo filtrado por activity.canSee
     const f = activity.feedFor(req.uid), week = activity.weekFor(req.uid);
     const ids = [...new Set([...f.friends.map(x => x.user_id), ...week.played.map(x => x.user_id), ...[...week.clips, ...week.clip_categories.map(x => x.clip), ...week.clip_recs].flatMap(c => [c.author_id, c.streamer_id]).filter(Boolean)])];
-    res.json({ ...f, week, users: ids.map(id => userPub(id)).filter(Boolean) });
+    res.json({ ...f, week, me: usage(req.uid), users: ids.map(id => userPub(id)).filter(Boolean) });
   }));
+  // o quanto a pessoa já usa o Resenha (só ela recebe, só números): o "Ativo agora" se adapta a isso (quem está chegando
+  // vê os primeiros passos e explicações; quem já usa há tempo vê o painel enxuto). Contagens com teto: não varre o histórico
+  const CAP = 200, D14 = 14 * 864e5;
+  function usage(uid) {
+    const since = Date.now() - D14, n = (sql, ...a) => { try { return get(sql, ...a)?.n || 0; } catch { return 0; } }; // tabela da memória ausente (servidor antigo/testes)
+    return {
+      msgs14: n(`SELECT COUNT(*) n FROM (SELECT 1 FROM messages m JOIN channels c ON c.id=m.channel_id WHERE m.author_id=? AND c.guild_id IS NOT NULL AND m.created_at>? LIMIT ${CAP})`, uid, since),
+      msgs_any: n('SELECT COUNT(*) n FROM (SELECT 1 FROM messages WHERE author_id=? LIMIT 1)', uid),
+      calls14: n(`SELECT COUNT(*) n FROM (SELECT 1 FROM voice_session_members WHERE user_id=? AND first_at>? LIMIT ${CAP})`, uid, since),
+      calls_any: n('SELECT COUNT(*) n FROM (SELECT 1 FROM voice_session_members WHERE user_id=? LIMIT 1)', uid),
+    };
+  }
   app.put('/api/activity/games/:platform/:gameId', auth, wrap((req, res) => { // esconder/mostrar um jogo (nunca vira atividade)
     const platform = req.params.platform, gid = clean(req.params.gameId, 40);
     if (platform !== 'pc' && (!getAdapter(platform) || !accountOf(req.uid, platform))) return bad(res, 'Conta não vinculada', 404);
