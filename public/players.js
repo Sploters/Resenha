@@ -22,10 +22,11 @@ function permRow(p, set, { busy = false } = {}) {
 const who = (uid, slot, sub) => h('div.pl-who', avatar(user(uid), 36), h('div.pl-name', h('b', nm(uid)), sub && h('small', sub)), slot && h('span.pl-slot', 'P' + slot));
 
 function body(cap) {
-  const me = S.me.id, players = playersOf(me), asks = playRequests(), invites = sentInvites();
+  cap = cap || { ok: false };
+  const me = S.me?.id, players = playersOf(me), asks = playRequests(), invites = sentInvites();
   const taken = new Set([...players, ...asks, ...invites].map(s => s.controller));
   const full = players.length + 1 >= MAX;
-  const room = [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.user_id !== me && !taken.has(v.user_id) && !user(v.user_id)?.bot);
+  const room = [...S.voice.values()].filter(v => v.channel_id === voice?.channelId && v.user_id !== me && !taken.has(v.user_id) && !user(v.user_id)?.bot);
   const watching = new Set(S.viewers.get(me) || []);
   room.sort((a, b) => watching.has(b.user_id) - watching.has(a.user_id));
   const mouseOwner = players.find(p => p.perms?.mouse);
@@ -39,8 +40,8 @@ function body(cap) {
     sec('Jogando', `${players.length + 1}/${MAX}`,
       h('div.pl-row.host', who(me, 1, 'Você (anfitrião): tudo é seu'), h('div.pl-perms.fixed', PERMS.map(([, ic, label]) => h('span.pl-perm.on.fixed', { title: label }, icon(ic, 15), h('span', label))))),
       ...players.map(p => h('div.pl-row' + (p.id === focusId ? '.focus' : ''), { 'data-id': p.id },
-        who(p.controller, p.slot, p.kind === 'pad' ? 'Só controle (app antigo de quem joga)' : !p.perms.mouse && !p.perms.keyboard && !p.perms.gamepad ? 'Sem permissões: só assistindo' : null),
-        p.kind === 'pad' ? permIcons({ gamepad: true }) : permRow(p.perms, (np) => setPlayPerms(p.id, np)),
+        who(p.controller, p.slot, p.kind === 'pad' ? 'Só controle (app antigo de quem joga)' : !p.perms?.mouse && !p.perms?.keyboard && !p.perms?.gamepad ? 'Sem permissões: só assistindo' : null),
+        p.kind === 'pad' ? permIcons({ gamepad: true }) : permRow(p.perms || {}, (np) => setPlayPerms(p.id, np)),
         h('button.btn.sm.grey.pl-kick', { title: `Tirar ${nm(p.controller)} do jogo`, onclick: () => kickPlayer(p.id) }, 'Tirar'))),
       mouseOwner && players.length > 1 ? h('p.pl-note', icon('pointer', 13), ` O mouse está com ${nm(mouseOwner.controller)}. Liberar para outro jogador tira dele (o cursor é um só).`) : null),
     asks.length ? sec('Pedidos para jogar', asks.length, ...asks.map(s => {
@@ -51,14 +52,14 @@ function body(cap) {
         h('div.pl-acts', h('button.btn.sm.grey', { onclick: () => { reqPerms.delete(s.id); declinePlay(s.id); } }, 'Recusar'),
           h('button.btn.sm', { disabled: full, onclick: () => { reqPerms.delete(s.id); acceptPlay(s.id, p); } }, 'Aceitar')));
     })) : null,
-    invites.length ? sec('Convites enviados', invites.length, ...invites.map(s => h('div.pl-row.inv', who(s.controller, null, `Aguardando… entra com: ${[s.perms.gamepad && 'controle', s.perms.keyboard && 'teclado', s.perms.mouse && 'mouse'].filter(Boolean).join(', ') || 'nada'}`),
+    invites.length ? sec('Convites enviados', invites.length, ...invites.map(s => h('div.pl-row.inv', who(s.controller, null, `Aguardando… entra com: ${[s.perms?.gamepad && 'controle', s.perms?.keyboard && 'teclado', s.perms?.mouse && 'mouse'].filter(Boolean).join(', ') || 'nada'}`),
       h('button.btn.sm.grey', { onclick: () => kickPlayer(s.id) }, 'Cancelar')))) : null,
     sec('Na sala', room.length, room.length ? null : h('p.pl-empty', 'Ninguém mais na sala para convidar.'),
       ...room.map(v => h('div.pl-row.watch', who(v.user_id, null, watching.has(v.user_id) ? 'Assistindo a sua transmissão' : 'Na sala, sem assistir'),
         h('button.btn.sm', { disabled: full || !cap.ok, title: full ? 'A transmissão já tem 4 jogadores' : 'Convidar para jogar (entra só com o controle; você muda depois)', onclick: () => invitePlayer(v.user_id, { gamepad: true }) }, 'Convidar')))),
     h('div.pl-foot',
       h('label.pl-auto', h('input', { type: 'checkbox', checked: autoAccept.on, onchange: (e) => { autoAccept.on = e.target.checked; } }), h('span', 'Aceitar os próximos pedidos nesta chamada (só com o controle)')),
-      players.some(p => p.kind === 'play' && (p.perms.mouse || p.perms.keyboard || p.perms.gamepad)) ? h('button.btn.sm.red', { title: 'Desliga controle, teclado e mouse de todos (eles continuam na sessão)', onclick: () => revokeAll() }, 'Revogar tudo') : null,
+      players.some(p => p.kind === 'play' && (p.perms?.mouse || p.perms?.keyboard || p.perms?.gamepad)) ? h('button.btn.sm.red', { title: 'Desliga controle, teclado e mouse de todos (eles continuam na sessão)', onclick: () => revokeAll() }, 'Revogar tudo') : null,
       h('small.pl-help', 'Parar tudo na hora: ', h('b', 'Ctrl+Alt+Shift+Q'), ' (só o seu teclado aciona).')));
 }
 

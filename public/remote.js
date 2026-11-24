@@ -51,7 +51,8 @@ export const autoAccept = { get on() { return !!autoPlay && autoPlay === ctx.cha
 let capCache = null;
 export async function ownerCap(fresh) {
   if (!fresh && capCache && Date.now() - capCache.t < 15000) return capCache.v;
-  const v = desktop?.remoteCapable ? await desktop.remoteCapable().catch(() => ({ ok: false, reason: 'O app não respondeu.' })) : { ok: false, reason: 'Jogar junto só funciona com quem transmite pelo app Resenha para Windows.' };
+  // app antigo pode responder null/undefined: virava "Cannot read properties of null" na janela Jogadores (players.js)
+  const v = (desktop?.remoteCapable ? await desktop.remoteCapable().catch(() => null) : { ok: false, reason: 'Jogar junto só funciona com quem transmite pelo app Resenha para Windows.' }) || { ok: false, reason: 'O app não respondeu.' };
   capCache = { t: Date.now(), v }; return v;
 }
 export async function installPadDriver() {

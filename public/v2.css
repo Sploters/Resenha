@@ -31,6 +31,8 @@
   --divider: #2a2c33; --scroll: #33363e;
   --mention-bg: color-mix(in srgb, var(--brand) 18%, transparent); --mention-text: color-mix(in srgb, var(--brand) 55%, #fff);
 }
+/* contraste alto: a paleta acima tem mais especificidade que .high-contrast (extra2.css) e anulava a opção no tema Escuro */
+:root[data-theme="dark"].high-contrast:not(.classic):not(.grad) { --text-muted: #d0d4da; --divider: #6b6f78; --interactive: #e6e8ec; }
 :root:not(.classic) body { -webkit-font-smoothing: antialiased; }
 /* números que mudam (tempo de call, contadores, horários) não dançam: algarismos de largura fixa */
 :root:not(.classic) :is(time, .ts, .timestamp, .vc-time, .call-time, .badge) { font-variant-numeric: tabular-nums; }
