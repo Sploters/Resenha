@@ -9,8 +9,9 @@
 // Plataforma 'pc' (sem conta vinculada): o app desktop detecta o jogo aberto no PC (a mesma detecção da transmissão: pasta de
 // loja/jogos, executável conhecido ou janela em tela cheia) e informa. Regra própria, em users.pc_activity:
 //   'servers' (padrão, como o Discord) = amigos aceitos + quem divide um servidor com a pessoa; 'friends' = só amigos;
-//   'off' = ninguém vê ao vivo (só a própria pessoa), mas a partida é gravada e conta, sem identificar, em "A semana da galera".
-// Modo invisível: igual ao 'off' (ninguém vê ao vivo; conta, sem identificar, na semana). Partida gravada nessas condições
+//   'off' = "Só amigos (sem aparecer para mim)": só os amigos aceitos veem (era "Ninguém" até 24/11/2026; a mudança foi
+//   anunciada nas Novidades). Não existe mais opção de esconder o jogo do PC de todos (fora o modo invisível).
+// Modo invisível: ninguém vê ao vivo; conta, sem identificar, na semana. Partida gravada nessas condições
 // leva data.priv = 1 e nunca aparece com nome (feed, "jogou por 2 h", jogo do clipe, avatares da semana).
 //
 // HORAS: só contam enquanto a pessoa está numa sala de voz (servidor ou ligação na DM; mutada, ensurdecida ou na sala de
@@ -41,14 +42,14 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     if (viewer === owner) return true;
     if (isInvisible(owner)) return false; // modo invisível: ninguém vê o que a pessoa está jogando (como o Discord)
     if (!presenceOk(viewer, owner)) return false; // escolheu quem vê a atividade (server/privacy.js): vale para todas as plataformas
-    if (platform === 'pc') { const v = pcVis(owner); return v !== 'off' && (areFriends(viewer, owner) || (v === 'servers' && shareGuild(viewer, owner))); }
+    if (platform === 'pc') { const v = pcVis(owner); return areFriends(viewer, owner) || (v === 'servers' && shareGuild(viewer, owner)); }
     const a = acct(owner, platform);
     return !!a && a.visibility === 'friends' && areFriends(viewer, owner);
   };
   // quem recebe os eventos de `owner`: ele mesmo + amigos aceitos, se a atividade está compartilhada
   const audience = (owner, platform) => isInvisible(owner) ? [owner] : base(owner, platform).filter(v => v === owner || presenceOk(v, owner));
   const base = (owner, platform) => {
-    if (platform === 'pc') { const v = pcVis(owner); return v === 'off' ? [owner] : [...new Set([owner, ...friendsOf(owner), ...(v === 'servers' ? guildPeers(owner) : [])])]; }
+    if (platform === 'pc') { const v = pcVis(owner); return [...new Set([owner, ...friendsOf(owner), ...(v === 'servers' ? guildPeers(owner) : [])])]; }
     const a = acct(owner, platform);
     return a && a.visibility === 'friends' ? [owner, ...friendsOf(owner)] : [owner];
   };
@@ -116,8 +117,9 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     else if (!v && e.vSince != null) { e.vAcc += t - e.vSince; e.vSince = null; }
   };
   const counted = (e) => e.vAcc + (e.vSince != null ? now() - e.vSince : 0);
-  // ninguém além da pessoa vê esta partida ao vivo? (invisível, ou jogo do PC em "Ninguém") — fica marcada para sempre
-  const isPriv = (uid, platform) => isInvisible(uid) || (platform === 'pc' && pcVis(uid) === 'off');
+  // ninguém além da pessoa vê esta partida ao vivo? (invisível) — fica marcada para sempre. Partidas gravadas antes de
+  // 24/11/2026 com o jogo do PC em "Ninguém" continuam com priv (foram jogadas com a promessa de ninguém ver)
+  const isPriv = (uid) => isInvisible(uid);
   const newEntry = (uid, platform, game, state) => {
     const t = now(), e = { uid, platform, game, since: t, state, at: t, priv: isPriv(uid, platform), vAcc: 0, vSince: inVoice(uid) ? t : null };
     current.set(uid + ':' + platform, e);
@@ -232,7 +234,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   function guildGames(gid, { days = 30, limit = 8, minPlayers = +process.env.GUILD_GAMES_MIN || 2 } = {}) {
     const ck = gid + ':' + days + ':' + limit, hit = ggCache.get(ck); if (hit && now() - hit.at < GG_TTL) return hit.list;
     const since = now() - days * 864e5, week = now() - 7 * 864e5;
-    const shares = (uid, platform) => platform === 'pc' ? pcVis(uid) !== 'off' : (acct(uid, platform)?.visibility || 'off') !== 'off';
+    const shares = (uid, platform) => platform === 'pc' ? true : (acct(uid, platform)?.visibility || 'off') !== 'off';
     const memo = new Map(), ok = (uid, platform) => { const k = uid + ':' + platform; if (!memo.has(k)) memo.set(k, shares(uid, platform)); return memo.get(k); };
     const games = new Map(), add = (uid, platform, gameId, title, d, t, live) => {
       if (!ok(uid, platform) || hiddenGame(uid, platform, gameId) || isLauncher({ id: gameId, title })) return;
@@ -337,7 +339,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   // (guildGames): partida priv, jogo escondido, launcher e conta que não compartilha a atividade ficam de fora.
   function gamesDuring(uids, from, to, { limit = 5 } = {}) {
     if (!uids.length) return [];
-    const shares = (uid, platform) => platform === 'pc' ? pcVis(uid) !== 'off' : (acct(uid, platform)?.visibility || 'off') !== 'off';
+    const shares = (uid, platform) => platform === 'pc' ? true : (acct(uid, platform)?.visibility || 'off') !== 'off';
     const games = new Map(), add = (uid, platform, gid, title, d, a, b) => {
       const ms = Math.min(b, to) - Math.max(a, from); if (ms < 60e3) return;
       if (!shares(uid, platform) || hiddenGame(uid, platform, gid) || isLauncher({ id: gid, title })) return;
@@ -409,7 +411,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     // mudou quem pode ver o jogo do PC: quem deixou de poder ver recebe "parou"; quem passou a poder, recebe o jogo atual
     onPcVisibility(uid, before, after) {
       const e = current.get(uid + ':pc'); if (!e) return;
-      const cur = resegment(uid, 'pc'); // a partida segue (e conta na semana); em "Ninguém" some para os outros
+      const cur = resegment(uid, 'pc'); // a partida segue (e conta na semana); quem deixou de poder ver recebe "parou"
       const all0 = new Set([...friendsOf(uid), ...guildPeers(uid)]);
       for (const v of all0) dispatch([v], 'ACTIVITY_UPDATE', { user_id: uid, platform: 'pc', activity: canSee(v, uid, 'pc') ? pub(cur) : null });
       void before;

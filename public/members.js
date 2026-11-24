@@ -3,7 +3,7 @@ import { h, morph, place, icon, avatar, debounce, platformIcons } from './util.j
 import { S, user, guild, channelById, loadMembers, roleColor, roleDot } from './state.js';
 import { chName } from './chnames.js';
 import { styleName } from './themes.js';
-import { activityOf, playingLine, gameIcon, titleEl, guildGamesPanel } from './activity.js';
+import { activityOf, shownActivity, playingLine, gameIcon, titleEl, guildGamesPanel } from './activity.js';
 import { guildGames } from './rail.js';
 import { $, deferRender } from './gateway.js';
 import { profile, userMenu } from './usermenu.js';
@@ -43,7 +43,7 @@ export function renderMembers() {
   // e a tela antigos, com o chat inteiro). Painel novo (trocou de tela) = cache novo — antes isso vazava ~600 MB/hora.
   if (memRows.gid !== g.id || memRows.box !== box) { memRows.clear(); memRows.gid = g.id; memRows.box = box; }
   const row = (x, offline) => {
-    const { m, u } = x, vc = !offline && inVoice(u.id), act = offline ? null : activityOf(u.id), col = roleColor(g.id, u.id), name = nm(x), own = g.owner_id;
+    const { m, u } = x, vc = !offline && inVoice(u.id), act = offline ? null : shownActivity(u.id), col = roleColor(g.id, u.id), name = nm(x), own = g.owner_id;
     const c = memRows.get(u.id);
     if (c && c.u === u && c.m === m && c.off === offline && c.vc === vc && c.act === act && c.col === col && c.name === name && c.own === own) return c.el;
     const el = buildRow(x, offline, vc);

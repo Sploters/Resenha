@@ -1,4 +1,5 @@
-// Horas de jogo só contam em call + "Ninguém"/invisível contam na semana da galera sem identificar (server/activity.js).
+// Horas de jogo só contam em call + invisível conta na semana da galera sem identificar + jogo do PC em "Só amigos (sem
+// aparecer para mim)" (era "Ninguém" até 24/11/2026) aparece para os amigos (server/activity.js).
 // Testa o serviço direto, com banco em memória e relógio falso (não sobe o servidor).
 // Uso: node scripts/activity-voice-test.mjs
 import { DatabaseSync } from 'node:sqlite';
@@ -43,48 +44,44 @@ ok(w?.secs === 50 * 60, 'semana da galera usa só as horas em call', w);
 A.reportLocal('beto', { id: 'peak', title: 'PEAK' }); min(120); A.reportLocal('beto', null);
 ok(stops('beto').at(-1).seconds === 0 && !A.weekFor('eu').played.some(p => p.user_id === 'beto'), 'sem call: 0 h e o dia não conta');
 
-// 5) "Ninguém": só a própria pessoa vê ao vivo; conta na semana sem nome
+// 5) "Só amigos (sem aparecer para mim)" (pc_activity 'off', era "Ninguém"): o amigo vê ao vivo, no READY e no feed; conta com nome
 run("UPDATE users SET pc_activity='off' WHERE id='beto'"); sent.length = 0;
 join('beto'); A.reportLocal('beto', { id: 'hades', title: 'Hades' });
-ok(sent.length && sent.every(e => e.to.length === 1 && e.to[0] === 'beto'), '"Ninguém": só o próprio beto recebe o jogo', sent.map(e => e.to));
-ok(A.readyFor('eu').length === 0 && A.readyFor('beto').length === 1, '"Ninguém": nada no READY do amigo; o beto vê o dele');
-min(90); A.reportLocal('beto', { id: 'hades', title: 'Hades' }); // o app avisa a cada ~20 s
-let g = A.weekFor('eu', { top: 5 }).games.find(x => x.game.id === 'hades');
-ok(g && g.secs === 90 * 60 && g.anon === 1 && g.players.length === 0 && g.playing.length === 0, 'partida em andamento conta na semana, sem identificar', g);
-A.reportLocal('beto', null); leave('beto');
-ok(stops('beto').at(-1).priv === 1, 'a partida fica marcada como privada');
-ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto'), 'feed do amigo não mostra a partida em "Ninguém"');
+ok(sent.some(e => e.to.includes('eu') && e.d.activity?.game.id === 'hades'), '"Só amigos (sem aparecer para mim)": o amigo recebe o jogo', sent.map(e => e.to));
+ok(A.readyFor('eu').length === 1 && A.readyFor('beto').length === 1, 'aparece no READY do amigo (Ativo agora)');
+min(90); A.reportLocal('beto', { id: 'hades', title: 'Hades' }); A.reportLocal('beto', null); leave('beto');
+ok(!stops('beto').at(-1).priv, 'a partida não fica privada');
+ok(A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'hades'), 'o feed do amigo mostra a partida');
+ok(A.weekFor('eu', { top: 5 }).played.some(p => p.user_id === 'beto' && p.game.id === 'hades'), 'e conta na semana com o nome');
 run("UPDATE users SET pc_activity='servers' WHERE id='beto'");
-ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'hades'), 'voltou a mostrar: a partida antiga continua sem nome');
-g = A.weekFor('eu', { top: 5 }).games.find(x => x.game.id === 'hades');
-ok(g?.anon === 1 && !A.weekFor('eu').played.some(p => p.user_id === 'beto' && p.game.id === 'hades'), 'e continua anônima na semana', g);
-ok(A.weekFor('beto', { top: 5 }).played.some(p => p.user_id === 'beto' && p.game.id === 'hades'), 'o próprio beto se vê na semana dele');
 
 // 6) invisível: ninguém vê ao vivo; conta sem nome
 run("UPDATE users SET status='invisible' WHERE id='ana'"); sent.length = 0;
 join('ana'); A.reportLocal('ana', { id: 'cs2', title: 'Counter-Strike 2' });
 ok(sent.every(e => e.to.length === 1 && e.to[0] === 'ana'), 'invisível: só a própria ana recebe');
 min(60); A.reportLocal('ana', null); leave('ana');
-g = A.weekFor('eu', { top: 5 }).games.find(x => x.game.id === 'cs2');
+let g = A.weekFor('eu', { top: 5 }).games.find(x => x.game.id === 'cs2');
 ok(g?.secs === 3600 && g.anon === 1 && g.players.length === 0, 'invisível: a hora entra na semana sem identificar', g);
 
-// 7) mudou para "Ninguém" no meio da partida: some para os outros, a partida segue e conta
+// 7) ficou invisível no meio da partida: some para os outros, a partida segue e conta
 run("UPDATE users SET status=NULL WHERE id='ana'");
 join('ana'); A.reportLocal('ana', VAL); min(10); sent.length = 0;
-run("UPDATE users SET pc_activity='off' WHERE id='ana'"); A.onPcVisibility('ana', 'servers', 'off');
-ok(sent.some(e => e.to[0] === 'eu' && e.d.activity === null), 'trocou para "Ninguém": o amigo recebe "parou"');
+run("UPDATE users SET status='invisible' WHERE id='ana'"); A.onInvisible('ana', true);
+ok(sent.some(e => e.to[0] === 'eu' && e.d.activity === null), 'ficou invisível: o amigo recebe "parou"');
 min(10); A.reportLocal('ana', null); leave('ana');
 const st = stops('ana').slice(-2);
 ok(st[0].seconds === 600 && !st[0].priv && st[1].seconds === 600 && st[1].priv === 1, 'a partida segue em dois trechos: 10 min visível + 10 min privado (sem nome)', st);
 
-// 8) voltou a mostrar no meio da partida: o trecho privado continua sem nome, o novo aparece
-join('beto'); A.reportLocal('beto', { id: 'dota', title: 'Dota 2' }); run("UPDATE users SET pc_activity='off' WHERE id='beto'"); A.onPcVisibility('beto', 'servers', 'off');
+// 8) voltou a aparecer no meio da partida: o trecho privado continua sem nome, o novo aparece
+run("UPDATE users SET status='invisible' WHERE id='beto'");
+join('beto'); A.reportLocal('beto', { id: 'dota', title: 'Dota 2' });
 min(15); A.reportLocal('beto', { id: 'dota', title: 'Dota 2' }); sent.length = 0;
-run("UPDATE users SET pc_activity='servers' WHERE id='beto'"); A.onPcVisibility('beto', 'off', 'servers');
-ok(sent.some(e => e.to[0] === 'eu' && e.d.activity?.game.id === 'dota'), 'religou: o amigo volta a ver o jogo atual');
+run("UPDATE users SET status=NULL WHERE id='beto'"); A.onInvisible('beto', false);
+ok(sent.some(e => e.to[0] === 'eu' && e.d.activity?.game.id === 'dota'), 'voltou a aparecer: o amigo volta a ver o jogo atual');
 min(15); A.reportLocal('beto', null); leave('beto');
 const dota = A.weekFor('eu', { top: 9 }).played.find(p => p.user_id === 'beto' && p.game.id === 'dota');
 ok(dota?.secs === 900, 'na semana, com nome só o trecho visível (15 min)', dota);
+ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'dota' && e.data?.priv), 'o trecho invisível não aparece com nome no feed');
 
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

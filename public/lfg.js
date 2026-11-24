@@ -249,10 +249,7 @@ function liveHint(f) {
   const g = G(f.game), name = f.game === 'other' ? f.game_name : g?.name;
   const live = name && liveOf({ game: f.game, game_name: name, author: S.me }, S.me.id);
   if (live) return h('div.lfgtip.ok', icon('check', 16), h('span', h('b', `${live.game.title} aberto: `), 'o anúncio vai mostrar "Jogando agora" e as vagas abertas.'));
-  const off = S.pcActivity === 'off';
-  return h('div.lfgtip', icon('gamepad', 16), h('span', off
-    ? ['Seu jogo do PC está escondido para todos, então o anúncio não mostra "Jogando agora". ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); ctx.settings?.('connections'); } }, 'Mudar em Contas vinculadas')]
-    : 'Opcional: com o jogo aberto (app do Resenha no PC ou Steam vinculada), o anúncio mostra "Jogando agora". Pode abrir depois de publicar, ele aparece sozinho.'));
+  return h('div.lfgtip', icon('gamepad', 16), h('span', 'Opcional: com o jogo aberto (app do Resenha no PC ou Steam vinculada), o anúncio mostra "Jogando agora". Pode abrir depois de publicar, ele aparece sozinho.'));
 }
 
 // ---------- conversa do anúncio ----------

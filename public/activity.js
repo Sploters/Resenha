@@ -28,6 +28,9 @@ const PLATFORM = { steam: 'Steam', pc: 'No PC' };
 export const platformName = (p) => PLATFORM[p] || p;
 export function setActivities(list) { S.activities.clear(); for (const a of list || []) S.activities.set(a.user_id + ':' + a.platform, a); }
 export const activityOf = (uid) => { let pc = null; for (const a of S.activities.values()) if (a.user_id === uid) { if (a.platform !== 'pc') return a; pc = a; } return pc; };
+// para MOSTRAR na tela: com o jogo do PC em "Só amigos (sem aparecer para mim)" (pcActivity 'off') a pessoa não vê o
+// próprio jogo do PC (perfil, lista de membros, sala de voz). O resto do app (aviso de mesmo jogo, Bora?) usa activityOf
+export const shownActivity = (uid) => { const a = activityOf(uid); return a && uid === S.me?.id && a.platform === 'pc' && S.pcActivity === 'off' ? null : a; };
 export function onActivityUpdate(d) {
   const k = d.user_id + ':' + d.platform, prev = activityOf(d.user_id);
   if (d.activity) S.activities.set(k, d.activity); else S.activities.delete(k);
@@ -284,7 +287,7 @@ export function guildGamesPanel(list, redraw) {
 }
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando
 export function voiceGameIcon(uid) {
-  const a = activityOf(uid); if (!a) return null;
+  const a = shownActivity(uid); if (!a) return null;
   const el = h('span.vgame', { title: '', 'aria-label': `Jogando ${a.game.title}`, onclick: (e) => { hideGameCard(); openGame(a)(e); } }, gameIcon(a, 16));
   el.addEventListener('mouseenter', () => { clearTimeout(gameCardTimer); gameCardTimer = setTimeout(() => showGameCard(el, uid), 250); });
   el.addEventListener('mouseleave', (e) => { clearTimeout(gameCardTimer); if (!e.relatedTarget?.closest?.('.gamecard')) setTimeout(() => { if (gameCard && !gameCard.matches(':hover')) hideGameCard(); }, 150); });
@@ -965,11 +968,12 @@ export function connectionsPage(reg) {
     h('div.lk-grid', pcActivityBlock(), box), hiddenBox, gamesBlock());
 }
 // jogo aberto no PC (app desktop detecta, como na transmissão): quem pode ver
-export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigos', off: 'Ninguém' };
+// 'off' era "Ninguém" até 24/11/2026: agora só os amigos veem (o valor guardado continua 'off'; server/activity.js)
+export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigos', off: 'Só amigos (sem aparecer para mim)' };
 function pcActivityBlock() {
   const on = !!window.lcDesktop?.detectGame;
   const ctl = h('div.lk-ctl', h('div.lk-ctlh', 'Quem pode ver meu jogo do PC'), h('div.lk-seg', skeleton('rows', 1)));
-  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Só você vê o que está jogando. Suas horas em call continuam contando na semana da galera, sem seu nome.' : 'Pronto.'); } }));
+  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seus amigos veem o que você está jogando, inclusive no Ativo agora.' : 'Pronto.'); } }));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
   return h('div.lk-card',
     h('div.lk-top', logo('pc', 'screen'), h('div.lk-name', h('b', 'Jogo aberto no PC'), h('small', 'App desktop do Resenha')), on ? pill('ok', 'Ativo neste PC') : pill('off', 'Só no app desktop')),

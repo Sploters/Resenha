@@ -84,11 +84,13 @@ try {
   // privacidade: só amigos
   await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'friends' }); await sleep(400);
   ok((await seen(B, alice.id)) === null && (await seen(D, alice.id)) === 'pc:VALORANT', '"Só amigos": quem só divide servidor deixa de ver na hora; a amiga continua', [await seen(B, alice.id), await seen(D, alice.id)]);
-  // ninguém
+  // "Só amigos (sem aparecer para mim)" (era "Ninguém" até 24/11/2026): a amiga vê, quem só divide servidor não, e a
+  // própria alice não vê o próprio jogo do PC na tela (o app continua sabendo: aviso de mesmo jogo, Bora?)
   await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'off' }); await sleep(400);
-  ok((await seen(D, alice.id)) === null && (await seen(A, alice.id)) === 'pc:VALORANT', '"Ninguém": some para os outros; a própria alice continua vendo (e o app segue informando: as horas contam na semana)', [await seen(D, alice.id), await seen(A, alice.id)]);
+  ok((await seen(D, alice.id)) === 'pc:VALORANT' && (await seen(B, alice.id)) === null, '"Só amigos (sem aparecer para mim)": a amiga continua vendo, quem só divide servidor não', [await seen(D, alice.id), await seen(B, alice.id)]);
   await A.evaluate(() => { window.__lc.S.pcActivity = 'off'; }); await sleep(3500);
-  ok((await seen(D, alice.id)) === null, 'desligado continua desligado');
+  const self = await A.evaluate((uid) => window.__lc.import('activity.js').then(m => [m.activityOf(uid)?.game?.title || null, m.shownActivity(uid)]), alice.id);
+  ok(self[0] === 'VALORANT' && self[1] === null && (await seen(D, alice.id)) === 'pc:VALORANT', 'e a própria alice não vê o próprio jogo na tela (o app segue sabendo); a amiga continua vendo', self);
   // volta para o padrão: reaparece na próxima detecção
   await call(alice.tok, 'PATCH', '/activity/pc', { visibility: 'servers' }); await A.evaluate(() => { window.__lc.S.pcActivity = 'servers'; });
   await A.evaluate(() => new Promise(r => setTimeout(r, 20500))); await sleep(500);

@@ -80,6 +80,7 @@ export const newsActions = {
   mymessages: () => openMyMessages(),
   sounds: () => openSettings('sounds', ctxSettings()),
   appearance: () => openSettings('appearance', ctxSettings()),
+  connections: () => openSettings('connections', ctxSettings()), // Contas vinculadas (jogo do PC)
   storage: () => openSettings('storage', ctxSettings()),
   lite: () => openSettings('lite', ctxSettings()),
   extras: () => openSettings('extras', ctxSettings()),

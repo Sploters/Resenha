@@ -6,6 +6,12 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-24-4', title: 'Seu jogo do PC aparece para os amigos',
+    items: [
+      { i: 'gamepad', t: '"Ninguém" virou "Só amigos (sem aparecer para mim)"', d: 'Em Contas vinculadas → Quem pode ver meu jogo do PC, a opção "Ninguém" mudou: agora seus amigos veem o que você está jogando, inclusive no Ativo agora, e o jogo só não aparece para você mesmo. Não existe mais a opção de esconder de todos; para isso, use o status Invisível.', try: 'connections' },
+    ],
+  },
+  {
     id: '2026-11-24-3', title: 'Central de boas-vindas',
     items: [
       { i: 'sparkle', t: 'Boas-vindas no servidor', d: 'Quem entra num servidor vê uma central com a apresentação, as regras, perguntas sobre o que curte e os canais recomendados. As respostas já dão os cargos certos. Fica no topo da lista de canais, para voltar quando quiser.' },
