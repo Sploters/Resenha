@@ -11,7 +11,8 @@
 // a pessoa, sempre (a opção "Quem pode ver meu jogo do PC" saiu em 24/11/2026; quem tinha escolhido algo mais restrito
 // recebe uma mensagem uma vez: server/db.js pc-always-on-1). Para não aparecer, o modo invisível.
 // Modo invisível: ninguém vê ao vivo; conta, sem identificar, na semana. Partida gravada nessas condições
-// leva data.priv = 1 e nunca aparece com nome (feed, "jogou por 2 h", jogo do clipe, avatares da semana).
+// leva data.priv = 1 e nunca aparece com nome (feed, "jogou por 2 h", jogo do clipe, avatares da semana). No histórico vale
+// o priv da partida, não o status de agora (seePast); o priv do "Ninguém" antigo no PC não esconde mais (legacyPc).
 //
 // HORAS: só contam enquanto a pessoa está numa sala de voz (servidor ou ligação na DM; mutada, ensurdecida ou na sala de
 // espera também vale). Jogo aberto sem call aparece ao vivo, mas não soma horas. game_stop.data.seconds = segundos em call;
@@ -36,14 +37,28 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   const acct = (uid, platform) => get('SELECT * FROM linked_accounts WHERE user_id=? AND platform=?', uid, platform);
   const shareGuild = (a, b) => !!get('SELECT 1 x FROM members m1 JOIN members m2 ON m2.guild_id=m1.guild_id WHERE m1.user_id=? AND m2.user_id=?', a, b);
   const guildPeers = (uid) => all('SELECT DISTINCT m2.user_id id FROM members m1 JOIN members m2 ON m2.guild_id=m1.guild_id WHERE m1.user_id=? AND m2.user_id<>?', uid, uid).map(r => r.id);
-  const canSee = (viewer, owner, platform) => {
-    if (viewer === owner) return true;
-    if (isInvisible(owner)) return false; // modo invisível: ninguém vê o que a pessoa está jogando (como o Discord)
+  const rule = (viewer, owner, platform) => {
     if (!presenceOk(viewer, owner)) return false; // escolheu quem vê a atividade (server/privacy.js): vale para todas as plataformas
     if (platform === 'pc') return areFriends(viewer, owner) || shareGuild(viewer, owner);
     const a = acct(owner, platform);
     return !!a && a.visibility === 'friends' && areFriends(viewer, owner);
   };
+  const canSee = (viewer, owner, platform) => viewer === owner || (!isInvisible(owner) && rule(viewer, owner, platform)); // invisível: ninguém vê o que a pessoa está jogando (como o Discord)
+  // HISTÓRICO (partida que já acabou: semana, "Nos últimos dias", jogos do servidor): o que decide é como a partida foi
+  // jogada (data.priv, gravado na hora), não o status de agora. Ficar invisível hoje não tira o nome do que a pessoa jogou
+  // às claras antes (antes tirava: ela contava no número de jogadores da semana, mas sem rosto e sem nome)
+  const seePast = (viewer, owner, platform) => viewer === owner || rule(viewer, owner, platform);
+  // partida do PC gravada como privada pelo "Ninguém" antigo, antes de a opção sair (24/11/2026, migração pc-always-on-1 em
+  // server/db.js, que avisou a pessoa): vale como as outras. Privada de verdade, daqui para frente, só a jogada invisível
+  let pcCut = 0; const noticed = new Map();
+  const legacyPc = (ev, d) => {
+    if (ev.platform !== 'pc' || !d?.priv) return false;
+    if (!pcCut) { try { pcCut = +get("SELECT v FROM meta WHERE k='pc-always-on-1'")?.v || 0; } catch { /* sem a tabela meta (testes) */ } } // só guarda quando acha
+    if (!pcCut || ev.created_at > pcCut) return false;
+    if (!noticed.has(ev.user_id)) noticed.set(ev.user_id, !!get('SELECT pc_notice_at v FROM users WHERE id=?', ev.user_id)?.v);
+    return noticed.get(ev.user_id);
+  };
+  const privEv = (ev, d) => !!d?.priv && !legacyPc(ev, d);
   // quem recebe os eventos de `owner`: ele mesmo + amigos aceitos, se a atividade está compartilhada
   const audience = (owner, platform) => isInvisible(owner) ? [owner] : base(owner, platform).filter(v => v === owner || presenceOk(v, owner));
   const base = (owner, platform) => {
@@ -115,8 +130,8 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     else if (!v && e.vSince != null) { e.vAcc += t - e.vSince; e.vSince = null; }
   };
   const counted = (e) => e.vAcc + (e.vSince != null ? now() - e.vSince : 0);
-  // ninguém além da pessoa vê esta partida ao vivo? (invisível) — fica marcada para sempre. Partidas gravadas antes de
-  // 24/11/2026 com o jogo do PC em "Ninguém" continuam com priv (foram jogadas com a promessa de ninguém ver)
+  // ninguém além da pessoa vê esta partida ao vivo? (invisível) — fica marcada para sempre. As gravadas antes de 24/11/2026
+  // com o jogo do PC em "Ninguém" também têm priv, mas não escondem mais (legacyPc: a opção saiu e a pessoa foi avisada)
   const isPriv = (uid) => isInvisible(uid);
   const newEntry = (uid, platform, game, state) => {
     const t = now(), e = { uid, platform, game, since: t, state, at: t, priv: isPriv(uid, platform), vAcc: 0, vSince: inVoice(uid) ? t : null };
@@ -216,7 +231,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     });
     const events = all(`SELECT a.* FROM activities a LEFT JOIN linked_accounts la ON la.user_id=a.user_id AND la.platform=a.platform
       WHERE a.user_id IN (${ids.map(() => '?').join(',')}) AND (la.visibility='friends' OR a.user_id=? OR a.platform='pc') AND a.created_at>? ORDER BY a.created_at DESC LIMIT ?`, ...ids, viewer, now0 - 7 * 864e5, limit * 3)
-      .filter(ev => (ev.user_id === viewer || !parse(ev.data).priv) && canSee(viewer, ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })).slice(0, limit)
+      .filter(ev => (ev.user_id === viewer || !privEv(ev, parse(ev.data))) && seePast(viewer, ev.user_id, ev.platform) && !hiddenGame(ev.user_id, ev.platform, ev.game_id) && !isLauncher({ id: ev.game_id, title: ev.title })).slice(0, limit)
       .map(ev => ({ id: ev.id, user_id: ev.user_id, platform: ev.platform, kind: ev.kind, game: gameOf(ev.game_id, ev.title, parse(ev.data), ev.platform), seconds: ev.data ? JSON.parse(ev.data).seconds : null, at: ev.created_at }));
     return { friends, events };
   }
@@ -248,7 +263,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     for (const ev of all(`SELECT a.user_id, a.platform, a.game_id, a.title, a.data, a.created_at FROM activities a JOIN members m ON m.user_id=a.user_id AND m.guild_id=?
       WHERE a.created_at>? AND a.kind IN ('game_start','game_stop')`, gid, since)) {
       let d = null; try { d = ev.data ? JSON.parse(ev.data) : null; } catch { }
-      if (d?.priv) continue; // partida que ninguém via ao vivo (invisível / "Ninguém") não entra no cartão do servidor
+      if (privEv(ev, d)) continue; // partida jogada invisível não entra no cartão do servidor
       add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, false);
     }
     const members = new Set(all('SELECT user_id FROM members WHERE guild_id=?', gid).map(r => r.user_id));
@@ -266,9 +281,9 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   //   nota = √horas + 1,5 × (pessoas − 1) + 0,5 × maior sequência de dias seguidos
   // (raiz das horas: 30 h sozinho não passa por cima de 9 h com 3 amigos). Jogo com atividade insignificante fica de fora:
   // precisa de 1 h no total, ou de 2 pessoas e 20 min. Só contam horas em call (ver o cabeçalho) e o dia só conta com horas.
-// Privacidade: jogos escondidos ficam de fora. Amigo que você não pode ver (jogo do PC em "Ninguém", invisível, privacidade
-// da presença) ou partida marcada priv CONTA nas horas, pessoas e dias, mas sem identificar: vai em `anon` (número), nunca
-// em players/played/playing.
+// Privacidade: jogos escondidos ficam de fora. Amigo que você não pode ver (privacidade da presença, Steam sem compartilhar)
+// ou partida jogada invisível CONTA nas horas, pessoas e dias, mas sem identificar: vai em `anon` (número), nunca em
+// players/played/playing.
   const TZ = process.env.TZ || 'America/Sao_Paulo';
   const dayKey = (t) => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: TZ }); } catch { return new Date(t).toISOString().slice(0, 10); } };
   const runOf = (flags) => { let best = 0, cur = 0; for (const f of flags) { cur = f ? cur + 1 : 0; if (cur > best) best = cur; } return best; };
@@ -279,7 +294,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
     const t0 = now(), since = t0 - WEEK_DAYS * 864e5, fr = friendsOf(viewer), ids = [viewer, ...fr];
     const days = []; for (let i = WEEK_DAYS - 1; i >= 0; i--) days.push(dayKey(t0 - i * 864e5));
     const dayIdx = new Map(days.map((k, i) => [k, i]));
-    const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, canSee(viewer, uid, platform)); return seeMemo.get(k); };
+    const seeMemo = new Map(), see = (uid, platform) => { const k = uid + ':' + platform; if (!seeMemo.has(k)) seeMemo.set(k, seePast(viewer, uid, platform)); return seeMemo.get(k); };
     const ok = (uid, platform, gid, title) => !hiddenGame(uid, platform, gid) && !isLauncher({ id: gid, title });
     const games = new Map(); // chave do jogo -> agregado
     // pub: dá para dizer QUEM jogou (o viewer pode ver a pessoa e a partida não é privada)
@@ -302,11 +317,11 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       const d = parse(ev.data);
       // a partida conta no dia em que terminou; a que começou antes da semana só conta a parte dentro dela
       const secs = Math.max(0, Math.min(+d.seconds || 0, (ev.created_at - since) / 1000));
-      add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, secs, false, ev.user_id === viewer || (!d.priv && see(ev.user_id, ev.platform)));
+      add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at, secs, false, ev.user_id === viewer || (!privEv(ev, d) && see(ev.user_id, ev.platform)));
     }
     // quem está jogando agora: a partida em andamento já conta (ainda não tem game_stop)
     for (const e of current.values()) if (ids.includes(e.uid) && fresh(e) && ok(e.uid, e.platform, e.game.id, e.game.title))
-      add(e.uid, e.platform, e.game.id, e.game.title, e.game, t0, Math.min(counted(e), t0 - since) / 1000, true, e.uid === viewer || (!e.priv && see(e.uid, e.platform)));
+      add(e.uid, e.platform, e.game.id, e.game.title, e.game, t0, Math.min(counted(e), t0 - since) / 1000, true, e.uid === viewer || (!e.priv && canSee(viewer, e.uid, e.platform)));
     const all7 = [...new Set(games.values())].filter(x => x.players.size).map(x => {
       const ps = [...x.players.entries()], n = ps.length;
       const players = ps.filter(([, p]) => p.pub).sort((a, b) => b[1].psecs - a[1].psecs).map(([uid, p]) => ({ user_id: uid, secs: Math.round(p.psecs), days: p.pdays.filter(Boolean).length, streak: runOf(p.pdays) }));
@@ -330,6 +345,13 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       }
       run("INSERT INTO meta(k,v) VALUES('activity-daily-1',?)", String(now()));
     }
+    // partidas do PC do "Ninguém" antigo ficaram fora do resumo diário (Rewind): entram uma vez, como as outras
+    if (get("SELECT 1 x FROM sqlite_master WHERE name='meta'") && !get("SELECT 1 x FROM meta WHERE k='activity-daily-legacy-pc'")) {
+      for (const ev of all("SELECT user_id, platform, game_id, title, data, created_at FROM activities WHERE kind='game_stop' AND platform='pc' ORDER BY created_at")) {
+        const d = parse(ev.data); if (legacyPc(ev, d)) addDaily(ev.user_id, ev.platform, { id: ev.game_id, title: ev.title }, +d.seconds || 0, ev.created_at);
+      }
+      run("INSERT INTO meta(k,v) VALUES('activity-daily-legacy-pc',?)", String(now()));
+    }
   } catch (e) { log('[atividade] preenchendo o resumo diário: ' + e.message); }
 
   // jogos de uma sessão de voz (server/sessions.js), sem nomes: para cada jogo, por quanto tempo alguém da lista jogou
@@ -348,7 +370,7 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
       x.ms.set(uid, (x.ms.get(uid) || 0) + ms);
     };
     for (const ev of all(`SELECT user_id, platform, game_id, title, data, created_at FROM activities WHERE user_id IN (${uids.map(() => '?').join(',')}) AND kind='game_stop' AND created_at>?`, ...uids, from)) {
-      const d = parse(ev.data); if (d.priv) continue;
+      const d = parse(ev.data); if (privEv(ev, d)) continue;
       add(ev.user_id, ev.platform, ev.game_id, ev.title, d, ev.created_at - (+d.open || +d.seconds || 0) * 1000, ev.created_at);
     }
     for (const e of current.values()) if (uids.includes(e.uid) && !e.priv) add(e.uid, e.platform, e.game.id, e.game.title, e.game, e.since, now());
@@ -359,11 +381,11 @@ export function createActivityService({ all, get, run, newId, dispatch, presence
   function clipGame(c, viewer) {
     const uid = c.streamer_id || c.author_id;
     const st = get(`SELECT * FROM activities WHERE user_id=? AND kind='game_start' AND created_at<=? AND created_at>? ORDER BY created_at DESC LIMIT 1`, uid, c.created_at + 60e3, c.created_at - 12 * 3600e3);
-    if (st && parse(st.data).priv && viewer !== uid) return null; // partida que ninguém via ao vivo
+    if (st && privEv(st, parse(st.data)) && viewer !== uid) return null; // partida jogada invisível
     if (!st) { const e = [...current.values()].find(e => e.uid === uid && e.since <= c.created_at); return e && (!e.priv || viewer === uid) && canSee(viewer, uid, e.platform) && !hiddenGame(uid, e.platform, e.game.id) ? { platform: e.platform, game: e.game } : null; }
     const end = get(`SELECT created_at t FROM activities WHERE user_id=? AND platform=? AND game_id=? AND kind='game_stop' AND created_at>=? ORDER BY created_at LIMIT 1`, uid, st.platform, st.game_id, st.created_at);
     if (end && end.t < c.created_at - 60e3) return null; // a partida já tinha acabado
-    if (!canSee(viewer, uid, st.platform) || hiddenGame(uid, st.platform, st.game_id) || isLauncher({ id: st.game_id, title: st.title })) return null;
+    if (!seePast(viewer, uid, st.platform) || hiddenGame(uid, st.platform, st.game_id) || isLauncher({ id: st.game_id, title: st.title })) return null;
     return { platform: st.platform, game: gameOf(st.game_id, st.title, parse(st.data), st.platform) };
   }
 

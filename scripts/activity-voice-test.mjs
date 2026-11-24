@@ -7,15 +7,15 @@ import { createActivityService } from '../server/activity.js';
 
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const db = new DatabaseSync(':memory:');
-db.exec(`CREATE TABLE users(id TEXT PRIMARY KEY, pc_activity TEXT DEFAULT 'servers', status TEXT);
+db.exec(`CREATE TABLE users(id TEXT PRIMARY KEY, pc_activity TEXT DEFAULT 'servers', status TEXT, pc_notice_at INTEGER);
   CREATE TABLE relationships(user_id TEXT, other_id TEXT, type INTEGER);
   CREATE TABLE members(guild_id TEXT, user_id TEXT);
   CREATE TABLE linked_accounts(user_id TEXT, platform TEXT, visibility TEXT, link_visibility TEXT, external_id TEXT);
   CREATE TABLE game_prefs(user_id TEXT, platform TEXT, game_id TEXT, hidden INTEGER);
   CREATE TABLE activities(id TEXT, user_id TEXT, platform TEXT, kind TEXT, game_id TEXT, title TEXT, data TEXT, created_at INTEGER);`);
 const all = (q, ...a) => db.prepare(q).all(...a), get = (q, ...a) => db.prepare(q).get(...a), run = (q, ...a) => db.prepare(q).run(...a);
-for (const u of ['eu', 'ana', 'beto']) run('INSERT INTO users(id) VALUES(?)', u);
-for (const [a, b] of [['eu', 'ana'], ['eu', 'beto']]) { run('INSERT INTO relationships VALUES(?,?,1)', a, b); run('INSERT INTO relationships VALUES(?,?,1)', b, a); }
+for (const u of ['eu', 'ana', 'beto', 'caio']) run('INSERT INTO users(id) VALUES(?)', u);
+for (const [a, b] of [['eu', 'ana'], ['eu', 'beto'], ['eu', 'caio']]) { run('INSERT INTO relationships VALUES(?,?,1)', a, b); run('INSERT INTO relationships VALUES(?,?,1)', b, a); }
 
 let T = Date.UTC(2026, 10, 18, 15, 0, 0); const now = () => T, min = (n) => { T += n * 60e3; };
 const voice = new Set(), sent = []; let nid = 0;
@@ -82,6 +82,29 @@ min(15); A.reportLocal('beto', null); leave('beto');
 const dota = A.weekFor('eu', { top: 9 }).played.find(p => p.user_id === 'beto' && p.game.id === 'dota');
 ok(dota?.secs === 900, 'na semana, com nome só o trecho visível (15 min)', dota);
 ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'dota' && e.data?.priv), 'o trecho invisível não aparece com nome no feed');
+
+// 9) está invisível AGORA, mas jogou às claras antes: na semana e no feed aparece com nome (antes contava só no número)
+// (a ana segue invisível desde o passo 7; jogou VALORANT visível nos passos 3 e 7)
+const wk = A.weekFor('eu', { top: 9 }), val = wk.games.find(x => x.game.id === 'valorant');
+ok(wk.played.some(p => p.user_id === 'ana' && p.game.id === 'valorant'), 'invisível agora: o que jogou visível aparece com nome na semana', wk.played.filter(p => p.user_id === 'ana'));
+ok(val?.players.some(p => p.user_id === 'ana') && val.anon === 0, 'e o rosto entra no jogo (não fica só no número)', val && { players: val.players.map(p => p.user_id), anon: val.anon });
+ok(A.feedFor('eu').events.some(e => e.user_id === 'ana' && e.game.id === 'valorant'), 'e no feed ("Nos últimos dias")');
+ok(!A.readyFor('eu').some(a => a.user_id === 'ana'), 'ao vivo continua escondida (invisível)');
+const cs = wk.games.find(x => x.game.id === 'cs2');
+ok(cs?.anon === 1 && cs.players.length === 0, 'a partida jogada invisível continua sem nome', cs && { anon: cs.anon, players: cs.players });
+
+// 10) partida do PC gravada no "Ninguém" antigo (priv), antes de a opção sair: agora aparece com nome
+db.exec('CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT)');
+const legacyAt = T - 3600e3;
+run("INSERT INTO activities VALUES('old1','caio','pc','game_stop','hades2','Hades II',?,?)", JSON.stringify({ seconds: 5400, priv: 1 }), legacyAt);
+run("INSERT INTO meta VALUES('pc-always-on-1',?)", String(T - 60e3)); run("UPDATE users SET pc_notice_at=? WHERE id='caio'", T - 60e3);
+const h2 = A.weekFor('eu', { top: 9 }).games.find(x => x.game.id === 'hades2');
+ok(h2?.players.some(p => p.user_id === 'caio') && h2.anon === 0, '"Ninguém" antigo: a partida aparece com nome e rosto', h2 && { players: h2.players.map(p => p.user_id), anon: h2.anon });
+ok(A.feedFor('eu').events.some(e => e.user_id === 'caio' && e.game.id === 'hades2'), '"Ninguém" antigo: aparece no feed');
+// a mesma marca numa partida de DEPOIS da mudança é invisível de verdade: continua sem nome
+run("INSERT INTO activities VALUES('new1','caio','pc','game_stop','celeste','Celeste',?,?)", JSON.stringify({ seconds: 4000, priv: 1 }), T);
+const ce = A.weekFor('eu', { top: 9 }).games.find(x => x.game.id === 'celeste');
+ok(ce?.anon === 1 && ce.players.length === 0, 'priv depois da mudança (invisível): continua sem nome', ce && { anon: ce.anon, players: ce.players });
 
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

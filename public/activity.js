@@ -480,10 +480,10 @@ function weekBars(x, days, labels) {
   }));
 }
 // anon: quem jogou mas não dá para identificar (jogo do PC em "Ninguém", invisível): entra só no "+N"
-function avatarStack(list, n = 4, anon = 0) {
+function avatarStack(list, n = 4, anon = 0, size = 24) {
   const shown = list.slice(0, n), rest = list.length - shown.length + (anon || 0);
-  return h('div.wk-stack', ...shown.map(p => { const u = uOf(p.user_id); return h('span.wk-av', { title: `${p.user_id === S.me.id ? 'Você' : u.display_name} · ${hrs(p.secs)}`, onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, p.user_id); } }, avatar(u, 24, { status: false })); }),
-    rest > 0 && h('span.wk-av.more', `+${rest}`));
+  return h('div.wk-stack', ...shown.map(p => { const u = uOf(p.user_id); return h('span.wk-av', { title: `${p.user_id === S.me.id ? 'Você' : u.display_name} · ${hrs(p.secs)}`, onclick: (e) => { e.stopPropagation(); ctx.profile(e.currentTarget, p.user_id); } }, avatar(u, size, { status: false })); }),
+    rest > 0 && h('span.wk-av.more', { style: size !== 24 ? { width: size + 'px', height: size + 'px' } : null }, `+${rest}`));
 }
 function heroArt(a) {
   const box = h('div.wk-art'), kg = knownGame(a.game), sid = steamIdOf(a) || kg?.steam;
@@ -510,7 +510,8 @@ function gameRow(x, rank, days) {
   const a = { platform: x.platform, game: x.game };
   return h('div.wk-row', { role: 'button', tabindex: 0, title: `Sobre ${x.game.title}`, onclick: openGame(a), onkeydown: (e) => { if (e.key === 'Enter') openGame(a)(e); } },
     h('span.wk-rank', String(rank)), gameIcon(a, 36),
-    h('div.wk-rtxt', titleEl(a, 'b'), h('small', [hrs(x.secs), people(nPeople(x)), x.streak >= 2 && `${x.streak} dias seguidos`].filter(Boolean).join(' · '))),
+    // quem jogou, com os rostos (antes só "3 pessoas": dava para ver o número, mas não quem)
+    h('div.wk-rtxt', titleEl(a, 'b'), h('div.wk-rsub', avatarStack(x.players, 3, x.anon, 18), h('small', [hrs(x.secs), people(nPeople(x)), x.streak >= 2 && `${x.streak} dias seguidos`].filter(Boolean).join(' · ')))),
     weekBars(x, days, false));
 }
 // ---- clipes
@@ -883,7 +884,7 @@ function startSection(stage, redraw) {
 }
 // painel sem nada para mostrar: em vez de "tudo quieto", o caminho certo para cada um
 function emptyNow(stage, x) {
-  if (!x.friends) return h('div.an-empty.an-guide', icon('users', 28), h('b', 'Aqui aparece a sua turma'),
+  if (!x.friends) return h('div.an-guide', icon('users', 28), h('b', 'Aqui aparece a sua turma'),
     h('p', 'Quando você tiver amigos no Resenha, aparece aqui quem está jogando, em chamada ou online, com atalho para entrar junto.'),
     h('div.act-btns', h('button.btn.sm', { type: 'button', onclick: () => { S.view.tab = 'add'; ctx.go('@me'); } }, icon('plus', 14), 'Adicionar amigo'),
       !x.guilds && h('button.btn.grey.sm', { type: 'button', onclick: () => import('./rail.js').then(m => m.addServerModal()) }, icon('grid', 14), 'Entrar num servidor')));

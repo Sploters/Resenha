@@ -68,7 +68,7 @@ try {
     const b = document.querySelector('#active-now'), t = (e) => e?.innerText.replace(/\s+/g, ' ').trim();
     return { title: b?.querySelector('h3')?.textContent, caps: [...b.querySelectorAll('.an-cap')].map(e => e.textContent), play: [...b.querySelectorAll('.an-now .an-card.an-play')].map(t),
       heads: [...b.querySelectorAll('.wk-h h4')].map(e => e.textContent), hero: t(b.querySelector('.wk-hero')), bars: b.querySelectorAll('.wk-hero .wk-bar').length, barsOn: b.querySelectorAll('.wk-hero .wk-bar.on').length,
-      rows: [...b.querySelectorAll('.wk-row')].map(t), clips: [...b.querySelectorAll('.wk-clips .wk-clip')].map(t), recs: [...b.querySelectorAll('.wk-recs .wk-clip')].map(t), big: !!b.querySelector('.wk-clip.big .wk-thumb'), old: !!b.querySelector('.hl-item') };
+      rows: [...b.querySelectorAll('.wk-row')].map(t), rowFaces: [...b.querySelectorAll('.wk-row')].map(r => r.querySelectorAll('.wk-av:not(.more)').length), clips: [...b.querySelectorAll('.wk-clips .wk-clip')].map(t), recs: [...b.querySelectorAll('.wk-recs .wk-clip')].map(t), big: !!b.querySelector('.wk-clip.big .wk-thumb'), old: !!b.querySelector('.hl-item') };
   });
   ok(P.title === 'Ativo agora', 'título em português: "Ativo agora"', P.title);
   ok(P.caps[0] === 'Jogando — 1' && /ana/.test(P.play[0] || '') && /VALORANT/.test(P.play[0] || ''), 'no topo, em destaque: quem está jogando agora', P.play);
@@ -76,7 +76,8 @@ try {
   ok(P.recs.some(r => /Ninguém viu/.test(r) && /amigo/.test(r)) && !P.recs.some(r => /Ace no último|Clutch do eu/.test(r)), 'recomendados: o que não está no ranking, com o motivo (sem repetir clipe)', P.recs);
   ok(/Jogo da semana/i.test(P.hero) && /Counter-Strike 2/.test(P.hero) && /5h de jogo/.test(P.hero) && /2 pessoas/.test(P.hero) && /4 dias seguidos/.test(P.hero), 'jogo da semana: o de mais gente e horas (CS2), com horas, pessoas e dias seguidos', P.hero);
   ok(P.bars === 7 && P.barsOn === 5, 'a semana em 7 barrinhas (dias com partida acesos)', { bars: P.bars, on: P.barsOn });
-  ok(P.rows.length === 2 && /^2 ELDEN RING 9h · 1 pessoa/.test(P.rows[0]) && /^3 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[1]), '2º e 3º em linhas compactas (o jogo do caio, invisível, conta sem nome)', P.rows);
+  ok(P.rows.length === 2 && /^2 ELDEN RING \+1 9h · 1 pessoa/.test(P.rows[0]) && /^3 Stardew Valley 1,5h · 2 pessoas/.test(P.rows[1]), '2º e 3º em linhas compactas (o jogo do caio, invisível, conta sem nome: só o "+1")', P.rows);
+  ok(P.rowFaces[0] === 0 && P.rowFaces[1] === 2, 'as linhas mostram os rostos de quem jogou (Stardew: ana e beto)', P.rowFaces);
   ok(!P.rows.concat(P.hero).some(x => /PEAK|Dota|VALORANT|Hades/.test(x)), 'fora: insignificante (PEAK 10 min), não amigo (zeca), o que só começou agora (sem horas em call) e o 4º (Hades)', P.rows);
   { const w = (await call(U.eu.tok, 'GET', '/activity/feed')).week, er = w.games.find(x => x.game.id === 'eldenring');
     ok(er && er.players.length === 0 && er.anon === 1 && !w.played.some(p => p.user_id === U.caio.id) && !(await call(U.eu.tok, 'GET', '/activity/feed')).events.some(e => e.user_id === U.caio.id),
