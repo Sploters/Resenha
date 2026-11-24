@@ -67,7 +67,10 @@ try {
   ok(await P.evaluate(() => document.querySelectorAll('.onb-rule').length === 2), 'mostra as 2 regras');
   if (process.env.SHOTS) await P.screenshot({ path: `${SH}/1-central.png` });
   ok(await P.evaluate(() => document.querySelector('.onb-finish')?.disabled === true), 'Concluir bloqueado até aceitar as regras');
+  const y0 = await P.evaluate(() => { const b = document.querySelector('#onbview .cbody'); b.scrollTop = 200; return b.scrollTop; });
   await P.click('.onb-accept input');
+  const y1 = await P.evaluate(() => document.querySelector('#onbview .cbody').scrollTop);
+  ok(y0 > 0 && y1 === y0, 'marcar "Li e aceito" não desloca a página', { y0, y1 });
   await P.evaluate(() => [...document.querySelectorAll('.onb-opt')].find(b => /Tiro/.test(b.textContent)).click());
   ok(await P.evaluate(() => [...document.querySelectorAll('.onb-opt')].find(b => /Tiro/.test(b.textContent)).getAttribute('aria-pressed') === 'true'), 'escolher uma opção marca o botão');
   ok(await P.evaluate(() => /fps-geral/.test(document.querySelector('.onb-chans')?.textContent || '')), 'canais recomendados aparecem');
@@ -94,7 +97,7 @@ try {
   await A.evaluate((gid) => window.__lc.import('nav.js').then(m => m.openSettings('server', { gid })), g.id);
   await A.waitForSelector('#settings .ni[data-k="onboarding"]', { timeout: 5000 });
   await A.click('#settings .ni[data-k="onboarding"]');
-  await A.waitForSelector('#settings .onbcfg', { timeout: 5000 });
+  await A.waitForSelector('#settings .onbcfg .onbcfg-rule', { timeout: 5000 }).catch(() => { }); // o editor aparece antes de a configuração chegar
   ok(await A.evaluate(() => document.querySelectorAll('#settings .onbcfg-rule input, #settings .onbcfg-rule textarea').length >= 2), 'configurações: as regras salvas aparecem no editor');
   if (process.env.SHOTS) await A.screenshot({ path: `${SH}/4-config.png` });
 } catch (e) { console.log('  FAIL', e.stack); fails++; }

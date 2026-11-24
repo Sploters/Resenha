@@ -169,12 +169,8 @@ export function appendAttachments(el, m, canDel) {
 function clipMsgCard(m, full, msg = m.id ? m : null) {
   const c = m.clip, ch = channelById(m.channel_id), gid = full ? (full.guild_id && S.guilds.has(full.guild_id) ? full.guild_id : null) : ch?.guild_id;
   const who = c.streamer_id ? nameOf(c.streamer_id, gid) || user(c.streamer_id).display_name : null;
-  // 🔥 rápido ao passar o mouse: reage à mensagem que trouxe o clipe (de novo tira a reação)
-  const FIRE = '🔥', mine = () => !!msg?.reactions?.find(r => r.emoji === FIRE && r.users?.includes(S.me.id));
-  const fire = msg && chCan(channelById(msg.channel_id), CH.REACT) && h('button.cmfire' + (mine() ? '.on' : ''), { type: 'button', title: 'Reagir com 🔥', 'aria-label': 'Reagir com fogo',
-    onclick: (e) => { e.stopPropagation(); const on = mine(); e.currentTarget.classList.toggle('on', !on); tryApi(on ? 'DELETE' : 'PUT', `/channels/${msg.channel_id}/messages/${msg.id}/reactions/${encodeURIComponent(FIRE)}`); } }, FIRE);
   const thumb = h('div.cmthumb', { title: 'Assistir aqui', onclick: () => { thumb.replaceWith(fsVideo({ src: c.url, autoplay: true, preload: 'auto', poster: thumbUrl(c.url) || undefined }, '.cmvideo')); } },
-    thumbUrl(c.url) && h('img', { src: thumbUrl(c.url), loading: 'lazy', alt: '', onerror: (e) => e.target.remove() }), h('span.cmplay', icon('play', 26)), c.secs ? h('span.cmdur', c.secs + 's') : null, fire);
+    thumbUrl(c.url) && h('img', { src: thumbUrl(c.url), loading: 'lazy', alt: '', onerror: (e) => e.target.remove() }), h('span.cmplay', icon('play', 26)), c.secs ? h('span.cmdur', c.secs + 's') : null);
   // quem assistiu de verdade (visualização qualificada, sem contar o autor): vem do clipe completo, buscado uma vez
   const seen = h('span.cmseen');
   const paintSeen = (cc) => { const n = cc?.stats?.views || 0; seen.replaceChildren(...(n ? [icon('eye', 14), `${n} ${n === 1 ? 'assistiu' : 'assistiram'}`] : [])); };

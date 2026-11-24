@@ -115,7 +115,10 @@ export function renderWelcome(main, gid) {
         h('p', roles.length ? 'Você ganhou: ' : 'Suas escolhas foram salvas.', roles.map(r => h('span.onb-role', h('i', { style: { background: r.color || 'var(--text-muted)' } }), r.name))),
         h('div.onb-done-acts', recs[0] && h('button.btn', { type: 'button', onclick: () => go(gid, recs[0].id) }, `Ir para ${chName(recs[0])}`), h('button.btn.grey', { type: 'button', onclick: () => go(gid) }, 'Ver o servidor'))));
     })();
+    // redesenhar não pode levar a página para o topo (marcar o aceite das regras ou uma opção pulava a tela)
+    const keep = root.querySelector('.cbody')?.scrollTop || 0;
     root.replaceChildren(top, h('div.cbody', h('div.onb', adminBar, hero, doneCard, ...steps, foot)));
+    if (keep) root.querySelector('.cbody').scrollTop = keep;
   };
   draw();
   if (!st) loadOnb(gid, true).then(r => { st = r; draw(); });

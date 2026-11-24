@@ -106,12 +106,6 @@
 .clipmsg .cmfoot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .clipmsg .cmseen { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
 .clipmsg .cmseen:empty { display: none; }
-.clipmsg .cmfire { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); font-size: 18px; line-height: 1; cursor: pointer;
-  opacity: 0; transform: scale(.85); transition: opacity .12s, transform .12s, background .12s; }
-.clipmsg:hover .cmfire, .clipmsg .cmfire:focus-visible, .clipmsg .cmfire.on { opacity: 1; transform: none; }
-.clipmsg .cmfire:hover { background: rgba(0,0,0,.75); transform: scale(1.08); }
-.clipmsg .cmfire.on { background: color-mix(in srgb, var(--brand) 70%, black); }
-@media (hover: none) { .clipmsg .cmfire { opacity: 1; transform: none; } }
 
 /* ---------- vitrine do perfil (card.js showcase / clipBanner) ---------- */
 .pcard .pshow { margin-top: 12px; }
