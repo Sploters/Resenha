@@ -46,6 +46,21 @@ try {
   const log = await call(adm.tok, 'GET', '/admin/log');
   ok(log.entries?.map(e => e.action).join() === 'delete,password,unban,ban' && log.entries[0].target_name === 'carl' && log.entries[0].actor_name === 'sploters', 'tudo fica no histórico (quem, o quê, em quem)', log.entries?.map(e => e.action));
 
+  // servidores: lista, filtro por conta, entrar (aparece para todos) e excluir
+  const bt1 = (await login('bob', pw.password)).token;
+  const gb = await call(bt1, 'POST', '/guilds', { name: 'QA Fase 2 xyz' });
+  const gl = await call(adm.tok, 'GET', '/admin/guilds');
+  ok(gl.guilds?.length === 1 && gl.guilds[0].name === 'QA Fase 2 xyz' && gl.guilds[0].owner_name === 'bob' && gl.guilds[0].members === 1 && !gl.guilds[0].mine, 'admin vê todos os servidores, com o dono e os membros', gl);
+  ok((await call(adm.tok, 'GET', `/admin/guilds?user=${bob.id}`)).guilds?.length === 1 && (await call(adm.tok, 'GET', `/admin/guilds?user=${adm.id}`)).guilds?.length === 0, 'filtra pelos servidores de uma conta');
+  ok((await call(bt1, 'GET', '/admin/guilds')).status === 403, 'quem não é admin não lista servidores');
+  await call(adm.tok, 'POST', `/admin/guilds/${gb.id}/join`);
+  ok((await call(adm.tok, 'GET', '/admin/guilds')).guilds[0].mine === true && (await call(adm.tok, 'GET', `/guilds/${gb.id}/onboarding`)).status === 200, 'admin entra no servidor como membro');
+  ok((await call(adm.tok, 'POST', `/admin/guilds/${gb.id}/delete`, { confirm: 'errado' })).status === 400, 'excluir servidor sem o nome certo: nada acontece');
+  ok((await call(adm.tok, 'POST', `/admin/guilds/${gb.id}/delete`, { confirm: 'QA Fase 2 xyz' })).status === 200 && (await call(adm.tok, 'GET', '/admin/guilds')).guilds.length === 0, 'excluir servidor com o nome certo');
+  const glog = (await call(adm.tok, 'GET', '/admin/log')).entries.slice(0, 2).map(e => e.action).join();
+  ok(glog === 'guild_delete,guild_join', 'entrar e excluir servidor ficam no histórico', glog);
+  const g2 = await call(bt1, 'POST', '/guilds', { name: 'Da turma' }); void g2; // para a página de Servidores no app
+
   // ---- no app ----
   browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--no-sandbox'] });
   const P = await (await browser.createBrowserContext()).newPage();
@@ -57,11 +72,15 @@ try {
   const shown = await P.waitForSelector('.adminusers .au-row', { timeout: 6000 }).then(() => true, () => false);
   ok(shown && await P.evaluate(() => document.querySelectorAll('.adminusers .au-row').length === 2), 'Configurações → Usuários lista as contas');
   ok(await P.evaluate(() => [...document.querySelectorAll('#settings .ni')].some(n => /Usuários/.test(n.textContent))), 'item "Usuários" na seção Administração');
-  ok(await P.evaluate(() => document.querySelectorAll('.adminusers .au-logrow').length === 4), 'o histórico aparece na página');
+  ok(await P.evaluate(() => document.querySelectorAll('.adminusers .au-logrow').length === 6), 'o histórico aparece na página');
   if (process.env.SHOTS) { fs.mkdirSync('.testshots/admin', { recursive: true }); await P.screenshot({ path: '.testshots/admin/1-usuarios.png' }); }
   // menu de ações de outra conta
   await P.evaluate(() => document.querySelector('.adminusers .au-more').click()); await sleep(300);
   ok(await P.evaluate(() => ['Suspender conta', 'Redefinir senha', 'Encerrar sessões', 'Excluir conta'].every(l => [...document.querySelectorAll('.menu .it')].some(i => i.textContent.includes(l)))), 'menu de ações com suspender, senha, sessões e excluir');
+  await P.keyboard.press('Escape'); await sleep(200);
+  await P.evaluate(() => [...document.querySelectorAll('#settings .ni')].find(n => /Servidores/.test(n.textContent))?.click());
+  ok(await P.waitForFunction(() => [...document.querySelectorAll('.adminusers .au-row')].some(r => /Da turma/.test(r.textContent) && /dono @bob/.test(r.textContent)), { timeout: 5000 }).then(() => true, () => false), 'Administração → Servidores lista os servidores com o dono');
+  if (process.env.SHOTS) await P.screenshot({ path: '.testshots/admin/3-servidores.png' });
   // quem não é admin não vê o item
   const B = await (await browser.createBrowserContext()).newPage();
   B.on('pageerror', e => { console.log('  PAGEERROR (bob)', e.message); fails++; });

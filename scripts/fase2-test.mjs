@@ -13,6 +13,9 @@ let fails = 0;
 const ok = (c, m, extra) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (extra !== undefined ? '  ' + JSON.stringify(extra) : '')); results.checks.push({ ok: !!c, m, extra }); if (!c) fails++; };
 const api = async (tok, method, path, body) => { const r = await fetch(API + '/api' + path, { method, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json().catch(() => ({})) }; };
 const sfx = Math.random().toString(36).slice(2, 6);
+// contas de teste (qa_a…/qa_b…): apagadas no fim, com o servidor "QA Fase 2" junto (rodando contra o servidor de verdade,
+// antes ficavam lá para sempre)
+const tokens = [];
 const load = async (tok, tag) => { const r = await api(tok, 'GET', '/sfu/load'); if (r.status === 200) { const c = r.data.current; results.load.push({ tag, ...c, peak: r.data.peakCpuPercent }); console.log(`  [carga] ${tag}: cpu ${c.cpu}% rss ${c.rssMB}MB salas ${c.rooms} peers ${c.peers} transports ${c.transports} producers ${c.producers} consumers ${c.consumers}`); } return r; };
 
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox', '--ignore-certificate-errors', '--disable-features=CalculateNativeWinOcclusion'] });
@@ -49,7 +52,7 @@ const decoded = (page, uid) => page.evaluate(async (uid) => { const p = window._
 try {
   // ---------- 0. contas, servidor e permissões do /api/sfu/load ----------
   const ra = await api('', 'POST', '/register', { username: 'qa_a' + sfx, password: 'Teste.senha-12345' }), rb = await api('', 'POST', '/register', { username: 'qa_b' + sfx, password: 'Teste.senha-12345' });
-  const ta = ra.data.token, tb = rb.data.token; ok(ta && tb, 'contas de teste criadas');
+  const ta = ra.data.token, tb = rb.data.token; ok(ta && tb, 'contas de teste criadas'); tokens.push(ta, tb);
   const g = (await api(ta, 'POST', '/guilds', { name: 'QA Fase 2 ' + sfx })).data; const inv = (await api(ta, 'POST', `/guilds/${g.id}/invites`)).data;
   await api(tb, 'POST', `/invites/${inv.code}`);
   const owner = await load(ta, 'ocioso (antes da sala)');
@@ -174,5 +177,6 @@ finally {
   results.fails = fails; fs.writeFileSync(OUT, JSON.stringify(results, null, 1));
   console.log(`\n${fails ? fails + ' FALHA(S)' : 'tudo ok'} — resultados em ${OUT}`);
   if (results.notes['pageerror-alice'] || results.notes['pageerror-bob']) console.log('page errors:', JSON.stringify([results.notes['pageerror-alice'], results.notes['pageerror-bob']]));
+  for (const t of tokens) await api(t, 'POST', '/me/delete', { password: 'Teste.senha-12345' }).catch(() => { });
   await browser.close(); process.exit(fails ? 1 : 0);
 }

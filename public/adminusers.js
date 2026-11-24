@@ -3,6 +3,7 @@
 // que foi feito. Carregado sob demanda pela página de configurações.
 import { h, icon, avatar } from './util.js';
 import { S, tryApi, toast, modal, confirmBox, promptBox, menu } from './state.js';
+import { go } from './nav.js';
 
 const when = (t) => {
   if (!t) return '—';
@@ -12,7 +13,8 @@ const when = (t) => {
   const dy = Math.round(hr / 24); if (dy < 30) return `há ${dy} ${dy === 1 ? 'dia' : 'dias'}`;
   return new Date(t).toLocaleDateString('pt-BR');
 };
-const ACTION = { ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de' };
+const ACTION = { ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de', guild_join: 'entrou no servidor', guild_delete: 'excluiu o servidor' };
+const GUILD_ACT = new Set(['guild_join', 'guild_delete']); // alvo é um servidor (sem @)
 
 export function adminUsersPage() {
   const q = h('input.au-q', { type: 'search', placeholder: 'Buscar por usuário ou nome', 'aria-label': 'Buscar contas', autocomplete: 'off', spellcheck: 'false' });
@@ -25,7 +27,7 @@ export function adminUsersPage() {
   };
   const loadLog = async () => {
     const r = await tryApi('GET', '/admin/log'); if (!r) return;
-    logBox.replaceChildren(...(r.entries.length ? r.entries.map(e => h('div.au-logrow', h('span', h('b', '@' + (e.actor_name || '?')), ` ${ACTION[e.action] || e.action} `, h('b', '@' + e.target_name), e.detail ? ` · ${e.detail}` : ''), h('small', new Date(e.at).toLocaleString('pt-BR'))))
+    logBox.replaceChildren(...(r.entries.length ? r.entries.map(e => h('div.au-logrow', h('span', h('b', '@' + (e.actor_name || '?')), ` ${ACTION[e.action] || e.action} `, h('b', (GUILD_ACT.has(e.action) ? '' : '@') + e.target_name), e.detail ? ` · ${e.detail}` : ''), h('small', new Date(e.at).toLocaleString('pt-BR'))))
       : [h('p.au-muted', 'Nenhuma ação ainda.')]));
   };
   const refresh = () => { load(); loadLog(); };
@@ -58,6 +60,7 @@ export function adminUsersPage() {
     const more = !self && h('button.ibtn.au-more', { type: 'button', title: 'Ações', 'aria-label': `Ações para @${u.username}`, onclick: (e) => menu(e, [
       u.banned_at ? { label: 'Reativar conta', icon: 'check', fn: () => act(u, 'unban') } : { label: 'Suspender conta', icon: 'shield', hint: 'Sai de todos os aparelhos e não entra mais', fn: () => act(u, 'ban') },
       { label: 'Redefinir senha', icon: 'lock', hint: 'Gera uma senha temporária', fn: () => act(u, 'password') },
+      u.guilds > 0 && { label: 'Ver servidores', icon: 'grid', hint: `Os ${u.guilds} ${u.guilds === 1 ? 'servidor' : 'servidores'} em que a conta está`, fn: () => userGuildsModal(u) },
       { label: 'Encerrar sessões', icon: 'logout', hint: 'Sai de todos os aparelhos', fn: () => act(u, 'logout') },
       '-', { label: 'Excluir conta', icon: 'trash', danger: true, fn: () => act(u, 'delete') }]) }, icon('more', 18));
     return h('div.au-row' + (u.banned_at ? '.banned' : ''),
@@ -74,4 +77,50 @@ export function adminUsersPage() {
     h('div.au-bar', h('label.au-search', icon('search', 16), q), count),
     list,
     h('h3.sec', 'Histórico'), logBox);
+}
+
+// ---------------------------------------------------------------- servidores (server/admin.js /admin/guilds)
+// lista de servidores: dono, membros, canais e a última mensagem. Para ver o que tem dentro, o admin entra no servidor
+// (aparece para todos como "entrou no servidor"). Excluir pede o nome do servidor.
+function guildList({ user = null, onChange = () => { } } = {}) {
+  const q = h('input.au-q', { type: 'search', placeholder: 'Buscar servidor', 'aria-label': 'Buscar servidores', autocomplete: 'off', spellcheck: 'false' });
+  const list = h('div.au-list', h('p.au-muted', 'Carregando…')), count = h('span.au-muted');
+  let t = 0;
+  const closeAll = () => { document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))); document.getElementById('settings')?._close?.(); document.querySelector('#settings .close')?.click(); };
+  const open = async (g) => {
+    if (!g.mine) {
+      if (!await confirmBox(`Entrar em ${g.name}?`, 'Você entra como membro: todo mundo do servidor vê "entrou no servidor", como acontece com qualquer pessoa. Para sair depois, use o menu do servidor.', 'Entrar')) return;
+      const r = await tryApi('POST', `/admin/guilds/${g.id}/join`); if (!r) return;
+    }
+    closeAll(); setTimeout(() => go(g.id), 300);
+  };
+  const del = async (g) => {
+    const typed = await promptBox(`Excluir o servidor ${g.name}?`, `Apaga o servidor com todos os canais e mensagens, para os ${g.members} ${g.members === 1 ? 'membro' : 'membros'}. Não dá para desfazer. Digite o nome do servidor para confirmar:`, '', 'Excluir para sempre');
+    if (typed === null) return;
+    if (typed !== g.name) return toast('O nome digitado não confere. Nada foi apagado.', true);
+    if (await tryApi('POST', `/admin/guilds/${g.id}/delete`, { confirm: typed })) { toast(`Servidor ${g.name} excluído.`); load(); onChange(); }
+  };
+  const row = (g) => h('div.au-row',
+    h('div.au-gicon', g.icon ? h('img', { src: g.icon, alt: '' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
+    h('div.au-t', h('div.au-name', h('b', g.name), g.mine && h('span.au-tag.on', 'Você está')),
+      h('small', [`dono @${g.owner_name || '?'}`, `${g.members} ${g.members === 1 ? 'membro' : 'membros'}`, `${g.channels} ${g.channels === 1 ? 'canal' : 'canais'}`, `criado ${when(g.created_at)}`, `última mensagem ${when(g.last_message)}`].join(' · '))),
+    h('button.btn.sm' + (g.mine ? '.grey' : ''), { type: 'button', onclick: () => open(g) }, g.mine ? 'Abrir' : 'Entrar'),
+    h('button.ibtn', { type: 'button', title: 'Excluir servidor', 'aria-label': `Excluir ${g.name}`, onclick: () => del(g) }, icon('trash', 18)));
+  const load = async () => {
+    const qs = [user && 'user=' + encodeURIComponent(user.id), q.value.trim() && 'q=' + encodeURIComponent(q.value.trim())].filter(Boolean).join('&');
+    const r = await tryApi('GET', '/admin/guilds' + (qs ? '?' + qs : '')); if (!r) return;
+    count.textContent = `${r.guilds.length} ${r.guilds.length === 1 ? 'servidor' : 'servidores'}`;
+    list.replaceChildren(...(r.guilds.length ? r.guilds.map(row) : [h('p.au-muted', 'Nenhum servidor.')]));
+  };
+  q.oninput = () => { clearTimeout(t); t = setTimeout(load, 250); };
+  load();
+  return h('div', h('div.au-bar', h('label.au-search', icon('search', 16), q), count), list);
+}
+function userGuildsModal(u) {
+  modal(`Servidores de @${u.username}`, 'Para ver o que tem dentro, entre no servidor (todos veem que você entrou).', h('div.adminusers.au-modal', guildList({ user: u })), [{ label: 'Fechar', cls: 'grey' }], { width: 'min(720px, 96vw)' });
+}
+export function adminServersPage() {
+  return h('div.adminusers', h('h2', 'Servidores'),
+    h('p.au-muted', 'Todos os servidores desta instalação. Só você, como administrador, vê esta página. Entrar e excluir ficam no histórico em Usuários.'),
+    guildList());
 }

@@ -633,7 +633,7 @@ const games = mountGames(app, { auth, wrap, bad, db, all, get, run, newId, getAd
 const achievements = mountAchievements(app, { auth, wrap, bad, db, all, get, run, newId, getAdapter, dispatch, clean, canSee: (v, o) => games.canSee(v, o), ensureLibrary: (uid) => games.syncSteam(uid), findSteamApp: (t) => discover.findApp(t) }); // conquistas e platinas (server/achievements.js)
 // ---------- A fim de jogar (server/intents.js): intenção de jogar, convites direcionados e grupo formado sozinho ----------
 // gerenciamento de usuários pelo administrador da instalação (server/admin.js)
-mountAdmin(app, { ...core, isAdmin: (uid) => reportAdmin()?.id === uid, banned, deleteAccount });
+mountAdmin(app, { ...core, isAdmin: (uid) => reportAdmin()?.id === uid, banned, deleteAccount, dropViewers });
 // central de boas-vindas do servidor (server/onboarding.js)
 onbSvc = mountOnboarding(app, { ...core, memberObj });
 // "Bora?": chamar a turma do servidor (server/bora.js)

@@ -10,12 +10,16 @@
 //   POST /api/admin/users/:id/password             → { password } temporária
 //   POST /api/admin/users/:id/logout               encerra todas as sessões
 //   POST /api/admin/users/:id/delete  { confirm }  confirm = nome de usuário da conta
+//   GET  /api/admin/guilds?user=&q=   servidores da instalação (ou só os de uma conta): dono, membros, canais e última
+//                                      mensagem. Não mostra conteúdo: para ver o que tem dentro, o admin entra
+//   POST /api/admin/guilds/:id/join    o admin entra no servidor como membro (aparece para todos: "entrou no servidor")
+//   POST /api/admin/guilds/:id/delete  { confirm } confirm = nome do servidor
 //   GET  /api/admin/log                últimas 100 ações
 import crypto from 'node:crypto';
 import { hashPw } from './accounts.js';
 
 export function mountAdmin(app, d) {
-  const { auth, wrap, bad, db, all, get, run, clean, isAdmin, sessions, conns, banned, deleteAccount } = d;
+  const { auth, wrap, bad, db, all, get, run, clean, isAdmin, sessions, conns, banned, deleteAccount, joinGuild, guildMemberIds, dispatch, voice, leaveVoice, dropViewers } = d;
   db.exec(`CREATE TABLE IF NOT EXISTS admin_log(id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor_id TEXT, action TEXT NOT NULL,
     target_id TEXT, target_name TEXT, detail TEXT)`);
   const log = (actor, action, u, detail = '') => run('INSERT INTO admin_log(at, actor_id, action, target_id, target_name, detail) VALUES(?,?,?,?,?,?)', Date.now(), actor, action, u.id, u.username, detail);
@@ -71,6 +75,35 @@ export function mountAdmin(app, d) {
     const owns = get('SELECT COUNT(*) n FROM guilds WHERE owner_id=?', u.id).n;
     log(req.uid, 'delete', u, owns ? `${owns} servidor(es) apagado(s) junto` : '');
     deleteAccount(u.id); banned.delete(u.id);
+    res.json({});
+  }));
+  const glog = (actor, action, g, detail = '') => run('INSERT INTO admin_log(at, actor_id, action, target_id, target_name, detail) VALUES(?,?,?,?,?,?)', Date.now(), actor, action, g.id, g.name, detail);
+  app.get('/api/admin/guilds', auth, only((req, res) => {
+    const uid = req.query.user ? String(req.query.user) : null, q = clean(req.query.q, 60).toLowerCase().replace(/[%_\\]/g, '');
+    const rows = all(`SELECT g.id, g.name, g.icon, g.created_at, g.owner_id, o.username owner_name,
+        (SELECT COUNT(*) FROM members m WHERE m.guild_id=g.id) members,
+        (SELECT COUNT(*) FROM channels c WHERE c.guild_id=g.id AND c.type<>4) channels,
+        (SELECT MAX(x.created_at) FROM messages x JOIN channels c ON c.id=x.channel_id WHERE c.guild_id=g.id) last_message,
+        EXISTS(SELECT 1 FROM members m WHERE m.guild_id=g.id AND m.user_id=?) mine
+      FROM guilds g LEFT JOIN users o ON o.id=g.owner_id
+      WHERE 1=1 ${uid ? 'AND g.id IN (SELECT guild_id FROM members WHERE user_id=?)' : ''} ${q ? 'AND lower(g.name) LIKE ?' : ''}
+      ORDER BY g.created_at DESC LIMIT 300`, req.uid, ...(uid ? [uid] : []), ...(q ? ['%' + q + '%'] : []));
+    res.json({ guilds: rows.map(r => ({ ...r, mine: !!r.mine })), user: uid ? get('SELECT id, username FROM users WHERE id=?', uid) || null : null });
+  }));
+  const guildOf = (req, res) => { const g = get('SELECT * FROM guilds WHERE id=?', String(req.params.id)); if (!g) bad(res, 'Servidor não encontrado', 404); return g; };
+  app.post('/api/admin/guilds/:id/join', auth, only((req, res) => {
+    const g = guildOf(req, res); if (!g) return;
+    if (get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', g.id, req.uid)) return res.json({ already: true });
+    joinGuild(g.id, req.uid); glog(req.uid, 'guild_join', g); res.json({});
+  }));
+  app.post('/api/admin/guilds/:id/delete', auth, only((req, res) => {
+    const g = guildOf(req, res); if (!g) return;
+    if (String(req.body?.confirm || '') !== g.name) return bad(res, 'Digite o nome do servidor para confirmar');
+    const ids = guildMemberIds(g.id);
+    for (const [cid, m] of voice) for (const u of [...m.keys()]) if (get('SELECT 1 x FROM channels WHERE id=? AND guild_id=?', cid, g.id)) leaveVoice(u, cid);
+    glog(req.uid, 'guild_delete', g, `dono @${get('SELECT username FROM users WHERE id=?', g.owner_id)?.username || '?'}`);
+    run('DELETE FROM guilds WHERE id=?', g.id);
+    dispatch(ids, 'GUILD_DELETE', { id: g.id }); dropViewers?.(g.id);
     res.json({});
   }));
   app.get('/api/admin/log', auth, only((req, res) => {
