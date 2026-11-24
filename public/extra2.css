@@ -877,3 +877,20 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 @keyframes vnote-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes vnote-pulse { 50% { transform: scale(1.18); } }
 @media (prefers-reduced-motion: reduce) { .vnote, .vnote .vn-ic { animation: none; } .vnote .vn-spin { animation-duration: 2.4s; } }
+
+/* "Nos últimos dias" (activity.js recentRow): uma linha por pessoa; com vários jogos, o nome e "quando" em cima, o total e
+   os jogos em fichas embaixo (o de mais tempo primeiro, até 3 e "+N") */
+#active-now .an-past.multi { align-items: flex-start; }
+#active-now .an-past.multi > .avatar, #active-now .an-past.multi > .an-av { margin-top: 2px; }
+#active-now .an-past .an-who { flex: 1; }
+#active-now .an-pname { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+#active-now .an-pname > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-pname .an-when { margin-left: auto; flex: none; font-size: 12px; color: var(--text-muted); }
+#active-now .an-pgames { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#active-now .an-pgame { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 26px; padding: 0 8px 0 5px; border: 1px solid var(--divider); border-radius: 8px;
+  background: var(--bg-mod-hover); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+#active-now .an-pgame:hover { border-color: color-mix(in srgb, var(--brand) 50%, var(--divider)); background: color-mix(in srgb, var(--brand) 10%, var(--bg-mod-hover)); }
+#active-now .an-pgame:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+#active-now .an-pgt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#active-now .an-pgs { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+#active-now .an-pmore { display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border-radius: 8px; font-size: 12.5px; color: var(--text-muted); background: var(--bg-mod-hover); }

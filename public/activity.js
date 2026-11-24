@@ -772,30 +772,43 @@ function sinceStrip() {
       h('button.ibtn.an-sincex', { title: 'Dispensar (marca como visto em todos os aparelhos)', 'aria-label': 'Dispensar', onclick: dismissSince }, icon('x', 16))),
     ...rows);
 }
-// "Nos últimos dias": o feed.events (jogos que os amigos fecharam nos últimos 7 dias) por pessoa e jogo, somando o tempo
-// em call. Quem está jogando o mesmo jogo agora já aparece em "Jogando" e não se repete aqui.
+// "Nos últimos dias": o feed.events (jogos que os amigos fecharam nos últimos 7 dias), uma linha por pessoa com os jogos dela
+// (somando o tempo de cada jogo). Quem está jogando o mesmo jogo agora já aparece em "Jogando" e aquele jogo não se repete aqui.
 function recentGames() {
-  const by = new Map();
+  const people = new Map();
   for (const ev of feed?.events || []) {
     if (ev.kind !== 'game_stop' || ev.user_id === S.me.id || !ev.game?.title) continue;
     const a = { platform: ev.platform, game: ev.game }, cur = activityOf(ev.user_id);
     if (cur && sameGameAs(cur, a)) continue;
-    const k = ev.user_id + '|' + gameKey(a);
-    let x = by.get(k); if (!x) by.set(k, x = { uid: ev.user_id, a, secs: 0, at: 0 });
+    let p = people.get(ev.user_id); if (!p) people.set(ev.user_id, p = { uid: ev.user_id, games: new Map(), secs: 0, at: 0 });
+    const k = gameKey(a);
+    let x = p.games.get(k); if (!x) p.games.set(k, x = { a, secs: 0, at: 0 });
     x.secs += ev.seconds || 0; x.at = Math.max(x.at, ev.at || 0);
+    p.secs += ev.seconds || 0; p.at = Math.max(p.at, ev.at || 0);
   }
-  const list = [...by.values()].sort((p, q) => q.at - p.at).slice(0, RECENT_MAX);
-  // ícone do jogo: a retrospectiva da semana guarda o do programa e o número na Steam (o evento só traz id e nome)
-  for (const x of list) {
-    const w = (feed.week?.played || []).find(p => p.user_id === x.uid && sameGame({ ...p.game, platform: p.platform }, x.a));
-    if (w) x.a = { platform: x.a.platform, game: { ...x.a.game, icon: w.game.icon, steam: w.game.steam } };
+  const list = [...people.values()].sort((p, q) => q.at - p.at).slice(0, RECENT_MAX);
+  for (const p of list) {
+    // o jogo em que a pessoa ficou mais tempo primeiro; empate: o mais recente
+    p.games = [...p.games.values()].sort((x, y) => y.secs - x.secs || y.at - x.at);
+    // ícone do jogo: a retrospectiva da semana guarda o do programa e o número na Steam (o evento só traz id e nome)
+    for (const x of p.games) {
+      const w = (feed.week?.played || []).find(q => q.user_id === p.uid && sameGame({ ...q.game, platform: q.platform }, x.a));
+      if (w) x.a = { platform: x.a.platform, game: { ...x.a.game, icon: w.game.icon, steam: w.game.steam } };
+    }
   }
   return list;
 }
-const recentRow = (x) => {
-  const u = uOf(x.uid), a = x.a;
-  return h('div.an-row.an-past', { 'data-uid': x.uid, 'data-secs': String(x.secs), title: `Sobre ${a.game.title}`, onclick: openGame(a), oncontextmenu: (e) => ctx.userMenu(e, x.uid) },
-    profAv(u, 32), h('div.an-who', nameEl(u), h('small.an-sub', gameIcon(a, 14), h('span', 'Jogou ', titleEl(a), [x.secs >= 60 && hm2(x.secs), daysAgo(x.at)].filter(Boolean).map(t => ' · ' + t).join('')))));
+const RECENT_CHIPS = 3;
+const recentRow = (p) => {
+  const u = uOf(p.uid), top = p.games[0].a, more = p.games.length > 1;
+  const sub = more ? h('small.an-sub', h('span', `Jogou ${p.games.length} jogos`, p.secs >= 60 ? ' · ' + hm2(p.secs) + ' no total' : ''))
+    : h('small.an-sub', gameIcon(top, 14), h('span', 'Jogou ', titleEl(top), [p.secs >= 60 && hm2(p.secs), daysAgo(p.at)].filter(Boolean).map(t => ' · ' + t).join('')));
+  const chip = (x) => h('button.an-pgame', { type: 'button', title: `Sobre ${x.a.game.title}` + (x.secs >= 60 ? ` · ${hm2(x.secs)}` : '') + ` · ${daysAgo(x.at)}`, onclick: openGame(x.a) },
+    gameIcon(x.a, 16), h('span.an-pgt', x.a.game.title), x.secs >= 60 && h('span.an-pgs', hm2(x.secs)));
+  return h('div.an-row.an-past' + (more ? '.multi' : ''), { 'data-uid': p.uid, 'data-secs': String(p.secs), title: more ? null : `Sobre ${top.game.title}`, onclick: openGame(top), oncontextmenu: (e) => ctx.userMenu(e, p.uid) },
+    profAv(u, 32),
+    h('div.an-who', h('div.an-pname', nameEl(u), more && h('small.an-when', daysAgo(p.at))), sub,
+      more && h('div.an-pgames', p.games.slice(0, RECENT_CHIPS).map(chip), p.games.length > RECENT_CHIPS && h('span.an-pmore', { title: p.games.slice(RECENT_CHIPS).map(x => x.a.game.title).join(', ') }, '+' + (p.games.length - RECENT_CHIPS)))));
 };
 
 // painel inteiro. Topo, em destaque: o que os amigos estão fazendo AGORA (jogando, em chamada, online). Embaixo: os destaques.
