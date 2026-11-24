@@ -29,7 +29,7 @@ export const S = {
   collapsed: new Set(JSON.parse(localStorage.getItem('lc_collapsed') || '[]')),
   lastChannel: JSON.parse(localStorage.getItem('lc_last') || '{}'),
   prefs: Object.assign({ volume: 100, echo: true, agc: false, noiseMode: 'rnnoise', gate: false, gateDb: -45, vadGate: true, vadSens: 50, fanFilter: true, fanStrength: 50, inputVolume: 100, inputMode: 'vad', pttKey: 'KeyV',
-    zoom: 100, compact: false, desktopNotif: true, sounds: true, callSounds: true, inputId: '', outputId: '', videoId: '', theme: 'dark', accent: '#5865f2', reduceMotion: false,
+    zoom: 100, compact: false, desktopNotif: true, sounds: true, callSounds: true, inputId: '', outputId: '', videoId: '', theme: 'dark', accent: '', reduceMotion: false,
     screen: { res: 1080, fps: 30, audio: true, hint: 'motion' },
     soundVolume: 80, fontFamily: 'default', msgGap: 17, radius: 8, hour12: false, highContrast: false, saturation: 100, underlineLinks: false, embedLinks: true, awayPause: true, roleColors: true,
     confirmLinks: false, devMode: false, notifPreview: true, voiceBitrate: 'auto', camRes: 720, camFps: 30, keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE' },
@@ -185,12 +185,16 @@ export function applyTheme() {
   const r = document.documentElement;
   const grad = themeDef(S.prefs.theme, S.prefs.customThemes);
   r.dataset.theme = grad ? grad.base : (SOLID_THEMES[S.prefs.theme] ? S.prefs.theme : 'dark'); paintTheme(r, grad); r.style.fontSize = S.prefs.zoom + '%';
-  const a = S.prefs.accent || '#5865f2';
+  // Resenha 2.0: azul elétrico é o destaque padrão. O azul-roxo antigo (#5865f2) era o padrão gravado nos ajustes de todo
+  // mundo, então ele conta como "padrão" e vira o novo; quem quiser o antigo escolhe o #5865f1 da lista (mesma cor).
+  // O "Visual clássico" volta ao antigo.
+  const classic = !!S.prefs.classicLayout, acc = String(S.prefs.accent || '').toLowerCase();
+  const a = (!acc || acc === '#5865f2') ? (classic ? '#5865f2' : '#4b8bff') : acc;
   r.style.setProperty('--brand', a); r.style.setProperty('--brand-hover', `color-mix(in srgb, ${a} 80%, black)`);
   const rm = reduceMotionOn();
   r.classList.toggle('reduce-motion', rm); r.classList.toggle('anim', S.prefs.animations !== false && !rm && !systemReduceMotion()); // também o "reduzir movimento" do sistema
-  r.classList.toggle('classic', !!S.prefs.classicLayout); r.classList.toggle('high-contrast', highContrastOn()); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
-  const fonts = { default: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
+  r.classList.toggle('classic', classic); r.classList.toggle('high-contrast', highContrastOn()); r.classList.toggle('underline-links', !!S.prefs.underlineLinks);
+  const fonts = { default: classic ? '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif' : '"Geist", "Segoe UI", system-ui, sans-serif', ggsans: '"gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'Consolas, "Cascadia Mono", "Courier New", monospace', rounded: '"Trebuchet MS", "Segoe UI", sans-serif', dyslexia: '"Comic Sans MS", "Comic Neue", "Segoe UI", sans-serif' };
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
   r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); r.style.setProperty('--con', (S.prefs.contrast ?? 100) + '%'); r.classList.toggle('sat-on', (S.prefs.saturation ?? 100) != 100 || (S.prefs.contrast ?? 100) != 100);

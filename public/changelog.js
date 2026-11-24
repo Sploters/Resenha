@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-24-1', title: 'Resenha 2.0: cores e fonte novas',
+    items: [
+      { i: 'palette', t: 'Grafite e azul elétrico', d: 'O tema Escuro ficou num grafite mais frio e mais fundo, e o destaque padrão virou azul elétrico. Se você tinha escolhido outra cor de destaque, ela continua.', try: 'appearance' },
+      { i: 'edit', t: 'Fonte nova: Geist', d: 'Textos em Geist e códigos em Geist Mono. Prefere a antiga? Aparência → Fonte → Clássica.' },
+      { i: 'eye', t: 'Visual clássico', d: 'Em Aparência → Layout, "Visual clássico" volta tudo como era: colunas grudadas, cinzas e azul-roxo de antes e a fonte antiga.' },
+    ],
+  },
+  {
     id: '2026-11-23-4', title: 'Menos atalhos, nota da crítica e Wishlist da turma',
     items: [
       { i: 'gift', t: 'Wishlist da turma', d: 'A Wishlist do servidor mostra só os jogos que duas pessoas ou mais querem. E "Carregar mais" não volta mais para o topo.' },

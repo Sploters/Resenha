@@ -73,7 +73,7 @@ button.mgroup .mg-n::before { content: '— '; }
 .choice .ch-lbl .icon { flex: none; width: 16px; height: 16px; padding: 1px; border-radius: 50%; border: 2px solid var(--text-muted); fill: transparent; }
 .choice.on .ch-lbl .icon { border-color: var(--brand); background: var(--brand); fill: #fff; }
 .ff-prev { font-size: 28px; font-weight: 600; }
-.ff-default { font-family: "gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif; }
+.ff-default { font-family: "Geist", "Segoe UI", system-ui, sans-serif; } .ff-ggsans { font-family: "gg sans", "Noto Sans", "Segoe UI", Helvetica, Arial, sans-serif; }
 .ff-rounded { font-family: "Trebuchet MS", "Segoe UI", sans-serif; }
 .ff-serif { font-family: Georgia, "Times New Roman", serif; }
 .ff-mono { font-family: Consolas, "Cascadia Mono", "Courier New", monospace; }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#1e1f22">
+<meta name="theme-color" content="#0f1013">
 <meta name="description" content="Chat, voz, vídeo e transmissão de tela com os seus amigos, no seu servidor.">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -14,7 +14,7 @@
 <title>Resenha</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%235865f2'/%3E%3Cpath d='M18 24h28a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H30l-8 6v-6h-4a4 4 0 0 1-4-4V28a4 4 0 0 1 4-4z' fill='%23fff'/%3E%3C/svg%3E">
 <!-- fundo escuro desde o 1º quadro: sem isto a página fica branca até o style.css chegar (clarão ao abrir) -->
-<style>html { background: #1e1f22; }</style>
+<style>html { background: #0f1013; }</style>
 <!-- esqueleto da abertura com o CSS aqui mesmo: os arquivos de estilo vêm depois dele, no <body>, e o navegador já pinta
      o esqueleto enquanto eles chegam (antes a tela ficava lisa ~0,9 s numa abertura sem cache). Medidas da tela real
      (1920×1080): abas 40 px, trilho 72, lateral e membros 300, cabeçalho 48, campo de mensagem 56 -->
@@ -76,6 +76,7 @@ html.boot #boot { display: flex; } #boot, #boot * { box-sizing: border-box; } /*
 <link rel="stylesheet" href="/forum.css">
 <link rel="stylesheet" href="/watch.css">
 <link rel="stylesheet" href="/v2.css">
+<link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <div id="auth" class="hidden"></div>
 <div id="app" class="hidden"></div>
 <div id="layer"></div>

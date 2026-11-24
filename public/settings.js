@@ -36,7 +36,7 @@ import { track, clearUx, uxOn, settingsPage } from './ux.js';
 import { e2eeLoad, e2eeState, e2eeSupported, myFingerprintKey, setupModal, unlockModal, changePassModal, newKeyModal, resetModal, lockHere, setPaused } from './e2ee.js';
 import { syncGlobalPtt, globalPttSupported } from './ptt.js';
 
-const SWATCHES = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
+const SWATCHES = ['#4b8bff', '#5865f1', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#95a5a6', '#2c2f33', '#ffffff'];
 const save = () => savePrefs();
 
 async function uploadFile(accept = 'image/*', maxMB = 12) {
@@ -477,9 +477,9 @@ function appearancePage() {
     section('Temas em gradiente'), card(gr, hint('Passe o mouse num tema e clique no lápis para criar uma versão sua a partir dele.')),
     section('Agentes do Valorant'), card(val, hint('Um tema para cada agente, nas cores dele.')),
     section('Seus temas'), card(mine, hint('Crie um gradiente com até 5 cores e compartilhe: o código colado no chat vira um cartão com o botão "Usar tema".')),
-    section('Layout'), card(row('Visual clássico', 'Desliga as ilhas (áreas separadas com cantos arredondados) e a cor do servidor no fundo, voltando ao visual de colunas grudadas.', toggle(!!S.prefs.classicLayout, v => { S.prefs.classicLayout = v; save(); applyTheme(); }))),
-    section('Cor de destaque'), card(swatches(S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
-    section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
+    section('Layout'), card(row('Visual clássico', 'Volta ao visual antigo: colunas grudadas, sem a cor do servidor no fundo, cinzas e azul-roxo de antes e a fonte antiga.', toggle(!!S.prefs.classicLayout, v => { S.prefs.classicLayout = v; save(); applyTheme(); }))),
+    section('Cor de destaque'), card(swatches((!S.prefs.accent || S.prefs.accent === '#5865f2') ? (S.prefs.classicLayout ? '#5865f1' : '#4b8bff') : S.prefs.accent, (c) => { S.prefs.accent = c; save(); applyTheme(); })),
+    section('Fonte'), card(h('label.f', 'Família da fonte'), choiceCards([['default', 'Padrão (Geist)'], ['ggsans', 'Clássica'], ['rounded', 'Arredondada'], ['serif', 'Serifada'], ['mono', 'Monoespaçada'], ['dyslexia', 'Legível (dislexia)']].map(([k, l]) => [k, l, h('span.ff-prev.ff-' + k, 'Aa')]), S.prefs.fontFamily || 'default', set('fontFamily')),
       h('label.f', 'Tamanho da interface', slider(80, 140, S.prefs.zoom, 5, set('zoom'), v => v + '%'))),
     section('Mensagens'), card(h('label.f', 'Exibição das mensagens'), choiceCards([[0, 'Confortável', msgPrev(false)], [1, 'Compacta', msgPrev(true)]], S.prefs.compact ? 1 : 0, v => { S.prefs.compact = !!v; save(); }),
       h('label.f', { style: { marginTop: '12px' } }, 'Espaço entre grupos de mensagens', slider(0, 32, S.prefs.msgGap, 1, set('msgGap'), v => v + 'px')),

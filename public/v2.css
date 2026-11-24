@@ -5,6 +5,46 @@
      e no celular.
    - "Digitando" com os rostos de quem escreve (composer.js renderTyping). */
 
+/* ---------- fundação: fonte Geist (Vercel, licença OFL em fonts/OFL-Geist.txt), variável de 100 a 900 ---------- */
+@font-face { font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Geist"; src: url("/fonts/Geist-Italic-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+
+/* ---------- fundação: tokens ----------
+   Espaçamento em passos de 4 px (cada passo com um papel), 3 raios e 7 tamanhos de texto. Novas regras usam estes;
+   as antigas vão migrando aos poucos. */
+:root {
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+  --r-s: 6px; --r-m: 10px; --r-l: 14px;
+  --fs-xs: 11px; --fs-s: 12px; --fs-m: 13px; --fs-base: 15px; --fs-l: 18px; --fs-xl: 24px; --fs-xxl: 32px;
+  --font-code: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+:root.classic { --font-code: Consolas, "Courier New", monospace; }
+
+/* ---------- fundação: paleta grafite neutro-frio + azul elétrico (o azul vem de --brand, posto por applyTheme) ----------
+   Só no tema Escuro e fora do "Visual clássico"; os outros temas e os gradientes ficam como estão. */
+:root[data-theme="dark"]:not(.classic):not(.grad) {
+  --bg-tert: #0f1013; --bg-sec: #15161a; --bg-pri: #1b1c21; --bg-user: #1f2026; --bg-input: #24262c;
+  --bg-mod-hover: #24262c; --bg-mod-sel: #2c2f36; --bg-float: #0b0c0f;
+  --text: #e3e5ea; --text-muted: #9a9ea8; --text-strong: #f4f5f8; --header: #f4f5f8; --interactive: #b0b4bd; --interactive-hover: #eceef2;
+  --green: #3ecf8e; --red: #e5484d; --link: #7aa8ff;
+  --divider: #2a2c33; --scroll: #33363e;
+  --mention-bg: color-mix(in srgb, var(--brand) 18%, transparent); --mention-text: color-mix(in srgb, var(--brand) 55%, #fff);
+}
+:root:not(.classic) body { -webkit-font-smoothing: antialiased; }
+/* números que mudam (tempo de call, contadores, horários) não dançam: algarismos de largura fixa */
+:root:not(.classic) :is(time, .ts, .timestamp, .vc-time, .call-time, .badge) { font-variant-numeric: tabular-nums; }
+/* código em Geist Mono */
+:root:not(.classic) :is(.md-code, pre.md-pre, code, kbd) { font-family: var(--font-code); }
+:root[data-theme="dark"]:not(.classic):not(.grad) :is(.md-code, pre.md-pre) { background: var(--bg-tert); border-color: var(--divider); }
+
+/* ---------- fundação: botões — um principal (azul), um secundário (cinza) e um de perigo (vermelho) ---------- */
+:root:not(.classic) .btn { border-radius: var(--r-s); font-weight: 600; letter-spacing: -.005em; }
+:root:not(.classic) .btn.grey { background: var(--bg-mod-sel); color: var(--text-strong); }
+:root:not(.classic) .btn.grey:hover { background: color-mix(in srgb, var(--bg-mod-sel), #fff 8%); }
+:root:not(.classic) .btn.red:hover { background: color-mix(in srgb, var(--red) 82%, #000); }
+:root:not(.classic) label.f input, :root:not(.classic) label.f textarea, :root:not(.classic) label.f select { border-radius: var(--r-s); }
+
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ---------- digitando ---------- */
@@ -137,3 +177,6 @@
 .ggp-arr:disabled { opacity: .25; cursor: default; }
 .ggp.open .ggp-list { max-height: 260px; }
 .ggp-bar.fits .ggp-arr { display: none; }
+
+/* prévia do tema Escuro nas Configurações mostra o grafite novo */
+:root:not(.classic) .ncard.theme-dark { background: linear-gradient(135deg, #1b1c21 60%, color-mix(in srgb, var(--brand) 35%, #1b1c21)); }
