@@ -2496,3 +2496,5 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
    passavam da tela pela altura da faixa de abas (40 px) e o fim da página (o rodapé da Boas-vindas) ficava cortado */
 #clipsview, #wishview, #eventsview, #onbview { height: auto; flex: 1; min-height: 0; }
 .onbcfg .card2 .perm { border-top: 0; }
+.newslist .newssec { margin: 10px 2px 0; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+.newslist .newssec:first-child { margin-top: 0; }
