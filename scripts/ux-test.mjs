@@ -85,7 +85,8 @@ try {
   ok((await api(admin, 'GET', '/ux/access')).data.admin === true && (await api(eu, 'GET', '/ux/access')).data.admin === false, '/ux/access diz quem é o administrador');
   await P.evaluate(() => { window.__lc.S.prefs.uxStats = true; });
   // fluxo pelo app: abrir "Adicionar um servidor" e criar
-  await P.evaluate(() => document.querySelector('#rail .rail-item.add').click()); await sleep(500);
+  await P.evaluate(() => document.querySelector('#rail .rail-item.add').click()); await sleep(300);
+  await P.evaluate(() => [...document.querySelectorAll('.menu .it')].find(i => /Adicionar um servidor/.test(i.textContent)).click()); await sleep(500);
   await P.evaluate(() => [...document.querySelectorAll('.modal button')].find(b => b.textContent.trim() === 'Criar').click()); await sleep(1200);
   // com raiva: 3 cliques rápidos num botão de teste; sem efeito: um clique num "botão" que não faz nada
   await P.evaluate(() => {

@@ -1,5 +1,5 @@
 // Barra lateral: lista de canais do servidor, conversas diretas, quem está em cada sala de voz e mover arrastando.
-import { liveIn, boraCard, openBoraModal } from './bora.js';
+import { liveIn, boraCard } from './bora.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
 import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
@@ -80,10 +80,10 @@ export function renderSide() {
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
     // atalhos do servidor numa faixa de ícones (uma linha só; o nome aparece ao passar o mouse e o da tela aberta fica
-    // marcado): Bora?, Eventos, Clipes, Arquivos e Wishlist
+    // marcado): Eventos, Clipes, Arquivos e Wishlist (mesma ordem do menu do servidor com a lista oculta, gsearch.js).
+    // O "Bora?" fica no "+" da barra dos servidores (rail.js)
     const tool = (cls, ic, label, tip, fn, on = false) => h('button.st-btn.' + cls + (on ? '.on' : ''), { type: 'button', 'aria-label': `${label}: ${tip}`, 'data-tip': label, onclick: fn }, icon(ic, 20));
     const tools = h('div.side-tools.st-strip', { role: 'toolbar', 'aria-label': 'Atalhos do servidor' },
-      tool('borarow', 'megaphone', 'Bora?', 'chamar a turma para jogar ou resenhar, agora ou mais tarde', () => openBoraModal(g.id)),
       tool('evrow', 'calendar', 'Eventos', 'jogatinas marcadas: dia, hora, sala e quem vai', () => go(g.id, 'events'), S.view.kind === 'events'),
       tool('clipsonly', 'clip', 'Clipes', 'todos os clipes salvos neste servidor', () => go(g.id, 'clips'), S.view.kind === 'clips'),
       tool('filesrow', 'file', 'Arquivos', 'fotos, vídeos, áudios, documentos e links enviados aqui', () => go(g.id, 'files'), S.view.kind === 'files'),

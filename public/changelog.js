@@ -6,6 +6,14 @@ import { S, modal, savePrefs } from './state.js';
 
 export const NEWS = [
   {
+    id: '2026-11-24-2', title: 'Bora? no "+" e atalhos em ordem',
+    items: [
+      { i: 'megaphone', t: 'Bora? no "+"', d: 'O "+" da barra dos servidores agora pergunta: Bora? (chamar a turma) ou Adicionar um servidor. Os atalhos do servidor ficaram só com Eventos, Clipes, Arquivos e Wishlist.' },
+      { i: 'check', t: 'Mesma ordem em todo lugar', d: 'Eventos, Clipes, Arquivos e Wishlist aparecem nessa ordem em todos os servidores, inclusive no menu do servidor com a lista de canais oculta.' },
+      { i: 'gamepad', t: '"Jogam aqui" com a rodinha', d: 'Passar os jogos para o lado agora é só rolar a rodinha do mouse em cima deles, sem segurar Alt.' },
+    ],
+  },
+  {
     id: '2026-11-24-1', title: 'Resenha 2.0: cores e fonte novas',
     items: [
       { i: 'palette', t: 'Grafite e azul elétrico', d: 'O tema Escuro ficou num grafite mais frio e mais fundo, e o destaque padrão virou azul elétrico. Se você tinha escolhido outra cor de destaque, ela continua.', try: 'appearance' },

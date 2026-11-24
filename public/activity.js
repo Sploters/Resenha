@@ -274,6 +274,12 @@ export function guildGamesPanel(list, redraw) {
   // setas só quando há mais ícones do que cabem; a da ponta apaga quando não há mais para aquele lado
   const edges = () => { prev.disabled = strip.scrollLeft <= 2; next.disabled = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2; bar.classList.toggle('fits', prev.disabled && next.disabled); };
   strip.addEventListener('scroll', edges, { passive: true }); requestAnimationFrame(edges);
+  // rodinha do mouse anda para os lados direto (sem segurar Alt/Shift); sem mais ícones para aquele lado, a lista rola normal
+  strip.addEventListener('wheel', (e) => {
+    const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : 0; if (!d) return;
+    const max = strip.scrollWidth - strip.clientWidth; if (max <= 2 || (d < 0 && strip.scrollLeft <= 0) || (d > 0 && strip.scrollLeft >= max - 1)) return;
+    e.preventDefault(); strip.scrollLeft += e.deltaMode === 1 ? d * 16 : d;
+  }, { passive: false });
   return h('div.ggp', head, bar);
 }
 // ícone pequeno (16 px) para a linha de quem está na sala; null se a pessoa não está jogando

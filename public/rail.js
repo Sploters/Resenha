@@ -17,6 +17,7 @@ import { favList, openFavs } from './favs.js';
 import { channelModal } from './chmenu.js';
 import { profile, pinnedDMs, dmWith, ensureDM, initialsOf, openDM, userMenu } from './usermenu.js';
 import { jumpTo } from './msgactions.js';
+import { openBoraModal } from './bora.js';
 import { notifCard, inboxBadge, showInbox } from './inbox.js';
 // ---------- trilho de servidores ----------
 function guildUnread(g) { return g.channels.some(c => S.unread[c.id]); }
@@ -52,7 +53,7 @@ export function renderRail() {
       if (rooms.length) { w.onmouseenter = () => { if (!sideHidden()) voiceCard(w, g); }; w.onmouseleave = () => document.getElementById('vcard')?.remove(); }
       return w;
     }),
-    wrap('', 'Adicionar um servidor', h('div.rail-item.add', { onclick: addServerModal, style: { fontSize: '0' } }, icon('plus', 24))),
+    wrap('', 'Adicionar', h('div.rail-item.add', { onclick: addMenu, style: { fontSize: '0' } }, icon('plus', 24))),
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
 }
@@ -104,6 +105,14 @@ const srvNow = () => Date.now() + (S.clockOff || 0);
 export const callTimer = (users) => { const t = users.find(v => v.started_at)?.started_at; return t ? h('span.vtimer', { 'data-start': t, 'data-srv': '' }, fmtDur(srvNow() - t)) : null; };
 setInterval(() => document.querySelectorAll('.vtimer[data-start]').forEach(e => { e.textContent = fmtDur((e.hasAttribute('data-srv') ? srvNow() : Date.now()) - +e.dataset.start); }), 1000);
 
+// "+" da barra: escolher entre chamar a turma (Bora?) e criar/entrar num servidor
+function addMenu(e) {
+  const r = e.currentTarget.getBoundingClientRect();
+  menu({ preventDefault() { }, clientX: r.right + 8, clientY: r.top }, [
+    S.guilds.size > 0 && { label: 'Bora?', hint: 'Chamar a turma para jogar ou resenhar', icon: 'megaphone', fn: () => openBoraModal(S.view.gid) },
+    { label: 'Adicionar um servidor', hint: 'Criar o seu ou entrar com convite', icon: 'plus', fn: addServerModal },
+  ]);
+}
 export function addServerModal() {
   flow('add_server', 'start');
   const name = h('input', { value: `Servidor de ${S.me.display_name}`, maxLength: 100 }), code = h('input', { placeholder: 'https://… ou código do convite' });

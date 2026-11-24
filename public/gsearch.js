@@ -62,10 +62,10 @@ function gFlyShow(anchor, g) {
   const opt = (on, ic, label, fn, extra, tip) => h('button.rf-opt' + (on ? '.on' : ''), { type: 'button', role: 'menuitem', title: tip || null, 'aria-current': on ? 'page' : null, onclick: () => { gFlyHide(); S.favMode = false; fn(); } }, icon(ic, 20), h('span.gf-l', label), extra);
   const el = RG.el = popout(anchor, h('div.rf-pop.gf-pop', { role: 'menu', 'aria-label': g.name },
     h('div.gf-head', g.name),
+    opt(here && S.view.kind === 'events', 'calendar', 'Eventos', () => go(g.id, 'events')),
     opt(here && S.view.kind === 'clips', 'clip', 'Clipes', () => go(g.id, 'clips')),
     opt(here && S.view.kind === 'files', 'file', 'Arquivos', () => go(g.id, 'files')),
     opt(here && S.view.kind === 'wishlist', 'gift', 'Wishlist', () => go(g.id, 'wishlist')),
-    opt(here && S.view.kind === 'events', 'calendar', 'Eventos', () => go(g.id, 'events')),
     (text || room) && h('div.gf-sep'),
     text && opt(here && S.view.cid === text.id, 'hash', chName(text), () => go(g.id, text.id),
       S.mentions[text.id] > 0 ? h('span.pill', S.mentions[text.id]) : S.unread[text.id] ? h('i.gf-dot') : null),

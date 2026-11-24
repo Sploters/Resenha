@@ -23,8 +23,8 @@ async function page(u) {
 try {
   const A = await page(ana), B = await page(beto);
   for (const P of [A, B]) await P.evaluate((gid) => window.__lc.go(gid), g.id);
-  await A.waitForSelector('#side-list .borarow');
-  await A.click('#side-list .borarow');
+  await A.click('#rail .rail-item.add'); await A.waitForSelector('.menu .it');
+  await A.evaluate(() => [...document.querySelectorAll('.menu .it')].find(i => /Bora\?/.test(i.textContent)).click());
   await A.waitForSelector('.bora-modal .bora-chip');
   await A.evaluate(() => { [...document.querySelectorAll('.bora-modal .bora-chip')].find(b => /Só resenhar/.test(b.textContent)).click(); });
   await A.evaluate(() => { [...document.querySelectorAll('.bora-modal .bora-chip')].find(b => /^2/.test(b.textContent)).click(); });
