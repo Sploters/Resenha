@@ -973,7 +973,8 @@ export const PC_VIS = { servers: 'Amigos e meus servidores', friends: 'Só amigo
 function pcActivityBlock() {
   const on = !!window.lcDesktop?.detectGame;
   const ctl = h('div.lk-ctl', h('div.lk-ctlh', 'Quem pode ver meu jogo do PC'), h('div.lk-seg', skeleton('rows', 1)));
-  const draw = (v) => ctl.lastChild.replaceChildren(seg(PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seus amigos veem o que você está jogando, inclusive no Ativo agora.' : 'Pronto.'); } }));
+  // "Ninguém" de antes de 24/11/2026: continua escondido de todos até a pessoa escolher outra (server/activity.js)
+  const draw = (v) => ctl.lastChild.replaceChildren(seg(v === 'legacy_off' ? { ...PC_VIS, legacy_off: 'Ninguém (opção antiga)' } : PC_VIS, v, async (nv) => { const r = await tryApi('PATCH', '/activity/pc', { visibility: nv }); if (r) { S.pcActivity = r.visibility; toast(nv === 'off' ? 'Seus amigos veem o que você está jogando, inclusive no Ativo agora.' : 'Pronto.'); } if (v === 'legacy_off') draw(r ? r.visibility : v); }));
   tryApi('GET', '/activity/pc').then(r => { if (r) { S.pcActivity = r.visibility; draw(r.visibility); } });
   return h('div.lk-card',
     h('div.lk-top', logo('pc', 'screen'), h('div.lk-name', h('b', 'Jogo aberto no PC'), h('small', 'App desktop do Resenha')), on ? pill('ok', 'Ativo neste PC') : pill('off', 'Só no app desktop')),

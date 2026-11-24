@@ -1,5 +1,5 @@
-// Novidades: aparece uma vez para quem já usava o app (vale em todos os aparelhos), não aparece para conta nova,
-// "Experimentar" leva ao recurso, fica em Configurações -> Novidades e no menu do perfil.
+// Novidades: não abrem sozinhas (nem para quem já usava, nem para conta nova); ficam em Configurações -> Novidades e no
+// menu do perfil, e "Experimentar" leva ao recurso.
 // Uso: node scripts/news-test.mjs  (SHOTS=1 salva capturas em .testshots/news)
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -25,27 +25,7 @@ try {
   const a = await call('', 'POST', '/register', { username: 'alice', password: 'Teste.senha-123' });
   await call(a.token, 'PUT', '/me/settings', { settings: { theme: 'dark', noiseMode: 'standard' } });
   const A = await page(a.token);
-  ok(await newsOpen(A), 'quem já usava vê a janela de Novidades ao abrir');
-  // compara com a entrada mais nova do próprio app (o teste não depende do texto de cada atualização)
-  const info = await A.evaluate(async () => {
-    const n = (await window.__lc.import('changelog.js')).NEWS[0];
-    return { items: document.querySelectorAll('.modal .newsitem').length, tries: document.querySelectorAll('.modal .newsitem .btn').length, first: document.querySelector('.modal .newsitem b')?.textContent,
-      want: { items: n.items.length, tries: n.items.filter(i => i.try).length, first: n.items[0]?.t, title: n.title }, title: document.querySelector('.modal .mh h2')?.textContent };
-  });
-  ok(info.items === info.want.items && info.tries === info.want.tries && info.first === info.want.first && info.title.includes(info.want.title), 'mostra as novidades da atualização mais nova, com os botões "Experimentar"', info);
-  if (process.env.SHOTS) { await sleep(900); await A.screenshot({ path: `${OUT}/01-janela.png` }); }
-  if (info.tries) {
-    const where = () => JSON.stringify(window.__lc.S.view) + !!document.querySelector('#settings') + !!document.querySelector('#layer .popout:not(.leaving)') + document.querySelectorAll('.modal').length + !!document.querySelector('.modal .mm'); // tela, Configurações, popup ou outra janela (ex.: Apagar minhas mensagens)
-    const before = await A.evaluate(where);
-    await A.evaluate(() => document.querySelector('.modal .newsitem .btn').click()); await sleep(900);
-    const after = await A.evaluate((w) => ({ modal: !!document.querySelector('.modal .newsitem'), moved: new Function('return ' + w)()() }), where.toString());
-    ok(!after.modal && after.moved !== before, '"Experimentar" fecha a janela e leva ao recurso', after);
-    await A.keyboard.press('Escape'); await sleep(300);
-  }
-  await sleep(2000); // gravar na conta
-  ok((await call(a.token, 'GET', '/me/settings')).settings?.newsSeen, 'visto fica gravado na conta');
-  const A2 = await page(a.token); // outro aparelho
-  ok(!(await newsOpen(A2)), 'não aparece de novo (nem em outro aparelho)');
+  ok(!(await newsOpen(A)), 'as Novidades não abrem sozinhas, nem para quem já usava');
   // conta nova: sem a janela
   const b = await call('', 'POST', '/register', { username: 'bruno', password: 'Teste.senha-123' });
   const B = await page(b.token);

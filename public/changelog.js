@@ -1,6 +1,6 @@
 // Novidades: o que mudou no mês, mostrado uma vez para cada pessoa (fica gravado na conta, vale em todos os aparelhos) e
 // guardado em Configurações -> Novidades.
-// UMA EDIÇÃO POR MÊS (id 'AAAA-MM'): a janela só abre quando chega a edição de um mês novo. Durante o mês, acrescente na
+// UMA EDIÇÃO POR MÊS (id 'AAAA-MM'). Não abre sozinha: fica em Configurações → Novidades e no menu do perfil. Durante o mês, acrescente na
 // edição do mês só o que a pessoa nota e usa (recurso novo, mudança de comportamento, algo de privacidade), em poucas
 // palavras; correções, ajustes de desempenho e detalhes NÃO entram. Mire em 8-12 itens por mês, agrupados por "sec".
 // "try" liga o botão "Experimentar" a uma ação registrada pelo app (setNewsActions, public/userbar.js newsActions).
@@ -15,7 +15,7 @@ export const NEWS = [
       { sec: 'Jogar com a turma', i: 'megaphone', t: 'Bora?', d: 'Chame a turma do servidor para jogar ou só resenhar, agora ou mais tarde, com o contador de quem topou ao vivo. Fica no "+" da barra dos servidores.', try: 'bora' },
       { sec: 'Jogar com a turma', i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores com conversa em cada anúncio, "A fim de jogar" que forma o grupo sozinho e as suas Conquistas.', try: 'lfg' },
       { sec: 'Jogar com a turma', i: 'users', t: 'Ativo agora', d: 'O que cada amigo está jogando, quem está em chamada e o que você perdeu. O jogo aberto no PC aparece sem vincular conta.' },
-      { sec: 'Jogar com a turma', i: 'eye', t: 'Seu jogo do PC aparece para os amigos', d: 'A opção "Ninguém" virou "Só amigos (sem aparecer para mim)": seus amigos veem o que você joga, inclusive no Ativo agora. Para esconder de todos, use o status Invisível.', try: 'connections' },
+      { sec: 'Jogar com a turma', i: 'eye', t: 'Seu jogo do PC aparece para os amigos', d: 'Nova opção "Só amigos (sem aparecer para mim)": seus amigos veem o que você joga, inclusive no Ativo agora. Quem já estava em "Ninguém" continua escondido até mudar; para esconder de todos, use o status Invisível.', try: 'connections' },
       { sec: 'Jogar com a turma', i: 'screen', t: 'Jogar junto', d: 'Na sua transmissão, até 3 amigos entram como jogador 2, 3 e 4, com controle, teclado ou mouse que você libera.' },
       { sec: 'Transmissão e clipes', i: 'screen', t: 'Transmissão de jogos', d: 'Pela placa de vídeo até 120 FPS, só a janela e o áudio do jogo. O Modo leve deixa mais folga para o jogo.', try: 'stream' },
       { sec: 'Transmissão e clipes', i: 'clip', t: 'Clipes', d: 'F8 salva os últimos segundos (até 2 min, 60 ou 120 FPS), no seu aparelho. Corte, mande para o servidor e veja os Clipes da semana.', try: 'clipsettings' },
@@ -53,11 +53,9 @@ export function openNews(id = latest()) {
 }
 export function markSeen() { if (S.prefs.newsSeen !== latest()) { S.prefs.newsSeen = latest(); savePrefs(); } }
 
-// chamado depois que as preferências da conta chegam: mostra uma vez se há novidade que a pessoa ainda não viu
-export function maybeShowNews() {
-  const last = latest(); if (!last || S.prefs.newsSeen === last) return;
-  setTimeout(() => { if (S.prefs.newsSeen !== last && !document.querySelector('.backdrop:not(.leaving)')) openNews(last); }, 1200); // depois de a tela montar
-}
+// chamado depois que as preferências da conta chegam: as Novidades não abrem mais sozinhas (ficam em Configurações →
+// Novidades e no menu do perfil)
+export function maybeShowNews() { }
 
 // página em Configurações
 export function newsPage() {

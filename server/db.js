@@ -157,6 +157,9 @@ if (!hadMentions) { // preenche com o histórico (menções diretas e respostas)
 // migrações que só podem rodar uma vez ficam marcadas em meta
 db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)');
 const once = (k, fn) => { if (!get('SELECT 1 x FROM meta WHERE k=?', k)) { fn(); run('INSERT INTO meta VALUES(?,?)', k, String(Date.now())); } };
+// jogo do PC: "Ninguém" ('off') virou "Só amigos (sem aparecer para mim)" em 24/11/2026. Quem já tinha escolhido "Ninguém"
+// continua escondido de todos ('legacy_off') até escolher outra opção (server/activity.js)
+once('pc-off-legacy-1', () => run("UPDATE users SET pc_activity='legacy_off' WHERE pc_activity='off'"));
 // avatares padrão renomeados para ficar na ordem certa (mapeado pelo conteúdo dos arquivos)
 once('avatars-rename-1', () => db.exec(`UPDATE users SET avatar = CASE avatar
   WHEN '/avatars/6.png' THEN '/avatars/1.png' WHEN '/avatars/9.png' THEN '/avatars/4.png'

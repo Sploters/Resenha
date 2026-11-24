@@ -83,5 +83,12 @@ const dota = A.weekFor('eu', { top: 9 }).played.find(p => p.user_id === 'beto' &
 ok(dota?.secs === 900, 'na semana, com nome só o trecho visível (15 min)', dota);
 ok(!A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'dota' && e.data?.priv), 'o trecho invisível não aparece com nome no feed');
 
+// 9) "Ninguém" de antes da mudança ('legacy_off', server/db.js): continua escondido de todos, partida privada
+run("UPDATE users SET pc_activity='legacy_off' WHERE id='beto'"); sent.length = 0;
+join('beto'); A.reportLocal('beto', { id: 'celeste', title: 'Celeste' });
+ok(sent.length && sent.every(e => e.to.length === 1 && e.to[0] === 'beto') && A.readyFor('eu').length === 0, '"Ninguém" antigo: só o próprio beto recebe; nada para o amigo', sent.map(e => e.to));
+min(30); A.reportLocal('beto', null); leave('beto');
+ok(stops('beto').at(-1).priv === 1 && !A.feedFor('eu').events.some(e => e.user_id === 'beto' && e.game.id === 'celeste'), 'e a partida fica privada, fora do feed do amigo');
+
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);
