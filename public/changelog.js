@@ -11,6 +11,7 @@ export const NEWS = [
       { i: 'megaphone', t: 'Bora? no "+"', d: 'O "+" da barra dos servidores agora pergunta: Bora? (chamar a turma) ou Adicionar um servidor. Os atalhos do servidor ficaram só com Eventos, Clipes, Arquivos e Wishlist.' },
       { i: 'check', t: 'Mesma ordem em todo lugar', d: 'Eventos, Clipes, Arquivos e Wishlist aparecem nessa ordem em todos os servidores, inclusive no menu do servidor com a lista de canais oculta.' },
       { i: 'bolt', t: 'Modo leve pesa menos ao transmitir', d: 'Transmitindo pelo modo normal com o Modo leve ligado, o app codifica uma versão só da imagem (eram três), sobrando mais processador para o jogo. As versões leves voltam sozinhas se alguém com internet fraca estiver assistindo.' },
+      { i: 'screen', t: 'Transmissão rápida desiste menos', d: 'Com o PC ocupado, o programa de transmissão pela placa de vídeo às vezes demorava a começar e o app já caía para o modo normal (que pesa no processador). Agora ele espera o programa começar, tenta outra porta antes de desistir e, se o modo rápido já funcionou antes, volta a tentar em 2 minutos em vez de 10.' },
       { i: 'eye', t: 'Contraste alto voltou', d: 'No tema Escuro novo, o Modo de contraste alto não mudava nada. Agora funciona de novo.' },
       { i: 'gamepad', t: '"Jogam aqui" com a rodinha', d: 'Passar os jogos para o lado agora é só rolar a rodinha do mouse em cima deles, sem segurar Alt.' },
     ],

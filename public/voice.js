@@ -41,6 +41,11 @@ export const SCREEN_PRESETS = {
 // transmissão pelo programa nativo do app desktop (placa de vídeo) a partir deste fps; e quanto esperar o servidor confirmar
 // que os pacotes dele estão chegando antes de voltar ao Chromium
 export const NATIVE_MIN_FPS = 60, NATIVE_LIVE_MS = 8000;
+// chegada dos primeiros pacotes da transmissão nativa no servidor (startNative): o programa já mandando há NATIVE_SENT_MS
+// sem nada chegar = UDP bloqueado; o programa vivo mas sem mandar nada (captura/codificador ainda abrindo, processador
+// apertado) espera até NATIVE_LIVE_MAX_MS. Bloqueado: tenta outra porta uma vez (NATIVE_UDP_TRIES) antes do Chromium;
+// depois não insiste por NATIVE_NOUDP_MS (só NATIVE_NOUDP_SHORT_MS se o nativo já chegou ao servidor nesta sessão)
+export const NATIVE_SENT_MS = 6000, NATIVE_LIVE_MAX_MS = 25000, NATIVE_UDP_TRIES = 1, NATIVE_NOUDP_MS = 10 * 60e3, NATIVE_NOUDP_SHORT_MS = 2 * 60e3;
 // reinício automático do programa nativo (nativeRestart): até 3 tentativas em 30 s, 1 s depois da falha
 // "quem fala" pelo nível dos pacotes (watch): limiar, folga e idade máxima do último pacote
 const SSRC_LOUD = .015, SSRC_HOLD_MS = 400, SSRC_FRESH_MS = 250;
@@ -1881,7 +1886,8 @@ export class Voice {
     if (!this._natCap[m]) this._natCap[m] = d.nativeCapable(m || undefined).catch((e) => ({ ok: false, reason: e.message }));
     return this._natCap[m];
   }
-  // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por 10 min
+  // _natNoUdp: o servidor não recebeu nada do programa (portas UDP da transmissão nativa fechadas): não tenta de novo por
+  // _natNoUdpMs (10 min; 2 min se o nativo já funcionou nesta sessão, então foi algo passageiro)
   // _natWhy: por que esta transmissão não saiu pelo programa nativo (telemetria da chamada, public/callqual.js NATIVE_WHY)
   async wantNative(o) {
     const mode = captureMode(this.prefs);
@@ -1891,8 +1897,9 @@ export class Voice {
     // Também quando a tela cheia exclusiva foi confirmada com a transmissão no ar (watchFse).
     const si = o.srcInfo || {}, game = this._fseNative || (si.type === 'window' && (si.game || si.fullscreen));
     const low = +o.fps < NATIVE_MIN_FPS;
-    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= 10 * 60e3 ? 'udp' : null;
+    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= (this._natNoUdpMs || NATIVE_NOUDP_MS) ? 'udp' : null;
     if (why) { this._natWhy = why; this._natWhyText = null; return false; }
+    this._natUdpTries = 0; // transmissão (ou qualidade) nova: a tentativa em outra porta vale de novo
     const c = await this.nativeCapable(mode);
     if (c.ok && low && !this._fseNative && !(+c.os > 0 && +c.os < 22000)) { this._natWhy = 'lowfps'; this._natWhyText = null; return false; } // Windows 11: o Chromium dá conta
     this._natWhy = c.ok ? null : nativeWhy(c); this._natWhyText = c.ok ? null : c.reason || null;
@@ -1948,20 +1955,35 @@ export class Voice {
       Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id), capture: res.capture || null, method: my.method || res.capture?.method || (this._capMode ? null : 'wgc'), overlap: my.overlap ?? !!res.capture?.overlap });
       // o programa manda por UDP (portas RTC_NATIVE_PORTS) e enviar nunca falha do lado de cá: se o servidor não recebe nada
       // (porta fechada no firewall/roteador/Docker), quem assiste veria tela preta até o servidor desistir (60 s). O servidor
-      // avisa quando os primeiros pacotes chegam (NATIVE_SCREEN_LIVE); sem esse aviso em 8 s, volta ao Chromium e não insiste.
-      if (!my.live) my.liveTimer = setTimeout(() => {
-        if (this.native !== my || my.live) return;
-        this._natNoUdp = Date.now();
-        this.nativeFallback('o servidor não recebeu o vídeo do app; as portas UDP da transmissão nativa podem estar fechadas');
-      }, NATIVE_LIVE_MS);
+      // avisa quando os primeiros pacotes chegam (NATIVE_SCREEN_LIVE). Antes: sem o aviso em 8 s, Chromium e 10 min sem
+      // tentar — mas num PC com o processador apertado o programa podia nem ter começado a mandar ainda (relato: caiu para o
+      // modo normal codificando no processador, e o jogo perdeu FPS). Agora o "stats" do programa diz se ele já está mandando
+      if (!my.live) { const t0 = Date.now(); my.liveTimer = setInterval(() => this.nativeLiveCheck(my, t0), 1000); }
       this.onUpdate();
     } catch (e) { if (this.native === my) this.nativeRestart(e.message); }
+  }
+  // sem o aviso de chegada ainda: espera, tenta outra porta ou volta ao Chromium (constantes NATIVE_* no topo)
+  nativeLiveCheck(my, t0) {
+    if (this.native !== my || my.live) return clearInterval(my.liveTimer);
+    const now = Date.now(), el = now - t0;
+    if (el < NATIVE_LIVE_MS) return;
+    // mandando há NATIVE_SENT_MS sem chegar nada; programa antigo (sem "stats"): o critério de antes (8 s)
+    const blocked = my.sentAt ? now - my.sentAt >= NATIVE_SENT_MS : !my.stats;
+    if (!blocked && el < NATIVE_LIVE_MAX_MS) return; // ainda abrindo a captura/o codificador: espera
+    clearInterval(my.liveTimer);
+    if (!blocked) return this.nativeRestart(`o programa de transmissão não mandou vídeo em ${Math.round(el / 1000)} s`);
+    if ((this._natUdpTries || 0) < NATIVE_UDP_TRIES) { // outra porta do intervalo (o roteador pode ter só parte aberta)
+      this._natUdpTries = (this._natUdpTries || 0) + 1;
+      return this.nativeRestart('o servidor não recebeu o vídeo do app; tentando outra porta UDP');
+    }
+    this._natNoUdp = now; this._natNoUdpMs = this._natWorked ? NATIVE_NOUDP_SHORT_MS : NATIVE_NOUDP_MS;
+    this.nativeFallback('o servidor não recebeu o vídeo do app: portas UDP da transmissão nativa fechadas no servidor, ou o firewall/antivírus deste PC bloqueou o programa');
   }
   // o servidor recebeu os primeiros pacotes do programa nativo (pode chegar antes de nativeStart responder)
   onNativeLive(d) {
     const id = String(d?.producer_id || ''); if (!id) return;
     this._natLive.add(id); if (this._natLive.size > 20) this._natLive.delete(this._natLive.values().next().value);
-    const n = this.native; if (n && n.producerId === id) { n.live = true; clearTimeout(n.liveTimer); }
+    const n = this.native; if (n && n.producerId === id) { n.live = true; clearInterval(n.liveTimer); this._natWorked = true; this._natNoUdp = 0; }
   }
   // histórico das trocas de método e das decisões do seletor (painel de diagnóstico): só desta transmissão, nada vai para o servidor
   capLog(ev) {
@@ -1977,7 +1999,9 @@ export class Voice {
       if (ev.t === 'method') { this.native.method = ev.m; this.native.overlap = !!ev.overlap; this.onUpdate(); }
       return;
     }
-    const n = this.native; if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
+    const n = this.native;
+    if (n && ev.t === 'stats' && !n.sentAt && (ev.kbps > 0 || ev.fps > 0)) n.sentAt = Date.now(); // o programa já está mandando vídeo
+    if (!n || n.pending && ev.t === 'stats') { if (n && ev.t === 'stats') n.stats = ev; return; }
     if (ev.t === 'stats') {
       n.busy0 ??= ev.busy; n.stats = ev; if (n.prevBusy != null && ev.busy > n.prevBusy) n.busy0 = n.prevBusy; n.prevBusy = ev.busy;
       const c = this.capStats?.native; if (c) { c.frames += ev.cap || 0; c.sent += ev.fps || 0; c.secs++; }
@@ -2031,7 +2055,7 @@ export class Voice {
   }
   stopNative() {
     const n = this.native; if (!n) return;
-    this.native = null; clearTimeout(n.liveTimer);
+    this.native = null; clearInterval(n.liveTimer);
     window.lcDesktop?.nativeStop?.();
     // ainda preparando: a sessão é fechada quando a resposta chegar (startNative); senão fecha esta
     if (!n.pending) this.sfuReq('native_stop', { producer_id: n.producerId }).catch(() => { });

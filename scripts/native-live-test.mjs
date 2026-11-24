@@ -1,7 +1,7 @@
 // Transmissão a 120 FPS pelo botão normal (app desktop simulado): o vídeo vai pelo programa nativo (native/lc-stream,
 // compilado para Linux, com ffmpeg no lugar da captura + placa), o áudio e a prévia pelo Chromium. Quem assiste usa o palco de sempre.
 // Também: troca 120 -> 30 (Chromium) -> 120 e 120 -> 60 (nativo) ao vivo, queda do programa (volta ao modo normal sem
-// derrubar a transmissão), parar, e porta UDP fechada (o servidor não recebe nada: volta ao Chromium em ~8 s e não insiste).
+// derrubar a transmissão), parar, e porta UDP fechada (o programa manda e o servidor não recebe: tenta outra porta, depois volta ao Chromium e não insiste).
 // Uso: node scripts/native-live-test.mjs   (SHOTS=1 salva capturas em .testshots/native)
 import puppeteer from 'puppeteer-core';
 import { spawn, execFileSync } from 'node:child_process';
@@ -204,11 +204,28 @@ try {
   // porta UDP fechada: o programa "manda" mas o servidor não recebe; sem o aviso de chegada, volta ao Chromium sozinho
   const nh = helpers.length;
   await A.evaluate(() => { window.__natBadPort = true; return window.__lc.voice.toggleScreen({ res: 720, fps: 60, audio: true, hint: 'motion' }); });
-  await A.waitForFunction(() => window.__lc.voice.screen && !window.__lc.voice.native && window.__lc.voice.sfu.producers.screen, { timeout: 20000 }).catch(() => { });
+  await A.waitForFunction(() => window.__lc.voice.screen && !window.__lc.voice.native && window.__lc.voice.sfu.producers.screen, { timeout: 40000 }).catch(() => { });
   const su = await A.evaluate(() => ({ native: !!window.__lc.voice.native, prod: Object.keys(window.__lc.voice.sfu.producers), toast: document.getElementById('toast')?.textContent || '' }));
-  ok(helpers.length === nh + 1 && !su.native && su.prod.includes('screen') && /portas UDP/.test(su.toast), 'sem pacotes no servidor em 8 s: volta ao Chromium com aviso das portas UDP', { ...su, tried: helpers.length - nh });
+  ok(helpers.length === nh + 2 && !su.native && su.prod.includes('screen') && /portas UDP/.test(su.toast), 'programa mandando e nada chegando: tenta outra porta e só então volta ao Chromium com aviso das portas UDP', { ...su, tried: helpers.length - nh });
   await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 120 })); await sleep(1500);
-  ok(helpers.length === nh + 1 && await A.evaluate(() => !window.__lc.voice.native), 'e não tenta o programa de novo logo em seguida', helpers.length - nh);
+  ok(helpers.length === nh + 2 && await A.evaluate(() => !window.__lc.voice.native), 'e não tenta o programa de novo logo em seguida', helpers.length - nh);
+  ok(await A.evaluate(() => window.__lc.voice._natNoUdpMs === 2 * 60e3), 'o nativo já tinha funcionado nesta sessão: a pausa é curta (2 min, não 10)');
+  // decisões do vigia da chegada (nativeLiveCheck), com o relógio e as ações trocados
+  const lc = await A.evaluate(() => {
+    const v = window.__lc.voice, real = { r: v.nativeRestart, f: v.nativeFallback, now: Date.now }, out = {};
+    let did = null; v.nativeRestart = (w) => { did = 'restart: ' + w; }; v.nativeFallback = (w) => { did = 'fallback: ' + w; };
+    const run = (name, my, el, tries = 0) => { did = null; v._natUdpTries = tries; v.native = my; const t0 = 1e6; Date.now = () => t0 + el; v.nativeLiveCheck(my, t0); out[name] = did; };
+    run('abrindo aos 12 s', { stats: { kbps: 0, fps: 0 } }, 12000);
+    run('abrindo aos 26 s', { stats: { kbps: 0, fps: 0 } }, 26000);
+    run('começou a mandar há 2 s', { stats: { kbps: 900 }, sentAt: 1e6 + 10000 }, 12000);
+    run('mandando há 6 s, 1ª vez', { stats: { kbps: 900 }, sentAt: 1e6 + 2000 }, 8000);
+    run('mandando há 6 s, já trocou de porta', { stats: { kbps: 900 }, sentAt: 1e6 + 2000 }, 8000, 1);
+    run('programa antigo sem stats', {}, 8000, 1);
+    Date.now = real.now; v.nativeRestart = real.r; v.nativeFallback = real.f; v.native = null; v._natUdpTries = 0; v._natNoUdp = 0;
+    return out; });
+  ok(lc['abrindo aos 12 s'] === null && lc['começou a mandar há 2 s'] === null, 'programa ainda abrindo ou que acabou de começar a mandar: espera (não cai para o Chromium aos 8 s)', lc);
+  ok(/^restart: .*não mandou vídeo/.test(lc['abrindo aos 26 s'] || ''), 'programa vivo sem mandar nada por 25 s: reinicia o programa (não culpa o UDP)', lc['abrindo aos 26 s']);
+  ok(/^restart: .*outra porta/.test(lc['mandando há 6 s, 1ª vez'] || '') && /^fallback: .*portas UDP/.test(lc['mandando há 6 s, já trocou de porta'] || '') && /^fallback/.test(lc['programa antigo sem stats'] || ''), 'mandando sem chegar: outra porta, depois Chromium; app antigo sem "stats": como antes', lc);
   await A.evaluate(() => window.__lc.voice.toggleScreen()); await sleep(500);
   void serverNative;
 } catch (e) { console.log('ERRO', e); fails++; }
