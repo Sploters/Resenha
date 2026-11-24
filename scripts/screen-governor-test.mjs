@@ -115,6 +115,11 @@ try {
   s = await state(A);
   ok(s && s.level === 0 && !s.off && s.lv.f === 30 && s.enc.every(e => e.active !== false && e.fps === 30), 'trocar a qualidade recomeça o controle (1080p30, 3 camadas)', s);
 
+  // 7b) modo leve: o controle já começa sem as camadas pequenas (menos codificação no processador)
+  await A.evaluate(() => { window.__lc.voice.prefs.lightMode = true; window.__lc.voice.govStart(); });
+  ok(await until(A, () => { const v = window.__lc.voice, g = v.gov, e = v.sfu.producers.screen.rtpSender.getParameters().encodings; return g?.layersOff && !g.applying && e[0].active === false && e[1].active === false && e[2].active !== false; }, null, 8000), 'modo leve: começa só com a camada cheia');
+  await A.evaluate(() => { window.__lc.voice.prefs.lightMode = false; });
+
   // 8) "qualidade automática" ligada (modo antigo, que muda a captura): o controle não roda
   await A.evaluate(() => { window.__lc.voice.prefs.autoQuality = true; window.__lc.voice.govStart(); });
   ok(await A.evaluate(() => window.__lc.voice.gov === null), 'com a qualidade automática antiga ligada, o controle fica desligado');

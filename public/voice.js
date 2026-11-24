@@ -1049,6 +1049,12 @@ export class Voice {
     if (!this.screen || this.native || !this.sfu?.producers.screen || this.prefs?.autoQuality) return;
     const g = this.gov = { ladder: this.govLadder(), level: 0, layersOff: false, bad: 0, good: 0, upWait: 15, upAt: 0, cool: 0, steps: [], note: '' };
     this._gt = setInterval(() => this.govTick(g).catch(() => { }), GOV_TICK);
+    // modo leve: começa sem as camadas pequenas do simulcast (são mais 2 codificações da tela; ~30% a mais de trabalho,
+    // tudo no processador quando não há H.264 na placa de vídeo). Sem isso elas só saíam com o codificador já no limite,
+    // e num PC com o processador apertado (jogo + aquecimento) quem perdia FPS era o jogo. Voltam sozinhas quando um
+    // espectador com internet fraca precisa delas (govTick consulta 'screen_viewers' a cada GOV_VIEWERS_MS)
+    if (this.prefs?.lightMode && (this.sfu.producers.screen.rtpSender?.getParameters().encodings?.length || 0) > 1)
+      this.govApply(g, { layersOff: true }, 'Modo leve: camadas leves desligadas (menos trabalho para o processador).').catch(() => { });
   }
   async govTick(g) {
     if (this.gov !== g || !this.screen || this.native) { clearInterval(this._gt); return; }
