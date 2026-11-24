@@ -78,11 +78,11 @@ try {
   await A.evaluate(() => document.querySelector('.vchead button[title="Fechar chat"]')?.click()); await sleep(500); // Ana: palco largo (Beto fica com o chat aberto: layout estreito)
   // ---------- iniciar pelo lançador de atividades ----------
   console.log('— iniciar');
-  for (let i = 0; i < 4 && !(await A.$('.actpop .act-card')); i++) { await A.click('.roundbtn.actbtn'); await A.waitForSelector('.actpop .act-card', { timeout: 2000 }).catch(() => { }); }
-  if (!(await A.$('.actpop .act-card'))) await shot(A, 'falha-lancador');
-  ok(await A.$$eval('.actpop .act-card b', els => els.map(e => e.textContent)).then(t => t[0].startsWith('Watch Together') && t.some(x => /Lousa/.test(x))), 'lançador de atividades lista Watch Together, lousa, código…');
+  for (let i = 0; i < 4 && !(await A.$('.actpop .act-tile')); i++) { await A.click('.roundbtn.actbtn'); await A.waitForSelector('.actpop .act-tile', { timeout: 2000 }).catch(() => { }); }
+  if (!(await A.$('.actpop .act-tile'))) await shot(A, 'falha-lancador');
+  ok(await A.$$eval('.actpop .act-tile .act-tname', els => els.map(e => e.textContent)).then(t => t[0].startsWith('Watch Together') && t.some(x => /Lousa/.test(x))), 'lançador de atividades lista Watch Together, lousa, código…');
   await shot(A, '01-lancador');
-  await A.click('.actpop .act-card');
+  await A.click('.actpop .act-tile');
   await A.waitForSelector('#wt:not(.hidden) .wt-empty'); await sleep(400);
   let w = await W(A);
   ok(w.joined && w.sess.host === (await A.evaluate(() => window.__lc.S.me.id)) && w.sess.mode === 'hosting', 'Watch Together aberto: Ana é a anfitriã, modo Hosting');

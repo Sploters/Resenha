@@ -75,7 +75,7 @@ try {
   const A = pages.ana; await A.bringToFront();
   // o "O que jogar hoje?" fica no menu Atividades da barra (o botão solto repetido saiu)
   const act = await A.waitForSelector('button.roundbtn[data-act-btn]'); await act.click();
-  const btn = await A.waitForFunction(() => [...document.querySelectorAll('.actpop .act-card')].find(c => /O que jogar hoje\?/.test(c.textContent)));
+  const btn = await A.waitForFunction(() => [...document.querySelectorAll('.actpop .act-tile')].find(c => /O que jogar hoje\?/.test(c.textContent)));
   ok(!!btn, '"O que jogar hoje?" no menu Atividades da sala de voz');
   await btn.click(); await A.waitForSelector('.gnmodal .gn-tile'); await sleep(1000);
   const ui = await A.evaluate(() => ({ people: [...document.querySelectorAll('.gn-person')].map(p => p.innerText.replace(/\n+/g, ' ')), tabs: [...document.querySelectorAll('.gn-bar .ctab')].map(t => t.innerText.replace(/\n+/g, ' ')),

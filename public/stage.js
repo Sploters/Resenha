@@ -365,7 +365,7 @@ export function renderVoiceUI(speakOnly) {
       watchLauncherEntry(),
       { icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#3ba55d', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
       { icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
-      { icon: 'gamepad', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#f0b232', fn: () => openGameNight(voice.channelId) },
+      { icon: 'gamepad', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#f0b232', cover: '#7c5cff', fn: () => openGameNight(voice.channelId) },
     ]) }, icon('rocket', 24)),
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),

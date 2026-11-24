@@ -89,7 +89,7 @@ try {
   // quem chega na sala depois vê o quadro e abre pelo lançador
   await enter(C); await sleep(2500);
   ok(/Entrar no Watch Together/.test((await vis(C)).tile || ''), 'quem entra na chamada depois vê o quadro do Watch Together');
-  await C.click('.roundbtn.actbtn'); await C.waitForSelector('.actpop .act-card'); await C.click('.actpop .act-card'); await sleep(1500);
+  await C.click('.roundbtn.actbtn'); await C.waitForSelector('.actpop .act-tile'); await C.click('.actpop .act-tile'); await sleep(1500);
   ok((await vis(C)).wt && (await W(C)).joined, 'abrir pelo lançador entra e mostra o Watch Together');
   // 1) barra: clicar em 60 s
   const samples = await A.evaluate(async () => {

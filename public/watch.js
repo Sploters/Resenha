@@ -835,13 +835,32 @@ export function watchVoiceChanged() {
 export function activityLauncher(anchor, entries) {
   if (document.querySelector('.actpop:not(.leaving)')) return closeFloating();
   closeFloating();
-  const card = (e) => h('button.act-card' + (e.on ? '.on' : ''), { onclick: () => { closeFloating(); e.fn(); }, style: e.color ? { '--acc': e.color } : null },
+  const list = entries.filter(Boolean);
+  // abre como no Discord: "Atividades sugeridas" com a fileira de capas; "Ver todas" troca pela lista com a descrição de cada uma
+  const run = (e) => { closeFloating(); e.fn(); };
+  const tile = (e) => h('button.act-tile' + (e.on ? '.on' : ''), { type: 'button', title: e.title + ' · ' + e.desc, 'aria-label': e.title + (e.on ? ' (ativo)' : ''), onclick: () => run(e), style: { '--acc': e.cover || e.color || 'var(--brand)' } },
+    h('span.act-cover', h('span.act-cover-ic', icon(e.icon, 30)), e.on ? h('span.act-tbadge.on', 'Ativo') : e.badge && h('span.act-tbadge', e.badge)),
+    h('span.act-tname', e.title));
+  const card = (e) => h('button.act-card' + (e.on ? '.on' : ''), { type: 'button', onclick: () => run(e), style: e.cover || e.color ? { '--acc': e.cover || e.color } : null },
     h('span.act-ic', icon(e.icon, 26)), h('div', h('b', e.title, e.badge && h('span.act-badge', e.badge)), h('small', e.desc)), e.on && h('span.act-on', 'Ativo'));
-  const el = h('div.popout.actpop', h('div.act-head', h('b', 'Atividades'), h('small', 'Para fazer junto com quem está na chamada')), h('div.act-list', entries.filter(Boolean).map(card)));
+  const el = h('div.popout.actpop');
+  const show = (all) => {
+    el.classList.toggle('all', all);
+    el.replaceChildren(...(all
+      ? [h('div.act-title', h('button.act-back', { type: 'button', onclick: () => show(false) }, icon('chevl', 14), h('span', 'Atividades')), h('small.act-sub', 'Para fazer junto com quem está na chamada')),
+        h('div.act-list', list.map(card))]
+      : [h('div.act-title', h('span.act-tl', icon('sparkle', 20), h('span', 'Atividades sugeridas')),
+          h('button.act-all', { type: 'button', onclick: () => show(true) }, h('span', 'Ver todas'), icon('chevr', 12))),
+        h('div.act-tiles', list.map(tile))]));
+    place();
+  };
+  const place = () => {
+    const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w.width / 2, innerWidth - w.width - 8)) + 'px';
+    el.style.top = Math.max(8, r.top - w.height - 10) + 'px';
+  };
   document.getElementById('layer').append(el);
-  const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
-  el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w.width / 2, innerWidth - w.width - 8)) + 'px';
-  el.style.top = Math.max(8, r.top - w.height - 10) + 'px';
+  show(false);
   return el;
 }
 export function watchLauncherEntry() {
