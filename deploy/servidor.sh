@@ -28,7 +28,7 @@ hash_de() { (cd "$HOME/resenha" && find "$@" -type f 2>/dev/null | LC_ALL=C sort
 # ~/resenha-voz.env (opcional, fora do repositório): variáveis da voz, como TURN_URL e TURN_SECRET (docs/TURN.md). Só valem
 # com o container novo, então mudar o arquivo também conta como "a voz mudou" (sem o arquivo o hash fica igual ao de antes)
 hash_voz() {
-  H=$(hash_de server/voz.js server/sfu.js package.json package-lock.json Dockerfile)
+  H=$(hash_de server/voz.js server/sfu.js server/ipv6watch.js package.json package-lock.json Dockerfile)
   if [ -f "$HOME/resenha-voz.env" ]; then echo "$H $(sha1sum < "$HOME/resenha-voz.env")" | sha1sum | cut -c1-40; else echo "$H"; fi
 }
 # o resto do servidor (o app reinicia sozinho dentro do container)
@@ -81,8 +81,17 @@ trocar_container() { # $1 = hash da voz, $2 = hash do app
   # BACKUPS_MANTER (20) mais novas; as automáticas diárias ficam em ~/resenha-data/backups (server/backup.js)
   backup_parado
   docker rm -f resenha >/dev/null 2>&1 || true
+  # IPv6 público (a internet de casa tem CGNAT no IPv4): o container do Resenha não enxerga o IPv6 do host, então um
+  # container pequeno na rede do host grava o endereço em ~/resenha-data/ipv6 a cada minuto (server/ipv6watch.js) e a voz
+  # o anuncia na porta 40030 (server/sfu.js). Sobe antes, para o arquivo já existir quando a voz abrir
+  docker rm -f resenha-ipv6 >/dev/null 2>&1 || true
+  docker run -d --name resenha-ipv6 --restart=always --network host --no-healthcheck \
+    -v "$HOME/resenha-data:/data" resenha node server/ipv6watch.js >/dev/null
+  sleep 2
+  echo "IPv6 público: $(cat "$HOME/resenha-data/ipv6" 2>/dev/null || echo 'nenhum')"
   docker run -d --name resenha --restart=always \
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \
+    -p 40030:40030/udp -p 40030:40030/tcp \
     -v "$HOME/resenha-data:/data" -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP $COOKIES $STEAM $VOZ resenha >/dev/null
   echo "$1" > "$EST/rodando-voz"; echo "$2" > "$EST/rodando-app"; rm -f "$EST/rodando" "$EST/pendente"
   sleep 4

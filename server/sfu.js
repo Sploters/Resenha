@@ -2,6 +2,8 @@
 // Se o mediasoup não carregar (ou RTC=0), o gateway cai para a malha P2P antiga.
 import os from 'node:os';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const PORT = Number(process.env.RTC_PORT || 40000);
 const SOURCES = ['mic', 'cam', 'screen', 'screenaudio'];
@@ -51,8 +53,29 @@ function rampFloor(t) {
 }
 const rooms = new Map(); // channelId -> { router, peers: Map<userId, Peer> }
 
-// IPs anunciados: RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN)
+// IPv6 público: com CGNAT o IPv4 de casa não recebe conexões, mas o IPv6 de cada aparelho é público. Anunciado além do
+// IP da VPN, quem tem IPv6 entra na voz sem VPN (quem tem VPN continua pela VPN; o navegador usa o caminho que funcionar).
+// Numa porta própria (RTC_IP6_PORT, padrão 40030; workers extras +1, +2…): um socket anuncia um endereço só.
+// O endereço: RTC_ANNOUNCED_IP6 (fixo) ou o arquivo <DATA_DIR>/ipv6, que o servidor (host) atualiza (deploy/ipv6.sh),
+// porque o container não enxerga o IPv6 do host e a operadora troca o prefixo de vez em quando. Arquivo mudou: os workers
+// são recriados com o endereço novo (as chamadas voltam sozinhas em ~2 s, como na queda de um worker).
+// RTC_IP6_LISTEN: onde escutar (padrão 0.0.0.0: no Docker sem IPv6, o docker-proxy entrega o IPv6 do host ao container).
+const IP6_PORT = Number(process.env.RTC_IP6_PORT || 40030);
+const IP6_FILE = process.env.RTC_IP6_FILE || path.join(process.env.DATA_DIR || 'data', 'ipv6');
+const globalV6 = (a) => /^[23][0-9a-f]{0,3}:[0-9a-f:]+$/i.test(a) && !a.includes(':::'); // 2000::/3 (público)
+function readIp6() {
+  if (process.env.RTC_ANNOUNCED_IP6) return process.env.RTC_ANNOUNCED_IP6.trim();
+  try { const a = fs.readFileSync(IP6_FILE, 'utf8').trim().toLowerCase(); return globalV6(a) ? a : null; } catch { return null; }
+}
+let ip6 = readIp6();
+const ip6Port = (port) => (port === PORT ? IP6_PORT : IP6_PORT + (port - EXTRA_PORT + 1));
+// IPs anunciados: RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN); e o IPv6 público
 function listenInfos(port) {
+  const out = listenInfos4(port);
+  if (ip6) for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip: process.env.RTC_IP6_LISTEN || '0.0.0.0', announcedAddress: ip6, port: ip6Port(port) });
+  return out;
+}
+function listenInfos4(port) {
   const out = [];
   if (process.env.RTC_ANNOUNCED_IP) {
     // RTC_LISTEN_IP: escutar só numa interface (padrão: todas). O scripts/voice-network-test.mjs usa para pôr um relé com
@@ -84,7 +107,20 @@ export async function startSfu() {
     }
   }
   if (workers.length > 1) console.log(`  SFU: ${workers.length} workers (portas ${workers.map(w => w.port).join(', ')})`);
+  if (ip6) console.log(`  SFU: IPv6 público ${ip6}, porta ${IP6_PORT} UDP/TCP`);
+  watchIp6();
   return true;
+}
+// o arquivo do IPv6 mudou (prefixo novo da operadora): recria os workers para anunciar o endereço novo
+function watchIp6() {
+  if (process.env.RTC_ANNOUNCED_IP6) return;
+  setInterval(() => {
+    const now = readIp6();
+    if (now === ip6) return;
+    note('ipv6_changed', `IPv6 público mudou (${ip6 || 'nenhum'} → ${now || 'nenhum'}): recriando os workers`);
+    ip6 = now;
+    for (const w of workers) if (!w.dead) { try { process.kill(w.worker.pid, 'SIGKILL'); } catch { } }
+  }, Number(process.env.RTC_IP6_CHECK_MS) || 60000).unref?.();
 }
 async function openWorker(port, prev = null) {
   let worker = null;

@@ -102,7 +102,7 @@ function openPingChart(anchor) {
     const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
     if (noMedia) tips.push(['bad', hasTurn
       ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando a porta do TURN (3478), ou o TURN está fora do ar. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
-      : 'A voz não conectou: o app fala com o servidor pelo site, mas a porta da voz (40000 UDP/TCP) não respondeu. Se você abriu pelo endereço público (túnel), a voz só chega pela VPN (Tailscale) ligada neste aparelho, ou com um servidor TURN configurado.']);
+      : 'A voz não conectou: o app fala com o servidor pelo site, mas a voz vai direto ao servidor e não chegou. Fora da VPN (Tailscale), ela só chega se a sua internet tiver IPv6; sem IPv6, ligue a VPN neste aparelho.']);
     if (ci.proto === 'tcp') tips.push(['bad', 'A conexão de voz está indo por TCP: o UDP parece bloqueado na sua rede (ou na VPN). TCP atrasa a voz quando há qualquer perda. Peça para liberar a porta 40000/UDP do servidor.']);
     if (loss > .02) tips.push(['bad', `Perda de pacotes de ${(loss * 100).toFixed(1)}%: a voz pode picotar. Wi-Fi fraco ou rede congestionada são as causas mais comuns; cabo de rede ajuda muito.`]);
     if (spread > 80 || (ci.jitterMs ?? 0) > 30) tips.push(['mid', 'Ping instável (variando muito): costuma ser Wi-Fi, download pesado na mesma rede ou a VPN passando por um relay em vez de ligar direto.']);

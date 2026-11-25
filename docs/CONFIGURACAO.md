@@ -31,6 +31,8 @@ usadas; senhas antigas continuam valendo. Teste: `node scripts/account-security-
 | `RTC_PORT` | Porta da voz (padrão 40000, UDP+TCP — libere no firewall). |
 | `RTC_IPS` | IPs onde escutar; padrão: todos os IPv4 das interfaces, então suba a VPN **antes** do servidor. |
 | `RTC_ANNOUNCED_IP` | Em Docker: o IP da VPN do host. |
+| `RTC_IP6_PORT` | Porta da voz por IPv6 público (padrão 40030, UDP+TCP; workers extras +1, +2…). Para quem está fora da VPN quando a internet do servidor tem CGNAT no IPv4. |
+| `RTC_ANNOUNCED_IP6` / `RTC_IP6_FILE` | IPv6 público anunciado: fixo, ou lido do arquivo (padrão `<DATA_DIR>/ipv6`, que o container `resenha-ipv6` mantém atualizado; ver `server/ipv6watch.js`). Sem os dois, nada de IPv6. |
 | `RTC=0` | Desliga o SFU e volta à malha P2P (boa até ~6-8 pessoas por sala). |
 | `RTC_NATIVE_PORTS` | Padrão `40001-40010` (UDP): transmissão a 60 e 120 FPS pela placa de vídeo no app desktop no Windows 11 (escolha 60 ou 120 fps em "Transmitir tela"; sem as portas o app volta sozinho ao modo normal; ver [TRANSMISSAO-120FPS.md](TRANSMISSAO-120FPS.md)). |
 | `SFU_WORKERS` | Quantos workers do mediasoup (cada um é um processo, 1 núcleo; cada sala fica inteira num worker). Número ou `auto` (núcleos, até 4); padrão 1. |
