@@ -165,7 +165,7 @@ export function guildMenu(e, g) {
     isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
     (can(g.id, PERM.MANAGE_GUILD) || can(g.id, PERM.VIEW_MSGLOG)) && { label: 'Registro de auditoria', fn: () => auditModal(g.id) },
   ].filter(Boolean);
-  menu(e, [
+  return menu(e, [
     canInvite(g) && { label: 'Convidar pessoas', fn: () => inviteModal(g) },
     { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { label: 'Procurar jogadores neste servidor', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },

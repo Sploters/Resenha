@@ -443,6 +443,7 @@ export function menu(e, items, opts = {}) {
   }));
   const root = build(items, 0); place(root, e.clientX, e.clientY);
   if (menuHooks.length) { menuHooks.forEach(f => { try { f('open', e); } catch { } }); whenGone(root, () => { if (!picked) menuHooks.forEach(f => { try { f('abandoned', e); } catch { } }); }); }
+  return root; // quem abriu pode saber quando o menu fechou (ex.: a seta do nome do servidor, side.js)
 }
 export function popout(anchor, node, side = 'right') {
   closeFloating();

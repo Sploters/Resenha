@@ -235,6 +235,17 @@
 :root:not(.classic) #side-head .srv-cbtn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 :root:not(.classic) #side-head .srv-cbtn .icon { fill: currentColor; }
 :root:not(.classic) #side-head.srv-head .srv-name > .sh-btn { display: none; } /* o convite foi para a capa */
+/* nome do servidor como no Discord: a linha inteira é o botão, nome à esquerda e a seta na ponta direita */
+:root:not(.classic) #side-head.srv-head .srv-name { padding: 0 8px; }
+:root:not(.classic) #side-head.srv-head .gd { flex: 1; margin: 0; height: 36px; padding: 0 8px 0 10px; gap: var(--sp-2); border-radius: 8px; font-size: 16px; font-weight: 600; color: var(--header); transition: background .12s; }
+:root:not(.classic) #side-head.srv-head .gd-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root:not(.classic) #side-head.srv-head .gd-chev { flex: none; display: grid; place-items: center; width: 20px; height: 20px; color: var(--text-muted); transition: transform .18s cubic-bezier(.3, .8, .4, 1), color .12s; }
+:root:not(.classic) #side-head.srv-head .gd-chev .icon { fill: currentColor; opacity: 1; }
+:root:not(.classic) #side-head.srv-head .gd:hover, :root:not(.classic) #side-head.srv-head .gd.open { background: var(--bg-mod-hover); }
+:root:not(.classic) #side-head.srv-head .gd:hover .gd-chev, :root:not(.classic) #side-head.srv-head .gd.open .gd-chev { color: var(--header); }
+:root:not(.classic) #side-head.srv-head .gd.open .gd-chev { transform: rotate(180deg); }
+:root:not(.classic) #side-head.srv-head .gd:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { :root:not(.classic) #side-head.srv-head .gd-chev { transition: none; } }
 :root:not(.classic) #side-head .srv-cta { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); height: 38px; margin: var(--sp-1) var(--sp-4) var(--sp-3);
   border: 0; border-radius: var(--r-m); background: var(--brand); color: #fff; font: 600 14px var(--font, inherit); cursor: pointer; transition: background .12s; }
 :root:not(.classic) #side-head .srv-cta:hover { background: var(--brand-hover, color-mix(in srgb, var(--brand) 85%, #000)); }
