@@ -44,7 +44,7 @@ export function achievementsView(uid, { compact = false } = {}) {
     const plat = h('select', PLATFORMS.map(([k, l]) => h('option', { value: k }, l)));
     const title = h('input', { placeholder: 'Ex.: God of War Ragnarök', maxLength: 120 });
     const kind = h('select', h('option', { value: 'platinum' }, 'Platina'), h('option', { value: 'complete' }, '100% (todas as conquistas)'));
-    const when = h('input', { type: 'date', max: new Date().toISOString().slice(0, 10) });
+    const when = h('input', { type: 'date', max: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10) });
     const m = modal('Registrar platina', 'PlayStation, Xbox, Epic e outras lojas não deixam outros apps lerem os seus troféus. Registre aqui; aparece no seu perfil como "informado".',
       h('div', h('label.f', 'Plataforma', plat), h('label.f', 'Jogo', title), h('label.f', 'O que você conquistou', kind), h('label.f', 'Quando (opcional)', when)),
       [{ label: 'Cancelar', cls: 'link' }, { label: 'Registrar', fn: async () => {

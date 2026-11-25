@@ -2238,7 +2238,6 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .tile .label .sl-game.sl-plain { font-weight: 400; color: rgba(255,255,255,.8); }
 .tile .label .sinfo:empty { display: none; }
 .cstream .cs-game { font-size: 13px; color: var(--text-muted); margin-top: -4px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vu-sgame { font-size: 11px; color: var(--text-muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; }
 /* Chamar pra jogar (public/callinvite.js playInviteModal) */
 .playinv { display: flex; flex-direction: column; gap: 10px; }
 .playinv .pi-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

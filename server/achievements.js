@@ -42,6 +42,8 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     kind TEXT NOT NULL, achieved_at INTEGER, created_at INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS ach_manual_user ON ach_manual(user_id, achieved_at DESC);`);
   try { db.exec('ALTER TABLE ach_manual ADD COLUMN art TEXT'); } catch { /* já existe */ }
+  // datas informadas antes eram gravadas à meia-noite UTC (no Brasil viravam o dia anterior): passa para o meio-dia UTC
+  db.exec('UPDATE ach_manual SET achieved_at = achieved_at + 43200000 WHERE achieved_at IS NOT NULL AND achieved_at % 86400000 = 0');
 
   const steamAcct = (uid) => get("SELECT * FROM linked_accounts WHERE user_id=? AND platform='steam'", uid);
   const syncRow = (uid) => get("SELECT * FROM ach_sync WHERE user_id=? AND platform='steam'", uid);
@@ -191,7 +193,8 @@ export function mountAchievements(app, { auth, wrap, bad, db, all, get, run, new
     if (!MANUAL_PLATFORMS[platform]) return bad(res, 'Plataforma inválida');
     if (!KINDS.includes(kind)) return bad(res, 'Tipo inválido');
     if (!title) return bad(res, 'Diga o nome do jogo');
-    const at = req.body?.achieved_at == null || req.body.achieved_at === '' ? null : +new Date(req.body.achieved_at);
+    // "AAAA-MM-DD" do campo de data = dia do calendário, sem fuso: grava ao meio-dia UTC para cair no mesmo dia em qualquer fuso
+    const rawAt = req.body?.achieved_at, at = rawAt == null || rawAt === '' ? null : +new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(rawAt)) ? `${rawAt}T12:00:00Z` : rawAt);
     if (at != null && (!Number.isFinite(at) || at > now() + 864e5 || at < Date.UTC(1995, 0, 1))) return bad(res, 'Data inválida');
     if ((get('SELECT COUNT(*) n FROM ach_manual WHERE user_id=?', req.uid)?.n || 0) >= MANUAL_MAX) return bad(res, `Limite de ${MANUAL_MAX} registros`, 409);
     if (get('SELECT 1 x FROM ach_manual WHERE user_id=? AND platform=? AND kind=? AND lower(title)=lower(?)', req.uid, platform, kind, title)) return bad(res, 'Você já registrou isso', 409);

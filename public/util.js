@@ -310,14 +310,6 @@ export function avatar(u, size = 40, opts = {}) {
 // ---- tempo ----
 const pad = (n) => String(n).padStart(2, '0');
 let H12 = false; export const setHour12 = (v) => { H12 = !!v; };
-// ---- de onde a pessoa está conectada: ícones ao lado do nome (somem com o status offline/escondido) ----
-export const PLAT_TXT = { desktop: 'No app para computador', mobile: 'No celular', web: 'No navegador' };
-const PLAT_ICON = { desktop: 'screen', mobile: 'devphone', web: 'globe' };
-let PLAT_ON = true; export const setPlatformIcons = (v) => { PLAT_ON = v !== false; };
-export function platformIcons(u, size = 14) {
-  const ps = u?.platforms; if (!PLAT_ON || !ps?.length || !u.status || u.status === 'offline') return null;
-  return h('span.plats', { title: ps.map(p => PLAT_TXT[p]).join(' · '), 'aria-label': ps.map(p => PLAT_TXT[p]).join(', ') }, ps.map(p => icon(PLAT_ICON[p], size)));
-}
 export const clock = (t) => { const d = new Date(+t); if (H12) return `${d.getHours() % 12 || 12}:${pad(d.getMinutes())} ${d.getHours() < 12 ? 'AM' : 'PM'}`; return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 export function stamp(t) {
   const d = new Date(+t), n = new Date(), y = new Date(Date.now() - 864e5);

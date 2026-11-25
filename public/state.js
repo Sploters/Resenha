@@ -1,4 +1,4 @@
-import { h, icon, EMOJIS, setHour12, plainTs, setPlatformIcons, whenGone } from './util.js';
+import { h, icon, EMOJIS, setHour12, plainTs, whenGone } from './util.js';
 import { originAt, originFrom, leave } from './motion.js';
 import { backCloses } from './backclose.js';
 import { themeDef, paintTheme, SOLID_THEMES } from './themes.js';
@@ -198,7 +198,7 @@ export function applyTheme() {
   r.style.setProperty('--font', fonts[S.prefs.fontFamily] || fonts.default);
   r.style.setProperty('--msg-gap', (S.prefs.msgGap ?? 17) + 'px'); r.style.setProperty('--radius', (S.prefs.radius ?? 8) + 'px');
   r.style.setProperty('--sat', (S.prefs.saturation ?? 100) + '%'); r.style.setProperty('--con', (S.prefs.contrast ?? 100) + '%'); r.classList.toggle('sat-on', (S.prefs.saturation ?? 100) != 100 || (S.prefs.contrast ?? 100) != 100);
-  if (!sysWatch && typeof matchMedia === 'function') { sysWatch = true; for (const q of ['(forced-colors: active)', '(prefers-contrast: more)', '(prefers-reduced-motion: reduce)']) matchMedia(q).addEventListener?.('change', () => applyTheme()); } setHour12(S.prefs.hour12); setPlatformIcons(S.prefs.platformIcons);
+  if (!sysWatch && typeof matchMedia === 'function') { sysWatch = true; for (const q of ['(forced-colors: active)', '(prefers-contrast: more)', '(prefers-reduced-motion: reduce)']) matchMedia(q).addEventListener?.('change', () => applyTheme()); } setHour12(S.prefs.hour12);
 }
 // emojis personalizados de todos os servidores
 export const allEmojis = () => [...S.guilds.values()].flatMap(g => (g.emojis || []).map(e => ({ ...e, guild: g.name, gid: g.id })));

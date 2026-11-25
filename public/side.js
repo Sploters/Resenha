@@ -2,7 +2,7 @@
 import { liveIn, boraCard } from './bora.js';
 import { onbRow } from './onboarding.js';
 import { fxBadge } from './fxui.js';
-import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, platformIcons } from './util.js';
+import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl } from './util.js';
 import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
 import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
@@ -203,7 +203,7 @@ const dmObs = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecti
 function dmRow(dm, pin) {
   const p = dmPeer(dm), u = user(p.id), un = S.mentions[dm.id];
   return h('div.ch.dmrow' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] ? '.unread' : ''), { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, p.id), ...previewHooks(dm) },
-    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), platformIcons(u, 13), un > 0 && h('span.pill', un),
+    avatar(u, 36, { ring: 'var(--bg-sec)' }), styleName(h('span.name', u.display_name), u.name_style), un > 0 && h('span.pill', un),
     pin && h('button.dmpin', { type: 'button', title: 'Desafixar', 'aria-label': 'Desafixar conversa', onclick: (e) => { e.stopPropagation(); togglePinDM(p.id); } }, icon('pin', 22)));
 }
 // tela inicial de Mensagens (botão de Mensagens na barra): em vez de pular para uma conversa, mostra as recentes em
@@ -376,7 +376,7 @@ function vuserRow(g, v) {
   const row = h('div.vuser' + (v.hold ? '.hold' : '') + (drag ? '.vdraggable' : ''), { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id),
     ...(drag ? { draggable: true, title: 'Arraste para outra sala para mover', ondragstart: (e) => vDragStart(e, g, v), ondragend: vDragEnd } : {}) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
-    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', { title: v.screen_title ? 'Transmitindo ' + v.screen_title : 'Transmitindo' }, 'Ao vivo'), v.screen && v.screen_title && h('span.vu-sgame', { title: 'Transmitindo ' + v.screen_title }, v.screen_title), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
+    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', { title: v.screen_title ? 'Transmitindo ' + v.screen_title : 'Transmitindo' }, 'Ao vivo'), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
     h('span.ico', v.wt && h('span.vu-wt', { title: 'Assistindo no Watch Together' }, icon('tv', 14)), v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.mod_deaf ? h('span.mico.lmute', { title: 'Ensurdecido pela moderação' }, icon('headoff', 14)) : v.deaf && icon('headoff', 14)));
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;
