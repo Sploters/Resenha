@@ -34,7 +34,7 @@ async function person(tok) {
   await p.goto(BASE); await p.waitForFunction(() => window.__lc?.S?.synced, { timeout: 60000 });
   return p;
 }
-const uxQueue = (p) => p.evaluate(async () => { const u = performance.getEntriesByType('resource').map(e => e.name).find(x => /\/ux\.js(\?|$)/.test(x)); return (await import(u)).uxPending(); });
+const uxQueue = (p) => p.evaluate(async () => { return (await window.__lc.import('ux.js')).uxPending(); });
 let A, B;
 try {
   const [ra, rb] = await Promise.all(['alice', 'bruno'].map(n => api('', 'POST', '/register', { username: n, password: 'Teste.senha-123' })));

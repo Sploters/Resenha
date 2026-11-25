@@ -56,7 +56,7 @@ async function call(c) {
   await sleep(SECS * 1000);
   await B.evaluate(() => window.__lc.voice.leave()); await A.evaluate(() => window.__lc.voice.leave());
   Object.assign(net, { loss: 0, delay: 0, jitter: 0, burst: 0, only: null });
-  const read = (p) => p.evaluate(async () => { const u = performance.getEntriesByType('resource').map(e => e.name).find(x => /\/ux\.js(\?|$)/.test(x)); const m = await import(u); return { q: window.__q, fila: m.uxPending().filter(x => /^call_/.test(x.e)) }; });
+  const read = (p) => p.evaluate(async () => { const m = await window.__lc.import('ux.js'); return { q: window.__q, fila: m.uxPending().filter(x => /^call_/.test(x.e)) }; });
   return { ...(await read(B)), fala: (await read(A)).q }; // B ouve (mutado); A fala
 }
 let A, B, vc;

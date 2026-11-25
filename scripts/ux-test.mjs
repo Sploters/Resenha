@@ -266,7 +266,7 @@ try {
   await Q.evaluate(() => { const S = window.__lc.S; S.voice.set('fake', { user_id: 'fake', channel_id: 'sala-q' }); document.dispatchEvent(new CustomEvent('call-ended', { detail: { channelId: 'sala-q', ms: 60e3, quality: { grade: 'fair' } } })); });
   await sleep(1300); await Q.evaluate(() => { window.__lc.S.voice.delete('fake'); [...document.querySelectorAll('#callrate .cr-btn')].find(b => /Tive problema/.test(b.textContent)).click(); });
   await Q.evaluate(() => localStorage.removeItem('lc_callrate_force'));
-  ok(await Q.evaluate(async () => (await import(performance.getEntriesByType('resource').map(e => e.name).find(u => /\/ux\.js(\?|$)/.test(u)) || '/ux.js')).uxPending().some(x => x.e === 'call_rating_q' && x.d === 'bad:fair')), 'avaliação × rede: "Tive problema" numa chamada com rede média conta bad:fair');
+  ok(await Q.evaluate(async () => (await window.__lc.import('ux.js')).uxPending().some(x => x.e === 'call_rating_q' && x.d === 'bad:fair')), 'avaliação × rede: "Tive problema" numa chamada com rede média conta bad:fair');
   await Q.evaluate(() => document.getElementById('callrate')?.remove());
   full = (await api(admin, 'GET', '/ux')).data; const QQ = full.qualidade;
   ok(QQ.chamadas === 10 && QQ.taxa_ruim === 20 && QQ.taxa_media === 20 && QQ.indicadores.rtt.acima === 40 && QQ.conexao.tcp === 10 && QQ.causas[0].k === 'loss_in' && QQ.problema_com_rede_boa === 25 && QQ.aparelhos.mobile?.poor === 2,
