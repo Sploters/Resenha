@@ -370,3 +370,19 @@ html.lc-desk #wt .wt-player iframe { filter: opacity(.999); }
 .wt-volosd span { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 .wt-volosd i { display: block; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); overflow: hidden; }
 .wt-volosd i b { display: block; height: 100%; background: #fff; }
+/* hover do foguete: "Atividades sugeridas" em fileira + "Ver todas" (watch.js quickActivities) */
+.actq { position: fixed; z-index: 97; max-width: calc(100vw - 16px); padding: 12px; border-radius: 10px; background: var(--bg-float, #111214); border: 1px solid var(--divider); box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: sbqIn .12s ease-out; }
+.actq.leaving { opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+.actq-h { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.actq-t { display: inline-flex; align-items: center; gap: 6px; color: var(--header); font-size: 14px; } .actq-t b { font-weight: 500; }
+.actq-t .icon, .actq-all .icon { fill: currentColor; flex: none; }
+.actq-all { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border-radius: 4px; background: none; color: var(--text-muted); font-size: 13px; font-weight: 500; }
+.actq-all:hover { color: var(--header); }
+.actq-row { display: flex; gap: 8px; }
+.actq-it { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 80px; padding: 0; background: none; color: var(--text-muted); }
+.actq-it .act-cover { width: 80px; aspect-ratio: 13 / 11; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--header) 6%, transparent); }
+.actq-it .act-cover-ic { width: auto; height: auto; background: none; box-shadow: none; color: color-mix(in srgb, var(--acc, var(--brand)) 75%, #fff); }
+.actq-it:hover .act-cover { transform: scale(1.05); box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+.actq-it:hover { color: var(--header); }
+.actq-it.on .act-cover { box-shadow: inset 0 0 0 2px var(--green); }
+.actq-n { width: 100%; font-size: 11px; line-height: 1.25; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -22,7 +22,7 @@ import { STATUS_TXT } from './card.js';
 import { swapIcon } from './motion.js';
 import { voice, ready, live, whenLive, $, logout } from './gateway.js';
 import { musicOn } from './botmusic.js';
-import { activityLauncher, watchLauncherEntry } from './watch.js';
+import { activityLauncher, watchLauncherEntry, quickActivitiesHover } from './watch.js';
 import { openGameNight } from './games.js';
 import { openSettings, openFullProfile, go, ctxSettings } from './nav.js';
 import { openMessages, friendsInServer } from './rail.js';
@@ -71,8 +71,10 @@ export function activityEntries() {
 // size 20 = painel de voz; 24 = barra da chamada (roundbtn). data-music-btn: o painel de música se prende a ele
 export function activityButton(size, cls = '') {
   const on = activityEntries().some(e => e.on);
-  return h((size >= 24 ? 'button.roundbtn.actbtn' : 'button') + cls + (on ? (size >= 24 ? '.active' : '.on') : ''), { title: 'Atividades: Watch Together, música, chamar pra jogar, lousa…', 'aria-label': 'Atividades', 'data-act-btn': '', 'data-music-btn': '',
+  const b = h((size >= 24 ? 'button.roundbtn.actbtn' : 'button') + cls + (on ? (size >= 24 ? '.active' : '.on') : ''), { title: 'Atividades: Watch Together, música, chamar pra jogar, lousa…', 'aria-label': 'Atividades', 'data-act-btn': '', 'data-music-btn': '',
     onclick: (e) => activityLauncher(e.currentTarget, activityEntries()) }, icon('rocket', size));
+  quickActivitiesHover(b, activityEntries);
+  return b;
 }
 // Soundboard: último botão do painel; passar o mouse mostra os 6 sons mais usados, clicar abre a soundboard completa
 function sbButton() {

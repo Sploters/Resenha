@@ -881,6 +881,42 @@ export function activityLauncher(anchor, entries) {
   requestAnimationFrame(() => q.focus({ preventScroll: true }));
   return el;
 }
+// passar o mouse no foguete: cartão com até 5 atividades (as recentes primeiro) e "Ver todas", que abre o lançador.
+// Vive no body e fecha quando o mouse sai dele e de qualquer botão [data-actq] (o painel de voz é redesenhado o tempo todo)
+let actq = null, actqOpenT = 0, actqCloseT = 0;
+const actqClose = () => { clearTimeout(actqOpenT); clearTimeout(actqCloseT); actqCloseT = 0; if (!actq) return; const el = actq; actq = null; document.removeEventListener('pointermove', actqTrack, true); el.classList.add('leaving'); setTimeout(() => el.remove(), 120); };
+function actqTrack(e) {
+  if (e.target.closest?.('.actq, [data-actq]')) { clearTimeout(actqCloseT); actqCloseT = 0; return; }
+  if (!actqCloseT) actqCloseT = setTimeout(actqClose, 250);
+}
+export function quickActivitiesHover(btn, getEntries) {
+  btn.dataset.actq = '';
+  btn.addEventListener('pointerenter', (e) => {
+    if (e.pointerType !== 'mouse' || actq || document.querySelector('.actpop:not(.leaving)')) return;
+    clearTimeout(actqOpenT); actqOpenT = setTimeout(() => btn.isConnected && btn.matches(':hover') && quickActivities(btn, getEntries), 280);
+  });
+  btn.addEventListener('pointerleave', () => clearTimeout(actqOpenT));
+  btn.addEventListener('click', actqClose, true); // clicar abre o lançador completo
+}
+function quickActivities(anchor, getEntries) {
+  actqClose();
+  const list = getEntries().filter(Boolean);
+  const rec = recentIds().map(id => list.find(e => e.id === id)).filter(Boolean);
+  const shown = [...rec, ...list.filter(e => !rec.includes(e))].slice(0, 5);
+  const run = (e) => { pushRecent(e.id); actqClose(); e.fn(anchor); };
+  const all = () => { const a = anchor.isConnected ? anchor : document.querySelector('[data-actq]') || anchor; actqClose(); activityLauncher(a, getEntries()); };
+  const tile = (e) => h('button.actq-it' + (e.on ? '.on' : ''), { type: 'button', title: e.title + (e.on ? ' (ativo)' : ''), 'aria-label': e.title + (e.on ? ' (ativo)' : ''), onclick: () => run(e), style: { '--acc': e.color || 'var(--brand)' } },
+    h('span.act-cover', h('span.act-cover-ic', icon(e.icon, 26))), h('span.actq-n', e.title));
+  const el = actq = h('div.actq', { role: 'dialog', 'aria-label': 'Atividades sugeridas' },
+    h('div.actq-h', h('span.actq-t', icon('sparkle', 16), h('b', 'Atividades sugeridas')),
+      h('button.actq-all', { type: 'button', onclick: all }, 'Ver todas', icon('chevr', 12))),
+    h('div.actq-row', shown.map(tile)));
+  document.body.append(el);
+  const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w.width / 2, innerWidth - w.width - 8)) + 'px';
+  el.style.top = Math.max(8, r.top - w.height - 8) + 'px';
+  document.addEventListener('pointermove', actqTrack, true);
+}
 export function watchLauncherEntry() {
   const s = W.sess;
   return { id: 'watch', icon: 'tv', title: 'Watch Together', badge: 'Novo', color: '#e5484d', on: !!s,
