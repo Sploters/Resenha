@@ -334,3 +334,11 @@ html.anim .skeleton i::after { content: ''; position: absolute; top: 0; bottom: 
 #voice-panel .vp-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: vp-spin .8s linear infinite; flex: none; }
 @keyframes vp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #voice-panel .vp-spin { animation-duration: 2.4s; } }
+
+/* Seleção: clicar e arrastar não seleciona texto nem imagens em lugar nenhum,
+   só no texto das mensagens (DM e servidores) e nos campos de digitação. */
+body { -webkit-user-select: none; user-select: none; }
+img, svg, video { -webkit-user-drag: none; }
+.msg .body, .msg .body *,
+input, textarea, [contenteditable], [contenteditable] * { -webkit-user-select: text; user-select: text; }
+.msg .body img, .msg .body video, .msg .body svg { -webkit-user-select: none; user-select: none; }
