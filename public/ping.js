@@ -101,7 +101,12 @@ function openPingChart(anchor) {
     const noMedia = !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
     const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
     const v6 = ci.v6;
-    if (noMedia && v6?.remote && !hasTurn) tips.push(['bad', !v6.local
+    const rl = ci.relay;
+    if (noMedia && hasTurn && rl && (v6?.local ? !(v6.sent > 0 && !v6.answered) : true)) tips.push(['bad', !rl.v4 && !rl.v6
+      ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando o TURN. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
+      : rl.v6 ? 'A voz não conectou, nem pelo servidor TURN (ele entregou um endereço IPv6, mas o servidor de voz não respondeu nele).'
+        : 'A voz não conectou: o servidor TURN só entregou um endereço IPv4, e de fora o servidor de voz só aceita IPv6. Por enquanto, sem IPv6 na sua internet, use a VPN (Tailscale) neste aparelho.']);
+    else if (noMedia && v6?.remote) tips.push(['bad', !v6.local
       ? 'A voz não conectou: a internet deste aparelho não tem IPv6, e fora da VPN a voz só chega ao servidor por IPv6. Ligue a VPN (Tailscale) neste aparelho, ou use outra rede (o 4G costuma ter IPv6).'
       : v6.sent > 0 && !v6.answered ? 'A voz não conectou: esta internet tem IPv6, mas o servidor não respondeu nele. A porta da voz por IPv6 (40030 UDP/TCP) está bloqueada no caminho, normalmente no firewall IPv6 do roteador do servidor.'
         : 'Conectando a voz pelo IPv6…']);

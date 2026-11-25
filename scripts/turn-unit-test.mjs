@@ -25,5 +25,18 @@ delete process.env.TURN_SECRET; process.env.TURN_USER = 'fixo'; process.env.TURN
 const f = iceServers('u1').find(x => x.username);
 ok(f.username === 'fixo' && f.credential === 'senha', 'sem TURN_SECRET: usuário e senha fixos (como antes)');
 
+// TURN da Cloudflare: pede credenciais à API com a chave (que não vai para o app) e entrega os servidores no READY
+delete process.env.TURN_URL; delete process.env.TURN_USER; delete process.env.TURN_PASS;
+process.env.CF_TURN_KEY_ID = 'chave-id'; process.env.CF_TURN_API_TOKEN = 'token-secreto';
+const { refreshCf } = await import('../server/turn.js');
+let asked = null;
+const fakeFetch = async (url, o) => { asked = { url, auth: o.headers.authorization, body: JSON.parse(o.body) }; return { ok: true, json: async () => ({ iceServers: [{ urls: ['stun:stun.cloudflare.com:3478'] }, { urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:443?transport=tcp'], username: 'cf-user', credential: 'cf-pass' }] }) }; };
+ok(await refreshCf(fakeFetch), 'pegou as credenciais da Cloudflare');
+ok(asked.url === 'https://rtc.live.cloudflare.com/v1/turn/keys/chave-id/credentials/generate-ice-servers' && asked.auth === 'Bearer token-secreto' && asked.body.ttl === 48 * 3600, 'pedido certo à API', asked);
+const ice = iceServers('u1'), cfs = ice.find(x => x.username === 'cf-user');
+ok(cfs && cfs.credential === 'cf-pass' && cfs.urls.length === 2, 'READY leva o TURN da Cloudflare', ice);
+ok(!JSON.stringify(ice).includes('token-secreto'), 'a chave da API não vai para o app');
+ok(!(await refreshCf(async () => ({ ok: false, status: 401 }))) && iceServers('u1').some(x => x.username === 'cf-user'), 'falha na renovação: continua com a credencial anterior');
+
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

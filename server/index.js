@@ -1,5 +1,5 @@
 import express from 'express';
-import { iceServers } from './turn.js';
+import { iceServers, refreshCf } from './turn.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1355,6 +1355,7 @@ async function restoreVoice() {
 await startSfu();
 await restoreVoice();
 activity.start();
+refreshCf(); // TURN da Cloudflare (server/turn.js): credenciais prontas antes do primeiro READY
 server.listen(PORT, HOST, () => {
   console.log(`\n  Resenha rodando`);
   const tls = process.env.HTTPS === '0' ? null : loadTls();

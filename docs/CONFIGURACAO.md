@@ -14,6 +14,7 @@ Tudo é opcional: sem nada, o servidor sobe com os padrões. No Docker, passe co
 | `TLS_KEY` / `TLS_CERT` | Certificado próprio (sem eles, o servidor gera um autoassinado na pasta de dados). |
 | `TLS_SAN=IP:<ip-vpn>` | Acrescenta o IP da VPN ao certificado gerado (vários separados por vírgula). |
 | `TURN_URL` / `TURN_SECRET` | Servidor TURN para a voz de quem está fora da VPN (CGNAT): ver [TURN.md](TURN.md). `TURN_URL` aceita vários, separados por vírgula; `TURN_SECRET` é o `static-auth-secret` do coturn (credencial temporária por pessoa). `TURN_USER` / `TURN_PASS`: usuário e senha fixos, para TURN sem segredo. |
+| `CF_TURN_KEY_ID` / `CF_TURN_API_TOKEN` | TURN da Cloudflare (Realtime → TURN): o servidor pede credenciais temporárias à API (`CF_TURN_TTL_H`, padrão 48 h) e entrega no READY; a chave fica só no servidor. No Umbrel: em `~/resenha-voz.env`. |
 | `CSP` | Content-Security-Policy da página (`server/security.js`), a defesa de reserva contra XSS: ligada por padrão; `CSP=report` só avisa no console do navegador (não bloqueia); `CSP=off` desliga. |
 | `CSP_EXTRA` | Origens a mais (`"http://host:porta ..."`, separadas por espaço) somadas a script, imagem, mídia, conexão e iframe da CSP (os testes usam para os servidores falsos locais). |
 
