@@ -115,11 +115,11 @@ export function renderAuth(root, mode, o) {
     h('p.sub', login ? 'Sua turma está te esperando.' : 'Junte-se ao servidor dos seus amigos.'),
     o.invited && h('p.sub.invited', icon('invite', 18), 'Você foi convidado! Entre para aceitar o convite.'),
     o.qrPending && h('p.sub.invited.qr', icon('phone', 18), 'Entre aqui para aprovar o login no outro aparelho.'),
-    !login && codeBox,
     req('Nome de usuário', u),
     !login && h('label.f.auth-f', h('span.auth-l', 'Nome de exibição'), dn, h('small.auth-hint', 'Como os outros veem você. Dá para mudar depois.')),
     req('Senha', p, login ? h('a.auth-link.auth-forgot-l', { href: '#', onclick: (e) => { e.preventDefault(); forgotHelp(); } }, 'Esqueceu sua senha?') : h('small.auth-hint', 'Pelo menos 8 caracteres. Evite senhas comuns (como 12345678) e o seu nome de usuário.')),
     !login && req('Confirmar senha', p2),
+    !login && codeBox, // por último: a ordem dos outros campos fica a de sempre
     err, go,
     h('p.auth-switch', login ? 'Precisa de uma conta? ' : 'Já tem uma conta? ', h('a.auth-link', { href: '#', onclick: swap }, login ? 'Registre-se' : 'Entrar')));
   const card = h('div.auth-card' + (login ? '.two' : ''), form, login && !o.qrPending && [h('div.auth-sep'), qrPanel(o.onToken)]);
@@ -134,7 +134,7 @@ export function renderAuth(root, mode, o) {
     fetch('/api/server-info').then(r => r.json()).then(info => {
       if (!form.isConnected) return;
       regMode = info.registration_mode || (info.registration === false ? 'closed' : 'open');
-      if (regMode === 'invite') { codeBox.classList.remove('hidden'); if (!code.value) { checkCode(); code.focus(); } }
+      if (regMode === 'invite') { codeBox.classList.remove('hidden'); if (!code.value) checkCode(); }
       if (regMode === 'closed') {
         form.replaceChildren(h('h1', 'Cadastro fechado'), h('p.sub', 'Este servidor não está aceitando contas novas agora. Fale com quem administra o servidor.'),
           h('p.auth-switch', 'Já tem uma conta? ', h('a.auth-link', { href: '#', onclick: swap }, 'Entrar')));

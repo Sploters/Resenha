@@ -82,8 +82,8 @@ try {
   ok(/Turma/.test(st.msg), 'mostra que o convite é válido e o servidor', st.msg);
   ok(st.path === '/', 'o endereço volta ao normal (recarregar não fica preso no link)');
   const inputs = await p.$$('#auth form input');
-  // ordem: código, usuário, nome de exibição, senha, confirmar
-  await inputs[1].type('pelo_link'); await inputs[3].type('Teste.senha-123'); await inputs[4].type('Teste.senha-123');
+  // ordem: usuário, nome de exibição, senha, confirmar, código
+  await inputs[0].type('pelo_link'); await inputs[2].type('Teste.senha-123'); await inputs[3].type('Teste.senha-123');
   await p.click('#auth .auth-go');
   const inApp = await p.waitForSelector('#rail .rail-wrap', { timeout: 10000 }).then(() => true, () => false);
   ok(inApp, 'cria a conta pelo link e entra no app');
@@ -92,7 +92,7 @@ try {
   const p2 = await (await browser.createBrowserContext()).newPage(); await p2.goto(BASE);
   await p2.waitForSelector('#auth .auth-link'); await p2.evaluate(() => [...document.querySelectorAll('#auth .auth-switch .auth-link')].pop().click());
   await p2.waitForFunction(() => document.querySelector('#auth .auth-code') && !document.querySelector('#auth .auth-code').closest('label').classList.contains('hidden'), { timeout: 5000 }).then(() => ok(true, 'modo convite: "Registre-se" mostra o campo do código'), () => ok(false, 'modo convite: "Registre-se" mostra o campo do código'));
-  const ins2 = await p2.$$('#auth form input'); await ins2[1].type('semconvite'); await ins2[3].type('Teste.senha-123'); await ins2[4].type('Teste.senha-123'); await p2.click('#auth .auth-go'); await sleep(300);
+  const ins2 = await p2.$$('#auth form input'); await ins2[0].type('semconvite'); await ins2[2].type('Teste.senha-123'); await ins2[3].type('Teste.senha-123'); await p2.click('#auth .auth-go'); await sleep(300);
   ok(/código de convite/i.test(await p2.$eval('#auth .err', e => e.textContent)), 'sem código, a tela pede o código antes de enviar');
   // painel do administrador
   const pa = await (await browser.createBrowserContext()).newPage(); await pa.setViewport({ width: 1280, height: 800 });
