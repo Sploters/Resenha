@@ -102,14 +102,18 @@ function openPingChart(anchor) {
     const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
     const v6 = ci.v6;
     const rl = ci.relay;
-    if (noMedia && hasTurn && rl && (v6?.local ? !(v6.sent > 0 && !v6.answered) : true)) tips.push(['bad', !rl.v4 && !rl.v6
-      ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando o TURN. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
-      : rl.v6 ? 'A voz não conectou, nem pelo servidor TURN (ele entregou um endereço IPv6, mas o servidor de voz não respondeu nele).'
-        : 'A voz não conectou: o servidor TURN só entregou um endereço IPv4, e de fora o servidor de voz só aceita IPv6. Por enquanto, sem IPv6 na sua internet, use a VPN (Tailscale) neste aparelho.']);
-    else if (noMedia && v6?.remote) tips.push(['bad', !v6.local
-      ? 'A voz não conectou: a internet deste aparelho não tem IPv6, e fora da VPN a voz só chega ao servidor por IPv6. Ligue a VPN (Tailscale) neste aparelho, ou use outra rede (o 4G costuma ter IPv6).'
-      : v6.sent > 0 && !v6.answered ? 'A voz não conectou: esta internet tem IPv6, mas o servidor não respondeu nele. A porta da voz por IPv6 (40030 UDP/TCP) está bloqueada no caminho, normalmente no firewall IPv6 do roteador do servidor.'
-        : 'Conectando a voz pelo IPv6…']);
+    if (noMedia && (v6?.remote || hasTurn)) {
+      // o que falhou, em ordem: IPv6 direto (deste aparelho ao IPv6 público do servidor) e o TURN
+      const direct = !v6?.remote ? null : !v6.local ? 'esta internet não tem IPv6'
+        : v6.sent > 0 && !v6.answered ? 'esta internet tem IPv6, mas o servidor não respondeu por ele (o IPv6 desta rede pode estar com defeito, ou a porta 40030 bloqueada no roteador do servidor)' : null;
+      const turn = !hasTurn || !rl ? null : !rl.v4 && !rl.v6 ? 'o TURN não respondeu (a rede pode estar bloqueando)'
+        : !rl.v6 && !v6?.local ? 'o TURN só entregou endereço IPv4, e de fora o servidor de voz só aceita IPv6'
+          : rl.sent > 0 && !rl.answered ? 'pelo TURN o servidor também não respondeu' : null;
+      tips.push(['bad', 'A voz não conectou: ' + ([direct, turn].filter(Boolean).join('; ') || 'tentando…') + '. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.']);
+      // números para o diagnóstico (quem testa manda o print)
+      tips.push(['mid', `Detalhes: IPv6 aqui ${v6?.local ? 'sim' : 'não'} · servidor com IPv6 ${v6?.remote ? 'sim' : 'não'} · testes diretos ${v6?.answered ?? 0}/${v6?.sent ?? 0}` +
+        (hasTurn ? ` · TURN ${rl?.v6 ? 'IPv6' : rl?.v4 ? 'IPv4' : 'sem endereço'} · testes pelo TURN ${rl?.answered ?? 0}/${rl?.sent ?? 0}` : '')]);
+    }
     else if (noMedia) tips.push(['bad', hasTurn
       ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando a porta do TURN (3478), ou o TURN está fora do ar. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
       : 'A voz não conectou: o app fala com o servidor pelo site, mas a voz vai direto ao servidor e não chegou. Fora da VPN (Tailscale), ela só chega se a sua internet tiver IPv6; sem IPv6, ligue a VPN neste aparelho.']);

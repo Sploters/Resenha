@@ -2182,7 +2182,7 @@ export class Voice {
     const s = this.sfu; if (!s?.send) return null;
     // v6: diagnóstico de quem está fora da VPN (o servidor anuncia o IPv6 público além do IP da VPN, server/sfu.js):
     // local = esta internet tem IPv6 público; sent/answered = testes de conexão enviados ao IPv6 do servidor e respondidos
-    const out = { proto: null, candidate: null, sendLoss: null, recvLoss: null, jitterMs: null, v6: { local: false, remote: !!s.has6, sent: 0, answered: 0 }, relay: { v4: false, v6: false } };
+    const out = { proto: null, candidate: null, sendLoss: null, recvLoss: null, jitterMs: null, v6: { local: false, remote: !!s.has6, sent: 0, answered: 0 }, relay: { v4: false, v6: false, sent: 0, answered: 0 } };
     const pub6 = (a) => typeof a === 'string' && a.includes(':') && /^[23]/.test(a);
     let lost = 0, recv = 0, jit = [];
     for (const t of [s.send, s.recv].filter(Boolean)) {
@@ -2191,7 +2191,8 @@ export class Voice {
         for (const r of rep.values()) {
           if (r.type === 'local-candidate' && pub6(r.address)) out.v6.local = true;
           if (r.type === 'local-candidate' && r.candidateType === 'relay') out.relay[String(r.address || '').includes(':') ? 'v6' : 'v4'] = true; // TURN entregou endereço IPv4/IPv6
-          if (r.type === 'candidate-pair' && pub6(byId.get(r.remoteCandidateId)?.address)) { out.v6.sent += r.requestsSent || 0; out.v6.answered += r.responsesReceived || 0; }
+          if (r.type === 'candidate-pair' && byId.get(r.localCandidateId)?.candidateType === 'relay') { out.relay.sent += r.requestsSent || 0; out.relay.answered += r.responsesReceived || 0; } // testes pelo TURN
+          if (r.type === 'candidate-pair' && pub6(byId.get(r.remoteCandidateId)?.address) && byId.get(r.localCandidateId)?.candidateType !== 'relay') { out.v6.sent += r.requestsSent || 0; out.v6.answered += r.responsesReceived || 0; }
           if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && !out.proto) { const lc = byId.get(r.localCandidateId); out.proto = lc?.protocol || null; out.candidate = lc?.candidateType || null; }
           if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += Math.max(0, r.packetsLost || 0); recv += r.packetsReceived || 0; if (r.jitter != null) jit.push(r.jitter * 1000); }
         }
