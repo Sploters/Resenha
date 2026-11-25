@@ -3,7 +3,7 @@ import { liveIn, boraCard } from './bora.js';
 import { onbRow } from './onboarding.js';
 import { fxBadge } from './fxui.js';
 import { h, morph, icon, avatar, clock, sameDay, debounce, imgUrl, whenGone } from './util.js';
-import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
+import { S, user, guild, channelById, nameOf, can, canInvite, PERM, dmPeer, modal, menu, closeFloating, notifPolicy, serverMuted, savePrefs, CH, chCan, chVisible, CH_KINDS, isChatCh, api, toast } from './state.js';
 import { playSound } from './sounds.js';
 import { previewHooks, hidePreview } from './chpreview.js';
 import { chName } from './chnames.js';
@@ -26,7 +26,7 @@ import { watchOnly } from './share.js';
 // ---------- barra lateral ----------
 export const chIcon = (c, sz = 20) => icon(CH_KINDS[c.type]?.[0] || 'hash', sz);
 // menu de ações do servidor aberto pelo nome (div.gd): seta para cima e aria-expanded enquanto ele está na tela
-const gdMenu = { gid: null, m: null, skip: false };
+const gdMenu = { gid: null, m: null };
 const gdPaint = () => { const el = document.querySelector('#side-head .gd'); if (!el) return; el.classList.toggle('open', !!gdMenu.gid); el.setAttribute('aria-expanded', String(!!gdMenu.gid)); };
 export function renderSide() {
   if (deferRender(renderSide)) return; // vários eventos seguidos: um redesenho só no próximo quadro
@@ -56,12 +56,11 @@ export function renderSide() {
   } else {
     const g = guild(S.view.gid);
     const menuAt = (el) => { const r = el.getBoundingClientRect(); guildMenu({ preventDefault() { }, clientX: r.left + 8, clientY: r.bottom + 4 }, g); };
-    // o estado "aberto" fica fora do elemento: a lista se redesenha enquanto o menu está aberto e o perderia
+    // o estado "aberto" fica fora do elemento (a lista se redesenha com o menu aberto). O nome tem data-keepfloat: o
+    // "clique fora fecha" (state.js) o ignora e é ele quem alterna — abrir, ou fechar se o menu dele já está na tela
     const gdOpen = (el) => {
-      // clicar de novo fecha: o mousedown fora do menu já o fechou (state.js), então só não reabre
-      if (gdMenu.skip) { gdMenu.skip = false; return; }
-      if (gdMenu.gid === g.id && gdMenu.m?.isConnected) return;
-      const r = el.getBoundingClientRect(), m = guildMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom + 6 }, g);
+      if (gdMenu.gid === g.id && gdMenu.m?.isConnected && !gdMenu.m.classList.contains('leaving')) { closeFloating(); return; }
+      const r = el.getBoundingClientRect(), m = guildMenu({ preventDefault() { }, clientX: r.left, clientY: r.bottom + 6 }, g, { width: r.width });
       if (!m) return;
       gdMenu.gid = g.id; gdMenu.m = m; gdPaint();
       whenGone(m, () => { if (gdMenu.m === m) { gdMenu.gid = null; gdMenu.m = null; gdPaint(); } });
@@ -76,7 +75,7 @@ export function renderSide() {
         : h('div.srv-banner.srv-cover', { style: coverOf(g) }, cbtns),
       // como no Discord: o nome ocupa a linha (cortado com "…") e a seta fica na ponta; com o menu aberto ela vira para cima
       h('div.srv-name', h('div.gd' + (gdMenu.gid === g.id ? '.open' : ''), { role: 'button', tabindex: 0, 'aria-haspopup': 'menu', 'aria-expanded': String(gdMenu.gid === g.id), 'aria-label': g.name + ', ações do servidor', title: 'Ações do servidor',
-        onmousedown: () => { gdMenu.skip = gdMenu.gid === g.id; }, onclick: (e) => gdOpen(e.currentTarget), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); gdOpen(e.currentTarget); } } },
+        'data-keepfloat': '', onclick: (e) => gdOpen(e.currentTarget), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); gdOpen(e.currentTarget); } } },
         h('span.gd-name', g.name), h('span.gd-chev', icon('chevdown', 16))),
         canInvite(g) && h('button.sh-btn', { type: 'button', title: 'Convidar pessoas', 'aria-label': 'Convidar pessoas para o servidor', onclick: () => inviteModal(g) }, icon('invite', 20))),
       (() => { const fr = friendsIn(g); return fr.length > 0 && h('button.srv-friends', { type: 'button', title: 'Ver os amigos neste servidor', onclick: () => friendsInServer(g) }, avStack(fr, 18), h('span', fr.length === 1 ? `${fr[0].display_name} está aqui` : `${fr.length} amigos aqui`)); })(),

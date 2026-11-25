@@ -154,32 +154,32 @@ export function friendsInServer(g) {
   setTimeout(() => q.focus());
 }
 const closeModals = () => document.querySelectorAll('.backdrop:not(.leaving)').forEach(b => b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
-export function guildMenu(e, g) {
+// menu do servidor (nome no topo da lista e clique direito no ícone): como no Discord, cada item com ícone à esquerda e os
+// grupos separados por linha — convidar e o que é do servidor; o que é só seu; administração (quem pode); sair/excluir
+export function guildMenu(e, g, opts = {}) {
   const owner = g.owner_id === S.me.id, fr = friendsIn(g);
-  // em grupos: ações do servidor no topo, depois o que é só seu, depois administração (só aparece para quem pode) e,
-  // por último, a ação perigosa separada
   const admin = [
-    can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar canal', fn: () => channelModal(g, 0) },
-    can(g.id, PERM.MANAGE_CHANNELS) && { label: 'Criar categoria', fn: () => channelModal(g, 4) },
-    isRepMod(g.id) && { label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
-    (can(g.id, PERM.MANAGE_GUILD) || can(g.id, PERM.VIEW_MSGLOG)) && { label: 'Registro de auditoria', fn: () => auditModal(g.id) },
+    can(g.id, PERM.MANAGE_GUILD | PERM.MANAGE_ROLES | PERM.ADMIN) && { icon: 'gear', label: 'Configurações do servidor', fn: () => openSettings('server', { gid: g.id, voice, logout, go }) },
+    can(g.id, PERM.MANAGE_CHANNELS) && { icon: 'plus', label: 'Criar canal', fn: () => channelModal(g, 0) },
+    can(g.id, PERM.MANAGE_CHANNELS) && { icon: 'grid4', label: 'Criar categoria', fn: () => channelModal(g, 4) },
+    isRepMod(g.id) && { icon: 'shield', label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
+    (can(g.id, PERM.MANAGE_GUILD) || can(g.id, PERM.VIEW_MSGLOG)) && { icon: 'clock', label: 'Registro de auditoria', fn: () => auditModal(g.id) },
   ].filter(Boolean);
   return menu(e, [
-    canInvite(g) && { label: 'Convidar pessoas', fn: () => inviteModal(g) },
-    { label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
-    { label: 'Procurar jogadores neste servidor', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
-    { label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
-    '-', { head: 'Você' },
-    { label: 'Notificações…', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
-    { label: 'Apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
-    { label: 'Apagar minhas mensagens…', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
-    ...(admin.length ? ['-', { head: 'Administração' }, ...admin] : []),
+    canInvite(g) && { icon: 'invite', brand: true, label: 'Convidar pessoas', fn: () => inviteModal(g) },
+    { icon: 'users', label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
+    { icon: 'radar', label: 'Procurar jogadores', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
+    { icon: 'check', label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
     '-',
-    S.prefs.devMode && { label: 'Copiar ID do servidor', fn: () => navigator.clipboard?.writeText(g.id) },
-    owner ? { label: 'Excluir servidor', danger: true, fn: async () => { if (await confirmBox(`Excluir ${g.name}`, 'Essa ação é permanente e apaga todas as mensagens.', 'Excluir servidor')) tryApi('DELETE', `/guilds/${g.id}`); } }
-      : { label: 'Sair do servidor', danger: true, fn: async () => { if (await confirmBox(`Sair de ${g.name}`, 'Você precisará de um novo convite para voltar.', 'Sair do servidor')) tryApi('DELETE', `/guilds/${g.id}/members/me`); } },
-  ]);
+    { icon: 'bell', label: 'Notificações', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
+    { icon: 'edit', label: 'Apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
+    { icon: 'eraser', label: 'Apagar minhas mensagens', fn: () => openMyMessages({ guild_id: g.id, title: g.name }) },
+    ...(admin.length ? ['-', ...admin] : []),
+    '-',
+    owner ? { icon: 'trash', label: 'Excluir servidor', danger: true, fn: async () => { if (await confirmBox(`Excluir ${g.name}`, 'Essa ação é permanente e apaga todas as mensagens.', 'Excluir servidor')) tryApi('DELETE', `/guilds/${g.id}`); } }
+      : { icon: 'logout', label: 'Sair do servidor', danger: true, fn: async () => { if (await confirmBox(`Sair de ${g.name}`, 'Você precisará de um novo convite para voltar.', 'Sair do servidor')) tryApi('DELETE', `/guilds/${g.id}/members/me`); } },
+    ...(S.prefs.devMode ? ['-', { icon: 'copy', label: 'Copiar ID do servidor', fn: () => navigator.clipboard?.writeText(g.id) }] : []),
+  ], { cls: 'gmenu', width: opts.width && Math.max(220, opts.width) });
 }
 // convidar para o servidor: amigos com botão "Convidar" (vai por DM) e o link para copiar embaixo
 export async function inviteModal(g) {

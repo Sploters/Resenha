@@ -428,7 +428,7 @@ export function menu(e, items, opts = {}) {
     // controle dentro do menu (ex.: volume): mexer nele conta como usar o menu, não como "fechou sem escolher"
     if (i.node) return h('div.mnode', { oninput: () => { picked = true; }, onchange: () => { picked = true; } }, i.node);
     const cbx = i.checked !== undefined ? h('span.cbx' + (i.checked ? '.on' : ''), i.checked && icon('check', 16)) : null;
-    const row = h('div.it' + (i.danger ? '.danger' : '') + (i.icon ? '.hasic' : ''), i.icon && h('span.mic', icon(i.icon, 18)), i.hint ? h('div.itl', h('span', i.label), h('small', i.hint)) : i.icon ? h('span.mlab', i.label) : i.label, cbx, i.radio !== undefined && h('span.radio' + (i.radio ? '.on' : '')), i.sub && h('span', { style: { marginLeft: 'auto', opacity: .7 } }, '›'));
+    const row = h('div.it' + (i.danger ? '.danger' : '') + (i.brand ? '.brand' : '') + (i.icon ? '.hasic' : ''), i.icon && h('span.mic', icon(i.icon, 18)), i.hint ? h('div.itl', h('span', i.label), h('small', i.hint)) : i.icon ? h('span.mlab', i.label) : i.label, cbx, i.radio !== undefined && h('span.radio' + (i.radio ? '.on' : '')), i.sub && h('span', { style: { marginLeft: 'auto', opacity: .7 } }, '›'));
     const closeDeeper = () => layer().querySelectorAll('.menu:not(.leaving)').forEach(m => { if (+m.dataset.depth > depth) leave(m, 100); });
     if (i.sub) {
       const open = () => { closeDeeper(); const r = row.getBoundingClientRect(), sub = build(i.sub, depth + 1); place(sub, r.right + 2, r.top - 6); const w = sub.getBoundingClientRect(); if (w.right > innerWidth - EDGE) sub.style.left = Math.max(EDGE, r.left - w.width - 2) + 'px'; };
@@ -441,7 +441,10 @@ export function menu(e, items, opts = {}) {
       }; }
     return row;
   }));
-  const root = build(items, 0); place(root, e.clientX, e.clientY);
+  const root = build(items, 0);
+  if (opts.cls) root.classList.add(...opts.cls.split(' ')); // opts.cls: visual próprio (ex.: 'gmenu', o menu do servidor)
+  if (opts.width) root.style.width = Math.round(opts.width) + 'px'; // opts.width: mesma largura de quem abriu
+  place(root, e.clientX, e.clientY);
   if (menuHooks.length) { menuHooks.forEach(f => { try { f('open', e); } catch { } }); whenGone(root, () => { if (!picked) menuHooks.forEach(f => { try { f('abandoned', e); } catch { } }); }); }
   return root; // quem abriu pode saber quando o menu fechou (ex.: a seta do nome do servidor, side.js)
 }

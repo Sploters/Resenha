@@ -289,3 +289,18 @@
 :root:not(.classic) #side-list.srv-list .ch .ubadge { display: grid; }
 /* as pessoas na sala alinham com o nome do canal (círculo de 26 px + respiro) */
 :root:not(.classic) #side-list.srv-list .vusers:not(.bygame) { margin-left: 36px; }
+
+/* ---------- menu do servidor (nome no topo / clique direito no ícone), como no Discord ----------
+   ícone à esquerda, grupos separados por linha fina, "Convidar" na cor da marca e sair/excluir em vermelho */
+.menu.gmenu { min-width: 220px; padding: 6px; border-radius: 10px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--header) 8%, transparent), 0 12px 32px rgba(0,0,0,.36); }
+.menu.gmenu .it { min-height: 36px; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; font-size: 14px; font-weight: 500; line-height: 18px; color: var(--text); }
+.menu.gmenu .it.hasic { gap: 10px; }
+.menu.gmenu .it .mic { width: 18px; height: 18px; opacity: .9; }
+.menu.gmenu .it .itl small { font-weight: 400; margin-top: 1px; }
+.menu.gmenu .it:hover { background: var(--bg-mod-hover); color: var(--header); }
+.menu.gmenu .it.brand { color: var(--brand); }
+.menu.gmenu .it.brand:hover { background: var(--brand); color: #fff; }
+.menu.gmenu .it.danger { color: var(--red, #f23f43); }
+.menu.gmenu .it.danger:hover { background: var(--red, #da373c); color: #fff; }
+.menu.gmenu .it:hover .mic { opacity: 1; }
+.menu.gmenu .sp { height: 1px; margin: 6px 4px; background: color-mix(in srgb, var(--header) 9%, transparent); border: 0; }
