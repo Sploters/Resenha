@@ -100,7 +100,12 @@ function openPingChart(anchor) {
     // escolhido, a mídia não conectou: o número bom do ping não diz nada sobre a voz
     const noMedia = !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
     const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
-    if (noMedia) tips.push(['bad', hasTurn
+    const v6 = ci.v6;
+    if (noMedia && v6?.remote && !hasTurn) tips.push(['bad', !v6.local
+      ? 'A voz não conectou: a internet deste aparelho não tem IPv6, e fora da VPN a voz só chega ao servidor por IPv6. Ligue a VPN (Tailscale) neste aparelho, ou use outra rede (o 4G costuma ter IPv6).'
+      : v6.sent > 0 && !v6.answered ? 'A voz não conectou: esta internet tem IPv6, mas o servidor não respondeu nele. A porta da voz por IPv6 (40030 UDP/TCP) está bloqueada no caminho, normalmente no firewall IPv6 do roteador do servidor.'
+        : 'Conectando a voz pelo IPv6…']);
+    else if (noMedia) tips.push(['bad', hasTurn
       ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando a porta do TURN (3478), ou o TURN está fora do ar. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
       : 'A voz não conectou: o app fala com o servidor pelo site, mas a voz vai direto ao servidor e não chegou. Fora da VPN (Tailscale), ela só chega se a sua internet tiver IPv6; sem IPv6, ligue a VPN neste aparelho.']);
     if (ci.proto === 'tcp') tips.push(['bad', 'A conexão de voz está indo por TCP: o UDP parece bloqueado na sua rede (ou na VPN). TCP atrasa a voz quando há qualquer perda. Peça para liberar a porta 40000/UDP do servidor.']);

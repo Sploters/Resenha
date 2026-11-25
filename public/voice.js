@@ -574,6 +574,7 @@ export class Voice {
     this.sfu = sfu;
     const transport = async (dir) => {
       const info = await this.sfuReq('transport', { dir });
+      if (info.iceCandidates?.some(c => /^[23][0-9a-f]*:/i.test(c.address || ''))) sfu.has6 = true; // o servidor anuncia IPv6 público (connInfo)
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
       t.on('connectionstatechange', (st) => {
@@ -2179,12 +2180,17 @@ export class Voice {
   // nos dois sentidos e oscilação (jitter) da voz que chega. Deltas desde a última leitura.
   async connInfo() {
     const s = this.sfu; if (!s?.send) return null;
-    const out = { proto: null, candidate: null, sendLoss: null, recvLoss: null, jitterMs: null };
+    // v6: diagnóstico de quem está fora da VPN (o servidor anuncia o IPv6 público além do IP da VPN, server/sfu.js):
+    // local = esta internet tem IPv6 público; sent/answered = testes de conexão enviados ao IPv6 do servidor e respondidos
+    const out = { proto: null, candidate: null, sendLoss: null, recvLoss: null, jitterMs: null, v6: { local: false, remote: !!s.has6, sent: 0, answered: 0 } };
+    const pub6 = (a) => typeof a === 'string' && a.includes(':') && /^[23]/.test(a);
     let lost = 0, recv = 0, jit = [];
     for (const t of [s.send, s.recv].filter(Boolean)) {
       try {
         const rep = await t.getStats(), byId = new Map([...rep.values()].map(r => [r.id, r]));
         for (const r of rep.values()) {
+          if (r.type === 'local-candidate' && pub6(r.address)) out.v6.local = true;
+          if (r.type === 'candidate-pair' && pub6(byId.get(r.remoteCandidateId)?.address)) { out.v6.sent += r.requestsSent || 0; out.v6.answered += r.responsesReceived || 0; }
           if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && !out.proto) { const lc = byId.get(r.localCandidateId); out.proto = lc?.protocol || null; out.candidate = lc?.candidateType || null; }
           if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += Math.max(0, r.packetsLost || 0); recv += r.packetsReceived || 0; if (r.jitter != null) jit.push(r.jitter * 1000); }
         }
