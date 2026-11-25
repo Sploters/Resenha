@@ -120,7 +120,10 @@ initActivity({ openDM, profile: (a, uid) => profile(a, uid), userMenu: (e, uid) 
 // testes: importa um módulo do app pelo mesmo endereço (com a versão dele, server/static.js) que o app usa, para pegar a mesma instância
 const modUrl = (f) => document.querySelector(`link[rel="modulepreload"][href^="/${f}?"]`)?.getAttribute('href')
   || ((v) => v && `/${f}?v=${v}`)(document.querySelector('meta[name="lc-lazy"]')?.content.split(' ').find(x => x.startsWith(f + ':'))?.slice(f.length + 1)) || './' + f + new URL(import.meta.url).search;
-window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) => onEvent(t, d), import: (f) => import(modUrl(f)), get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
+// com os pacotes (server/bundle.mjs) não há módulo solto: o pacote lc-mods aponta para todos, com a mesma instância do app
+const lcMods = document.querySelector('meta[name="lc-mods"]')?.content;
+const lcImport = (f) => (lcMods ? import(lcMods).then(m => m.default[f] || Promise.reject(new Error('módulo fora do pacote: ' + f))) : import(modUrl(f)));
+window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) => onEvent(t, d), import: lcImport, get voice() { return voice; }, go, joinVoice, openFavs, moveFav, jumpTo, renderMessages, voiceToggle: (k) => voiceToggle(k), openSettings: (k) => openSettings(k, { voice, logout, go, gid: S.view.gid }) };
 
 // =============== Boot ===============
 (async function boot() {

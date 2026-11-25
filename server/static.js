@@ -7,6 +7,10 @@
 //   tudo e cada atualização baixava os ~130 arquivos da abertura (588 KB) de novo. A versão geral (V, <meta lc-ui>) segue
 //   sendo o hash de tudo: é ela que diz à página aberta que há interface nova (public/uiupdate.js) e é a do app.js.
 // - o resto (vendor, worklets, imagens): comprimido quando é texto/wasm, com ETag (revalida).
+// - pacotes (server/bundle.mjs, ligado por padrão; STATIC_BUNDLE=0 desliga): a página aponta para app.<hash>.js e um CSS
+//   só (ui.<hash>.css); a abertura baixa ~10 arquivos em vez de ~130. Pelo túnel até o servidor cada pedido custa ~25–30 ms
+//   de fila, então abrir do zero levava ~3 s só nisso. Os módulos soltos com ?v continuam servidos (página de antes da
+//   atualização, testes com STATIC_BUNDLE=0, e se o esbuild falhar a página volta para eles sozinha).
 // - .js e .css da raiz saem minificados (esbuild, arquivo por arquivo: os nomes e o jeito de carregar não mudam). O código
 //   é cheio de comentários e espaço, que só pesavam no download. STATIC_MINIFY=0 entrega como está no disco.
 import fs from 'node:fs';
@@ -20,6 +24,9 @@ const TYPES = { '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascrip
 // minificador: server/minify.mjs (esbuild) num processo à parte; sem esbuild (instalação antiga), entrega sem minificar
 let minOff = process.env.STATIC_MINIFY === '0';
 const minWorker = fileURLToPath(new URL('./minify.mjs', import.meta.url));
+// pacotes da interface (server/bundle.mjs): a abertura em ~10 arquivos em vez de ~130. STATIC_BUNDLE=0: módulos soltos
+const bundleOn = process.env.STATIC_BUNDLE !== '0';
+const bundleWorker = fileURLToPath(new URL('./bundle.mjs', import.meta.url));
 const minDone = new Map(); // fonte -> minificado
 const runMinify = (items, sync) => {
   const opts = { input: JSON.stringify(items), maxBuffer: 64 << 20, encoding: 'utf8' };
@@ -40,7 +47,7 @@ export function mountStatic(app, dir) {
   const root = path.resolve(dir);
   // Estado que depende dos arquivos de public/: montado na subida e de novo em reload() (atualização só da interface,
   // sem reiniciar o servidor: deploy/umbrel.sh troca public/ e manda SIGHUP; ver server/index.js)
-  let V = '', mods = new Set(), graph = new Set(), vers = new Map(); // vers: arquivo -> versão dele
+  let V = '', mods = new Set(), graph = new Set(), vers = new Map(), deps = new Map(); // vers: arquivo -> versão dele
   function scan() {
     // versão geral: conteúdo de todos os .js/.css/.html da raiz de public
     const top = fs.readdirSync(root).filter(f => /\.(js|css|html)$/.test(f)).sort();
@@ -48,7 +55,7 @@ export function mountStatic(app, dir) {
     const hash = crypto.createHash('sha1'); for (const f of top) hash.update(f).update(src.get(f));
     V = hash.digest('hex').slice(0, 10);
     mods = new Set(top.filter(f => f.endsWith('.js')));
-    const deps = new Map([...mods].map(f => { const t = src.get(f).toString('utf8'); return [f, { st: [...t.matchAll(IMPORT_RE)].map(m => m[3]).filter(x => mods.has(x)), all: [...new Set([...t.matchAll(IMPORT_RE), ...t.matchAll(DYN_RE)].map(m => m[3]).filter(x => mods.has(x)))] }]; }));
+    deps = new Map([...mods].map(f => { const t = src.get(f).toString('utf8'); return [f, { st: [...t.matchAll(IMPORT_RE)].map(m => m[3]).filter(x => mods.has(x)), all: [...new Set([...t.matchAll(IMPORT_RE), ...t.matchAll(DYN_RE)].map(m => m[3]).filter(x => mods.has(x)))] }]; }));
     // módulos que o app.js puxa (direta ou indiretamente) — vão no modulepreload
     graph = new Set(); const walk = (f) => { if (graph.has(f) || !mods.has(f)) return; graph.add(f); for (const d of deps.get(f).st) walk(d); };
     walk('app.js');
@@ -72,10 +79,21 @@ export function mountStatic(app, dir) {
   const rewrite = (src) => src.replace(IMPORT_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${vers.get(f)}${q}` : m))
     .replace(DYN_RE, (m, kw, q, f) => (mods.has(f) ? `${kw}${q}./${f}?v=${vers.get(f)}${q}` : m));
   // <meta name="lc-ui">: a página sabe com qual versão abriu (public/uiupdate.js compara com a do servidor)
-  const index = () => fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+  const index = () => (bun ? bundledIndex() : fs.readFileSync(path.join(root, 'index.html'), 'utf8')
     .replace(/(href|src)="\/([\w.-]+\.(?:js|css))"/g, (m, a, f) => `${a}="/${f}?v=${vers.get(f) || V}"`)
     // lc-lazy: versão dos módulos fora da abertura (telas sob demanda), para o window.__lc.import dos testes (public/app.js)
-    .replace('</head>', `<meta name="lc-ui" content="${V}">\n<meta name="lc-lazy" content="${[...mods].filter(f => !graph.has(f)).map(f => f + ':' + vers.get(f)).join(' ')}">\n` + [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${vers.get(f)}">`).join('\n') + '\n</head>');
+    .replace('</head>', `<meta name="lc-ui" content="${V}">\n<meta name="lc-lazy" content="${[...mods].filter(f => !graph.has(f)).map(f => f + ':' + vers.get(f)).join(' ')}">\n` + [...graph].map(f => `<link rel="modulepreload" href="/${f}?v=${vers.get(f)}">`).join('\n') + '\n</head>'));
+  // com os pacotes (server/bundle.mjs): app.<hash>.js no lugar do app.js, um CSS só no lugar dos 9, e o modulepreload só
+  // dos pedaços da abertura. lc-mods: o pacote com todos os módulos (window.__lc.import dos testes); lc-files: os arquivos
+  // desta versão (o service worker apaga do cache os pacotes de versões antigas que não estão mais na lista)
+  const bundledIndex = () => {
+    let css = false;
+    return fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      .replace(/<link rel="stylesheet" href="\/([\w.-]+\.css)">\n?/g, (m, f) => (!bun.cssList.includes(f) ? m : css ? '' : (css = true, `<link rel="stylesheet" href="/${bun.css}">\n`)))
+      .replace(/src="\/app\.js"/, `src="/${bun.app}"`)
+      .replace(/(href|src)="\/([\w.-]+\.(?:js|css))"/g, (m, a, f) => (bunFiles.has(f) ? m : `${a}="/${f}?v=${vers.get(f) || V}"`))
+      .replace('</head>', `<meta name="lc-ui" content="${V}">\n<meta name="lc-mods" content="/${bun.mods}">\n<meta name="lc-files" content="${[...bun.names].join(' ')}">\n` + bun.boot.filter(f => f !== bun.app).map(f => `<link rel="modulepreload" href="/${f}">`).join('\n') + '\n</head>');
+  };
 
   const cache = new Map(); // caminho -> { mtime, body, br, gz, etag, type }
   function entry(rel, file) {
@@ -107,11 +125,16 @@ export function mountStatic(app, dir) {
     res.end(req.method === 'HEAD' ? undefined : out);
     return true;
   }
+  // pacotes: bun = o da versão atual; bunFiles = arquivos das últimas versões (nome com hash: página aberta antes de um
+  // deploy ainda acha os pedaços dela ao abrir uma tela sob demanda)
+  let bun = null; const bunFiles = new Map(), bunBuilds = [];
   let warm = null, prev = null; // prev: { vers, cache } da versão anterior da interface (só .js/.css da raiz)
   // arquivo da versão anterior pedido por uma página aberta antes da atualização (só o que mudou: o resto tem a mesma versão)
   const prevEntry = (rel, v) => (prev && v && v !== vers.get(rel) && prev.vers.get(rel) === v ? prev.cache.get(rel) : null);
   app.use((req, res, next) => {
-    if (warm && /\.(js|css)$/.test(req.path)) return void warm.then(() => serve(req, res, next));
+    // montando a interface (subida ou atualização): .js/.css e a página esperam (fração de segundo; a página precisa dos
+    // nomes dos pacotes)
+    if (warm && !/^\/(api|files|gateway)(\/|$)/.test(req.path)) return void warm.then(() => serve(req, res, next));
     serve(req, res, next);
   });
   function serve(req, res, next) {
@@ -122,6 +145,7 @@ export function mountStatic(app, dir) {
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) return next();
     rel = path.relative(root, file).split(path.sep).join('/');
+    const bf = bunFiles.get(rel); if (bf) return send(req, res, rel, true, bf);
     const old = prevEntry(rel, req.query.v);
     if (!fs.existsSync(file) && !old) { // rota da interface (ex.: /@me): a página
       if (!path.extname(rel)) return send(req, res, 'index.html', false) || next();
@@ -137,17 +161,57 @@ export function mountStatic(app, dir) {
   // (fração de segundo) espera ficar pronto
   function prewarm() {
     const files = fs.readdirSync(root).filter(f => /\.(js|css)$/.test(f));
+    const bundling = bundleOn && mods.has('app.js') ? runBundle() : Promise.resolve(null);
+    let minified;
     // sem minificar: monta tudo já assim mesmo (a versão anterior guardada em reload() precisa de todos os arquivos)
-    if (minOff) { for (const f of files) entry(f, path.join(root, f)); return; }
-    const items = files.map(f => { const src = fs.readFileSync(path.join(root, f), 'utf8'); return { ext: path.extname(f), code: mods.has(f) ? rewrite(src) : src }; });
-    const p = warm = runMinify(items, false).then((out) => {
-      let ok = 0; out.forEach((m, i) => { if (m != null) { minDone.set(items[i].code, m); ok++; } });
-      if (!ok) minOff = true, console.warn('[static] não deu para minificar (esbuild instalado?): a interface sai como está no disco');
+    if (minOff) { for (const f of files) entry(f, path.join(root, f)); minified = Promise.resolve(); }
+    else {
+      const items = files.map(f => { const src = fs.readFileSync(path.join(root, f), 'utf8'); return { ext: path.extname(f), code: mods.has(f) ? rewrite(src) : src }; });
+      minified = runMinify(items, false).then((out) => {
+        let ok = 0; out.forEach((m, i) => { if (m != null) { minDone.set(items[i].code, m); ok++; } });
+        if (!ok) minOff = true, console.warn('[static] não deu para minificar (esbuild instalado?): a interface sai como está no disco');
+        // já monta o que vai ser entregue e solta os textos-fonte (só o minificado fica na memória)
+        for (const f of files) entry(f, path.join(root, f));
+        minDone.clear();
+      });
+    }
+    const p = warm = Promise.all([bundling, minified]).then(async ([b]) => {
+      bun = b ? await useBundle(b) : null;
       if (warm === p) warm = null;
-      // já monta o que vai ser entregue e solta os textos-fonte (só o minificado fica na memória)
-      for (const f of files) entry(f, path.join(root, f));
-      minDone.clear();
+    }).catch((e) => { console.warn('[static] pacotes:', e?.message || e); bun = null; if (warm === p) warm = null; });
+  }
+  // ---------- pacotes (server/bundle.mjs) ----------
+  // entradas: app.js e cada módulo aberto sob demanda (import('./x.js')); lc-mods: todos os módulos que o app alcança
+  function runBundle() {
+    const reach = new Set(), walk = (f) => { if (reach.has(f) || !mods.has(f)) return; reach.add(f); for (const d of deps.get(f).all) walk(d); };
+    walk('app.js');
+    const lazy = new Set(); for (const f of reach) for (const d of deps.get(f).all) if (!deps.get(f).st.includes(d)) lazy.add(d);
+    const input = JSON.stringify({ root, entries: ['app.js', ...[...lazy].filter(f => f !== 'app.js').sort()], mods: [...reach].filter(f => f !== 'app.js').sort(), minify: !minOff });
+    return new Promise((res) => {
+      const c = execFile(process.execPath, [bundleWorker], { maxBuffer: 256 << 20, encoding: 'utf8' }, (err, out) => {
+        let r = null; try { r = JSON.parse(out); } catch { }
+        if (err || !r || r.error) { console.warn('[static] não deu para montar os pacotes, a interface sai em módulos soltos:', r?.error || err?.message || 'sem resposta'); return res(null); }
+        res(r);
+      });
+      c.stdin.end(input);
     });
+  }
+  const mk = (body, ext) => ({ mtime: 0, body, type: TYPES[ext] || null, ext, etag: '"' + crypto.createHash('sha1').update(body).digest('base64url').slice(0, 16) + '"' });
+  const brAsync = (e) => new Promise((res) => zlib.brotliCompress(e.body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: e.body.length } }, (err, out) => { if (!err) e.br = out; res(); }));
+  async function useBundle(b) {
+    // CSS: os da página, na mesma ordem, num arquivo só (já minificados pela entrega de cada um)
+    const cssList = [...fs.readFileSync(path.join(root, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="\/([\w.-]+\.css)">/g)].map(m => m[1]).filter(f => fs.existsSync(path.join(root, f)));
+    const cssBody = Buffer.from(cssList.map(f => entry(f, path.join(root, f)).body.toString('utf8')).join('\n'));
+    const css = `ui.${crypto.createHash('sha1').update(cssBody).digest('hex').slice(0, 8).toUpperCase()}.css`;
+    const names = new Set([...Object.keys(b.files), css]);
+    const fresh = [];
+    for (const [n, text] of Object.entries(b.files)) if (!bunFiles.has(n)) { const e = mk(Buffer.from(text), '.js'); bunFiles.set(n, e); fresh.push(e); }
+    if (!bunFiles.has(css)) { const e = mk(cssBody, '.css'); bunFiles.set(css, e); fresh.push(e); }
+    await Promise.all(fresh.map(brAsync)); // comprime fora da linha principal (o brotli de ~1 MB travaria o servidor)
+    // guarda as 3 últimas versões; arquivo que só as mais antigas usavam sai da memória
+    bunBuilds.push(names);
+    while (bunBuilds.length > 3) { const gone = bunBuilds.shift(); for (const n of gone) if (!bunBuilds.some(s => s.has(n))) bunFiles.delete(n); }
+    return { app: b.entries['app.js'], boot: b.boot, mods: b.mods, css, cssList, names };
   }
   prewarm();
   return {

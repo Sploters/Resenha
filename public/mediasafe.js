@@ -51,8 +51,11 @@ export const isGifName = (n) => /\.gif(\?|$)/i.test(String(n || ''));
 export function freezeGif(img, url, box = img.parentElement) {
   if (!gifFrozen()) return;
   let playing = false;
-  const stop = () => still(url).then(s => { if (s && gifFrozen() && !playing) { img.src = s; box?.classList.add('paused'); } });
-  const play = () => { playing = true; img.src = url; box?.classList.remove('paused'); };
+  // a versão do tamanho da tela (/thumbs/… WebP animado, util.js imgUrl) para o quadro parado e para animar: o GIF original
+  // pode ter vários MB
+  const anim = img.getAttribute('src') && !img.getAttribute('src').startsWith('data:') ? img.getAttribute('src') : url;
+  const stop = () => still(anim).then(s => { if (s && gifFrozen() && !playing) { img.src = s; box?.classList.add('paused'); } });
+  const play = () => { playing = true; img.src = anim; box?.classList.remove('paused'); };
   const pause = () => { playing = false; stop(); };
   img.addEventListener('mouseenter', play); img.addEventListener('mouseleave', pause);
   img.addEventListener('touchstart', (e) => { if (!playing) { e.preventDefault(); play(); } else pause(); }, { passive: false });

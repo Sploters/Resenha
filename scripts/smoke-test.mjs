@@ -35,7 +35,7 @@ ok(deep.status === 200 && !!deep.headers.get('content-security-policy'), 'rota d
 
 console.log('— módulos');
 const mods = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(m => m[1]);
-ok(mods.length > 10, `modulepreload na página (${mods.length})`);
+ok(mods.length >= 3, `modulepreload na página (${mods.length})`);
 const bad = [];
 for (const m of mods) { const x = await fetch(BASE + m); await x.arrayBuffer(); if (x.status !== 200 || x.headers.get('content-security-policy')) bad.push(m + ' ' + x.status); }
 ok(!bad.length, 'todos os módulos respondem 200, sem CSP de página', bad);

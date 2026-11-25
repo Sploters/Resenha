@@ -9,9 +9,13 @@ const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 // ffprobe vem junto com o ffmpeg (mesma pasta quando FFMPEG_PATH aponta para um caminho)
 const FFPROBE = process.env.FFPROBE_PATH || (process.env.FFMPEG_PATH ? process.env.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1') : 'ffprobe');
 const VIDEO = /^[a-f0-9]{24}\.(webm|mp4)$/;
-// fotos (anexos, perfis, ícones de servidor): versões menores em WebP no tamanho em que a tela mostra. GIF fica de fora
-// (perderia a animação). GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp|avif>?s=<lado>
+// fotos (anexos, perfis, ícones de servidor): versões menores em WebP no tamanho em que a tela mostra.
+// GET /thumbs/<24 hex>.<png|jpg|jpeg|webp|bmp|avif>?s=<lado>
 const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp|avif)$/i;
+// GIF (ícone, banner e foto de perfil animados, GIF no chat): WebP ANIMADO no tamanho em que aparece. Um ícone de servidor
+// em GIF de 7,5 MB aparecia em 48 px e era baixado inteiro a cada abertura (trace real, 2026-11-25: ~26 MB de GIF).
+// GET /thumbs/<24 hex>.gif?s=<lado>
+const GIF = /^[a-f0-9]{24}\.gif$/i;
 const SIZES = [64, 128, 256, 480, 960, 1600];
 
 // HDR = curva PQ (HDR10/Dolby Vision) ou HLG (o HDR do iPhone); 10 bits sem HDR também pesa para decodificar
@@ -52,6 +56,7 @@ export function createThumbs(dir) {
   function route(req, res) {
     const f = path.basename(String(req.params.f || ''));
     if (IMAGE.test(f)) return imageRoute(req, res, f);
+    if (GIF.test(f)) return gifRoute(req, res, f);
     if (!VIDEO.test(f)) return res.sendStatus(404);
     ensure(f).then(ok => {
       if (!ok) return res.sendStatus(404);
@@ -118,6 +123,40 @@ export function createThumbs(dir) {
       fs.renameSync(tmp, out); return true;
     }).finally(() => imgPending.delete(key)));
     return imgPending.get(key);
+  }
+  // ---- GIF em WebP animado ----
+  // Converter um GIF grande leva segundos (todos os quadros), então a fila é outra, de 1 em 1, e ninguém espera: enquanto a
+  // versão não fica pronta (ou se não deu), o pedido vai para o original com um redirecionamento temporário (302, sem
+  // cache), e a próxima abertura já pega o WebP. Não compensou (ficou maior que o original): marca e vai para o original.
+  const gifPending = new Map(); let gifChain = Promise.resolve();
+  const gifFailed = new Map(), GIF_FAIL_MS = 6 * 3600e3;
+  function ensureGif(f, sz) {
+    const out = imgOf(f, sz), key = f + ':' + sz;
+    if (gifPending.has(key)) return gifPending.get(key);
+    const failedAt = gifFailed.get(key); if (failedAt && Date.now() - failedAt < GIF_FAIL_MS) return Promise.resolve(false);
+    const src = path.join(UPLOAD_DIR, f); if (!fs.existsSync(src)) return Promise.resolve(false);
+    const p = (gifChain = gifChain.then(async () => {
+      if (fs.existsSync(out)) return fs.statSync(out).size > 0;
+      const tmp = out + '.tmp.webp';
+      const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', src,
+        '-vf', `scale='min(${sz},iw)':'min(${sz},ih)':force_original_aspect_ratio=decrease`, '-c:v', 'libwebp', '-loop', '0', '-quality', '70', '-compression_level', '4', tmp], 120e3);
+      if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } gifFailed.set(key, Date.now()); if (gifFailed.size > 2000) gifFailed.clear(); return false; }
+      if (fs.statSync(tmp).size >= fs.statSync(src).size) { fs.unlinkSync(tmp); fs.writeFileSync(out, ''); return false; }
+      fs.renameSync(tmp, out); return true;
+    })).finally(() => gifPending.delete(key));
+    gifPending.set(key, p); return p;
+  }
+  function gifRoute(req, res, f) {
+    const want = +req.query.s || 480, sz = SIZES.find(x => x >= want) || SIZES.at(-1), out = imgOf(f, sz);
+    if (!fs.existsSync(path.join(UPLOAD_DIR, f))) return res.sendStatus(404);
+    const orig = `/files/${f}/imagem.gif`;
+    if (fs.existsSync(out)) {
+      if (!fs.statSync(out).size) return res.redirect(301, orig); // não compensa, para sempre
+      res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'public, max-age=31536000, immutable' });
+      res.type('image/webp'); return res.sendFile(out);
+    }
+    ensureGif(f, sz).catch(() => { });
+    res.set('Cache-Control', 'no-store'); res.redirect(302, orig);
   }
   // foto recém-enviada: já prepara as versões que o chat pede (960 = foto sozinha, 480 = várias lado a lado / celular),
   // em segundo plano, enquanto a mensagem ainda está sendo escrita/enviada. Sem isso, a primeira pessoa a abrir a conversa

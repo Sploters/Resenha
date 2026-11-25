@@ -198,6 +198,8 @@
     "memory-since-test": 21,
     "image-flow-test": 31,
     "mobile-test": 130,
-    "signup-invite-test": 12
+    "signup-invite-test": 12,
+    "static-bundle-test": 20,
+    "gif-thumbs-test": 15
   }
 }

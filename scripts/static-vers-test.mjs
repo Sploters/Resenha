@@ -4,6 +4,7 @@
 // - mudar um módulo folha troca a versão dele e a dos que o importam, e mais nada; o CSS não mexido fica igual;
 // - a versão geral (<meta lc-ui>) muda e o app.js usa ela; a versão anterior do arquivo mudado continua servida (página
 //   aberta antes da atualização); versão desconhecida não ganha cache longo.
+// Modo de módulos soltos (STATIC_BUNDLE=0); os pacotes têm o próprio teste (scripts/static-bundle-test.mjs).
 // Uso: node scripts/static-vers-test.mjs   (PORT=3437)
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ const until = async (fn, ms = 15000) => { const t = Date.now(); while (Date.now(
 const PORT = +(process.env.PORT || 3437), RTC = process.env.RTC_PORT || '41437', DIR = path.resolve('.testdata-staticvers'), PUB = path.join(DIR, 'public');
 fs.rmSync(DIR, { recursive: true, force: true }); fs.mkdirSync(DIR, { recursive: true });
 fs.cpSync('public', PUB, { recursive: true });
-const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT: String(PORT), HTTPS: '0', DATA_DIR: DIR, PUBLIC_DIR: PUB, RTC_PORT: RTC, RTC_IPS: '127.0.0.1' }, stdio: 'ignore' });
+const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, STATIC_BUNDLE: '0', PORT: String(PORT), HTTPS: '0', DATA_DIR: DIR, PUBLIC_DIR: PUB, RTC_PORT: RTC, RTC_IPS: '127.0.0.1' }, stdio: 'ignore' });
 process.on('exit', () => { try { srv.kill(); } catch { } });
 const BASE = `http://localhost:${PORT}`;
 if (!await until(() => fetch(BASE + '/api/server-info').then(() => true, () => false), 30000)) { console.log('servidor não subiu'); process.exit(1); }
