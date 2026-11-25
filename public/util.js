@@ -419,6 +419,12 @@ export function md(src, ctx = {}) {
   return s;
 }
 export const SHORT = { smile: '😄', grin: '😁', joy: '😂', rofl: '🤣', wink: '😉', heart_eyes: '😍', kiss: '😘', thinking: '🤔', sunglasses: '😎', cry: '😢', sob: '😭', angry: '😠', rage: '😡', scream: '😱', sleepy: '😴', skull: '💀', ghost: '👻', poop: '💩', clown: '🤡', robot: '🤖', thumbsup: '👍', '+1': '👍', thumbsdown: '👎', '-1': '👎', ok_hand: '👌', wave: '👋', clap: '👏', pray: '🙏', muscle: '💪', fire: '🔥', star: '⭐', sparkles: '✨', zap: '⚡', boom: '💥', '100': '💯', heart: '❤️', broken_heart: '💔', tada: '🎉', gift: '🎁', trophy: '🏆', rocket: '🚀', eyes: '👀', check: '✅', x: '❌', warning: '⚠️', question: '❓', pizza: '🍕', beer: '🍺', coffee: '☕', cake: '🎂', dog: '🐶', cat: '🐱', sun: '☀️', moon: '🌙', rainbow: '🌈', lol: '😆', ok: '👌', shrug: '🤷', facepalm: '🤦' };
+// endereço oficial (Configurações → Administração → Convites de cadastro; server/siteurl.js): o que vai nos links que o
+// app gera para mandar a alguém. Sem ele, o endereço desta página (que pode ser o IP da VPN ou um túnel provisório)
+let PUB = null, pubP = null;
+export const publicOrigin = () => PUB || location.origin;
+export const setPublicOrigin = (u) => { PUB = u || null; };
+export const loadPublicOrigin = () => (pubP ||= fetch('/api/server-info').then(r => r.json()).then(j => { if (j?.public_url) PUB = j.public_url; return publicOrigin(); }, () => publicOrigin()));
 // links de convite (/invite/CODIGO, com ou sem endereço) viram cartão no chat
 const INVITE_G = /(?:https?:\/\/[^\s/]+|(?<![\w./]))\/invite\/([A-Za-z0-9_-]{4,32})\b/g;
 // convite para a chamada (/call/ID, criado pelo servidor): vira cartão com Entrar/Recusar
@@ -430,9 +436,9 @@ export const stripInvites = (s) => String(s || '').replace(INVITE_G, '').replace
 const CLIP_G = /(?:https?:\/\/[^\s/]+)?\/#\/clip\/(\d{1,24})\b/g;
 export const clipLinkIds = (s) => [...new Set([...String(s || '').matchAll(CLIP_G)].map(m => m[1]))].slice(0, 3);
 export const stripClipLinks = (s) => String(s || '').replace(CLIP_G, '').replace(/[ \t]+$/gm, '').trim();
-export const clipLink = (id) => `${location.origin}/#/clip/${id}`;
+export const clipLink = (id) => `${publicOrigin()}/#/clip/${id}`;
 // link direto do vídeo com o nome atual do clipe no fim (o servidor acha o arquivo pela primeira parte; o nome é o do download)
-export const clipVideoLink = (c) => location.origin + c.url.replace(/\/[^/]*$/, '/') + encodeURIComponent(String(c.title || 'clipe').replace(/[\\/:*?"<>|#%]+/g, '_').slice(0, 80) + (c.url.includes('.mp4') ? '.mp4' : '.webm'));
+export const clipVideoLink = (c) => publicOrigin() + c.url.replace(/\/[^/]*$/, '/') + encodeURIComponent(String(c.title || 'clipe').replace(/[\\/:*?"<>|#%]+/g, '_').slice(0, 80) + (c.url.includes('.mp4') ? '.mp4' : '.webm'));
 export const inviteText = (s) => String(s || '').replace(INVITE_G, '📨 Convite de servidor').replace(CALL_G, '📞 Convite para a chamada');
 export const isImageUrl = (u) => /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i.test(u);
 // mensagem só de emojis (até 27) mostra grande. Sem expressão com repetição dentro de repetição: a anterior,

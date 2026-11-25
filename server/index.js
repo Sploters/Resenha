@@ -59,6 +59,7 @@ import { searchTracks as musicSearch, musicAvailable, listPlaylist as musicPlayl
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 import { mountAuth } from './routes/auth.js';
 import { createSignup, mountSignup } from './signup.js';
+import { createSiteUrl, mountSiteUrl } from './siteurl.js';
 import { mountAccount } from './routes/account.js';
 import { mountGuilds } from './routes/guilds.js';
 import { mountChannels } from './routes/channels.js';
@@ -505,9 +506,11 @@ const core = {
   conns, voice, leaveVoice, currentVoice, isFileUrl, cssColor, privacy, statusFor, platformsFor, social, sessions, reputation,
   removeMember, joinGuild, unlinkIfUnused, reportAdmin, refreshVoicePerms, UPLOAD_DIR, DATA_DIR,
 };
+const site = createSiteUrl({ get, run }); // endereço oficial dos links (server/siteurl.js)
 const signup = createSignup({ db, get, run, envClosed: !OPEN_REGISTRATION }); // cadastro aberto / por código de convite / fechado (server/signup.js)
 const { ipLimited } = mountAuth(app, { ...core, signup, COLORS, DEFAULT_AVATARS, banned }); // registro, login e logout (server/routes/auth.js)
-mountSignup(app, { ...core, signup, ipLimited, isAdmin: (uid) => reportAdmin()?.id === uid });
+mountSignup(app, { ...core, signup, site, ipLimited, isAdmin: (uid) => reportAdmin()?.id === uid });
+mountSiteUrl(app, { ...core, site, isAdmin: (uid) => reportAdmin()?.id === uid });
 mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSession: sessions.create }); // entrar lendo um QR Code com o celular já logado (server/qrlogin.js)
 
 const { deleteAccount } = mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
@@ -515,7 +518,7 @@ mountGuilds(app, { ...core, renumberRoles, guildFull, memberObj, vsObj, auditSin
 mountChannels(app, { ...core, get forum() { return forum; }, get intents() { return intents; } }); // canais e permissões (server/routes/channels.js)
 // aviso no celular (ntfy) para quem configurou: "Bora?" e convite direto para a chamada (server/push.js)
 const prefsOfUser = (uid) => { try { return JSON.parse(getUser(uid)?.settings || '{}') || {}; } catch { return {}; } };
-const push = createPush({ prefsOf: prefsOfUser, isOnline: (uid) => conns.has(uid), statusOf: (uid) => getUser(uid)?.status || 'online' });
+const push = createPush({ prefsOf: prefsOfUser, isOnline: (uid) => conns.has(uid), statusOf: (uid) => getUser(uid)?.status || 'online', publicUrl: () => site.publicUrl() });
 app.post('/api/me/push-test', auth, wrap((req, res) => { push.test(req.uid, String(req.body?.topic || '')).then(() => res.json({ ok: true, server: push.server() }), (e) => { if (!res.headersSent) res.status(400).json({ error: e.message }); }); }));
 const { callInv } = mountInvites(app, { ...core, postDm: (a, b, c) => postDm(a, b, c), get activity() { return activity; }, push }); // convites do servidor e da chamada (server/routes/invites.js)
 mountEmojis(app, core); // emojis e soundboard (server/routes/emojis.js)
@@ -685,7 +688,7 @@ function socialVoice(cid, joined = null) {
 }
 mountVoiceSessions(app, { ...core, voiceSessions, activity, discover }); // "Desde a última vez" e apagar sessões (server/routes/sessions.js)
 const { accountPub, accountOf, resolveLocalGame, saveGameIcon, localNames } = mountActivity(app, { ...core, activity, games, achievements, discover }); // integrações, Ativo agora e jogo no PC (server/routes/activity.js)
-app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: signup.mode() !== 'closed' || signup.firstAccount(), registration_mode: signup.firstAccount() ? 'open' : signup.mode(), default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
+app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: signup.mode() !== 'closed' || signup.firstAccount(), registration_mode: signup.firstAccount() ? 'open' : signup.mode(), public_url: site.publicUrl() || null, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
 // política de privacidade e de segurança desta instalação (o dono pode editar os arquivos na raiz do projeto)
 for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 'SECURITY.md']])

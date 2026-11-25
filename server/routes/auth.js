@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk } from '../accounts.js';
 import { uxSignup } from '../ux.js';
+import { clientIp } from '../clientip.js';
 
 export function mountAuth(app, d) {
   const { auth, wrap, bad, clean, get, run, newId, sessions, COLORS, DEFAULT_AVATARS, signup, joinGuild } = d;
@@ -19,7 +20,7 @@ export function mountAuth(app, d) {
   // mesmo IP, ex.: proxy do Docker, não se bloqueia entre si). Registro: 20 contas por hora por IP.
   const ipHits = new Map(); // `${tipo}:${ip}` -> [tempos]
   function ipLimited(req, kind, max, ms, extra = '') {
-    const k = kind + ':' + (req.socket.remoteAddress || '?') + extra, now = Date.now(), a = (ipHits.get(k) || []).filter(t => now - t < ms);
+    const k = kind + ':' + clientIp(req) + extra, now = Date.now(), a = (ipHits.get(k) || []).filter(t => now - t < ms);
     if (a.length >= max) { ipHits.set(k, a); return true; }
     a.push(now); ipHits.set(k, a); return false;
   }
@@ -45,7 +46,7 @@ export function mountAuth(app, d) {
   }));
   app.post('/api/login', wrap((req, res) => {
     if (ipLimited(req, 'login', 10, 60e3, ':' + clean(req.body.username, 32).toLowerCase())) return bad(res, 'Muitas tentativas. Espere um minuto.', 429);
-    const name = clean(req.body.username, 32), ip = req.socket.remoteAddress || '?';
+    const name = clean(req.body.username, 32), ip = clientIp(req); // atrás do Cloudflare: o IP de cada pessoa, não o do túnel (server/clientip.js)
     // muitas erradas (nesta conta ou deste IP): espera, sem nem conferir a senha
     { const wait = loginBlocked(ip, name); if (wait) return bad(res, wait, 429); }
     const u = get('SELECT * FROM users WHERE username=?', name);

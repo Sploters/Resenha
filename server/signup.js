@@ -67,7 +67,7 @@ export function createSignup(d) {
 }
 
 export function mountSignup(app, d) {
-  const { auth, wrap, bad, get, all, run, clean, isAdmin, signup, ipLimited } = d;
+  const { auth, wrap, bad, get, all, run, clean, isAdmin, signup, ipLimited, site } = d;
   // histórico do painel de administração (mesma tabela do server/admin.js; o alvo aqui é o modo ou o código, não uma conta)
   const adminLog = (actor, action, target, detail = '') => { try { run('INSERT INTO admin_log(at, actor_id, action, target_id, target_name, detail) VALUES(?,?,?,?,?,?)', Date.now(), actor, action, null, target, detail || null); } catch { /* tabela criada pelo admin.js */ } };
   const only = (fn) => wrap((req, res) => { if (!isAdmin(req.uid)) return bad(res, 'Só o administrador da instalação', 403); fn(req, res); });
@@ -87,7 +87,7 @@ export function mountSignup(app, d) {
   app.get('/api/admin/signup', auth, only((req, res) => {
     const codes = all('SELECT c.*, g.name guild_name FROM signup_codes c LEFT JOIN guilds g ON g.id=c.guild_id ORDER BY c.created_at DESC LIMIT 200');
     const guilds = all('SELECT g.id,g.name FROM guilds g JOIN members m ON m.guild_id=g.id AND m.user_id=? ORDER BY g.name', req.uid);
-    res.json({ mode: signup.mode(), forced: signup.mode() !== signup.stored(), codes: codes.map(pub), guilds });
+    res.json({ mode: signup.mode(), forced: signup.mode() !== signup.stored(), codes: codes.map(pub), guilds, public_url: site?.stored() || '', env_url: site?.env() || '' });
   }));
   app.post('/api/admin/signup/mode', auth, only((req, res) => {
     const m = String(req.body?.mode || ''); if (!['open', 'invite', 'closed'].includes(m)) return bad(res, 'Modo inválido');

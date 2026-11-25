@@ -12,7 +12,7 @@
 export const PER_DAY = 8;
 export const TOPIC_RE = /^[A-Za-z0-9_-]{12,64}$/;
 
-export function createPush({ prefsOf, isOnline, statusOf = () => 'online', log = console.log, now = () => Date.now(), fetchFn = (...a) => fetch(...a) }) {
+export function createPush({ prefsOf, isOnline, statusOf = () => 'online', publicUrl = () => process.env.PUBLIC_URL, log = console.log, now = () => Date.now(), fetchFn = (...a) => fetch(...a) }) {
   const base = () => String(process.env.NTFY_URL || 'https://ntfy.sh').replace(/\/+$/, '');
   const sent = new Map(); // uid -> [instantes] das últimas 24 h
   const budgetOk = (uid) => { const t = now(), list = (sent.get(uid) || []).filter(x => t - x < 864e5); sent.set(uid, list); return list.length < PER_DAY; };
@@ -22,7 +22,7 @@ export function createPush({ prefsOf, isOnline, statusOf = () => 'online', log =
       body: JSON.stringify({ topic, title: String(title || 'Resenha').slice(0, 120), message: String(body || '').slice(0, 400), ...(tags ? { tags: String(tags).split(',') } : {}), ...(priority ? { priority } : {}), ...(click ? { click } : {}) }) });
     if (!r.ok) throw new Error('ntfy respondeu ' + r.status);
   }
-  const clickUrl = (path) => (process.env.PUBLIC_URL ? String(process.env.PUBLIC_URL).replace(/\/+$/, '') + (path || '/') : undefined);
+  const clickUrl = (path) => { const u = publicUrl(); return u ? String(u).replace(/\/+$/, '') + (path || '/') : undefined; }; // endereço oficial (server/siteurl.js)
   return {
     // kind: 'bora' | 'invite'. Devolve true se mandou.
     send(uid, kind, msg) {

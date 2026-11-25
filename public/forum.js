@@ -3,7 +3,7 @@
 //   ordem Em alta / Novos / Top / Atividade, busca, filtro por tag e o quadro "Sobre" ao lado (regras, tags, criar post)
 // - post aberto: o post em destaque no topo e os comentários embaixo, no chat de sempre (o post é um canal type 11)
 // Os posts ficam em S.posts (channelById procura lá): não vêm no READY, chegam pela lista ou pelo link do post.
-import { h, icon, avatar, md, whenGone } from './util.js';
+import { h, icon, avatar, md, whenGone, publicOrigin } from './util.js';
 import { S, api, tryApi, toast, modal, confirmBox, menu, can, PERM, guild, channelById, user, nameOf, lightbox } from './state.js';
 import { uploadFile } from './upload.js';
 
@@ -174,7 +174,7 @@ function postCard(p, cfg) {
         h('button.fo-act', { type: 'button', title: 'Copiar link do post', onclick: (e) => { e.stopPropagation(); copyLink(p); } }, icon('link', 16), 'Compartilhar'),
         h('button.fo-act.fo-more-btn', { type: 'button', title: 'Mais opções', 'aria-label': 'Mais opções', onclick: (e) => { e.stopPropagation(); postMenu(e, p); } }, icon('more', 16)))));
 }
-const copyLink = (p) => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/${p.guild_id}/${p.id}`); toast('Link do post copiado'); };
+const copyLink = (p) => { navigator.clipboard?.writeText(`${publicOrigin()}/#/${p.guild_id}/${p.id}`); toast('Link do post copiado'); };
 function postMenu(e, p) {
   e.preventDefault?.();
   const mine = p.author_id === S.me.id, mod = isMod(p.guild_id);

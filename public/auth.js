@@ -2,7 +2,7 @@
 // Entrar: cartão em duas colunas, com o formulário à esquerda e o QR Code à direita (some em telas estreitas).
 // O QR leva ao endereço /qr/<código> deste servidor: o celular já logado abre, confirma e o computador entra sozinho
 // (server/qrlogin.js). Criar conta: só o formulário.
-import { h, icon, avatar } from './util.js';
+import { h, icon, avatar, loadPublicOrigin } from './util.js';
 import { api, modal } from './state.js';
 
 const req = (label, input, extra) => h('label.f.auth-f', h('span.auth-l', label, h('span.auth-req', { 'aria-hidden': 'true' }, ' *')), input, extra);
@@ -58,7 +58,7 @@ function qrPanel(onToken) {
     if (!col.isConnected) return;
     if (!r?.code) { box.className = 'auth-qrbox off'; box.replaceChildren(h('button.auth-qrnew', { onclick: () => start() }, icon('refresh', 22), h('span', 'Tentar de novo'))); sub.textContent = 'Não deu para gerar o QR Code agora.'; return; }
     code = r.code;
-    const svg = await qrSvg(`${location.origin}/qr/${code}`).catch(() => null);
+    const svg = await qrSvg(`${await loadPublicOrigin()}/qr/${code}`).catch(() => null); // o celular abre pelo endereço oficial
     if (!col.isConnected) return;
     box.className = 'auth-qrbox'; box.replaceChildren(svg || h('small', 'QR Code indisponível'));
     timer = setTimeout(poll, 1500);

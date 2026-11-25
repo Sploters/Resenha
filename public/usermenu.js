@@ -2,7 +2,7 @@
 import { openMyMessages } from './mymessages.js';
 import { fxInfo } from './voicefx.js';
 import { userGamesModal } from './games.js';
-import { h, icon, avatar, framePos, initials, imgUrl } from './util.js';
+import { h, icon, avatar, framePos, initials, imgUrl, publicOrigin } from './util.js';
 import { S, tryApi, user, botOf, guild, channelById, chVisible, member, can, outranks, PERM, dmPeer, relType, toast, modal, confirmBox, promptBox, menu, popout, lightbox, closeFloating, savePrefs, profileThemeOn } from './state.js';
 import { volumeControl } from './quick.js';
 import { chName } from './chnames.js';
@@ -128,7 +128,7 @@ async function callUser(uid) {
 async function sendServerInvite(g, uid) {
   const r = await tryApi('POST', `/guilds/${g.id}/invites`); if (!r) return;
   const dm = await ensureDM(uid); if (!dm) return;
-  if (await tryApi('POST', `/channels/${dm.id}/messages`, { content: `${location.origin}/invite/${r.code}` })) toast(`Convite para ${g.name} enviado a ${user(uid).display_name}`);
+  if (await tryApi('POST', `/channels/${dm.id}/messages`, { content: `${publicOrigin()}/invite/${r.code}` })) toast(`Convite para ${g.name} enviado a ${user(uid).display_name}`);
 }
 function inviteToServer(uid) {
   const gs = [...S.guilds.values()];

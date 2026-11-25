@@ -1,7 +1,7 @@
 // Configurações → Administração → Usuários (só o administrador da instalação; server/admin.js): buscar contas,
 // suspender/reativar, redefinir senha (mostra a temporária uma vez), encerrar sessões, excluir conta e o histórico do
 // que foi feito. Carregado sob demanda pela página de configurações.
-import { h, icon, avatar } from './util.js';
+import { h, icon, avatar, publicOrigin, setPublicOrigin } from './util.js';
 import { S, tryApi, toast, modal, confirmBox, promptBox, menu } from './state.js';
 import { go } from './nav.js';
 
@@ -13,8 +13,8 @@ const when = (t) => {
   const dy = Math.round(hr / 24); if (dy < 30) return `há ${dy} ${dy === 1 ? 'dia' : 'dias'}`;
   return new Date(t).toLocaleDateString('pt-BR');
 };
-const ACTION = { ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de', guild_join: 'entrou no servidor', guild_delete: 'excluiu o servidor', signup_mode: 'mudou o cadastro para', signup_code: 'criou o convite', signup_revoke: 'revogou o convite' };
-const GUILD_ACT = new Set(['guild_join', 'guild_delete', 'signup_mode', 'signup_code', 'signup_revoke']); // alvo não é uma conta (sem @)
+const ACTION = { site_url: 'definiu o endereço oficial', ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de', guild_join: 'entrou no servidor', guild_delete: 'excluiu o servidor', signup_mode: 'mudou o cadastro para', signup_code: 'criou o convite', signup_revoke: 'revogou o convite' };
+const GUILD_ACT = new Set(['site_url', 'guild_join', 'guild_delete', 'signup_mode', 'signup_code', 'signup_revoke']); // alvo não é uma conta (sem @)
 
 export function adminUsersPage() {
   const q = h('input.au-q', { type: 'search', placeholder: 'Buscar por usuário ou nome', 'aria-label': 'Buscar contas', autocomplete: 'off', spellcheck: 'false' });
@@ -136,8 +136,16 @@ export function adminSignupPage() {
   const days = h('select', { 'aria-label': 'Validade' }, [[7, 'Vale 7 dias'], [1, 'Vale 1 dia'], [30, 'Vale 30 dias'], [0, 'Não expira']].map(([v, l]) => h('option', { value: v }, l)));
   const guildSel = h('select', { 'aria-label': 'Servidor' }, h('option', { value: '' }, 'Não entra em servidor'));
   const note = h('input.au-q', { maxLength: 80, placeholder: 'Para quem? (só você vê)', 'aria-label': 'Recado' });
+  // endereço oficial (server/siteurl.js): o domínio que vai nos links, mesmo abrindo o app pelo IP da VPN
+  const urlIn = h('input.au-q', { type: 'url', inputmode: 'url', spellcheck: 'false', autocomplete: 'off', placeholder: 'https://resenha.seudominio.com.br', 'aria-label': 'Endereço oficial' });
+  const urlInfo = h('small.au-muted');
+  const saveUrl = h('button.btn.grey', { type: 'button', onclick: async () => {
+    const r = await tryApi('POST', '/admin/site', { public_url: urlIn.value.trim() }); if (!r) return;
+    setPublicOrigin(r.public_url); urlIn.value = r.public_url || ''; toast(r.public_url ? 'Endereço oficial salvo. Os links novos já saem com ele.' : 'Os links voltam a usar o endereço desta página.'); drawUrlInfo(); load();
+  } }, 'Salvar');
+  const drawUrlInfo = () => { urlInfo.textContent = urlIn.value.trim() ? `Os links saem assim: ${publicOrigin()}/convite/…` : `Sem endereço oficial, os links usam o desta página: ${location.origin}. Quem está fora da sua rede pode não conseguir abrir.`; };
   let data = null;
-  const link = (c) => `${location.origin}/convite/${c}`;
+  const link = (c) => `${publicOrigin()}/convite/${c}`;
   const copy = (c) => navigator.clipboard?.writeText(link(c)).then(() => toast('Link do convite copiado'), () => toast(link(c)));
   const drawModes = () => modeBox.replaceChildren(...MODES.map(([k, l, d]) => h('button.au-mode' + (data?.mode === k ? '.on' : ''), { type: 'button', 'aria-pressed': String(data?.mode === k), disabled: !!data?.forced,
     onclick: async () => { if (data.mode === k) return; const r = await tryApi('POST', '/admin/signup/mode', { mode: k }); if (r) { data.mode = r.mode; drawModes(); toast(k === 'invite' ? 'Agora só entra quem tiver um código.' : k === 'closed' ? 'Cadastro fechado.' : 'Cadastro aberto para qualquer pessoa.'); } } },
@@ -158,6 +166,7 @@ export function adminSignupPage() {
   const load = async () => {
     const r = await tryApi('GET', '/admin/signup'); if (!r) return;
     data = r; drawModes();
+    if (document.activeElement !== urlIn) urlIn.value = r.public_url || r.env_url || ''; drawUrlInfo();
     forcedNote.classList.toggle('hidden', !r.forced); forcedNote.textContent = 'O cadastro está fechado pela configuração do servidor (OPEN_REGISTRATION=0). Tire essa opção do container para escolher aqui.';
     const cur = guildSel.value; guildSel.replaceChildren(h('option', { value: '' }, 'Não entra em servidor'), ...r.guilds.map(g => h('option', { value: g.id, selected: g.id === cur }, 'Entra em ' + g.name)));
     list.replaceChildren(...(r.codes.length ? r.codes.map(row) : [h('p.au-muted', 'Nenhum convite ainda.')]));
@@ -172,6 +181,7 @@ export function adminSignupPage() {
   load();
   return h('div.adminusers', h('h2', 'Convites de cadastro'),
     h('p.au-muted', 'Escolha como contas novas entram nesta instalação do Resenha. No modo "Só com convite", cada pessoa precisa de um código gerado aqui. Só você, como administrador, vê esta página.'),
+    h('h3.sec', 'Endereço oficial'), h('div.au-new', urlIn, saveUrl), urlInfo,
     h('h3.sec', 'Quem pode criar conta'), modeBox, forcedNote,
     h('h3.sec', 'Novo convite'), h('div.au-new', uses, days, guildSel, note, create),
     h('h3.sec', 'Convites'), list);

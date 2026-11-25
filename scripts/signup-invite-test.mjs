@@ -57,6 +57,19 @@ try {
   const log = await call(admin.token, 'GET', '/admin/log');
   ok(log.entries.some(e => e.action === 'signup_mode') && log.entries.some(e => e.action === 'signup_code') && log.entries.some(e => e.action === 'signup_revoke'), 'ações ficam no histórico do administrador');
 
+  // ---- endereço oficial (server/siteurl.js) ----
+  ok((await call(b.token, 'POST', '/admin/site', { public_url: 'https://x.com' })).status === 403, 'quem não é administrador não muda o endereço oficial');
+  ok((await call(admin.token, 'POST', '/admin/site', { public_url: 'ftp://resenha.exemplo.com' })).status === 400, 'endereço que não é https: recusado');
+  ok((await call(admin.token, 'POST', '/admin/site', { public_url: 'http://resenha.exemplo.com' })).status === 400, 'http fora de teste: recusado (microfone e câmera exigem https)');
+  const su = await call(admin.token, 'POST', '/admin/site', { public_url: 'resenha.exemplo.com.br/qualquer/coisa' });
+  ok(su.public_url === 'https://resenha.exemplo.com.br', 'sem https e com caminho: guarda só o domínio, em https', su);
+  ok((await call('', 'GET', '/server-info')).public_url === 'https://resenha.exemplo.com.br', 'server-info informa o endereço oficial');
+  // ---- IP de verdade atrás do Cloudflare Tunnel (server/clientip.js) ----
+  const tryLogin = (ip, u, pw) => fetch(BASE + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip }, body: JSON.stringify({ username: u, password: pw }) }).then(r => r.status);
+  for (let i = 0; i < 31; i++) await tryLogin('203.0.113.7', 'naoexiste' + i, 'errada-123');
+  ok(await tryLogin('203.0.113.7', 'amiga', 'Teste.senha-123') === 429, 'quem errou a senha 30 vezes fica bloqueado (pelo IP dele)');
+  ok(await tryLogin('198.51.100.9', 'amiga', 'Teste.senha-123') === 200, 'os outros, pelo mesmo túnel, continuam entrando');
+
   // ---- tela: link /convite/<código> ----
   browser = await puppeteer.launch({ executablePath: process.env.BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--no-sandbox'] });
   const c5 = await call(admin.token, 'POST', '/admin/signup/codes', { max_uses: 1, guild_id: g.id });
@@ -89,6 +102,6 @@ try {
   ok(panel?.on === 'Só com convite' && panel.rows >= 5, 'painel "Convites de cadastro" abre com o modo e a lista', panel);
   await pa.evaluate(() => [...document.querySelectorAll('.au-new .btn')].pop().click());
   const made = await pa.waitForSelector('.au-pw code.au-link', { timeout: 5000 }).then(() => pa.$eval('.au-pw code.au-link', e => e.textContent), () => '');
-  ok(/\/convite\/[A-Z2-9]{10}$/.test(made), 'gerar convite pelo painel mostra o link', made);
+  ok(/^https:\/\/resenha\.exemplo\.com\.br\/convite\/[A-Z2-9]{10}$/.test(made), 'o link do convite sai com o endereço oficial (não o da página)', made);
 } catch (e) { fails++; console.log('ERRO', e); }
 finally { await browser?.close(); srv.kill(); fs.rmSync(DATA, { recursive: true, force: true }); console.log(fails ? `\n${fails} falha(s)` : '\ntudo certo'); setTimeout(() => process.exit(fails ? 1 : 0), 300); }

@@ -1,4 +1,4 @@
-import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks } from './util.js';
+import { h, icon, avatar, framePos, parsePos, whenGone, soundEmoji, debounce, cleanLinks, publicOrigin } from './util.js';
 import { onboardingPage } from './onboarding.js';
 import { S, api, tryApi, loadMembers, savePrefs, setDevice, focusOn, setFocus, user, guild, can, perms, outranks, roleBelow, PERM, PERM_LABELS, toast, confirmBox, promptBox, modal, menu, nameOf, desktop, applyTheme, emojiPicker, channelById, roleColorMode, systemContrast, systemReduceMotion } from './state.js';
 import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHODS, captureMode } from './voice.js';
@@ -1177,8 +1177,8 @@ function serverSoundsPage(gid) {
 function invitesPage(gid) {
   const box = h('div'), draw = async () => {
     const list = await tryApi('GET', `/guilds/${gid}/invites`) || [];
-    box.replaceChildren(...list.map(i => h('div.frow', { style: { cursor: 'default' } }, h('div.fn', h('b', `${location.origin}/invite/${i.code}`), h('small', `${i.uses} uso(s) • por ${nameOf(i.creator_id, gid)}`)),
-      h('button.btn.grey', { onclick: () => { navigator.clipboard?.writeText(`${location.origin}/invite/${i.code}`); toast('Copiado!'); } }, 'Copiar'), h('button.btn.red', { onclick: async () => { await tryApi('DELETE', `/invites/${i.code}`); draw(); } }, 'Revogar'))));
+    box.replaceChildren(...list.map(i => h('div.frow', { style: { cursor: 'default' } }, h('div.fn', h('b', `${publicOrigin()}/invite/${i.code}`), h('small', `${i.uses} uso(s) • por ${nameOf(i.creator_id, gid)}`)),
+      h('button.btn.grey', { onclick: () => { navigator.clipboard?.writeText(`${publicOrigin()}/invite/${i.code}`); toast('Copiado!'); } }, 'Copiar'), h('button.btn.red', { onclick: async () => { await tryApi('DELETE', `/invites/${i.code}`); draw(); } }, 'Revogar'))));
     if (!list.length) box.append(note('Nenhum convite ativo.'));
   };
   draw();

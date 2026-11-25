@@ -18,7 +18,7 @@ import { initEvents } from './events.js';
 import { initGames } from './games.js';
 import './upload.js';
 import './backoff.js';
-import './util.js';
+import { loadPublicOrigin } from './util.js';
 import './timestamp.js';
 import { S, user, guild, channelById, nameOf, applyTheme, savePrefs, alertAllowed } from './state.js';
 import './tts.js';
@@ -129,5 +129,6 @@ window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) 
   // /convite/<código>: código de cadastro (server/signup.js). Guardado na aba para valer mesmo indo e voltando de "Entrar"
   const sc = location.pathname.match(/^\/convite\/([\w-]{4,40})\/?$/);
   if (sc) { try { sessionStorage.setItem('lc_signup', sc[1]); } catch { /* sem armazenamento: vale só nesta tela */ window.__lcSignup = sc[1]; } history.replaceState(null, '', '/' + location.hash); }
+  loadPublicOrigin(); // endereço oficial para os links que o app gera (util.js)
   if (S.token) connect(); else showAuth(pendingInvite || sc ? 'register' : 'login');
 })();

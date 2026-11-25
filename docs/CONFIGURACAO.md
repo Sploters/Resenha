@@ -88,7 +88,8 @@ Explicados em [ADMINISTRACAO.md](ADMINISTRACAO.md).
 |---|---|
 | `ALERT_WEBHOOK` | Tópico do [ntfy](https://ntfy.sh) ou webhook de canal do Discord para os alertas chegarem no celular. |
 | `NTFY_URL` | Servidor do [ntfy](https://ntfy.sh) usado para os avisos no celular das pessoas ("Bora?" e convites para a call). Padrão `https://ntfy.sh`; use o seu se tiver um ntfy próprio. |
-| `PUBLIC_URL` | Endereço do Resenha (ex.: `https://resenha.minha-vpn.ts.net`): tocar no aviso do celular abre o app. Sem ele, o aviso só mostra o texto. |
+| `PUBLIC_URL` | Endereço oficial do Resenha (ex.: `https://resenha.seudominio.com.br`). Prefira definir em Configurações → Administração → Convites de cadastro → Endereço oficial (vale na hora e fica acima desta variável). Vai nos links que o app gera (convites, QR Code, clipes) e nos avisos do celular. |
+| `TRUST_PROXY=0` | Não lê o IP de quem acessa nos cabeçalhos do Cloudflare/proxy (`CF-Connecting-IP`, `X-Forwarded-For`). Por padrão eles valem só quando a conexão vem da própria máquina ou da rede do Docker (onde roda o túnel). |
 | `ALERT_MS` | Limite do alerta de lentidão (padrão 1 s). |
 | `SLOW_MS` | Respostas acima disso vão para `<dados>/slow.log` (padrão 400 ms). |
 | `HEALTH_CPU_PCT`, `HEALTH_MEM_PCT`, `HEALTH_DISK_PCT` | Limites dos alertas de CPU (85%), memória livre (10%) e disco livre (10%). |

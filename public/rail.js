@@ -1,7 +1,7 @@
 // Trilho de servidores (barra da esquerda): servidores, conversas fixadas, cartão de quem está em call, menu do
 // servidor, convidar e criar/entrar em servidor.
 import { openMyMessages } from './mymessages.js';
-import { h, icon, avatar, debounce, imgUrl } from './util.js';
+import { h, icon, avatar, debounce, imgUrl, publicOrigin } from './util.js';
 import { S, api, tryApi, user, member, nameOf, can, canInvite, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs, chVisible } from './state.js';
 import { chName } from './chnames.js';
 import { sortable, reordering } from './reorder.js';
@@ -184,7 +184,7 @@ export function guildMenu(e, g) {
 // convidar para o servidor: amigos com botão "Convidar" (vai por DM) e o link para copiar embaixo
 export async function inviteModal(g) {
   const r = await tryApi('POST', `/guilds/${g.id}/invites`); if (!r) return;
-  const link = `${location.origin}/invite/${r.code}`;
+  const link = `${publicOrigin()}/invite/${r.code}`;
   const land = g.channels.filter(c => c.type === 0).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
   const friends = [...S.rels.values()].filter(x => x.type === 1).map(x => S.users.get(x.user.id) || x.user).filter(u => !g.members?.has(u.id))
     .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
