@@ -275,7 +275,7 @@ export function guildGamesPanel(list, redraw) {
   // faixa de ícones: quem está jogando agora ganha um pontinho verde
   const strip = h('div.ggp-strip', { role: 'list', 'aria-label': 'Jogos que a galera joga aqui' }, list.map(x => h('button.ggp-ic', { type: 'button', role: 'listitem', title: ggTip(x), 'aria-label': ggTip(x),
     onclick: (e) => { e.stopPropagation(); openGame(x)(e); } }, gameIcon(x, 28), x.playing > 0 && h('span.ggp-live'), x.hot && h('span.gg-hot', icon('fire', 9)))));
-  const step = (dir) => (e) => { e.stopPropagation(); strip.scrollBy({ left: dir * strip.clientWidth * 0.8, behavior: 'smooth' }); };
+  const step = (dir) => (e) => { e.stopPropagation(); cancelAnimationFrame(raf); raf = 0; target = null; strip.style.scrollSnapType = ''; strip.scrollBy({ left: dir * strip.clientWidth * 0.8, behavior: 'smooth' }); };
   const prev = h('button.ggp-arr.prev', { type: 'button', title: 'Anteriores', 'aria-label': 'Jogos anteriores', onclick: step(-1) }, icon('chevl', 16));
   const next = h('button.ggp-arr.next', { type: 'button', title: 'Mais jogos', 'aria-label': 'Mais jogos', onclick: step(1) }, icon('chevr', 16));
   const bar = h('div.ggp-bar', { title: 'Clique para ver a lista', onclick: () => ggSet(true, redraw) }, prev, strip, next);
@@ -283,10 +283,24 @@ export function guildGamesPanel(list, redraw) {
   const edges = () => { prev.disabled = strip.scrollLeft <= 2; next.disabled = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2; bar.classList.toggle('fits', prev.disabled && next.disabled); };
   strip.addEventListener('scroll', edges, { passive: true }); requestAnimationFrame(edges);
   // rodinha do mouse anda para os lados direto (sem segurar Alt/Shift); sem mais ícones para aquele lado, a lista rola normal
+  // deslizando: cada dente da rodinha soma num alvo e a faixa corre até ele com desaceleração (antes pulava 100 px seco).
+  // O ímã das capas (scroll-snap) sai durante o deslize e volta no fim, senão ele puxava a faixa no meio do caminho
+  let target = null, raf = 0;
+  const glide = () => {
+    const diff = target - strip.scrollLeft;
+    if (Math.abs(diff) < 0.6) { strip.scrollLeft = target; target = null; raf = 0; strip.style.scrollSnapType = ''; return; }
+    strip.scrollLeft += diff * 0.2; raf = requestAnimationFrame(glide);
+  };
   strip.addEventListener('wheel', (e) => {
     const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : 0; if (!d) return;
-    const max = strip.scrollWidth - strip.clientWidth; if (max <= 2 || (d < 0 && strip.scrollLeft <= 0) || (d > 0 && strip.scrollLeft >= max - 1)) return;
-    e.preventDefault(); strip.scrollLeft += e.deltaMode === 1 ? d * 16 : d;
+    const max = strip.scrollWidth - strip.clientWidth, from = target ?? strip.scrollLeft;
+    if (max <= 2 || (d < 0 && from <= 0) || (d > 0 && from >= max - 1)) return;
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? d * 16 : e.deltaMode === 2 ? d * strip.clientWidth : d;
+    target = Math.max(0, Math.min(max, from + px));
+    if (document.documentElement.classList.contains('reduce-motion')) { strip.scrollLeft = target; target = null; return; }
+    strip.style.scrollSnapType = 'none';
+    if (!raf) raf = requestAnimationFrame(glide);
   }, { passive: false });
   return h('div.ggp', head, bar);
 }

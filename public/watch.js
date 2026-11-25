@@ -6,7 +6,7 @@
 // - Comandos só nascem de cliques/atalhos na interface do Resenha; eventos do player viram só relatórios (anti-eco).
 // - A cada 400 ms o motor compara a posição do player com a esperada (estado do servidor + relógio comum) e corrige.
 import { h, icon, avatar } from './util.js';
-import { S, toast, user, nameOf, menu, confirmBox, closeFloating, modal } from './state.js';
+import { S, toast, user, nameOf, menu, confirmBox, closeFloating, modal, savePrefs } from './state.js';
 import { SERVICES, SERVICE_IDS, LEVELS, ERRORS, effectiveLevel, parseLink, ytPlaylist } from './watchsvc.js';
 import { expectedPos, createClock, decide, syncState, fmtTime, waitingStart, parseTime } from './watchsync.js';
 import { makePlayer, QUALITY_LABEL } from './watchplayers.js';
@@ -831,41 +831,59 @@ export function watchVoiceChanged() {
   place();
 }
 
-// ---------- lançador de atividades (botão da barra da chamada) ----------
+// ---------- lançador de atividades (foguete da barra da chamada e do painel de voz) ----------
+// Busca no topo, "Recentes" (as últimas usadas, em ícone) e a grade de "Atividades" com capa, ícone, nome e descrição.
+// entries: { id, icon, title, desc, color, on?, badge?, fn }
+const recentIds = () => (Array.isArray(S.prefs?.actRecent) ? S.prefs.actRecent : []);
+function pushRecent(id) {
+  if (!id || !S.prefs) return;
+  S.prefs.actRecent = [id, ...recentIds().filter(x => x !== id)].slice(0, 6);
+  savePrefs();
+}
 export function activityLauncher(anchor, entries) {
   if (document.querySelector('.actpop:not(.leaving)')) return closeFloating();
   closeFloating();
   const list = entries.filter(Boolean);
-  // abre como no Discord: "Atividades sugeridas" com a fileira de capas; "Ver todas" troca pela lista com a descrição de cada uma
-  const run = (e) => { closeFloating(); e.fn(); };
-  const tile = (e) => h('button.act-tile' + (e.on ? '.on' : ''), { type: 'button', title: e.title + ' · ' + e.desc, 'aria-label': e.title + (e.on ? ' (ativo)' : ''), onclick: () => run(e), style: { '--acc': e.cover || e.color || 'var(--brand)' } },
-    h('span.act-cover', h('span.act-cover-ic', icon(e.icon, 30)), e.on ? h('span.act-tbadge.on', 'Ativo') : e.badge && h('span.act-tbadge', e.badge)),
-    h('span.act-tname', e.title));
-  const card = (e) => h('button.act-card' + (e.on ? '.on' : ''), { type: 'button', onclick: () => run(e), style: e.cover || e.color ? { '--acc': e.cover || e.color } : null },
-    h('span.act-ic', icon(e.icon, 26)), h('div', h('b', e.title, e.badge && h('span.act-badge', e.badge)), h('small', e.desc)), e.on && h('span.act-on', 'Ativo'));
-  const el = h('div.popout.actpop');
-  const show = (all) => {
-    el.classList.toggle('all', all);
-    el.replaceChildren(...(all
-      ? [h('div.act-title', h('button.act-back', { type: 'button', onclick: () => show(false) }, icon('chevl', 14), h('span', 'Atividades')), h('small.act-sub', 'Para fazer junto com quem está na chamada')),
-        h('div.act-list', list.map(card))]
-      : [h('div.act-title', h('span.act-tl', icon('sparkle', 20), h('span', 'Atividades sugeridas')),
-          h('button.act-all', { type: 'button', onclick: () => show(true) }, h('span', 'Ver todas'), icon('chevr', 12))),
-        h('div.act-tiles', list.map(tile))]));
+  const run = (e) => { pushRecent(e.id); closeFloating(); e.fn(anchor); };
+  const cover = (e, big) => h('span.act-cover' + (big ? '.big' : ''), h('span.act-cover-ic', icon(e.icon, big ? 34 : 24)),
+    big && (e.on ? h('span.act-tbadge.on', 'Ativo') : e.badge && h('span.act-tbadge', e.badge)));
+  // recente: só o ícone (o nome aparece ao passar o mouse)
+  const recent = (e) => h('button.act-recent' + (e.on ? '.on' : ''), { type: 'button', title: e.title, 'aria-label': e.title + (e.on ? ' (ativo)' : ''), onclick: () => run(e), style: { '--acc': e.color || 'var(--brand)' } }, cover(e, false));
+  // cartão da grade: capa larga, e embaixo ícone + nome + descrição numa linha
+  const tile = (e) => h('button.act-tile' + (e.on ? '.on' : ''), { type: 'button', title: e.desc, 'aria-label': e.title + (e.on ? ' (ativo)' : '') + ': ' + e.desc, onclick: () => run(e), style: { '--acc': e.color || 'var(--brand)' } },
+    cover(e, true),
+    h('span.act-det', h('span.act-ic', icon(e.icon, 18)), h('span.act-txt', h('span.act-tname', e.title), h('small.act-tdesc', e.desc))));
+  const q = h('input.act-q', { type: 'search', name: 'activity-search', autocomplete: 'off', placeholder: 'Buscar atividade', 'aria-label': 'Buscar atividade',
+    oninput: () => draw(), onkeydown: (ev) => { if (ev.key === 'Enter') { const first = body.querySelector('.act-tile'); first?.click(); } } });
+  const body = h('div.act-scroll');
+  const norm = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const draw = () => {
+    const term = norm(q.value.trim());
+    const shown = term ? list.filter(e => norm(e.title + ' ' + e.desc).includes(term)) : list;
+    const rec = term ? [] : recentIds().map(id => list.find(e => e.id === id)).filter(Boolean);
+    body.replaceChildren(
+      rec.length > 0 && h('section.act-sec', h('h4.act-h', 'Recentes'), h('div.act-recents', rec.map(recent))),
+      h('section.act-sec', h('h4.act-h', 'Atividades'), shown.length ? h('div.act-tiles', shown.map(tile)) : h('p.act-none', 'Nenhuma atividade com esse nome.')));
     place();
   };
+  const el = h('div.popout.actpop', h('div.act-search', icon('search', 16), q), body);
+  // em cima do botão, centralizada nele; a altura cabe no espaço acima (a lista rola por dentro)
   const place = () => {
-    const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
+    const r = anchor.getBoundingClientRect();
+    const room = r.top - 18, below = innerHeight - r.bottom - 18, up = room >= 320 || room >= below;
+    el.style.maxHeight = Math.max(240, Math.min(560, up ? room : below)) + 'px';
+    const w = { width: el.offsetWidth, height: el.offsetHeight }; // offset*: sem a escala da animação de abrir (senão cobria o botão)
     el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w.width / 2, innerWidth - w.width - 8)) + 'px';
-    el.style.top = Math.max(8, r.top - w.height - 10) + 'px';
+    el.style.top = (up ? Math.max(8, r.top - w.height - 10) : r.bottom + 10) + 'px';
   };
   document.getElementById('layer').append(el);
-  show(false);
+  draw();
+  requestAnimationFrame(() => q.focus({ preventScroll: true }));
   return el;
 }
 export function watchLauncherEntry() {
   const s = W.sess;
-  return { icon: 'tv', title: 'Watch Together', badge: 'Novo', color: '#e5484d', on: !!s,
+  return { id: 'watch', icon: 'tv', title: 'Watch Together', badge: 'Novo', color: '#e5484d', on: !!s,
     desc: s ? (W.joined ? 'Voltar para o Watch Together' : `Entrar: ${s.members.filter(m => m.online).length} assistindo`) : 'Vídeos do YouTube no mesmo ponto para todos, com fila compartilhada',
     fn: () => (s ? openWatch() : startWatch()) };
 }

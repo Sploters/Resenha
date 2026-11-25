@@ -22,6 +22,8 @@ import { STATUS_TXT } from './card.js';
 import { swapIcon } from './motion.js';
 import { voice, ready, $, logout } from './gateway.js';
 import { musicOn } from './botmusic.js';
+import { activityLauncher, watchLauncherEntry } from './watch.js';
+import { openGameNight } from './games.js';
 import { openSettings, openFullProfile, go, ctxSettings } from './nav.js';
 import { openMessages, friendsInServer } from './rail.js';
 import { toggleGlobalSearch } from './gsearch.js';
@@ -48,9 +50,29 @@ export function voicePanel() {
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera (clique direito: escolher a câmera)', onclick: () => voiceAct(() => voice.toggleCam()), oncontextmenu: async (e) => { e.preventDefault(); const t = e.currentTarget; menuAbove(t, camOptItems(await mediaDevs())); } }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão' + shareKeyHint(), onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),
-      ch?.guild_id && h('button.vp-play', { title: 'Chamar pra jogar: escolha o jogo e quem chamar (recebem um aviso com toque)', 'aria-label': 'Chamar pra jogar', onclick: () => playInviteModal() }, icon('gamepad', 20)),
-      ch?.guild_id && h('button' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 20)),
+      activityButton(20, '.vp-act'),
       sbButton()));
+}
+// ---------- Atividades (foguete) ----------
+// Um botão só para tudo que se faz junto na chamada: Watch Together, música, chamar pra jogar, o que jogar, lousa e código.
+// Fica no painel de voz e na barra da chamada (stage.js); abre o lançador com busca, recentes e a grade (watch.js).
+export function activityEntries() {
+  const ch = voice?.channelId && channelById(voice.channelId), srv = !!ch?.guild_id;
+  const room = S.room?.cid === voice?.channelId ? S.room : null;
+  return [
+    watchLauncherEntry(),
+    srv && { id: 'music', icon: 'musicbot', title: 'Música', desc: 'Tocar músicas na sala, com fila para todo mundo', color: '#1aa37a', on: musicOn(), fn: (a) => openMusic(a, voice) },
+    srv && { id: 'play', icon: 'gamepad', title: 'Chamar pra jogar', desc: 'Escolha o jogo e quem chamar: recebem um aviso com toque', color: '#4b8bff', fn: () => playInviteModal() },
+    { id: 'gamenight', icon: 'compass', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#7c5cff', fn: () => openGameNight(voice.channelId) },
+    { id: 'wb', icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#2f9e5f', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
+    { id: 'code', icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
+  ].filter(Boolean);
+}
+// size 20 = painel de voz; 24 = barra da chamada (roundbtn). data-music-btn: o painel de música se prende a ele
+export function activityButton(size, cls = '') {
+  const on = activityEntries().some(e => e.on);
+  return h((size >= 24 ? 'button.roundbtn.actbtn' : 'button') + cls + (on ? (size >= 24 ? '.active' : '.on') : ''), { title: 'Atividades: Watch Together, música, chamar pra jogar, lousa…', 'aria-label': 'Atividades', 'data-act-btn': '', 'data-music-btn': '',
+    onclick: (e) => activityLauncher(e.currentTarget, activityEntries()) }, icon('rocket', size));
 }
 // Soundboard: último botão do painel; passar o mouse mostra os 6 sons mais usados, clicar abre a soundboard completa
 function sbButton() {

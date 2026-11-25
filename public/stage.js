@@ -1,10 +1,8 @@
 // Palco da chamada: quadros (câmera, tela, avatar), layouts, visibilidade e qualidade dos vídeos, e clipes.
 import { fxBadge } from './fxui.js';
-import { openGameNight } from './games.js';
 import { h, icon, avatar, parsePos, imgUrl } from './util.js';
 import { S, user, channelById, nameOf, toast, menu, popout, closeFloating, desktop, savePrefs, CH, chCan } from './state.js';
 import { playSound } from './sounds.js';
-import { openMusic } from './music.js';
 import { openSoundboard } from './soundboard.js';
 import { volumeControl } from './quick.js';
 import { chName } from './chnames.js';
@@ -17,17 +15,17 @@ import { openShareClip } from './myclips.js';
 import { syncThrottle } from './lite.js';
 import { syncGlobalPtt } from './ptt.js';
 import { controlling as remoteControlling } from './remote.js';
-import { watchTile, watchVoiceChanged, activityLauncher, watchLauncherEntry } from './watch.js';
+import { watchTile, watchVoiceChanged } from './watch.js';
 import { toggle as uiToggle } from './ui.js';
 import { styleName } from './themes.js';
 import { activityOf, refreshFeedView, gameTitle } from './activity.js';
 import { swapIcon, animOn } from './motion.js';
 import { voice, $, gwSend, roomVoice } from './gateway.js';
-import { musicOn, botTile } from './botmusic.js';
+import { botTile } from './botmusic.js';
 import { appBadge } from './appver.js';
 import { openSettings, ctxSettings } from './nav.js';
 import { renderSide } from './side.js';
-import { voiceAct, fxButton, trackLastCall, joinVoice, voiceToggle } from './userbar.js';
+import { voiceAct, fxButton, trackLastCall, joinVoice, voiceToggle, activityButton } from './userbar.js';
 import { muteIco, userMenu } from './usermenu.js';
 import { anchorRight } from './inbox.js';
 import { noiseMenu, startShare, pipCtx, stopSharing, mediaDevs, camOptItems, screenOptItems, watchOnly, watchOptItems, ctxOpts, shareKeyHint, syncLive, hideGameOffer, healthPill, streamItems, streamControls, clipButton, liveShareModal } from './share.js';
@@ -361,14 +359,8 @@ export function renderVoiceUI(speakOnly) {
     ctxOpts(btn('video', 'Câmera (clique direito: escolher a câmera)', !!voice.cam, () => voiceAct(() => voice.toggleCam()), '.solo-narrow'), async () => camOptItems(await mediaDevs())),
     ctxOpts(btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio) · clique direito: opções rápidas' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''), async () => [...screenOptItems(), ...(watchOptItems().length ? ['-', ...watchOptItems()] : [])]),
     fxButton(24, true, '.solo-narrow'),
-    h('button.roundbtn.actbtn' + (watchLauncherEntry().on ? '.active' : ''), { title: 'Atividades: Watch Together, lousa, código…', 'aria-label': 'Atividades', 'data-act-btn': '', onclick: (e) => activityLauncher(e.currentTarget, [
-      watchLauncherEntry(),
-      { icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#3ba55d', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
-      { icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
-      { icon: 'gamepad', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#f0b232', cover: '#7c5cff', fn: () => openGameNight(voice.channelId) },
-    ]) }, icon('rocket', 24)),
+    activityButton(24), // Atividades: Watch Together, música, chamar pra jogar, lousa, código (userbar.js)
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
-    !dm && h('button.roundbtn.solo-narrow' + (musicOn() ? '.on' : ''), { title: 'Música: tocar no canal de voz', 'data-keepfloat': '', 'data-music-btn': '', onclick: (e) => openMusic(e.currentTarget, voice) }, icon('musicbot', 24)),
     // transmitindo: a bola vermelha da ponta vira "Parar transmissão" (mesmo tamanho das outras) no lugar do "Sair da chamada";
     // para sair da chamada continua o botão do painel de voz (ou parar a transmissão e o Sair volta aqui)
     voice.screen ? btn('screenoff', 'Parar transmissão' + shareKeyHint() + ' — você continua na chamada', false, () => stopSharing(), '.red.stopshare')
