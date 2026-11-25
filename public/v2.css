@@ -251,9 +251,16 @@
 #side-list .ch .chic { display: contents; }
 :root:not(.classic) #side-list.srv-list .catblk { border-top: 1px solid var(--divider); margin: var(--sp-2) calc(-1 * var(--sp-2)) 0; padding: 0 var(--sp-2); }
 :root:not(.classic) #side-list.srv-list .cat { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 500; padding: var(--sp-3) var(--sp-2) 6px; }
-:root:not(.classic) #side-list.srv-list .cat > span:first-child { flex: 1; min-width: 0; gap: var(--sp-1); }
-:root:not(.classic) #side-list.srv-list .catblk > .cat > span > .icon:first-child { order: 2; margin: 0 0 0 auto; width: 14px; height: 14px; opacity: .8; }
-:root:not(.classic) #side-list.srv-list .cat .add { margin-left: var(--sp-1); }
+/* categoria como no Discord: nome (cortado com "…"), a seta logo depois dele e o + na ponta, tudo na mesma linha */
+:root:not(.classic) #side-list.srv-list .catblk > .cat { gap: var(--sp-1); min-height: 24px; box-sizing: content-box; }
+:root:not(.classic) #side-list.srv-list .catblk > .cat > .cat-l { flex: 0 1 auto; min-width: 0; gap: 4px; }
+:root:not(.classic) #side-list.srv-list .cat-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root:not(.classic) #side-list.srv-list .catblk > .cat > .cat-l > .icon:first-child { order: 2; margin: 1px 0 0; width: 12px; height: 12px; opacity: .75; }
+:root:not(.classic) #side-list.srv-list .catblk > .cat:hover > .cat-l > .icon:first-child { opacity: 1; }
+:root:not(.classic) #side-list.srv-list .cat .add { margin-left: auto; flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 4px; color: var(--text-muted); transition: opacity .12s, color .12s; }
+:root:not(.classic) #side-list.srv-list .cat .add .icon { width: 16px; height: 16px; fill: currentColor; }
+:root:not(.classic) #side-list.srv-list .cat .add:hover { color: var(--header); }
+:root:not(.classic) #side-list.srv-list .cat .add:focus-visible { opacity: 1; outline: 2px solid var(--brand); outline-offset: 1px; }
 
 :root:not(.classic) #side-list.srv-list .ch { gap: 10px; min-height: 38px; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-m); color: var(--text-muted); }
 :root:not(.classic) #side-list.srv-list .ch.unread { color: var(--text-strong); }

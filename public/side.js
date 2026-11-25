@@ -83,8 +83,8 @@ export function renderSide() {
         vs.length > 0 && vusersBlock(g, vs));
     };
     const catRow = (c) => h('div.catblk', h('div.cat' + (S.collapsed.has(c.id) ? '.collapsed' : ''), { title: c.topic || null, onclick: () => { S.collapsed.has(c.id) ? S.collapsed.delete(c.id) : S.collapsed.add(c.id); localStorage.setItem('lc_collapsed', JSON.stringify([...S.collapsed])); renderSide(); }, oncontextmenu: (e) => channelMenu(e, g, c), ...chDragHooks(g, c) },
-      h('span', { style: { display: 'flex', alignItems: 'center' } }, icon('caret', 12), chName(c)),
-      can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { title: 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); } }, icon('plus', 16))),
+      h('span.cat-l', { style: { display: 'flex', alignItems: 'center' } }, icon('chevdown', 12), h('span.cat-t', chName(c))),
+      can(g.id, PERM.MANAGE_CHANNELS) && h('span.add', { role: 'button', tabindex: 0, title: 'Criar canal', 'aria-label': 'Criar canal', onclick: (e) => { e.stopPropagation(); channelModal(g, 0, c.id); }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); channelModal(g, 0, c.id); } } }, icon('plus', 16))),
       !S.collapsed.has(c.id) && (catReady(c, kids(c.id)) ? kids(c.id).map(chRow) : h('div.cat-lazy', { 'data-cat': c.id, style: { height: kids(c.id).length * 36 + 'px' } })),
       S.collapsed.has(c.id) && kids(c.id).filter(k => k.id === S.view.cid || S.unread[k.id]).map(chRow));
     // atalhos do servidor numa faixa de ícones (uma linha só; o nome aparece ao passar o mouse e o da tela aberta fica
