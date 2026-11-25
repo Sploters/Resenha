@@ -8,6 +8,7 @@ import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 import { attachTap } from './clipbuf.js';
 import { newMicWatch, micWatchStep, newTalkMuted, talkMutedStep } from './micwatch.js';
+import { VoiceTunnel, tunnelSupported } from './voztunnel.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -63,6 +64,8 @@ export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '6
 // voz é mono: 48-64 kbps já soam perfeitos. Acima disso só faz sentido para música (e pesa no upload do servidor:
 // cada voz é repassada para todos os outros da sala)
 export const AUTO_MAX = 64, AUTO_STEPS = [32, 48, 64];
+// voz pelo túnel (public/voztunnel.js): sem conectar direto em tanto tempo na entrada, a voz segue pela conexão do site
+const TUNNEL_WAIT = 5000;
 const OPUS_MAX = 384; // teto anunciado no SDP; a taxa real é limitada por encodings[].maxBitrate
 // pede Opus em estéreo e até 384 kbps ao outro lado (mono do Opus para em ~256 kbps)
 const opusHi = (sdp) => {
@@ -298,7 +301,8 @@ export function frameMax(f, buf, layout) {
 }
 
 export class Voice {
-  constructor({ send, ice, myId, onUpdate, prefs, serverRoom }) {
+  constructor({ send, ice, myId, onUpdate, prefs, serverRoom, token }) {
+    this.token = token || (() => null); // login (voz pelo túnel: o WebSocket /voz-tunel se identifica com ele)
     this.send = send; this.ice = ice; this.myId = myId; this.onUpdate = onUpdate; this.prefs = prefs;
     this.serverRoom = serverRoom || (() => null); // sala em que o servidor tem esta pessoa (último VOICE_STATE recebido)
     this.autoKbps = AUTO_MAX; // nível escolhido pelo modo automático (32-64 kbps, voz mono)
@@ -394,7 +398,8 @@ export class Voice {
     try {
       const old = this.micGraph; if (await this.buildMic() === false) return;
       const track = this.mic.getAudioTracks()[0];
-      if (this.sfu) await this.sfuProduce('mic', track);
+      if (this.tunnel) this.tunnel.setMic(track); // voz pelo túnel
+      else if (this.sfu) await this.sfuProduce('mic', track);
       else for (const p of this.peers.values()) { const s = p.senders.micaudio; if (s) await s.replaceTrack(track); else p.senders.micaudio = this.p2pAdd(p.pc, track, this.mic); }
       // o replaceTrack do mediasoup-client liga a trilha (enabled = true) se o produtor não está pausado, e o mudo daqui
       // não pausa o produtor: remontar mutado (vigia do microfone, troca de filtro) deixava a trilha nova ligada. Com o
@@ -426,7 +431,7 @@ export class Voice {
     this.sendStateNow(); // mudo, ensurdecido, câmera e tela como estão agora
     // a mídia caiu junto (rede fora) e refazê-la ficou esperando a conexão, ou a entrada no SFU estava no meio (as respostas
     // foram para a conexão morta): refaz agora, sem esperar os 15 s do pedido sem resposta
-    if (this._sfuMode && (!this.sfu?.ready || this._mrDeferred)) { this._mrDeferred = false; clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null; return this.mediaReconnect(this._mrReason || 'resume', true); }
+    if (this._sfuMode && !this.tunnel && (!this.sfu?.ready || this._mrDeferred)) { this._mrDeferred = false; clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null; return this.mediaReconnect(this._mrReason || 'resume', true); }
     this.sfuResync().catch(() => { });
   }
   // a conexão com o servidor caiu (public/gateway.js): pedidos ao SFU e SFU_REJOIN esperam a retomada (VOICE_RESUME); um
@@ -520,6 +525,7 @@ export class Voice {
     this.send('VOICE_LEAVE', {});
     if (this.hold) { const p = this._preHold || {}; this.hold = false; this._preHold = null; this.muted = !!p.muted; this.deafened = !!p.deafened; } // a espera é só desta chamada
     this.stopRecovery();
+    this.tunnelClose();
     this._sfuTok = null; this.sfuClose();
     for (const uid of [...this.peers.keys()]) this.drop(uid);
     this.e2eeWorker?.terminate(); this.e2eeWorker = null; this.e2eeWorkerStats = null; this.e2ee = null; // chave da chamada protegida some junto
@@ -543,6 +549,8 @@ export class Voice {
     if (channel_id !== this.channelId) return;
     clearTimeout(this._mrWait); this._mrWait = null;
     const jt = this._jt; if (jt?.sent && !jt.joined) { timing('voice_server', performance.now() - jt.sent); jt.joined = performance.now(); if (!sfu) this._jt = null; }
+    // pela voz pelo túnel: a entrada (de novo) no servidor só pede para o túnel entrar na sala outra vez
+    if (sfu && this.tunnel) { this._sfuMode = true; this._gotJoined = true; this.tunnel.attach(); return; }
     if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
     // a falha só conta se esta conexão de mídia ainda for a atual: saiu (ou entrou de novo) no meio do caminho, o
     // envio cancelado ("queue stopped") não é falha de conexão nem vira erro na tela
@@ -605,6 +613,14 @@ export class Voice {
     if (this.screen && this.native && !this.native.pending) { window.lcDesktop?.nativeStop?.(); this.startNative().catch(() => { }); } // sessão anterior morreu com a conexão
     this.onUpdate();
     setTimeout(() => this.checkRecovered(sfu), 1500); // refez a mídia e não há nada para conectar agora: já conta como de volta
+    // vigia da voz pelo túnel: tinha o que mandar ou receber e nada conectou em TUNNEL_WAIT (com ou sem eventos do ICE)
+    if (tunnelSupported() && !this.e2ee && !sfu.timers?.has('tunnelWatch')) {
+      (sfu.timers ||= new Map()).set('tunnelWatch', setInterval(() => {
+        if (this.sfu !== sfu || sfu.ever) return clearInterval(sfu.timers.get('tunnelWatch'));
+        const busy = (sfu.producers.mic && !sfu.producers.mic.closed) || sfu.consumers.size > 0;
+        if (busy && (sfu.busyAt ||= Date.now()) && Date.now() - sfu.busyAt >= TUNNEL_WAIT) this.startTunnel('ice_timeout');
+      }, 1000));
+    }
   }
   // ---------- recuperação da mídia (sem reiniciar o app nem sair da sala) ----------
   // 1) conexão oscilou ('disconnected' por 3 s) ou caiu ('failed'): reinício do ICE com credenciais novas do servidor;
@@ -615,7 +631,13 @@ export class Voice {
     if (this.sfu !== sfu) return;
     sfu.timers ||= new Map();
     clearTimeout(sfu.timers.get(t.id)); sfu.timers.delete(t.id);
-    if (st === 'connected') { sfu.iceTries = 0; return this.checkRecovered(sfu); }
+    if (st === 'connected') { sfu.iceTries = 0; sfu.ever = true; clearTimeout(sfu.timers.get('tunnel')); return this.checkRecovered(sfu); }
+    // ainda não conectou nesta entrada: a mídia direta não chega daqui (servidor atrás de CGNAT, rede só IPv4, sem VPN).
+    // Falhou, ou TUNNEL_WAIT sem conectar: a voz vai pelo túnel (pela conexão do site)
+    if (!sfu.ever && tunnelSupported() && !this.e2ee) {
+      if (st === 'failed' && this.startTunnel('ice_failed')) return;
+      if (!sfu.timers.has('tunnel')) sfu.timers.set('tunnel', setTimeout(() => { if (this.sfu === sfu && !sfu.ever) this.startTunnel('ice_timeout'); }, TUNNEL_WAIT));
+    }
     if (st === 'disconnected') { this.markRecovering('ice'); sfu.timers.set(t.id, setTimeout(() => this.iceRestart(t, sfu), 3000)); }
     else if (st === 'failed') { this.markRecovering('ice'); this.iceRestart(t, sfu); }
   }
@@ -648,7 +670,9 @@ export class Voice {
   }
   // now: a rede/conexão acabou de voltar (sem a espera crescente, só o sorteio)
   mediaReconnect(reason, now = false) {
-    if (!this.channelId || this._mrTimer) return;
+    if (!this.channelId || this._mrTimer || this.tunnel) return;
+    // estava conectada e não volta (mudou para uma rede que não alcança o servidor direto): segue pelo túnel
+    if ((this._mrTries || 0) >= 2 && !this._linkDown && this.startTunnel('reconnect')) return;
     this.markRecovering(reason);
     const n = this._mrTries = (this._mrTries || 0) + 1;
     // 1ª na hora (com um sorteio de até 1,5 s: quando o worker morre, a sala inteira volta ao mesmo tempo), depois 2 s, 5 s, 10 s… até 30 s
@@ -667,8 +691,55 @@ export class Voice {
   onSfuReset({ channel_id, reason, gone }) {
     if (!this.channelId || (channel_id && channel_id !== this.channelId)) return;
     if (gone) { this.stopRecovery(); return this.rejoin(); } // o servidor não tem mais a pessoa na sala: entra de novo
+    if (this.tunnel) return this.send('SFU_REJOIN', { channel_id: this.channelId }); // pelo túnel: o servidor refaz a sala e o túnel entra de novo (onJoined)
     clearTimeout(this._mrWait); this._mrWait = null;
     this.mediaReconnect(reason === 'worker' ? 'server' : reason || 'server');
+  }
+  // ---------- voz pelo túnel (public/voztunnel.js) ----------
+  // A mídia direta não chega daqui: a voz passa a ir pela conexão do site. A pessoa continua na sala (os outros não veem
+  // sair/entrar); microfone e vozes voltam pelo túnel; câmera e transmissão de tela não (só áudio).
+  startTunnel(reason) {
+    if (!this.channelId || this.tunnel || !tunnelSupported() || this.e2ee || !this.token()) return false;
+    track('voice_tunnel', reason, { bg: true });
+    clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null; this._mrTries = 0; this._mrDeferred = false;
+    this._sfuTok = {}; this.sfuTeardown();
+    this.recovering = true; this._mrReason = 'tunnel'; this._mrAt = Date.now();
+    const T = this.tunnel = new VoiceTunnel({
+      cid: () => this.channelId, token: () => this.token(), kbps: () => this.micKbps(),
+      rejoin: () => { if (this.tunnel === T && this.channelId) this.send('SFU_REJOIN', { channel_id: this.channelId }); }, // a sala sumiu no servidor (worker refeito)
+      onReady: () => {
+        if (this.tunnel !== T) return;
+        this.recovering = false; this._mrReason = null; stopTimer('voice_connect', this.channelId);
+        if (this.error?.startsWith('Falha ao conectar a voz')) this.error = null;
+        T.setOff(this.deafened || this.modDeaf);
+        (this._micReady || Promise.resolve()).then(() => { if (this.tunnel === T && this.mic) T.setMic(this.mic.getAudioTracks()[0]); });
+        this.onUpdate();
+      },
+      onAdd: (uid, source, stream) => {
+        if (this.tunnel !== T) return;
+        const p = this.ensurePeer(uid); p.consumers.set('tun:' + source, source);
+        this.attachAudio(p, stream, source === 'mic' ? 'mic' : 'screen'); this.onUpdate();
+      },
+      onDel: (uid, source) => {
+        const p = this.peers.get(uid); if (!p) return;
+        p.consumers.delete('tun:' + source);
+        if (source === 'mic') { p.audioEl?.remove(); p.audioEl = null; this.analysers.get(uid)?.src.disconnect(); this.analysers.delete(uid); this.speaking.delete(uid); }
+        else { p.screenAudioEl?.remove(); p.screenAudioEl = null; }
+        this.onUpdate();
+      },
+      onFail: (msg) => { if (this.tunnel !== T) return; track('voice_fail', 'tunnel'); this.recovering = false; this.error = 'Falha ao conectar a voz: ' + msg; this.onUpdate(); },
+      onUpdate: () => { if (this.tunnel !== T) return; this.recovering = !T.ready; this.onUpdate(); },
+    });
+    T.start().catch((e) => { if (this.tunnel === T) { this.recovering = false; this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); } });
+    if (this.cam || this.screen) this.tunnelNoVideo();
+    this.onUpdate();
+    return true;
+  }
+  tunnelClose() { const T = this.tunnel; if (!T) return; this.tunnel = null; T.close(); }
+  // câmera/tela ligadas pela voz pelo túnel: não chegam a ninguém (só a voz passa). Avisa uma vez por chamada
+  tunnelNoVideo() {
+    if (this._tunVideoNote === this.channelId) return; this._tunVideoNote = this.channelId;
+    try { document.dispatchEvent(new CustomEvent('voice-notice', { detail: 'A sua voz está indo pela conexão do site (sem VPN nem IPv6 aqui): câmera e transmissão de tela não chegam aos outros por esse caminho.' })); } catch { }
   }
   stopRecovery() {
     clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null;
@@ -708,6 +779,7 @@ export class Voice {
     return undefined;
   }
   async sfuProduce(source, track) {
+    if (this.tunnel) { if (source === 'mic') this.tunnel.setMic(track); else this.tunnelNoVideo(); return; } // pelo túnel: só a voz
     const s = this.sfu; if (!s?.ready || !track) return;
     const cur = s.producers[source];
     if (cur && !cur.closed) return cur.replaceTrack({ track });
@@ -1283,6 +1355,7 @@ export class Voice {
   retuneAudio() { if (this.sfu) this.tuneAudio(null, 0); else this.peers.forEach(p => this.tuneAudio(p, 0)); }
   // modo automático: escolhe 64/128/256/384 kbps pela banda disponível, perda e latência do envio
   async adaptAudio() {
+    if (this.tunnel) { this.sentKbps = this.tunnel.ready ? this.tunnel.sentKbps : null; return; } // pelo túnel: taxa fixa (public/voztunnel.js)
     if (this.prefs.voiceBitrate !== 'auto' && this.prefs.voiceBitrate != null) return;
     const pcs = this.sfu ? [this.sfu.send].filter(Boolean) : [...this.peers.values()].map(p => p.pc);
     let avail = Infinity, loss = 0, rtt = 0, seen = false, sent = 0;
@@ -1631,6 +1704,7 @@ export class Voice {
   // do próprio servidor (SFU_SPEAKING, medido pelo mediasoup). Servidor sem isso ('levels' falha): como antes, só pausa com a
   // janela escondida, porque o medidor daqui precisa do áudio para acender o "falando".
   syncVoiceFlow() {
+    if (this.tunnel) return this.tunnel.setOff(this.deafened || this.modDeaf); // pelo túnel: ensurdecido, as vozes param de chegar
     const s = this.sfu; if (!s?.ready) return;
     // booleano de verdade: modDeaf começa undefined (só setModeration o define) e "undefined !== false" pedia 'levels' de
     // novo a cada resposta, em laço (~10 pedidos/s por pessoa na chamada, cada um com um 'pause' de paused: undefined)
@@ -2118,6 +2192,7 @@ export class Voice {
     this.onUpdate();
   }
   publish(kind, stream) {
+    if (this.tunnel) { this.tunnelNoVideo(); this.sendState(); this.onUpdate(); return; } // pelo túnel só a voz passa
     if (this.sfu) {
       (kind === 'screen' ? this.sfuPublishScreen() : this.sfuProduce(kind, stream.getVideoTracks()[0])).catch(e => { console.warn('produce', e); this.error = e.message; this.onUpdate(); });
     } else for (const p of this.peers.values()) {
@@ -2172,6 +2247,7 @@ export class Voice {
   async ping() {
     const rtts = [];
     const read = async (src) => { try { for (const r of (await src.getStats()).values()) if (r.type === 'candidate-pair' && (r.nominated || r.state === 'succeeded') && r.currentRoundTripTime != null) rtts.push(Math.round(r.currentRoundTripTime * 1000)); } catch { } };
+    if (this.tunnel) return this.tunnel.rtt;
     if (this.sfu) { await read(this.sfu.send); if (!rtts.length && this.sfu.recv) await read(this.sfu.recv); return rtts.length ? Math.min(...rtts) : null; }
     for (const p of this.peers.values()) if (p.pc) await read(p.pc);
     return rtts.length ? Math.max(...rtts) : null;
@@ -2179,6 +2255,7 @@ export class Voice {
   // diagnóstico da conexão com o servidor: protocolo (UDP é o ideal; TCP = UDP bloqueado, mais atraso), perda de pacotes
   // nos dois sentidos e oscilação (jitter) da voz que chega. Deltas desde a última leitura.
   async connInfo() {
+    if (this.tunnel) return { proto: this.tunnel.ready ? 'tunnel' : null, candidate: null, sendLoss: null, recvLoss: null, jitterMs: null, tunnel: true };
     const s = this.sfu; if (!s?.send) return null;
     // v6: diagnóstico de quem está fora da VPN (o servidor anuncia o IPv6 público além do IP da VPN, server/sfu.js):
     // local = esta internet tem IPv6 público; sent/answered = testes de conexão enviados ao IPv6 do servidor e respondidos
@@ -2209,6 +2286,7 @@ export class Voice {
   // estatísticas simples de qualidade (para o painel de conexão)
   async stats() {
     const out = [];
+    if (this.tunnel) { for (const p of this.peers.values()) out.push({ uid: p.uid, state: 'pelo túnel (conexão do site)', rtt: this.tunnel.rtt, kbpsIn: 0 }); return out; }
     if (this.sfu) { // uma conexão só (com o servidor); repete a latência para cada participante
       let rtt = null;
       try { for (const r of (await this.sfu.send.getStats()).values()) if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) rtt = Math.round(r.currentRoundTripTime * 1000); } catch { }

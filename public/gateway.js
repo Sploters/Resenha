@@ -267,7 +267,7 @@ export function onEvent(t, d) {
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
       if (!afterSnap) setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
-      if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate, serverRoom: () => S.voice.get(S.me.id)?.channel_id || null }); prewarmVoice(S.prefs); }
+      if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate, serverRoom: () => S.voice.get(S.me.id)?.channel_id || null, token: () => S.token }); prewarmVoice(S.prefs); document.addEventListener('voice-notice', (e) => toast(e.detail)); }
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
       // chamada numa conversa direta protegida: cifrada de ponta a ponta (cada quadro, public/e2ee-worker.js)
       voice.beforeJoin = async (cid) => {

@@ -14,6 +14,7 @@
 import { fork } from 'node:child_process';
 import './parentwatch.js'; // testes: encerra junto com quem abriu (EXIT_WITH_PARENT)
 import { fileURLToPath } from 'node:url';
+import { startTunnelServer } from './voztunnel.js';
 import { startSfu, sfuEnabled, sfuJoin, sfuLeave, sfuModerate, sfuDropVideo, sfuRequest, sfuAttachRtp, sfuAttachNative, sfuLoad, sfuWorkers, sfuEvents, onSfuEvent, sfuRooms, sfuLastVoices } from './sfu.js';
 
 const APP = fileURLToPath(new URL('./index.js', import.meta.url));
@@ -72,7 +73,7 @@ function onMessage(c, m) {
 const WAIT = [1000, 2000, 5000, 10000, 30000];
 function startApp() {
   startedAt = Date.now();
-  const c = child = fork(APP, process.argv.slice(2), { env: { ...process.env, LC_VOZ_IPC: '1' }, stdio: 'inherit' });
+  const c = child = fork(APP, process.argv.slice(2), { env: { ...process.env, LC_VOZ_IPC: '1', ...(tun ? { LC_TUNNEL_PORT: String(tun.port), LC_TUNNEL_KEY: tun.key } : {}) }, stdio: 'inherit' });
   c.on('message', (m) => onMessage(c, m));
   // sem ouvinte, um erro do filho (não abriu, IPC quebrado) derrubava o processo da voz e todas as chamadas.
   // Se nem abriu (sem pid), não vem 'exit': trata como saída
@@ -149,5 +150,7 @@ process.on('SIGUSR2', () => { log('SIGUSR2: reiniciando só o app'); restartApp(
 process.on('SIGHUP', () => { if (child) child.kill('SIGHUP'); });
 
 const ok = await startSfu();
+// voz pelo túnel (server/voztunnel.js): servidor local; o app recebe a porta e a chave e encaminha /voz-tunel para cá
+const tun = ok ? await startTunnelServer().catch((e) => { log('túnel da voz não abriu:', e.message); return null; }) : null;
 if (!ok) log('SFU indisponível: o app usa a voz em malha P2P (reiniciar o app derruba essas chamadas)');
 startApp();

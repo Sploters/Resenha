@@ -96,9 +96,11 @@ function openPingChart(anchor) {
     if (!ci) return connBox.replaceChildren(h('small', 'Analisando a conexão…'));
     const loss = Math.max(ci.sendLoss ?? 0, ci.recvLoss ?? 0), spread = vals.length > 5 ? Math.max(...vals) - Math.min(...vals) : 0, avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     const tips = [];
+    // voz pelo túnel (public/voztunnel.js): a mídia direta não chegou daqui e a voz vai pela conexão do site
+    if (ci.tunnel) tips.push(ci.proto ? ['mid', 'A voz está indo pela conexão do site, porque esta rede não alcança o servidor de voz direto (sem VPN nem IPv6 aqui). Funciona, mas pode atrasar um pouco quando a internet oscila, e câmera e transmissão de tela não passam por esse caminho. Com a VPN (Tailscale) ou numa rede com IPv6, a voz vai direto.'] : ['mid', 'Conectando a voz pela conexão do site…']);
     // o ping acima vem do WebSocket (passa pelo site/túnel); a voz vai direto à porta 40000 do servidor. Sem par ICE
     // escolhido, a mídia não conectou: o número bom do ping não diz nada sobre a voz
-    const noMedia = !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
+    const noMedia = !ci.tunnel && !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
     const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
     const v6 = ci.v6;
     const rl = ci.relay;
@@ -122,7 +124,7 @@ function openPingChart(anchor) {
     if (spread > 80 || (ci.jitterMs ?? 0) > 30) tips.push(['mid', 'Ping instável (variando muito): costuma ser Wi-Fi, download pesado na mesma rede ou a VPN passando por um relay em vez de ligar direto.']);
     if (avg > 120) tips.push(['mid', `Ping alto (${Math.round(avg)} ms). Se a VPN (Tailscale) estiver usando um relay, uma conexão direta reduz bastante: no seu computador, rode tailscale ping ${location.hostname} — se aparecer "via DERP", a ligação não está direta.`]);
     connBox.replaceChildren(
-      h('div.pcrow', h('span', 'Conexão'), h('b', ci.proto ? [ci.proto.toUpperCase() + (ci.candidate === 'relay' ? ' via TURN' : ''), ci.proto === 'udp' && icon('check', 14)] : '—'), h('span', 'Perda'), h('b', `${(loss * 100).toFixed(1)}%`), h('span', 'Oscilação'), h('b', ci.jitterMs != null ? `${ci.jitterMs} ms` : '—')),
+      h('div.pcrow', h('span', 'Conexão'), h('b', ci.proto === 'tunnel' ? 'Pelo site (túnel)' : ci.proto ? [ci.proto.toUpperCase() + (ci.candidate === 'relay' ? ' via TURN' : ''), ci.proto === 'udp' && icon('check', 14)] : '—'), h('span', 'Perda'), h('b', `${(loss * 100).toFixed(1)}%`), h('span', 'Oscilação'), h('b', ci.jitterMs != null ? `${ci.jitterMs} ms` : '—')),
       ...(tips.length ? tips.map(([k, t]) => h('div.ptipline.' + k, t)) : [h('div.ptipline.good', 'Conexão boa e estável.')]));
   };
   readConn();

@@ -189,6 +189,8 @@
     "clipstats-unit-test": 1,
     "turn-unit-test": 1,
     "ipv6-unit-test": 5,
+    "voztunnel-unit-test": 5,
+    "voztunnel-test": 60,
     "turn-voice-test": 25,
     "micwatch-unit-test": 1,
     "mic-dead-test": 75,

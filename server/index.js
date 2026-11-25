@@ -1,5 +1,6 @@
 import express from 'express';
 import { iceServers, refreshCf } from './turn.js';
+import { pipeTunnel } from './tunnelproxy.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -707,9 +708,10 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20,
   perMessageDeflate: process.env.WS_DEFLATE === '0' ? false : { threshold: 1024, concurrencyLimit: 4, serverMaxWindowBits: 13, zlibDeflateOptions: { level: 4, memLevel: 7 } } });
 const onUpgrade = (req, socket, head) => {
   const url = new URL(req.url, 'http://x');
-  if (url.pathname !== '/gateway') return socket.destroy();
+  if (url.pathname !== '/gateway' && url.pathname !== '/voz-tunel') return socket.destroy();
   const s = sessions.lookup(url.searchParams.get('token') || '');
   if (!s) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
+  if (url.pathname === '/voz-tunel') return void pipeTunnel(req, socket, head, s.user_id).catch(() => socket.destroy()); // voz pelo túnel (server/tunnelproxy.js)
   wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.tokenHash = s.hash; ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; ws.resume = url.searchParams.get('resume') === '1'; wss.emit('connection', ws); });
 };
 server.on('upgrade', onUpgrade);
