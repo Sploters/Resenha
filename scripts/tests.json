@@ -197,6 +197,7 @@
     "voice-sessions-unit-test": 1,
     "memory-since-test": 21,
     "image-flow-test": 31,
-    "mobile-test": 130
+    "mobile-test": 130,
+    "signup-invite-test": 12
   }
 }

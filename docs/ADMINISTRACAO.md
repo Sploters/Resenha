@@ -6,6 +6,16 @@ Para quem hospeda a Resenha. As variáveis citadas estão em [CONFIGURACAO.md](C
 **Configurações → Administração → Saúde do servidor** (só o administrador da instalação; `server/health.js`): situação de processador, memória, disco, servidor de voz e upload; pessoas conectadas e em chamada, transmissões e câmeras; gráficos das últimas 1/6/24 h (CPU, memória, upload, pessoas em chamada e CPU de cada worker do SFU); tabela dos workers (vivo, recriações, pico); tráfego do mês; alertas enviados; erros do servidor (todos também em `<dados>/errors.log`). Atualiza sozinho a cada 30 s.
 Alertas no app do administrador e, com `ALERT_WEBHOOK`, no celular (no máximo um por assunto a cada 30 min): CPU acima de `HEALTH_CPU_PCT` (85%) por 1,5 min, memória livre abaixo de `HEALTH_MEM_PCT` (10%), disco com menos de `HEALTH_DISK_PCT` (10%) ou 2 GB, upload acima de 85% de `HEALTH_UPLINK_MBPS` (velocidade do link da VPS; sem ela não alerta), tráfego do mês em 80% de `HEALTH_MONTHLY_TB` (franquia da VPS, ex.: Hostinger), worker do SFU morto ou perto de 100% de um núcleo, e 20 erros em 5 min. `GET /healthz` (público, sem números) responde 503 quando a voz ou o disco caem: aponte um monitor de fora (UptimeRobot, Uptime Kuma) para ser avisado se a VPS inteira cair; a imagem Docker usa o mesmo endereço no `HEALTHCHECK`. Teste: `node scripts/health-test.mjs`.
 
+## Convites de cadastro
+Configurações → Administração → **Convites de cadastro** (só o administrador da instalação: `LC_ADMIN` ou a primeira conta).
+Escolhe como contas novas entram: **Aberto** (o padrão), **Só com convite** ou **Fechado**. A troca vale na hora, sem
+reiniciar nada. No modo convite, cada código tem limite de usos (1, 5, 10, 25 ou sem limite), validade opcional, um recado
+para você lembrar para quem foi e, se quiser, um servidor em que a pessoa já entra ao criar a conta. O link
+`/convite/<código>` abre a tela de criar conta com o código preenchido. Revogar vale na hora; quem já criou conta continua
+com ela. O painel mostra quem criou conta com cada código, e cada ação fica no histórico de Usuários. A primeira conta da
+instalação nunca precisa de código. `OPEN_REGISTRATION=0` fecha o cadastro acima do que estiver no painel. Código:
+`server/signup.js`, `public/adminusers.js`, teste `scripts/signup-invite-test.mjs`.
+
 ## Desempenho
 A interface é entregue comprimida e com cache longo (versão do servidor no endereço dos arquivos; ver `docs/historico/AUDITORIA-DESEMPENHO.md`). `STATIC_OFF=1` desliga isso em caso de problema. Medição: `node scripts/perf-audit.mjs <rótulo>` (mais em [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md#desempenho-e-carga)).
 

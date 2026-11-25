@@ -402,6 +402,10 @@ html.anim #auth .auth-card { animation: authIn .35s cubic-bezier(.2, .9, .3, 1.1
 #auth .auth-l { display: block; } #auth .auth-req { color: var(--red, #f23f43); }
 #auth .auth-f input { height: 40px; font-size: 16px; }
 #auth .auth-hint { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-muted); }
+/* código de convite (cadastro só com convite, server/signup.js) */
+#auth .auth-code { text-transform: uppercase; letter-spacing: .12em; font-family: var(--font-code, ui-monospace, monospace); }
+#auth .auth-code::placeholder { text-transform: none; letter-spacing: 0; }
+#auth .auth-hint.ok { color: var(--green, #23a55a); } #auth .auth-hint.bad { color: var(--red, #f23f43); }
 #auth .auth-link { color: var(--text-link, #00a8fc); font-weight: 500; text-decoration: none; } #auth .auth-link:hover { text-decoration: underline; }
 #auth .auth-forgot-l { display: inline-block; margin-top: 6px; font-size: 14px; text-transform: none; letter-spacing: 0; }
 #auth .err { margin: -8px 0 10px; }

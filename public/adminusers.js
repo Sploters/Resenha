@@ -13,8 +13,8 @@ const when = (t) => {
   const dy = Math.round(hr / 24); if (dy < 30) return `há ${dy} ${dy === 1 ? 'dia' : 'dias'}`;
   return new Date(t).toLocaleDateString('pt-BR');
 };
-const ACTION = { ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de', guild_join: 'entrou no servidor', guild_delete: 'excluiu o servidor' };
-const GUILD_ACT = new Set(['guild_join', 'guild_delete']); // alvo é um servidor (sem @)
+const ACTION = { ban: 'suspendeu', unban: 'reativou', password: 'redefiniu a senha de', logout: 'encerrou as sessões de', delete: 'excluiu a conta de', guild_join: 'entrou no servidor', guild_delete: 'excluiu o servidor', signup_mode: 'mudou o cadastro para', signup_code: 'criou o convite', signup_revoke: 'revogou o convite' };
+const GUILD_ACT = new Set(['guild_join', 'guild_delete', 'signup_mode', 'signup_code', 'signup_revoke']); // alvo não é uma conta (sem @)
 
 export function adminUsersPage() {
   const q = h('input.au-q', { type: 'search', placeholder: 'Buscar por usuário ou nome', 'aria-label': 'Buscar contas', autocomplete: 'off', spellcheck: 'false' });
@@ -123,4 +123,56 @@ export function adminServersPage() {
   return h('div.adminusers', h('h2', 'Servidores'),
     h('p.au-muted', 'Todos os servidores desta instalação. Só você, como administrador, vê esta página. Entrar e excluir ficam no histórico em Usuários.'),
     guildList());
+}
+
+// ---------------------------------------------------------------- cadastro por convite (server/signup.js)
+// como contas novas entram (aberto / só com código / fechado) e os códigos: gerar com limite de usos, validade, recado e
+// servidor em que a pessoa já entra; copiar o link /convite/<código>; revogar; ver quem criou conta com cada um
+const MODES = [['open', 'Aberto', 'Qualquer pessoa com o endereço cria uma conta.'], ['invite', 'Só com convite', 'Contas novas só com um código gerado aqui.'], ['closed', 'Fechado', 'Ninguém cria conta nova.']];
+const STATE = { active: ['Ativo', 'on'], used: ['Esgotado', ''], expired: ['Expirado', ''], revoked: ['Revogado', 'ban'] };
+export function adminSignupPage() {
+  const modeBox = h('div.au-modes'), list = h('div.au-list', h('p.au-muted', 'Carregando…')), forcedNote = h('p.au-muted.hidden');
+  const uses = h('select', { 'aria-label': 'Usos' }, [[1, '1 pessoa'], [5, '5 pessoas'], [10, '10 pessoas'], [25, '25 pessoas'], [0, 'Sem limite']].map(([v, l]) => h('option', { value: v }, l)));
+  const days = h('select', { 'aria-label': 'Validade' }, [[7, 'Vale 7 dias'], [1, 'Vale 1 dia'], [30, 'Vale 30 dias'], [0, 'Não expira']].map(([v, l]) => h('option', { value: v }, l)));
+  const guildSel = h('select', { 'aria-label': 'Servidor' }, h('option', { value: '' }, 'Não entra em servidor'));
+  const note = h('input.au-q', { maxLength: 80, placeholder: 'Para quem? (só você vê)', 'aria-label': 'Recado' });
+  let data = null;
+  const link = (c) => `${location.origin}/convite/${c}`;
+  const copy = (c) => navigator.clipboard?.writeText(link(c)).then(() => toast('Link do convite copiado'), () => toast(link(c)));
+  const drawModes = () => modeBox.replaceChildren(...MODES.map(([k, l, d]) => h('button.au-mode' + (data?.mode === k ? '.on' : ''), { type: 'button', 'aria-pressed': String(data?.mode === k), disabled: !!data?.forced,
+    onclick: async () => { if (data.mode === k) return; const r = await tryApi('POST', '/admin/signup/mode', { mode: k }); if (r) { data.mode = r.mode; drawModes(); toast(k === 'invite' ? 'Agora só entra quem tiver um código.' : k === 'closed' ? 'Cadastro fechado.' : 'Cadastro aberto para qualquer pessoa.'); } } },
+  h('b', l), h('small', d))));
+  const row = (c) => {
+    const [st, cls] = STATE[c.state];
+    const info = [`${c.uses}${c.max_uses ? '/' + c.max_uses : ''} ${c.uses === 1 ? 'uso' : 'usos'}`, c.expires_at ? (c.state === 'expired' ? 'expirou ' : 'vale até ') + new Date(c.expires_at).toLocaleDateString('pt-BR') : 'não expira', c.guild_name && `entra em ${c.guild_name}`, `criado ${when(c.created_at)}`].filter(Boolean);
+    return h('div.au-row' + (c.state !== 'active' ? '.banned' : ''),
+      h('div.au-t', h('div.au-name', h('code.au-code', c.code), h('span.au-tag' + (cls ? '.' + cls : ''), st), c.note && h('span.au-user', c.note)),
+        h('small', info.join(' · ')),
+        c.users.length ? h('small', 'Criaram conta: ' + c.users.map(u => '@' + u.username).join(', ')) : null),
+      c.state === 'active' && h('button.btn.sm', { type: 'button', onclick: () => copy(c.code) }, icon('copy', 14), 'Copiar link'),
+      c.state === 'active' && h('button.ibtn', { type: 'button', title: 'Revogar', 'aria-label': `Revogar ${c.code}`, onclick: async () => {
+        if (!await confirmBox('Revogar este convite?', 'O código para de valer na hora. Quem já criou conta com ele continua com a conta.', 'Revogar')) return;
+        if (await tryApi('POST', `/admin/signup/codes/${c.code}/revoke`)) load();
+      } }, icon('trash', 18)));
+  };
+  const load = async () => {
+    const r = await tryApi('GET', '/admin/signup'); if (!r) return;
+    data = r; drawModes();
+    forcedNote.classList.toggle('hidden', !r.forced); forcedNote.textContent = 'O cadastro está fechado pela configuração do servidor (OPEN_REGISTRATION=0). Tire essa opção do container para escolher aqui.';
+    const cur = guildSel.value; guildSel.replaceChildren(h('option', { value: '' }, 'Não entra em servidor'), ...r.guilds.map(g => h('option', { value: g.id, selected: g.id === cur }, 'Entra em ' + g.name)));
+    list.replaceChildren(...(r.codes.length ? r.codes.map(row) : [h('p.au-muted', 'Nenhum convite ainda.')]));
+  };
+  const create = h('button.btn', { type: 'button', onclick: async () => {
+    const r = await tryApi('POST', '/admin/signup/codes', { max_uses: +uses.value, days: +days.value, note: note.value.trim(), guild_id: guildSel.value || null }); if (!r) return;
+    note.value = ''; await load();
+    const btn = h('button.btn.sm.grey', { type: 'button', onclick: () => copy(r.code) }, icon('copy', 14), 'Copiar');
+    modal('Convite criado', 'Mande o link para a pessoa. Abrindo, a tela de criar conta já vem com o código preenchido.', h('div.au-pw', h('code.au-link', link(r.code)), btn), [{ label: 'Pronto', cls: 'green' }], { width: '520px' });
+    if (data?.mode === 'open') toast('O cadastro está aberto: o código não é exigido. Escolha "Só com convite" acima para exigir.');
+  } }, icon('plus', 16), 'Gerar convite');
+  load();
+  return h('div.adminusers', h('h2', 'Convites de cadastro'),
+    h('p.au-muted', 'Escolha como contas novas entram nesta instalação do Resenha. No modo "Só com convite", cada pessoa precisa de um código gerado aqui. Só você, como administrador, vê esta página.'),
+    h('h3.sec', 'Quem pode criar conta'), modeBox, forcedNote,
+    h('h3.sec', 'Novo convite'), h('div.au-new', uses, days, guildSel, note, create),
+    h('h3.sec', 'Convites'), list);
 }

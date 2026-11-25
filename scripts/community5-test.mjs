@@ -50,7 +50,7 @@ try {
   ok(JSON.stringify(await plat()) === '[]', 'invisível não mostra de onde está conectada', await plat());
   await call(bia.tok, 'PATCH', '/me', { status: 'online' }); await sleep(500);
   await p.evaluate((cid) => window.__lc.go('@me', cid), dm.id); await sleep(600);
-  ok(await p.$('.dmrow .plats') != null, 'ícone de plataforma na lista de conversas');
+  ok(await p.$('.plats') == null, 'sem ícone de plataforma ao lado do nome (removido a pedido)');
 
   // ---------- links sem rastreio ----------
   const ta = '#composer textarea';

@@ -126,5 +126,8 @@ window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) 
 (async function boot() {
   const m = location.pathname.match(/^\/invite\/([\w-]+)/);
   if (m) setPendingInvite(m[1]);
-  if (S.token) connect(); else showAuth(pendingInvite ? 'register' : 'login');
+  // /convite/<código>: código de cadastro (server/signup.js). Guardado na aba para valer mesmo indo e voltando de "Entrar"
+  const sc = location.pathname.match(/^\/convite\/([\w-]{4,40})\/?$/);
+  if (sc) { try { sessionStorage.setItem('lc_signup', sc[1]); } catch { /* sem armazenamento: vale só nesta tela */ window.__lcSignup = sc[1]; } history.replaceState(null, '', '/' + location.hash); }
+  if (S.token) connect(); else showAuth(pendingInvite || sc ? 'register' : 'login');
 })();

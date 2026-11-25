@@ -58,6 +58,7 @@ import { createWatch } from './watch.js';
 import { searchTracks as musicSearch, musicAvailable, listPlaylist as musicPlaylist } from './music.js';
 import { initMusic, handle as musicHandle, onVoiceJoin as musicOnJoin, onVoiceLeave as musicOnLeave, stopAll as musicStopAll } from './music.js';
 import { mountAuth } from './routes/auth.js';
+import { createSignup, mountSignup } from './signup.js';
 import { mountAccount } from './routes/account.js';
 import { mountGuilds } from './routes/guilds.js';
 import { mountChannels } from './routes/channels.js';
@@ -504,7 +505,9 @@ const core = {
   conns, voice, leaveVoice, currentVoice, isFileUrl, cssColor, privacy, statusFor, platformsFor, social, sessions, reputation,
   removeMember, joinGuild, unlinkIfUnused, reportAdmin, refreshVoicePerms, UPLOAD_DIR, DATA_DIR,
 };
-const { ipLimited } = mountAuth(app, { ...core, OPEN_REGISTRATION, COLORS, DEFAULT_AVATARS, banned }); // registro, login e logout (server/routes/auth.js)
+const signup = createSignup({ db, get, run, envClosed: !OPEN_REGISTRATION }); // cadastro aberto / por código de convite / fechado (server/signup.js)
+const { ipLimited } = mountAuth(app, { ...core, signup, COLORS, DEFAULT_AVATARS, banned }); // registro, login e logout (server/routes/auth.js)
+mountSignup(app, { ...core, signup, ipLimited, isAdmin: (uid) => reportAdmin()?.id === uid });
 mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSession: sessions.create }); // entrar lendo um QR Code com o celular já logado (server/qrlogin.js)
 
 const { deleteAccount } = mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
@@ -682,7 +685,7 @@ function socialVoice(cid, joined = null) {
 }
 mountVoiceSessions(app, { ...core, voiceSessions, activity, discover }); // "Desde a última vez" e apagar sessões (server/routes/sessions.js)
 const { accountPub, accountOf, resolveLocalGame, saveGameIcon, localNames } = mountActivity(app, { ...core, activity, games, achievements, discover }); // integrações, Ativo agora e jogo no PC (server/routes/activity.js)
-app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: OPEN_REGISTRATION, default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
+app.get('/api/server-info', (req, res) => res.json({ name: 'Resenha', registration: signup.mode() !== 'closed' || signup.firstAccount(), registration_mode: signup.firstAccount() ? 'open' : signup.mode(), default_avatars: DEFAULT_AVATARS, max_upload: MAX_UPLOAD, limits: LIMITS }));
 mountDesktopUpdate(app, DATA_DIR); // atualizações do app desktop pelo servidor (repositório pode ser privado)
 // política de privacidade e de segurança desta instalação (o dono pode editar os arquivos na raiz do projeto)
 for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 'SECURITY.md']])

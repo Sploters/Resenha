@@ -5,7 +5,7 @@ import { hashPw, pwMatches, passwordProblem, loginBlocked, loginFailed, loginOk 
 import { uxSignup } from '../ux.js';
 
 export function mountAuth(app, d) {
-  const { auth, wrap, bad, clean, get, run, newId, sessions, OPEN_REGISTRATION, COLORS, DEFAULT_AVATARS } = d;
+  const { auth, wrap, bad, clean, get, run, newId, sessions, COLORS, DEFAULT_AVATARS, signup, joinGuild } = d;
   // avatar padrão menos usado (empate: sorteio), para duas pessoas da turma não começarem com o mesmo rosto
   const pickAvatar = () => {
     if (!DEFAULT_AVATARS.length) return null;
@@ -25,16 +25,20 @@ export function mountAuth(app, d) {
   }
   setInterval(() => { const now = Date.now(); for (const [k, a] of ipHits) if (!a.length || now - a[a.length - 1] > 3600e3) ipHits.delete(k); }, 600e3).unref();
   app.post('/api/register', wrap((req, res) => {
-    if (!OPEN_REGISTRATION) return bad(res, 'Registro desativado', 403);
+    // aberto, só com código de convite ou fechado (server/signup.js; o administrador escolhe no painel)
+    { const why = signup.gate(req.body?.code); if (why) return bad(res, why, 403); }
     if (ipLimited(req, 'reg', 20, 3600e3)) return bad(res, 'Muitas contas criadas daqui. Tente mais tarde.', 429);
     const username = clean(req.body.username, 32), pw = String(req.body.password || '');
     if (!/^[\p{L}\p{N}_.-]{2,32}$/u.test(username)) return bad(res, 'Nome de usuário inválido (2-32 caracteres: letras, números, _ . -)');
     { const why = passwordProblem(pw, username); if (why) return bad(res, why); }
     if (get('SELECT 1 x FROM users WHERE username=?', username) || /^bot_music_/i.test(username)) return bad(res, 'Esse nome de usuário já existe', 409);
     const id = newId(), salt = crypto.randomBytes(16).toString('hex');
+    const inv = signup.use(req.body?.code, id); // gasta o código agora: duas pessoas com o último uso, só uma passa
+    if (!inv.ok) return bad(res, 'Código de convite inválido, expirado ou já usado', 403);
     run('INSERT INTO users(id,username,display_name,pass_hash,salt,color,avatar,created_at) VALUES(?,?,?,?,?,?,?,?)',
       id, username, clean(req.body.display_name, 32) || username, hashPw(pw, salt), salt, COLORS[Math.floor(Math.random() * COLORS.length)],
       pickAvatar(), Date.now());
+    if (inv.guild_id) try { joinGuild(inv.guild_id, id); } catch { /* servidor apagado no meio: a conta fica criada */ } // o convite já põe a pessoa no servidor da turma
     const token = sessions.create(id, clean(req.headers['user-agent'], 200));
     uxSignup(id); // telemetria: começa a "turma" do dia (funil do usuário novo e retenção), sem guardar quem
     res.json({ token });

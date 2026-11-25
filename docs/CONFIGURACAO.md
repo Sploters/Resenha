@@ -9,7 +9,7 @@ Tudo é opcional: sem nada, o servidor sobe com os padrões. No Docker, passe co
 | `PORT`, `HTTPS_PORT`, `HOST` | Portas HTTP (3000) e HTTPS (3443) e endereço onde escutar (padrão `0.0.0.0`). |
 | `DATA_DIR` | Pasta de dados (padrão `./data`; no Docker `/data`). O que tem nela: [INSTALACAO.md](INSTALACAO.md#dados-e-cópia-de-segurança). |
 | `MAX_UPLOAD_MB` | Limite por arquivo (padrão 500). Vídeo maior é comprimido no aparelho antes de subir. |
-| `OPEN_REGISTRATION=0` | Fecha o cadastro de contas novas. |
+| `OPEN_REGISTRATION=0` | Fecha o cadastro de contas novas (acima da escolha do painel). Sem ela, o administrador escolhe em Configurações → Administração → Convites de cadastro: aberto, só com código de convite ou fechado. |
 | `HTTPS=0` | Desliga o HTTPS. |
 | `TLS_KEY` / `TLS_CERT` | Certificado próprio (sem eles, o servidor gera um autoassinado na pasta de dados). |
 | `TLS_SAN=IP:<ip-vpn>` | Acrescenta o IP da VPN ao certificado gerado (vários separados por vírgula). |

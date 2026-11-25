@@ -131,7 +131,8 @@ export function showAuth(mode = 'login') {
   document.getElementById('boot')?.remove(); document.documentElement.classList.remove('boot');
   $('#app').classList.add('hidden');
   const a = $('#auth'); a.classList.remove('hidden');
-  renderAuth(a, mode, { invited: !!pendingInvite, qrPending: !!qrCode, onToken: (token) => { S.token = token; localStorage.setItem('lc_token', token); a.classList.add('hidden'); a.replaceChildren(); connect(); } });
+  let signupCode = window.__lcSignup || ''; try { signupCode = sessionStorage.getItem('lc_signup') || signupCode; } catch { /* sem armazenamento */ }
+  renderAuth(a, mode, { invited: !!pendingInvite, qrPending: !!qrCode, signupCode, onToken: (token) => { try { sessionStorage.removeItem('lc_signup'); } catch { /* idem */ } S.token = token; localStorage.setItem('lc_token', token); a.classList.add('hidden'); a.replaceChildren(); connect(); } });
 }
 export function logout() {
   api('POST', '/logout').catch(() => { });

@@ -84,6 +84,19 @@ export function renderAuth(root, mode, o) {
   const u = h('input', { autocomplete: 'username', maxLength: 32, required: true, 'aria-required': 'true' });
   const p = h('input', { type: 'password', autocomplete: login ? 'current-password' : 'new-password', required: true, 'aria-required': 'true' });
   const dn = h('input', { maxLength: 32, autocomplete: 'nickname' }), p2 = h('input', { type: 'password', autocomplete: 'new-password', required: true });
+  // código de convite (server/signup.js): o campo aparece quando o servidor só aceita conta com convite, ou quando a
+  // pessoa chegou por um link /convite/<código> (já preenchido)
+  const code = h('input.auth-code', { maxLength: 32, autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', value: o.signupCode || '', placeholder: 'Ex.: K7QF2M9XPA' });
+  const codeInfo = h('small.auth-hint'), codeBox = h('label.f.auth-f.hidden', h('span.auth-l', 'Código de convite', h('span.auth-req', { 'aria-hidden': 'true' }, ' *')), code, codeInfo);
+  let regMode = 'open';
+  const checkCode = async () => {
+    const v = code.value.trim(); codeInfo.classList.remove('ok', 'bad');
+    if (!v) { codeInfo.textContent = 'Quem administra o servidor manda o código (ou um link que já preenche).'; return; }
+    const r = await api('GET', '/signup/' + encodeURIComponent(v)).catch(() => null); if (code.value.trim() !== v) return;
+    if (!r) { codeInfo.textContent = ''; return; }
+    codeInfo.classList.add(r.ok ? 'ok' : 'bad');
+    codeInfo.textContent = r.ok ? (r.guild ? `Convite válido: você já entra no servidor ${r.guild}.` : 'Convite válido.') : 'Esse código não vale (errado, expirado ou já usado).';
+  };
   const go = h('button.btn.block.auth-go', { type: 'submit' }, login ? 'Entrar' : 'Continuar');
   const submit = async (e) => {
     e?.preventDefault(); err.textContent = '';
@@ -91,8 +104,9 @@ export function renderAuth(root, mode, o) {
     if (!p.value) { err.textContent = 'Digite a senha'; return p.focus(); }
     if (!login && p.value.length < 8) { err.textContent = 'Senha muito curta (mínimo 8 caracteres)'; return p.focus(); }
     if (!login && p.value !== p2.value) { err.textContent = 'As senhas não coincidem'; return p2.focus(); }
+    if (!login && regMode === 'invite' && !code.value.trim()) { err.textContent = 'Digite o código de convite'; return code.focus(); }
     go.disabled = true;
-    try { const r = await api('POST', login ? '/login' : '/register', { username: u.value, password: p.value, display_name: dn.value }); o.onToken(r.token); }
+    try { const r = await api('POST', login ? '/login' : '/register', { username: u.value, password: p.value, display_name: dn.value, ...(!login && code.value.trim() ? { code: code.value.trim() } : {}) }); o.onToken(r.token); }
     catch (x) { err.textContent = x.message; go.disabled = false; }
   };
   const swap = (e) => { e.preventDefault(); renderAuth(root, login ? 'register' : 'login', o); };
@@ -101,6 +115,7 @@ export function renderAuth(root, mode, o) {
     h('p.sub', login ? 'Sua turma está te esperando.' : 'Junte-se ao servidor dos seus amigos.'),
     o.invited && h('p.sub.invited', icon('invite', 18), 'Você foi convidado! Entre para aceitar o convite.'),
     o.qrPending && h('p.sub.invited.qr', icon('phone', 18), 'Entre aqui para aprovar o login no outro aparelho.'),
+    !login && codeBox,
     req('Nome de usuário', u),
     !login && h('label.f.auth-f', h('span.auth-l', 'Nome de exibição'), dn, h('small.auth-hint', 'Como os outros veem você. Dá para mudar depois.')),
     req('Senha', p, login ? h('a.auth-link.auth-forgot-l', { href: '#', onclick: (e) => { e.preventDefault(); forgotHelp(); } }, 'Esqueceu sua senha?') : h('small.auth-hint', 'Pelo menos 8 caracteres. Evite senhas comuns (como 12345678) e o seu nome de usuário.')),
@@ -112,6 +127,20 @@ export function renderAuth(root, mode, o) {
     h('div.auth-brand', h('img', { src: '/icons/icon-192.png', alt: '' }), h('span', 'Resenha')),
     card);
   u.focus();
+  if (!login) {
+    code.addEventListener('input', () => { clearTimeout(code._t); code._t = setTimeout(checkCode, 400); });
+    if (o.signupCode) { codeBox.classList.remove('hidden'); checkCode(); }
+    // como este servidor aceita contas novas (o campo do código só aparece quando precisa)
+    fetch('/api/server-info').then(r => r.json()).then(info => {
+      if (!form.isConnected) return;
+      regMode = info.registration_mode || (info.registration === false ? 'closed' : 'open');
+      if (regMode === 'invite') { codeBox.classList.remove('hidden'); if (!code.value) { checkCode(); code.focus(); } }
+      if (regMode === 'closed') {
+        form.replaceChildren(h('h1', 'Cadastro fechado'), h('p.sub', 'Este servidor não está aceitando contas novas agora. Fale com quem administra o servidor.'),
+          h('p.auth-switch', 'Já tem uma conta? ', h('a.auth-link', { href: '#', onclick: swap }, 'Entrar')));
+      }
+    }, () => { });
+  }
 }
 
 // ---------- aprovar no celular: /qr/<código> ----------
