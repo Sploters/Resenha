@@ -862,7 +862,18 @@ export class Voice {
     this.sfuReq('close_producer', { source }).catch(() => { });
   }
   // alguém na sala não consegue receber o H.264 desta transmissão (o servidor avisa): volta ao VP8, que todos decodificam
-  async onCodecFallback({ source }) {
+  async onCodecFallback({ source, native }) {
+    if (this.tunnel) { if (this.tunnel.forceVp8(source)) console.warn('alguém na sala não abre H.264, voltando ao VP8 (túnel)'); return; } // public/voztunnel-video.js
+    // programa nativo (120 FPS, só H.264): alguém pelo túnel não abre H.264 (Linux, Firefox). Volta à captura do navegador
+    // em VP8 até o fim desta transmissão: poder assistir vale mais que os FPS
+    if (native && source === 'screen' && this.native && this.screen) {
+      console.warn('alguém na sala não abre H.264: transmissão nativa -> navegador (VP8)');
+      this._hw = false; this._natNoCodec = true; this.stopNative();
+      if (!(await this.chromiumOnWindow())) return;
+      const vt = this.screen?.getVideoTracks()[0]; if (!vt) return;
+      this.previewOnly(vt, false); if (this.sfu) await this.sfuProduce('screen', vt).catch(e => console.warn('produce', e));
+      this.applyOver(); this.onUpdate(); return;
+    }
     const p = this.sfu?.producers[source], vt = this.screen?.getVideoTracks()[0];
     if (source !== 'screen' || !p || p.closed || !vt || this.native || !/h264/i.test(p.rtpParameters?.codecs?.[0]?.mimeType || '')) return;
     this._hw = false; console.warn('alguém na sala não recebe H.264, voltando ao VP8');
@@ -2007,7 +2018,7 @@ export class Voice {
     // Também quando a tela cheia exclusiva foi confirmada com a transmissão no ar (watchFse).
     const si = o.srcInfo || {}, game = this._fseNative || (si.type === 'window' && (si.game || si.fullscreen));
     const low = +o.fps < NATIVE_MIN_FPS;
-    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= (this._natNoUdpMs || NATIVE_NOUDP_MS) ? 'udp' : null;
+    const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : this._natNoCodec ? 'codec' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= (this._natNoUdpMs || NATIVE_NOUDP_MS) ? 'udp' : null;
     if (why) { this._natWhy = why; this._natWhyText = null; return false; }
     this._natUdpTries = 0; // transmissão (ou qualidade) nova: a tentativa em outra porta vale de novo
     const c = await this.nativeCapable(mode);
@@ -2243,7 +2254,7 @@ export class Voice {
     if (this.tunnel) { this.tunnel.setVideo(kind, null); if (kind === 'screen') this.tunnel.setAudio('screenaudio', null); }
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
-    if (kind === 'screen') { if (this._overOn != null) window.lcDesktop?.watchSourceOver?.(null)?.catch?.(() => { }); this._overOn = null; this._overHid = false; this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
+    if (kind === 'screen') { this._natNoCodec = false; if (this._overOn != null) window.lcDesktop?.watchSourceOver?.(null)?.catch?.(() => { }); this._overOn = null; this._overHid = false; this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }
     s.getTracks().forEach(t => t.stop()); this[kind] = null;
     playSound(kind === 'cam' ? 'camOff' : 'selfStreamStop');
     this.sendState(); this.onUpdate();

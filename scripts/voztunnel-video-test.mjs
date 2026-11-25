@@ -1,7 +1,7 @@
 // Vídeo pelo túnel (public/voztunnel-video.js, sfuTunnelAttach em server/sfu.js): transmissão de tela nos dois sentidos.
 // 1) Alice direta, Bruno pelo túnel: o Bruno transmite e a Alice assiste (quadros decodificados de verdade); a Alice
-//    transmite e o Bruno assiste pelo túnel (imagem chegando no <video>). 2) Carla entra também sem caminho direto e
-//    assiste a tela do Bruno (túnel -> túnel). Parar a transmissão some para quem assistia.
+//    transmite e o Bruno assiste pelo túnel (imagem chegando no <video>). 2) Carla entra também sem caminho direto (e sem os
+//    recursos só do Chromium, como no Firefox) e assiste a tela do Bruno (túnel -> túnel). Parar a transmissão some para quem assistia.
 // (cabeçalho do teste de voz, de onde veio a montagem:)
 // Voz pelo túnel, de ponta a ponta (public/voztunnel.js, server/voztunnel.js, server/tunnelproxy.js):
 // a Alice conecta a mídia direto; o Bruno não alcança o servidor direto (sem
@@ -23,7 +23,7 @@ process.on('exit', () => { try { srv.kill('SIGKILL'); } catch { } });
 for (let i = 0; i < 300; i++) { try { await fetch(BASE + '/api/server-info'); break; } catch { await sleep(50); } }
 const api = (tok, m, p, b) => fetch(BASE + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
 const browser = await puppeteer.launch({ executablePath: EXE, headless: 'new', protocolTimeout: 60000, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
-async function person(tok, blockDirect) {
+async function person(tok, blockDirect, firefoxLike = false) {
   const ctx = await browser.createBrowserContext(), p = await ctx.newPage(); await p.setViewport({ width: 1280, height: 800 });
   p.on('pageerror', e => { console.log('  PAGEERROR', e.message); fails++; });
   await p.evaluateOnNewDocument((t, block) => {
@@ -35,6 +35,8 @@ async function person(tok, blockDirect) {
       RTCPeerConnection.prototype.setRemoteDescription = function (d, ...a) { return srd.call(this, d?.sdp ? { type: d.type, sdp: d.sdp.replaceAll('127.0.0.1', '192.0.2.1') } : d, ...a); };
     }
   }, tok, blockDirect);
+  // como o Firefox: sem o gerador/processador de faixas do Chromium (vídeo pelo canvas e pelo <video>)
+  if (firefoxLike) await p.evaluateOnNewDocument(() => { delete window.MediaStreamTrackGenerator; delete window.MediaStreamTrackProcessor; });
   await p.goto(BASE); await p.waitForFunction(() => window.__lc?.S?.synced, { timeout: 60000 });
   return p;
 }
@@ -89,7 +91,7 @@ try {
   ok(f.n > 10 && f.w > 0, 'Bruno (túnel) vê a tela da Alice', f);
 
   // Carla, também sem caminho direto, assiste a tela do Bruno (túnel -> túnel) e ouve os dois
-  const C = await person(rc.token, true);
+  const C = await person(rc.token, true, true); // Carla: como no Firefox
   await C.evaluate((vc) => window.__lc.voice.join(vc), vc);
   ok(await C.waitForFunction(() => window.__lc.voice.tunnel?.ready, { timeout: 20000 }).then(() => true, () => false), 'Carla pelo túnel');
   f = { n: -1 }; for (let i = 0; i < 10 && !(f.n > 10); i++) f = await framesFrom(C, idB);
@@ -116,6 +118,23 @@ try {
   ok(sa > 0.01, 'Alice ouve o áudio da transmissão do Bruno (túnel)', sa);
   sa = 0; for (let i = 0; i < 12 && sa < 0.01; i++) sa = await screenSound(C, idB);
   ok(sa > 0.01, 'Carla ouve o áudio da transmissão do Bruno (túnel -> túnel)', sa);
+
+  // quem não abre H.264 (Linux sem o codec, Firefox): o Bruno transmite em H.264 e a Carla "não tem" o decodificador; ela
+  // avisa o servidor, o Bruno troca para VP8 sozinho e a tela aparece para ela (antes ficava cinza em "Conectando…")
+  const h264 = await B.evaluate(async () => (await VideoEncoder.isConfigSupported({ codec: 'avc1.42e034', avc: { format: 'annexb' }, width: 640, height: 360, bitrate: 1e6, framerate: 30 })).supported);
+  if (!h264) console.log('  (pulado: este Chromium não comprime H.264)');
+  else {
+    await C.evaluate(() => { const o = VideoDecoder.isConfigSupported.bind(VideoDecoder); VideoDecoder.isConfigSupported = async (c) => (/^avc1/.test(c.codec) ? { supported: false, config: c } : o(c)); });
+    await B.evaluate(() => window.__lc.voice.toggleScreen()); await sleep(1000);
+    await B.evaluate(() => { globalThis.__lcTunnelH264 = true; return window.__lc.voice.toggleScreen({ res: 720, fps: 30, audio: false, hint: 'motion' }); });
+    ok(await B.waitForFunction(() => window.__lc.voice.tunnel?.vids.get('screen')?.sender?.codec, { timeout: 10000 }).then(() => true, () => false), 'Bruno transmitindo de novo');
+    const first = await B.evaluate(() => window.__lc.voice.tunnel.vids.get('screen').sender.codec);
+    ok(await B.waitForFunction(() => window.__lc.voice.tunnel?.vids.get('screen')?.sender?.codec === 'vp8', { timeout: 15000 }).then(() => true, () => false), 'a Carla não abre H.264: o Bruno trocou para VP8', first);
+    f = { n: -1 }; for (let i = 0; i < 12 && !(f.n > 10); i++) f = await framesFrom(C, idB);
+    ok(f.n > 10 && f.w > 0, 'Carla vê a tela do Bruno depois da troca', f);
+    f = { n: -1 }; for (let i = 0; i < 10 && !(f.n > 10); i++) f = await framesFrom(A, idB);
+    ok(f.n > 10 && f.w > 0, 'e a Alice continua vendo', f);
+  }
 
   // parou: some para quem assistia
   await B.evaluate(() => window.__lc.voice.toggleScreen());

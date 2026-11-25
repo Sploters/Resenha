@@ -92,8 +92,8 @@ export class VoiceTunnel {
   addVideo(slot, uid, source, codec) {
     this.delSlot(slot);
     for (const o of [...this.slots.values()]) if (o.uid === uid && o.source === source) this.delSlot(o.slot, true);
-    const rx = new VideoReceiver(codec, () => this.sendJ({ t: 'key', slot }));
-    if (!rx.kind) { rx.close(); return; }
+    const rx = new VideoReceiver(codec, () => this.sendJ({ t: 'key', slot }), () => this.sendJ({ t: 'nocodec', slot }));
+    if (!rx.kind) { rx.close(); this.sendJ({ t: 'nocodec', slot }); return; }
     this.slots.set(slot, { slot, uid, source, rx, video: true });
     this.h.onAdd(uid, source, rx.stream, slot);
   }
@@ -174,8 +174,10 @@ export class VoiceTunnel {
     v.sender?.close();
     const io = { send: (b) => { if (this.ws?.readyState === 1) { this.ws.send(b); this._bytes += b.length; } }, json: (o) => this.sendJ(o), buffered: () => this.ws?.bufferedAmount ?? 1e9, ready: () => this.ready && this.ws?.readyState === 1 };
     v.sender = new VideoSender(v.track, io, { source, ...v.opts, onFail: (msg) => this.h.onVideoRefused?.(source, msg) });
+    if (v.opts.onlyVp8) v.sender.onlyVp8 = true;
     v.sender.start().catch(() => { });
   }
+  forceVp8(source) { const v = this.vids.get(source); if (!v) return false; v.opts = { ...v.opts, onlyVp8: true }; v.sender?.forceVp8(); return true; }
   startVideoSenders() { for (const [source, v] of this.vids) if (v.track.readyState === 'live') this.startVideo(source, v); }
   stopVideoSenders() { for (const v of this.vids.values()) { if (v.sender) { v.sender.started = false; v.sender.close(); v.sender = null; } } }
   close() {

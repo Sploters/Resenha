@@ -397,6 +397,15 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
     if (x.c.appData.source === 'mic' && !on && (tun.off || peer.modDeaf)) return;
     (on ? x.c.pause() : x.c.resume()).catch(() => { });
   };
+  // este navegador não abre o H.264 daquele vídeo (Linux sem o codec, Firefox): pede a quem transmite para trocar pelo
+  // VP8 (como no consume da mídia direta). Vale também para o programa nativo, que então volta à captura do navegador
+  tun.nocodec = (n) => {
+    const x = slotOf(n); if (!x) return;
+    for (const o of r.peers.values()) for (const p of o.producers.values()) {
+      if (p.id !== x.c.producerId || p.kind !== 'video' || p.appData.fallbackAsked || !/h264/i.test(p.rtpParameters.codecs[0]?.mimeType || '')) continue;
+      p.appData.fallbackAsked = true; o.notify('SFU_CODEC_FALLBACK', { source: p.appData.source, native: !!p.appData.native });
+    }
+  };
   tun.key = (n) => { const x = slotOf(n); if (x?.c.kind === 'video' && !x.c.closed) x.c.requestKeyFrame().catch(() => { }); };
   tun.setOff = (off) => {
     tun.off = !!off;
@@ -406,7 +415,7 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   t.observer.on('close', () => { const was = tun.closed; tun.close(); if (!was) out.closed(); });
   peer.tunnel = tun;
   for (const o of r.peers.values()) if (o !== peer) for (const p of o.producers.values()) await tun.add(p, o.uid);
-  return { audio: tun.audio, vstart: tun.vstart, vrtp: tun.vrtp, stop: tun.stop, pause: tun.pause, key: tun.key, setOff: tun.setOff, close: tun.close };
+  return { audio: tun.audio, vstart: tun.vstart, vrtp: tun.vrtp, stop: tun.stop, pause: tun.pause, key: tun.key, nocodec: tun.nocodec, setOff: tun.setOff, close: tun.close };
 }
 
 // Bot de música: recebe RTP/Opus local (ffmpeg) e publica como o microfone de um participante.

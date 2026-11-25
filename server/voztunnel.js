@@ -11,6 +11,7 @@
 //                    texto  {"t":"stop","source":"screen"}  parou de mandar (cam, screen, screenaudio)
 //                    texto  {"t":"pause","slot":3,"on":false}  assiste (ou não) o que chega naquele slot
 //                    texto  {"t":"key","slot":3}           o vídeo que chega quebrou: pede um quadro-chave
+//                    texto  {"t":"nocodec","slot":3}       este navegador não abre o codec (H.264): quem transmite troca pelo VP8
 //                    binário [1][carimbo uint32][Opus]     20 ms do microfone (carimbo em amostras de 48 kHz)
 //                    binário [5][carimbo uint32][Opus]     20 ms do áudio da transmissão (estéreo)
 //                    binário [4][fonte 1=cam 2=tela]([tamanho uint16][pacote RTP])...  vídeo, um quadro (ou pedaço)
@@ -79,6 +80,7 @@ function onConn(ws, uid, noVideo) {
     if (m.t === 'off') return h?.setOff(!!m.on);
     if (m.t === 'pause') return h?.pause(m.slot | 0, !!m.on);
     if (m.t === 'key') return h?.key(m.slot | 0);
+    if (m.t === 'nocodec') return h?.nocodec(m.slot | 0);
     if (m.t === 'stop') return h?.stop(String(m.source || ''));
     if (m.t === 'vstart') { const ok = h ? await h.vstart(String(m.source || ''), String(m.codec || ''), Number(m.ssrc)) : false; return sendJ({ t: 'vstarted', source: m.source, ok }); }
     if (m.t === 'attach' && !busy) {

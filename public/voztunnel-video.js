@@ -10,10 +10,11 @@ export const videoTunnelSupported = () => typeof VideoEncoder === 'function' && 
 
 // ---------------------------------------------------------------- envio
 const H264 = { codec: 'avc1.42e034', avc: { format: 'annexb' } };
-async function pickCodec(w, h, bitrate, fps) {
+async function pickCodec(w, h, bitrate, fps, onlyVp8 = false) {
   const base = { width: w, height: h, bitrate, framerate: fps, latencyMode: 'realtime', bitrateMode: 'variable' };
-  const tries = [
+  const tries = onlyVp8 ? [['vp8', { ...base, codec: 'vp8' }]] : [
     ['h264', { ...base, ...H264, hardwareAcceleration: 'prefer-hardware' }],
+    ...(globalThis.__lcTunnelH264 ? [['h264', { ...base, ...H264 }]] : []), // testes: H.264 mesmo sem placa (voztunnel-video-test)
     ['vp8', { ...base, codec: 'vp8' }],
     ['h264', { ...base, ...H264 }],
   ];
@@ -57,7 +58,7 @@ export class VideoSender {
     const maxH = this.o.maxH || 1080, scale = Math.min(1, maxH / fh, 1920 / fw);
     const w = even(fw * scale), h = even(fh * scale), fps = this.o.fps || 30, br = (this.o.kbps || 2500) * 1000;
     this.cfgBusy = true;
-    const pick = await pickCodec(w, h, br, fps);
+    const pick = await pickCodec(w, h, br, fps, this.onlyVp8);
     this.cfgBusy = false;
     if (this.closed) return;
     if (!pick) { this.failed = true; this.o.onFail?.('este navegador não comprime vídeo (WebCodecs)'); return; }
@@ -84,6 +85,8 @@ export class VideoSender {
       this.enc.encode(frame, { keyFrame: key });
     } finally { frame.close(); }
   }
+  // alguém assistindo não abre H.264 (Linux sem o codec, Firefox): passa para o VP8, que todo navegador abre
+  forceVp8() { if (this.onlyVp8) return; this.onlyVp8 = true; if (this.codec && this.codec !== 'vp8') this.size = null; }
   requestKey() { const now = performance.now(); if (now - this.lastKey > 300) this.wantKey = true; }
   onChunk(chunk) {
     if (this.closed) return;
@@ -158,8 +161,10 @@ function splitAnnexB(d) {
 // ---------------------------------------------------------------- chegada
 const SC = new Uint8Array([0, 0, 0, 1]);
 export class VideoReceiver {
-  // codec: { mime, profile } (do servidor); askKey(): pede quadro-chave a quem transmite
-  constructor(codec, askKey) {
+  // codec: { mime, profile } (do servidor); askKey(): pede quadro-chave a quem transmite; cannot(): este navegador não
+  // descomprime o codec (o servidor pede a quem transmite para trocar pelo VP8; a transmissão nova chega sozinha)
+  constructor(codec, askKey, cannot) {
+    this.cannot = cannot; this.decErrors = 0;
     this.kind = /vp8/i.test(codec?.mime || '') ? 'vp8' : /h264/i.test(codec?.mime || '') ? 'h264' : null;
     this.decCodec = this.kind === 'vp8' ? 'vp8' : 'avc1.' + (codec?.profile || '42e01f');
     this.askKey = askKey; this.needKey = true; this.lastSeq = -1; this.curTs = null; this.parts = []; this.lost = false;
@@ -172,7 +177,9 @@ export class VideoReceiver {
       this.c2d = this.canvas.getContext('2d'); this.stream = this.canvas.captureStream(60);
     }
     this.track = this.stream.getVideoTracks()[0];
+    if (this.kind) VideoDecoder.isConfigSupported({ codec: this.decCodec }).then((r) => { if (!r.supported) this.giveUp(); }, () => this.giveUp());
   }
+  giveUp() { if (this.gaveUp || this.closed) return; this.gaveUp = true; this.kind = null; console.warn('tunnel video: sem decodificador para', this.decCodec); this.cannot?.(); }
   wantKey() {
     this.needKey = true;
     const now = performance.now(); if (now - this.lastAsk > 700) { this.lastAsk = now; this.askKey(); }
@@ -225,8 +232,9 @@ export class VideoReceiver {
     const data = new Uint8Array(n); let o = 0; for (const x of parts) { data.set(x, o); o += x.length; }
     if (!this.dec || this.dec.state === 'closed') {
       if (!key) return this.wantKey();
-      this.dec = new VideoDecoder({ output: (f) => this.out(f), error: (e) => { console.warn('tunnel video decoder', e); this.dec = null; this.wantKey(); } });
-      try { this.dec.configure({ codec: this.decCodec, optimizeForLatency: true }); } catch (e) { console.warn('tunnel video decoder', e); this.dec = null; this.kind = null; return; }
+      // erro seguido sem nenhum quadro saindo: o navegador não abre este codec (não adianta insistir)
+      this.dec = new VideoDecoder({ output: (f) => { this.decErrors = 0; this.out(f); }, error: (e) => { console.warn('tunnel video decoder', e); this.dec = null; if (++this.decErrors >= 3 || e?.name === 'NotSupportedError') return this.giveUp(); this.wantKey(); } });
+      try { this.dec.configure({ codec: this.decCodec, optimizeForLatency: true }); } catch (e) { console.warn('tunnel video decoder', e); this.dec = null; return this.giveUp(); }
     }
     if (this.dec.decodeQueueSize > 8) { this.wantKey(); return; } // processador atrasado: pula até o próximo quadro-chave
     try {
