@@ -123,7 +123,7 @@ input[type=range] { height: 18px; }
 #tedit .cval { width: 56px; text-align: right; background: var(--bg-tert); border: 0; border-radius: 4px; padding: 3px 6px; outline: none; color: var(--text-strong); }
 #tedit input[type=range] { width: 100%; accent-color: var(--brand); }
 #tedit .tbtns { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; } #tedit footer .tbtns { margin-top: 8px; }
-#tedit footer { padding: 12px 16px 16px; border-top: 1px solid var(--divider); } #tedit footer label.f { margin-bottom: 10px; }
+#tedit footer { padding: 12px 16px 16px; border-top: 1px solid var(--divider); } #tedit footer label.f, #tedit footer div.f.flab { margin-bottom: 10px; }
 
 /* ---------- Tema do perfil (gradiente principal → destaque) ---------- */
 /* borda: o gradiente puro nas duas cores; dentro, o mesmo gradiente sob um véu (escuro ou claro) */

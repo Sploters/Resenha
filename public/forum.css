@@ -149,5 +149,5 @@ h1.fo-title { font-size: 22px; margin: 6px 0 4px; }
 .fo-form input:not([type=checkbox]):not([type=file]), .fo-form textarea { display: block; padding: 10px; background: var(--bg-tert); color: var(--text); border: 0; border-radius: 6px; outline: none; font: inherit; font-size: 15px; }
 .fo-form input:not([type=checkbox]):focus, .fo-form textarea:focus { outline: 1px solid var(--brand); }
 .fo-form .fo-in-title { font-size: 17px; }
-.fo-form label.f { margin-bottom: 6px; }
+.fo-form label.f, .fo-form div.f.flab { margin-bottom: 6px; }
 .fo-form [hidden] { display: none !important; }

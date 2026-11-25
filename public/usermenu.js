@@ -8,7 +8,7 @@ import { volumeControl } from './quick.js';
 import { chName } from './chnames.js';
 import { canCallInvite, sendCallInvite } from './callinvite.js';
 import { isLightPair, styleName } from './themes.js';
-import { profileCard, STATUS_TXT } from './card.js';
+import { profileCard, STATUS_TXT, topGames } from './card.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems } from './mod.js';
 import { voice, logout, mergeUser } from './gateway.js';
 import { openBot, botMenu } from './botmusic.js';
@@ -22,7 +22,8 @@ import { watchOnly } from './share.js';
 let profileSeq = 0; // clicar em A e logo em B: o cartão de A chegando depois não cobre o de B
 export async function profile(anchor, uid, gid) {
   if (botOf(uid)) return openBot(anchor, uid);
-  const seq = ++profileSeq, full = await tryApi('GET', `/users/${uid}`); if (!full) return;
+  // a vitrine "Mais jogados" vem junto com o perfil: chegando depois, empurrava "Servidores em comum" e o botão (layout shift)
+  const seq = ++profileSeq, [full] = await Promise.all([tryApi('GET', `/users/${uid}`), topGames(uid)]); if (!full) return;
   if (seq !== profileSeq) { mergeUser(full); return; }
   mergeUser(full);
   const u = full, m = gid && gid !== '@me' ? member(gid, uid) : null, g = m && guild(gid);

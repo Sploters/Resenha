@@ -28,7 +28,7 @@ a { color: var(--link); text-decoration: none; } a:hover { text-decoration: unde
 #auth { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px 16px; overflow: auto; background: var(--bg-tert); }
 #auth h1 { margin: 0 0 8px; text-align: center; color: var(--header); font-size: 24px; }
 #auth p.sub { text-align: center; color: var(--text-muted); margin: 0 0 20px; }
-label.f { display: block; margin-bottom: 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--interactive); letter-spacing: .02em; }
+label.f, div.f.flab { display: block; margin-bottom: 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--interactive); letter-spacing: .02em; }
 label.f input, label.f textarea, label.f select { display: block; width: 100%; margin-top: 8px; padding: 10px; background: var(--bg-tert); border: 0; border-radius: 3px; outline: none; font-size: 16px; font-weight: 400; text-transform: none; }
 label.f input:focus, label.f textarea:focus { outline: 1px solid var(--brand); }
 .err { color: var(--red); font-size: 14px; min-height: 20px; margin: -6px 0 10px; }

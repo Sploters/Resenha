@@ -897,7 +897,7 @@ select.gpucompat:focus { outline: 2px solid var(--brand, #5865f2); outline-offse
 .lfgform .lfgsave { display: flex; justify-content: flex-end; margin-top: 12px; }
 @media (max-width: 640px) { #lfgview .lfgbody { padding: 12px; } .lfggrid { grid-template-columns: 1fr; } #lfgview #topbar .topic { display: none; } .lfgform .lfgrow { grid-template-columns: 1fr; } }
 
-.lfgform .lfgrow, .lfgform > label.f { margin-top: 12px; }
+.lfgform .lfgrow, .lfgform > label.f, .lfgform > div.f.flab { margin-top: 12px; }
 .lfgform .lfgchips.pick { margin-bottom: 4px; }
 .lfgform .lfgroles.pick { margin-bottom: 4px; } .lfgform .lfgroles.pick button { padding: 5px 11px; font-size: 13px; }
 .lfgform .lfgset { margin-top: 16px; }

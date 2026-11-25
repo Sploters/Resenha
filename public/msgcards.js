@@ -156,7 +156,7 @@ export function appendAttachments(el, m, canDel) {
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
   // cada foto pode vir coberta (spoiler no envio ou "Esconder mídia até clicar") e GIF fica parado com "GIFs parados" (mediasafe.js)
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) => {
-    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, chatImgSize(imgs.length)), decoding: 'async', alt: f.alt || f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
+    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, chatImgSize(imgs.length)), decoding: 'async', alt: f.alt || f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', 'data-full': f.url, 'data-w': f.width || '', 'data-h': f.height || '', loading: 'lazy', onclick: () => lightbox(f.url) });
     const tile = h('div.mtile' + (f.spoiler ? '.spoilfile' : ''), coverMedia(im, coverReason(m, f), m.id + ':' + i), del(f, i), favStarFor(f));
     if (f.alt) tile.append(h('button.alt-tag', { type: 'button', title: f.alt, 'aria-label': 'Texto alternativo: ' + f.alt, onclick: (e) => { e.stopPropagation(); popout(e.currentTarget, h('div.alt-pop', h('b', 'Texto alternativo'), h('p', f.alt))); } }, 'ALT'));
     if (isGifName(f.name)) { tile.classList.add('giftile'); tile.append(h('span.gtag', 'GIF')); freezeGif(im, f.url, tile); }

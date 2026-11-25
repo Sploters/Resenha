@@ -13,7 +13,9 @@ const lowRes = (src) => {
   for (const im of document.querySelectorAll(`img[src^="/thumbs/${m[1]}"]`)) if (im.complete && im.naturalWidth) return im.currentSrc || im.src;
   return null;
 };
-const item = (img) => ({ src: img.getAttribute('src'), name: img.alt || fileName(img.src), size: +img.dataset.size || 0 });
+// w/h: medidas da original quando o anexo as informa (para reservar o espaço antes de ela chegar)
+// data-full: a original (o chat mostra a miniatura /thumbs/…; sem isto a galeria não achava a foto clicada e abria só ela)
+const item = (img) => ({ src: img.dataset.full || img.getAttribute('src'), name: img.alt || fileName(img.src), size: +img.dataset.size || 0, w: +img.dataset.w || 0, h: +img.dataset.h || 0 });
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- ações ----------
@@ -96,9 +98,18 @@ export function openViewer(src, { list, name, onClose } = {}) {
     // girado de lado: os limites de largura e altura se invertem
     img.style.maxWidth = real ? 'none' : side ? 'calc(100vh - 140px)' : '90vw';
     img.style.maxHeight = real ? 'none' : side ? '90vw' : 'calc(100vh - 140px)';
+    // com as medidas da original já conhecidas, a imagem nasce no tamanho final: a miniatura (menor) que aparece primeiro
+    // não faz mais a foto "crescer" e empurrar a tela quando a original chega (layout shift)
+    const { w: ow, h: oh } = list[i];
+    if (ow && oh) {
+      const maxW = real ? Infinity : (side ? innerHeight - 140 : innerWidth * .9), maxH = real ? Infinity : (side ? innerWidth * .9 : innerHeight - 140);
+      const k = Math.min(1, maxW / ow, maxH / oh);
+      img.style.width = Math.round(ow * k) + 'px'; img.style.height = Math.round(oh * k) + 'px';
+    } else img.style.width = img.style.height = '';
     stage.style.transform = rot ? `rotate(${rot}deg)` : '';
     // a área do giro precisa ocupar o tamanho visual para centralizar e rolar direito
-    requestAnimationFrame(() => { const w = img.clientWidth, hh = img.clientHeight; wrap.style.width = (side ? hh : w) + 'px'; wrap.style.height = (side ? w : hh) + 'px'; });
+    const fit = () => { const w = img.clientWidth, hh = img.clientHeight; wrap.style.width = (side ? hh : w) + 'px'; wrap.style.height = (side ? w : hh) + 'px'; };
+    if (ow && oh) fit(); else requestAnimationFrame(fit); // tamanho conhecido: já no mesmo quadro
   }
   async function show() {
     const it = list[i];
@@ -113,11 +124,11 @@ export function openViewer(src, { list, name, onClose } = {}) {
       full.src = it.src;
     } else img.src = it.src;
     lens.style.backgroundImage = `url("${it.src.replace(/"/g, '%22')}")`;
-    const dims = h('span.vdim'), size = h('span.vsize');
+    const dims = h('span.vdim', it.w && it.h ? `${it.w} × ${it.h}` : ''), size = h('span.vsize'); // medidas já na abertura, quando o anexo informa
     info.replaceChildren(h('b', { title: it.name }, it.name), dims, size, list.length > 1 && h('span.vcount', `${i + 1} de ${list.length}`));
     const fill = () => { if (list[i] === it && img.naturalWidth) { if (!low || img.src === abs(it.src)) dims.textContent = `${img.naturalWidth} × ${img.naturalHeight}`; layout(); } }; // medidas só da original
     img.onerror = () => { if (list[i] === it) dims.textContent = 'não foi possível carregar a imagem'; };
-    img.onload = fill; if (img.complete && img.naturalWidth) fill(); // roda de novo quando a original substitui a miniatura
+    img.onload = fill; if (img.complete && img.naturalWidth) fill(); else if (it.w && it.h) layout(); // roda de novo quando a original substitui a miniatura
     const n = await fileSize(it); if (n && list[i] === it) size.textContent = bytes(n);
   }
   const go = (d) => { if (list.length < 2) return; i = (i + d + list.length) % list.length; rot = 0; show(); };
@@ -174,8 +185,9 @@ export function openViewer(src, { list, name, onClose } = {}) {
     else return;
     e.preventDefault(); e.stopPropagation();
   };
-  function close(how) { if (how !== 'back') unBack(how === 'swap'); lb.remove(); document.removeEventListener('keydown', keys, true); onClose?.(); }
-  document.addEventListener('keydown', keys, true);
+  const onResize = () => { if (lb.isConnected) layout(); else removeEventListener('resize', onResize); }; // tamanho em px: refaz ao redimensionar
+  function close(how) { if (how !== 'back') unBack(how === 'swap'); lb.remove(); document.removeEventListener('keydown', keys, true); removeEventListener('resize', onResize); onClose?.(); }
+  document.addEventListener('keydown', keys, true); addEventListener('resize', onResize);
   document.body.append(lb); lb._close = close;
   const unBack = backCloses(() => close('back')); whenGone(lb, () => unBack()); // voltar do navegador/celular fecha a imagem
   show();

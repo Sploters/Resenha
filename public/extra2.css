@@ -51,7 +51,7 @@
 .sbvolbtn { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--interactive); flex: none; }
 .sbvolbtn:hover, .sbvolbtn.on { color: var(--interactive-hover); background: var(--bg-mod-hover, rgba(255,255,255,.06)); }
 .sbvolbox { grid-column: 1 / -1; grid-row: 2; padding: 10px 14px; background: var(--bg-sec); border-bottom: 1px solid var(--divider); }
-.sbvolbox.hidden { display: none; } .sbvolbox .label, .sbvolbox label.f { margin: 0 0 6px; }
+.sbvolbox.hidden { display: none; } .sbvolbox .label, .sbvolbox label.f, .sbvolbox div.f.flab { margin: 0 0 6px; }
 .sbvolrow { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 14px; color: var(--text); }
 .sbvolbox .btn.link { padding: 0; margin-top: 6px; min-height: 0; height: auto; }
 .sbrail { grid-row: 3; overflow-y: auto; scrollbar-width: none; padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; background: var(--bg-sec); }
@@ -692,8 +692,8 @@ html.anim #auth .auth-qrbox.scanned .avatar { animation: lc-pop .3s cubic-bezier
 .ssq-cols .seg button + button, .ss .ss-aud .seg button + button, .ss-more .seg button + button { border-left: 1px solid var(--divider); }
 .ssq-note { display: flex; gap: 6px; align-items: flex-start; } .ssq-note .icon { flex: none; margin-top: 2px; }
 .ss-more { margin-top: 10px; } .ss-more summary { cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600; } .ss-more summary:hover { color: var(--text-normal); }
-.ss-more[open] summary { margin-bottom: 4px; } .ss-more label.f { margin-top: 10px; }
-.ss .ss-aud label.f { margin: 0; font-size: 0; } .ss .ss-aud label.f .seg { font-size: 14px; }
+.ss-more[open] summary { margin-bottom: 4px; } .ss-more label.f, .ss-more div.f.flab { margin-top: 10px; }
+.ss .ss-aud label.f, .ss .ss-aud div.f.flab { margin: 0; font-size: 0; } .ss .ss-aud label.f .seg { font-size: 14px; }
 .ss .ss-aud .seg button { flex: 1 1 auto; padding: 8px 10px; }
 .ss .ss-aud .qinfo { margin: 6px 0 0; font-size: 12.5px; }
 .ss-clip { display: flex; align-items: center; gap: 12px; } .ss-clipt { flex: 1; display: flex; flex-direction: column; gap: 3px; } .ss-clipt b { font-size: 15px; } .ss-clipt small { color: var(--text-muted); font-size: 12.5px; } .ss-clipt b { display: flex; align-items: center; gap: 10px; }

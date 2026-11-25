@@ -60,9 +60,14 @@ export function place(p, nodes) {
   });
   while (p.childNodes.length > nodes.length) p.lastChild.remove();
 }
+let fieldSeq = 0;
 export function h(tag, props, ...kids) {
   const m = tag.match(/^([a-z0-9]*)((?:[.#][\w-]+)*)$/i);
-  const el = document.createElement(m[1] || 'div');
+  // <label> só com texto (título de um seletor/lista, sem campo dentro): vira <div class="flab"> com o mesmo visual;
+  // um label sem campo associado é erro de acessibilidade ("No label associated with a form field")
+  const textOnlyLabel = m[1].toLowerCase() === 'label' && [props, ...kids].every(k => k == null || k === false || typeof k === 'string' || typeof k === 'number' || (typeof k === 'object' && !(k instanceof Node) && !Array.isArray(k) && !('htmlFor' in k) && !('for' in k)));
+  const el = document.createElement(textOnlyLabel ? 'div' : (m[1] || 'div'));
+  if (textOnlyLabel) el.classList.add('flab');
   // imagens: carregam quando chegam perto da tela e decodificam fora da thread principal (dá para passar loading: 'eager')
   if (el.tagName === 'IMG') { el.loading = 'lazy'; el.decoding = 'async'; }
   for (const p of (m[2].match(/[.#][\w-]+/g) || [])) p[0] === '.' ? el.classList.add(p.slice(1)) : (el.id = p.slice(1));
@@ -75,6 +80,13 @@ export function h(tag, props, ...kids) {
     else if (k === 'class') el.className += ' ' + v;
     else if (k in el && k !== 'list') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
+  }
+  // campo sem id nem name: o navegador avisa ("A form field element should have an id or name attribute") e o
+  // preenchimento automático fica sem referência. Ganha um name próprio; e, se ninguém pediu preenchimento, fica desligado
+  // (senão o Chrome passaria a sugerir o que já foi digitado em buscas, mensagens etc.)
+  if ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') && !el.id && !el.name) {
+    el.name = (el.classList[0] || el.type || el.tagName.toLowerCase()) + '-' + (++fieldSeq);
+    if (!el.hasAttribute('autocomplete') && !/^(password|email|tel|file|hidden|checkbox|radio|range|color|button|submit)$/.test(el.type)) el.autocomplete = 'off';
   }
   const add = (c) => { if (c == null || c === false) return; if (Array.isArray(c)) c.forEach(add); else el.append(c.nodeType ? c : document.createTextNode(String(c))); };
   kids.forEach(add);
@@ -292,17 +304,19 @@ const STATUS_LABEL = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', 
 const avBest = new Map(); // foto -> { src, px } do maior tamanho já carregado
 const pxOf = (src) => +(/\/s(\d+)\/|[?&]s=(\d+)/.exec(src) || []).slice(1).find(Boolean) || 0;
 const avLoaded = (key, src) => { const px = pxOf(src), b = avBest.get(key); if (!b || px > b.px) avBest.set(key, { src, px }); };
-function avatarImg(key, want) {
+// width/height: o tamanho do avatar já é conhecido (o CSS estica para 100% da caixa); com eles o navegador reserva o
+// espaço antes de a imagem chegar e não reclama de "imagem lazy sem dimensões"
+function avatarImg(key, want, size) {
   const b = avBest.get(key), wpx = pxOf(want);
-  if (b && (b.src === want || (wpx && b.px >= wpx))) return h('img', { src: b.src, alt: '' });
-  const img = h('img', { src: b ? b.src : want, alt: '', loading: 'lazy', onload: () => avLoaded(key, img.currentSrc || img.src) });
+  if (b && (b.src === want || (wpx && b.px >= wpx))) return h('img', { src: b.src, alt: '', width: size, height: size });
+  const img = h('img', { src: b ? b.src : want, alt: '', width: size, height: size, loading: 'lazy', onload: () => avLoaded(key, img.currentSrc || img.src) });
   if (b) { const pre = new Image(); pre.src = want; pre.decode().then(() => { avLoaded(key, want); img.src = want; }, () => { }); }
   return img;
 }
 export function avatar(u, size = 40, opts = {}) {
   if (u?.bot) return h('div.avatar.botav', { style: { width: size + 'px', height: size + 'px' }, title: 'Bot de música' }, icon('musicbot', Math.round(size * .56)));
   const el = h('div.avatar', { style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * .42) + 'px', background: u?.avatar ? 'var(--bg-mod-hover, #35373c)' : u?.color || '#5865f2' } }); // com foto: fundo neutro até ela carregar (antes piscava a cor da pessoa)
-  if (u?.avatar) el.append(framePos(avatarImg(u.avatar, imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z)))), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
+  if (u?.avatar) el.append(framePos(avatarImg(u.avatar, imgUrl(u.avatar, Math.max(64, size * Math.min(3, parsePos(u.avatar_pos).z))), size), u.avatar_pos, true)); else el.append((u?.display_name || u?.username || '?')[0].toUpperCase());
   if (opts.status !== false && u) el.append(h('div.status.s-' + (u.status || 'offline'), { title: STATUS_LABEL[u.status] || 'Offline', style: opts.ring ? { borderColor: opts.ring, '--st-hole': opts.ring } : null }));
   return el;
 }

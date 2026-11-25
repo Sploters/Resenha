@@ -166,7 +166,7 @@ function digestCard() {
     h('p.ux-dg-title', d.titulo),
     d.linhas.length ? h('ul.ux-dg', d.linhas.map(l => h('li.' + l.tom, h('span.ux-dg-ic', { title: TONE[l.tom]?.[1] || null }, icon(TONE[l.tom]?.[0] || 'dot', 14)), h('span', l.texto)))) : null,
     h('button.btn.grey.sm', { onclick: async () => { try { draw(await api('POST', '/ux/digest/send')); toast('Resumo enviado para você' + ' (e para o webhook, se houver)'); } catch (e) { toast(e.message, true); } } }, icon('send', 14), 'Enviar agora'));
-  api('GET', '/ux/digest').then(draw).catch(e => box.replaceChildren(h('p.ux-empty', 'Resumo indisponível: ' + e.message)));
+  box.ready = api('GET', '/ux/digest').then(draw).catch(e => box.replaceChildren(h('p.ux-empty', 'Resumo indisponível: ' + e.message)));
   return box;
 }
 // qualidade das chamadas: % de boas entre quem respondeu, taxa de resposta e os problemas mais citados
@@ -238,17 +238,18 @@ export function uxStatsPage() {
   const body = h('div.ux-body', h('p.ux-empty', 'Carregando…'));
   let days = 30, version = '', data = null, soc = null;
   const digest = digestCard(); // não depende do período: é sempre a última semana
-  const verSel = h('select.ux-ver', { 'aria-label': 'Versão do app', onchange: () => { version = verSel.value; load(); } }, h('option', { value: '' }, 'Todas as versões'));
+  const verSel = h('select.ux-ver', { 'aria-label': 'Versão do app', disabled: true, onchange: () => { version = verSel.value; load(); } }, h('option', { value: '' }, 'Todas as versões'));
   const load = async () => {
     body.classList.add('loading');
-    try { [data, soc] = await Promise.all([api('GET', `/ux?days=${days}${version ? '&version=' + encodeURIComponent(version) : ''}`), api('GET', `/social/metrics?days=${days}`).catch(() => null)]); draw(); } catch (e) { body.replaceChildren(h('p.ux-empty', 'Não foi possível carregar: ' + e.message)); }
+    // espera também o resumo da semana: chegando depois, ele empurrava os blocos de baixo (layout shift)
+    try { [data, soc] = await Promise.all([api('GET', `/ux?days=${days}${version ? '&version=' + encodeURIComponent(version) : ''}`), api('GET', `/social/metrics?days=${days}`).catch(() => null), digest.ready]); draw(); } catch (e) { body.replaceChildren(h('p.ux-empty', 'Não foi possível carregar: ' + e.message)); }
     body.classList.remove('loading');
   };
   const drawVersions = () => {
     const vs = data.versoes || [];
     verSel.replaceChildren(h('option', { value: '' }, 'Todas as versões'), ...vs.map(v => h('option', { value: v.version, selected: v.version === version },
       `${v.version.slice(0, 7)}${v.version === UX_VERSION ? ' (atual)' : ''} · ${fmtDay(v.desde)}${v.ate !== v.desde ? ' a ' + fmtDay(v.ate) : ''}`)));
-    verSel.hidden = !vs.length;
+    verSel.disabled = !vs.length; // sempre à vista: sumir/aparecer depois de carregar fazia o botão "Baixar dados" trocar de linha
   };
   const draw = () => {
     drawVersions();

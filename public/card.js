@@ -52,7 +52,7 @@ export function profileCard(u, { nickname, roles = [], since, extra, top, accent
 // Os 3 jogos mais jogados (biblioteca da Steam vinculada, /users/:id/games) com capa e horas. Some quando a pessoa não tem
 // jogos com tempo ou esconde os jogos. Guarda a resposta por 2 min: abrir o cartão várias vezes não refaz o pedido.
 const gamesCache = new Map(); // uid -> { at, p }
-const topGames = (uid) => { const c = gamesCache.get(uid); if (c && Date.now() - c.at < 120000) return c.p; const p = api('GET', `/users/${uid}/games`).catch(() => null); gamesCache.set(uid, { at: Date.now(), p }); return p; };
+export const topGames = (uid) => { const c = gamesCache.get(uid); if (c && Date.now() - c.at < 120000) return c.p; const p = api('GET', `/users/${uid}/games`).catch(() => null); gamesCache.set(uid, { at: Date.now(), p }); return p; };
 const hrs = (min) => (min < 60 ? min + ' min' : Math.round(min / 60).toLocaleString('pt-BR') + ' h');
 function showcase(u) {
   const box = h('div.pshow.hidden');
