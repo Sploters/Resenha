@@ -90,11 +90,16 @@ function openPingChart(anchor) {
     paintConn(vals);
   };
   // diagnóstico: protocolo, perda, oscilação e o que fazer
-  let ci = null; const readConn = () => voice?.connInfo?.().then(x => { ci = x; paintConn(pingHist.filter(s => Date.now() - s.t <= 60000).map(s => s.ms)); }).catch(() => { });
+  // refazendo a mídia (sem transporte agora): ci vazio mostra o aviso de voz sem conectar
+  let ci = null; const readConn = () => voice?.connInfo?.().then(x => { ci = x || (voice?.recovering ? { proto: null } : null); paintConn(pingHist.filter(s => Date.now() - s.t <= 60000).map(s => s.ms)); }).catch(() => { });
   const paintConn = (vals) => {
     if (!ci) return connBox.replaceChildren(h('small', 'Analisando a conexão…'));
     const loss = Math.max(ci.sendLoss ?? 0, ci.recvLoss ?? 0), spread = vals.length > 5 ? Math.max(...vals) - Math.min(...vals) : 0, avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     const tips = [];
+    // o ping acima vem do WebSocket (passa pelo site/túnel); a voz vai direto à porta 40000 do servidor. Sem par ICE
+    // escolhido, a mídia não conectou: o número bom do ping não diz nada sobre a voz
+    const noMedia = !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
+    if (noMedia) tips.push(['bad', `A voz não conectou: o app fala com o servidor pelo site, mas a porta da voz (40000 UDP/TCP) não respondeu. Se você abriu pelo endereço público (túnel), a voz só chega pela VPN (Tailscale) ligada neste aparelho — ou com um servidor TURN configurado.`]);
     if (ci.proto === 'tcp') tips.push(['bad', 'A conexão de voz está indo por TCP: o UDP parece bloqueado na sua rede (ou na VPN). TCP atrasa a voz quando há qualquer perda. Peça para liberar a porta 40000/UDP do servidor.']);
     if (loss > .02) tips.push(['bad', `Perda de pacotes de ${(loss * 100).toFixed(1)}%: a voz pode picotar. Wi-Fi fraco ou rede congestionada são as causas mais comuns; cabo de rede ajuda muito.`]);
     if (spread > 80 || (ci.jitterMs ?? 0) > 30) tips.push(['mid', 'Ping instável (variando muito): costuma ser Wi-Fi, download pesado na mesma rede ou a VPN passando por um relay em vez de ligar direto.']);

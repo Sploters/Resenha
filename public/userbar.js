@@ -40,7 +40,7 @@ export function voicePanel() {
   const ch = channelById(voice.channelId), g = guild(ch?.guild_id);
   const fresh = panelFor !== voice.joinedAt; panelFor = voice.joinedAt; // acabou de entrar: o painel sobe (.vp-in), nas outras vezes já está lá
   return h('div#voice-panel' + (fresh ? '.vp-in' : ''),
-    h('div.t' + (voice.recovering ? '.recovering' : voice.hold ? '.onhold' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : voice.hold ? [icon('pause', 14), 'Em espera'] : [pingEl(), 'Voz conectada']),
+    h('div.t' + (voice.recovering ? '.recovering' : voice.hold ? '.onhold' : ''), h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, voice.recovering ? [pingEl(), h('span.vp-spin', { 'aria-hidden': 'true' }), 'Reconectando a voz…'] : voice.hold ? [icon('pause', 14), 'Em espera'] : [pingEl(), 'Voz conectada']),
       h('span.vp-btns', voiceBtn(),
         h('button.ibtn.vp-hold' + (voice.hold ? '.on' : ''), { title: voice.hold ? 'Voltar da espera (microfone e áudio voltam como estavam)' : 'Ficar em espera: desliga microfone e áudio sem sair da sala; os outros veem "Em espera"', 'aria-pressed': String(!!voice.hold), onclick: () => voice.setHold(!voice.hold) }, icon(voice.hold ? 'play' : 'pause', 20)),
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
