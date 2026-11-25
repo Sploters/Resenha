@@ -488,6 +488,7 @@ function refreshVoicePerms(gid) {
       st.noSpeak = noSpeak; st.noVideo = noVideo;
       sfuModerate(cid, uid, { mute: !!st.modMute || noSpeak });
       if (noVideo) { sfuDropVideo(cid, uid); if (natives.has(uid)) endNative(uid, 'no_video'); st.video = false; st.screen = false; }
+      else sfuDropVideo(cid, uid, false); // vídeo liberado de novo (pelo túnel o servidor da voz é quem barra)
       dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(cid, uid, st), guild_id: gid });
     }
   }
@@ -711,7 +712,7 @@ const onUpgrade = (req, socket, head) => {
   if (url.pathname !== '/gateway' && url.pathname !== '/voz-tunel') return socket.destroy();
   const s = sessions.lookup(url.searchParams.get('token') || '');
   if (!s) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
-  if (url.pathname === '/voz-tunel') return void pipeTunnel(req, socket, head, s.user_id).catch(() => socket.destroy()); // voz pelo túnel (server/tunnelproxy.js)
+  if (url.pathname === '/voz-tunel') { const vc = currentVoice(s.user_id); return void pipeTunnel(req, socket, head, s.user_id, { noVideo: !!(vc && voice.get(vc)?.get(s.user_id)?.noVideo) }).catch(() => socket.destroy()); } // voz pelo túnel (server/tunnelproxy.js)
   wss.handleUpgrade(req, socket, head, ws => { ws.uid = s.user_id; ws.tokenHash = s.hash; ws.tab = String(url.searchParams.get('tab') || '').slice(0, 40) || null; ws.resume = url.searchParams.get('resume') === '1'; wss.emit('connection', ws); });
 };
 server.on('upgrade', onUpgrade);

@@ -2,7 +2,7 @@
 // a Alice conecta a mídia direto; o Bruno não alcança o servidor direto (sem
 // caminho: o endereço anunciado pelo servidor é trocado por um inalcançável, como quem está fora da VPN numa rede só IPv4) e, sem conectar em 5 s, a voz dele passa sozinha pela conexão
 // do site. As duas pessoas se ouvem; mudo e ensurdecer valem; o popup do sinal mostra "Pelo site (túnel)"; câmera
-// avisa que não passa; e sair da sala fecha o microfone do túnel para os outros.
+// passa pelo túnel; e sair da sala fecha o microfone do túnel para os outros.
 // Uso: node scripts/voztunnel-test.mjs
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -89,9 +89,10 @@ try {
   ok(/Pelo site \(túnel\)/.test(pop) && /conexão do site/.test(pop), 'popup do sinal: "Pelo site (túnel)" e a explicação', pop.slice(0, 200));
   await B.keyboard.press('Escape');
 
-  // câmera pelo túnel: avisa que não passa
+  // câmera pelo túnel: vai comprimida pela conexão do site (public/voztunnel-video.js) e a Alice recebe
   await B.evaluate(() => window.__lc.voice.toggleCam?.() ?? window.__lc.voice.setCam?.(true)).catch(() => { });
-  ok(await B.waitForFunction(() => window.__toasts.some(t => /câmera e transmissão de tela não chegam/.test(t)), { timeout: 8000 }).then(() => true, () => false), 'ligou a câmera: aviso de que não passa pelo túnel');
+  ok(await A.waitForFunction((idB) => !!window.__lc.voice.peers.get(idB)?.streams?.cam, { timeout: 10000 }, idB).then(() => true, () => false), 'ligou a câmera: chega à Alice pelo túnel');
+  ok(await B.evaluate(() => !window.__toasts.some(t => /não chegam aos outros/.test(t))), 'sem aviso de que a câmera não passa');
 
   // deploy que reinicia só o app (SIGUSR2): a conexão do túnel passa pelo app e cai; volta sozinha e a voz continua
   srv.kill('SIGUSR2');

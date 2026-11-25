@@ -17,7 +17,7 @@ async function tunnelTarget() {
   return (target = startTunnelServer().catch(() => { target = null; return null; }));
 }
 
-export async function pipeTunnel(req, socket, head, uid) {
+export async function pipeTunnel(req, socket, head, uid, { noVideo = false } = {}) {
   const tg = await tunnelTarget();
   if (!tg || socket.destroyed) { socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return socket.destroy(); }
   const { tunnelSig } = await import('./voztunnel.js');
@@ -25,7 +25,7 @@ export async function pipeTunnel(req, socket, head, uid) {
   up.setNoDelay(true); socket.setNoDelay(true);
   const lines = [`${req.method} ${req.url} HTTP/1.1`];
   for (let i = 0; i < req.rawHeaders.length; i += 2) if (!/^x-lc-/i.test(req.rawHeaders[i])) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
-  lines.push(`x-lc-uid: ${uid}`, `x-lc-sig: ${tunnelSig(tg.key, uid)}`);
+  lines.push(`x-lc-uid: ${uid}`, `x-lc-sig: ${tunnelSig(tg.key, uid)}`, `x-lc-novideo: ${noVideo ? 1 : 0}`);
   up.write(lines.join('\r\n') + '\r\n\r\n');
   if (head?.length) up.write(head);
   up.pipe(socket); socket.pipe(up);

@@ -40,7 +40,7 @@ export const sfuLoad = () => call('load');
 export function sfuJoin(cid, uid, notify) { notifies.set(key(cid, uid), notify); return call('join', cid, uid); }
 export function sfuLeave(cid, uid) { notifies.delete(key(cid, uid)); quiet(call('leave', cid, uid)); }
 export function sfuModerate(cid, uid, o) { quiet(call('moderate', cid, uid, o)); }
-export function sfuDropVideo(cid, uid) { quiet(call('dropVideo', cid, uid)); }
+export function sfuDropVideo(cid, uid, on = true) { quiet(call('dropVideo', cid, uid, on)); }
 export const sfuRequest = (cid, uid, op, d) => call('request', cid, uid, op, d);
 export async function sfuAttachRtp(cid, uid) {
   const r = await call('attachRtp', cid, uid);

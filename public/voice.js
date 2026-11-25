@@ -8,7 +8,7 @@ import { track, stopTimer, cancelTimer, timing } from './ux.js';
 import { CallQuality, SAMPLE_MS, recordCallQuality } from './callqual.js';
 import { attachTap } from './clipbuf.js';
 import { newMicWatch, micWatchStep, newTalkMuted, talkMutedStep } from './micwatch.js';
-import { VoiceTunnel, tunnelSupported } from './voztunnel.js';
+import { VoiceTunnel, tunnelSupported, videoTunnelSupported } from './voztunnel.js';
 
 const NS = '/vendor/ns';
 const loadedModules = new WeakMap();
@@ -718,28 +718,58 @@ export class Voice {
       onAdd: (uid, source, stream) => {
         if (this.tunnel !== T) return;
         const p = this.ensurePeer(uid); p.consumers.set('tun:' + source, source);
-        this.attachAudio(p, stream, source === 'mic' ? 'mic' : 'screen'); this.onUpdate();
+        if (source === 'cam' || source === 'screen') {
+          p.streams[source] = stream;
+          const t = stream.getVideoTracks()[0]; if (t) t.onmute = t.onunmute = () => this.onUpdate();
+          // começa pausado no servidor: assiste se a transmissão não foi fechada aqui (como na mídia direta)
+          const held = source === 'screen' && (this.closedStreams.has(uid) || this.autoPaused?.has(uid));
+          if (!held) T.pause(uid, [source], false); else T.pause(uid, [source], true);
+        } else {
+          this.attachAudio(p, stream, source === 'mic' ? 'mic' : 'screen');
+          if (source === 'screenaudio' && this.closedStreams.has(uid)) T.pause(uid, ['screenaudio'], true);
+        }
+        this.onUpdate();
       },
       onDel: (uid, source) => {
         const p = this.peers.get(uid); if (!p) return;
         p.consumers.delete('tun:' + source);
         if (source === 'mic') { p.audioEl?.remove(); p.audioEl = null; this.analysers.get(uid)?.src.disconnect(); this.analysers.delete(uid); this.speaking.delete(uid); }
+        else if (source === 'cam' || source === 'screen') delete p.streams[source];
         else { p.screenAudioEl?.remove(); p.screenAudioEl = null; }
         this.onUpdate();
+      },
+      onVideoRefused: (source, msg) => {
+        if (this.tunnel !== T) return;
+        try { document.dispatchEvent(new CustomEvent('voice-notice', { detail: msg ? `Não deu para mandar ${source === 'cam' ? 'a câmera' : 'a transmissão'} pela conexão do site: ${msg}.` : `${source === 'cam' ? 'A câmera' : 'A transmissão'} não foi aceita pelo servidor (sem permissão de vídeo nesta sala?).` })); } catch { }
       },
       onFail: (msg) => { if (this.tunnel !== T) return; track('voice_fail', 'tunnel'); this.recovering = false; this.error = 'Falha ao conectar a voz: ' + msg; this.onUpdate(); },
       onUpdate: () => { if (this.tunnel !== T) return; this.recovering = !T.ready; this.onUpdate(); },
     });
     T.start().catch((e) => { if (this.tunnel === T) { this.recovering = false; this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); } });
-    if (this.cam || this.screen) this.tunnelNoVideo();
+    // o que já estava ligado continua pelo túnel (o programa nativo de 120 FPS não passa por ele: volta à captura do navegador)
+    if (this.native) this.stopNative();
+    if (this.cam) this.tunnelVideo('cam'); if (this.screen) this.tunnelVideo('screen');
     this.onUpdate();
     return true;
   }
   tunnelClose() { const T = this.tunnel; if (!T) return; this.tunnel = null; T.close(); }
-  // câmera/tela ligadas pela voz pelo túnel: não chegam a ninguém (só a voz passa). Avisa uma vez por chamada
+  // câmera/tela pelo túnel (public/voztunnel-video.js): o vídeo é comprimido aqui e vai pela conexão do site; o áudio da
+  // transmissão também. Sem WebCodecs de vídeo neste navegador: avisa que não passa (uma vez por chamada)
+  tunnelVideo(kind) {
+    const T = this.tunnel; if (!T) return;
+    const s = this[kind], vt = s?.getVideoTracks()[0];
+    if (kind === 'screen') T.setAudio('screenaudio', s?.getAudioTracks()[0] || null);
+    if (!vt) { T.setVideo(kind, null); return; }
+    if (!videoTunnelSupported()) return this.tunnelNoVideo();
+    const o = this.screenOpts || {};
+    // pela conexão do site a banda é mais curta que a da mídia direta: tela até 1080p e ~3 Mbps, câmera 720p
+    const opts = kind === 'cam' ? { maxH: 720, fps: 30, kbps: 900 }
+      : { maxH: Math.min(1080, +o.res || 1080), fps: Math.min(60, +o.fps || 30), kbps: Math.min(6000, Math.round(bitrateFor(Math.min(1080, +o.res || 1080), Math.min(60, +o.fps || 30), o.bitrate, isGameShare(o)) * 0.6 / 1000)) };
+    T.setVideo(kind, vt, opts);
+  }
   tunnelNoVideo() {
     if (this._tunVideoNote === this.channelId) return; this._tunVideoNote = this.channelId;
-    try { document.dispatchEvent(new CustomEvent('voice-notice', { detail: 'A sua voz está indo pela conexão do site (sem VPN nem IPv6 aqui): câmera e transmissão de tela não chegam aos outros por esse caminho.' })); } catch { }
+    try { document.dispatchEvent(new CustomEvent('voice-notice', { detail: 'A sua voz está indo pela conexão do site (sem VPN nem IPv6 aqui) e este navegador não comprime vídeo para esse caminho: câmera e transmissão de tela não chegam aos outros. Use o Chrome, o Edge ou o app.' })); } catch { }
   }
   stopRecovery() {
     clearTimeout(this._mrTimer); clearTimeout(this._mrWait); this._mrTimer = this._mrWait = null;
@@ -779,7 +809,7 @@ export class Voice {
     return undefined;
   }
   async sfuProduce(source, track) {
-    if (this.tunnel) { if (source === 'mic') this.tunnel.setMic(track); else this.tunnelNoVideo(); return; } // pelo túnel: só a voz
+    if (this.tunnel) { if (source === 'mic') this.tunnel.setMic(track); else if (source === 'screenaudio') this.tunnel.setAudio('screenaudio', track); else this.tunnelVideo(source); return; } // pelo túnel (public/voztunnel.js)
     const s = this.sfu; if (!s?.ready || !track) return;
     const cur = s.producers[source];
     if (cur && !cur.closed) return cur.replaceTrack({ track });
@@ -1454,11 +1484,13 @@ export class Voice {
   openStream(uid) { this.autoPaused?.delete(uid); this.closedStreams.delete(uid); this.applyVolume(uid); this.flow(uid, false); }
   // pausa/retoma no servidor o que vem da transmissão de alguém: quem não está assistindo não gasta a banda (nem o servidor)
   flow(uid, paused) {
+    if (this.tunnel) return this.tunnel.pause(uid, ['screen', 'screenaudio'], paused);
     const p = this.peers.get(uid); if (!p || !this.sfu?.ready) return;
     for (const [id, src] of p.consumers) if (src === 'screen' || src === 'screenaudio') this.sfuReq('pause', { consumer_id: id, paused }).catch(() => { });
   }
   // pausa só o VÍDEO da transmissão (o áudio dela continua): usado quando o quadro não está à vista
   flowVideo(uid, paused) {
+    if (this.tunnel) { if (paused) (this.autoPaused ||= new Set()).add(uid); else this.autoPaused?.delete(uid); return this.tunnel.pause(uid, ['screen'], paused); }
     const p = this.peers.get(uid); if (!p || !this.sfu?.ready) return;
     if (paused) (this.autoPaused ||= new Set()).add(uid); else this.autoPaused?.delete(uid);
     for (const [id, src] of p.consumers) if (src === 'screen') this.sfuReq('pause', { consumer_id: id, paused }).catch(() => { });
@@ -2190,12 +2222,13 @@ export class Voice {
     if (o.res !== 'source') { c.height = { ideal: +o.res, max: +o.res }; c.width = { ideal: Math.round(+o.res * 16 / 9) }; }
     try { await vt.applyConstraints(c); } catch (e) { console.warn('applyConstraints', e); }
     vt.contentHint = o.hint;
-    if (this.sfu) this.sfuTuneScreen();
+    if (this.tunnel) this.tunnelVideo('screen');
+    else if (this.sfu) this.sfuTuneScreen();
     else for (const p of this.peers.values()) this.tuneSender(p, 'screenvideo', 'screen');
     this.onUpdate();
   }
   publish(kind, stream) {
-    if (this.tunnel) { this.tunnelNoVideo(); this.sendState(); this.onUpdate(); return; } // pelo túnel só a voz passa
+    if (this.tunnel) { this.tunnelVideo(kind); this.sendState(); this.onUpdate(); return; } // pelo túnel: vídeo comprimido aqui (public/voztunnel-video.js)
     if (this.sfu) {
       (kind === 'screen' ? this.sfuPublishScreen() : this.sfuProduce(kind, stream.getVideoTracks()[0])).catch(e => { console.warn('produce', e); this.error = e.message; this.onUpdate(); });
     } else for (const p of this.peers.values()) {
@@ -2207,6 +2240,7 @@ export class Voice {
   }
   stopLocal(kind) {
     const s = this[kind]; if (!s) return;
+    if (this.tunnel) { this.tunnel.setVideo(kind, null); if (kind === 'screen') this.tunnel.setAudio('screenaudio', null); }
     if (this.sfu) { this.sfuStop(kind); if (kind === 'screen') this.sfuStop('screenaudio'); }
     else for (const p of this.peers.values()) for (const t of s.getTracks()) { const snd = p.senders[kind + t.kind]; if (snd) { try { p.pc.removeTrack(snd); } catch { } delete p.senders[kind + t.kind]; } }
     if (kind === 'screen') { if (this._overOn != null) window.lcDesktop?.watchSourceOver?.(null)?.catch?.(() => { }); this._overOn = null; this._overHid = false; this.stopNative(); this._natWinId = null; this.capHist = null; this.stopAppAudio(); clearInterval(this._gt); this.gov = null; clearInterval(this._fse); this.fse = null; clearInterval(this._sw); clearInterval(this._bk); clearInterval(this._src); this.captureFps = null; this.captureBlack = false; this.screenNote = null; }

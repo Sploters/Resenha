@@ -18,6 +18,20 @@ class Cap extends AudioWorkletProcessor {
   }
 }
 
+// lc-tun-cap2: o mesmo em estéreo (áudio da transmissão): manda os dois canais juntos (planar: esquerdo e depois direito)
+class Cap2 extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(FRAME * 2); this.n = 0; }
+  process(inputs, outputs) {
+    const l = inputs[0]?.[0], r = inputs[0]?.[1] || l;
+    if (l) for (let i = 0; i < l.length; i++) {
+      this.buf[this.n] = l[i]; this.buf[FRAME + this.n] = r[i]; this.n++;
+      if (this.n === FRAME) { this.port.postMessage(this.buf, [this.buf.buffer]); this.buf = new Float32Array(FRAME * 2); this.n = 0; }
+    }
+    outputs[0]?.forEach(o => o.fill(0));
+    return true;
+  }
+}
+
 class Play extends AudioWorkletProcessor {
   constructor(o) {
     super();
@@ -46,4 +60,5 @@ class Play extends AudioWorkletProcessor {
 }
 
 registerProcessor('lc-tun-cap', Cap);
+registerProcessor('lc-tun-cap2', Cap2);
 registerProcessor('lc-tun-play', Play);

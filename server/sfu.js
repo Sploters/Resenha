@@ -208,7 +208,7 @@ export async function sfuJoin(cid, uid, notify) {
 export function sfuLeave(cid, uid) {
   const r = rooms.get(cid); if (!r) return;
   const peer = r.peers.get(uid); if (!peer) return;
-  peer.close(); r.peers.delete(uid);
+  peer.close(); r.peers.delete(uid); noVideoOf.delete(cid + ':' + uid);
   if (!r.peers.size) { r.router?.close(); rooms.delete(cid); }
 }
 
@@ -227,8 +227,10 @@ export function sfuModerate(cid, uid, { mute, deaf }) {
 }
 
 // perdeu a permissão Vídeo da sala no meio da chamada: fecha câmera e tela (os outros recebem SFU_PRODUCER_CLOSED)
-export function sfuDropVideo(cid, uid) {
-  const peer = rooms.get(cid)?.peers.get(uid); if (!peer) return;
+// on=false: a permissão de vídeo voltou (só libera de novo o vídeo pelo túnel; na mídia direta quem barra é o app)
+export function sfuDropVideo(cid, uid, on = true) {
+  if (on) noVideoOf.set(cid + ':' + uid, true); else noVideoOf.delete(cid + ':' + uid);
+  const peer = rooms.get(cid)?.peers.get(uid); if (!peer || !on) return;
   for (const src of ['cam', 'screen', 'screenaudio']) peer.producers.get(src)?.close();
 }
 
@@ -268,35 +270,48 @@ function registerProducer(r, peer, source, p) {
   for (const o of r.peers.values()) if (o !== peer && o.tunnel) o.tunnel.add(p, peer.uid); // quem ouve pelo túnel (sfuTunnelAttach)
 }
 
-// ---------- Voz pelo túnel ----------
-// Para quem não alcança a mídia direto (CGNAT no servidor, rede só IPv4, sem VPN): a voz vai e volta pela conexão do site
-// (WebSocket em /voz-tunel, que passa pelo Cloudflare Tunnel como o resto; server/voztunnel.js). Aqui ela entra na sala
-// por um DirectTransport do mediasoup: o microfone vira um producer como outro qualquer (os outros não notam diferença)
-// e cada voz da sala (microfone, áudio de transmissão, bot de música) sai por um consumer cujo RTP vai para o app.
-// Só áudio: vídeo pelo túnel pesaria demais. Mudo/ensurdecido pela moderação valem igual (producer/consumers do peer).
-// out: { add(slot, uid, source), del(slot), frame(slot, seq, ts, payload), closed() }
-const TUN_PT = 100, TUN_MAX = 1500;
-export async function sfuTunnelAttach(cid, uid, out) {
+// ---------- Voz e vídeo pelo túnel ----------
+// Para quem não alcança a mídia direto (CGNAT no servidor, rede só IPv4, sem VPN): a mídia vai e volta pela conexão do
+// site (WebSocket em /voz-tunel, que passa pelo Cloudflare Tunnel como o resto; server/voztunnel.js). Aqui ela entra na
+// sala por um DirectTransport do mediasoup: o que a pessoa manda vira producer como outro qualquer (os outros não notam
+// diferença) e o que a sala transmite sai por consumers cujo RTP vai para o app.
+// - Voz (microfone e áudio da transmissão): o app manda o Opus de 20 ms e o carimbo; aqui vira RTP.
+// - Vídeo (câmera e tela): o app já manda os pacotes RTP prontos (VP8 ou H.264, public/voztunnel-video.js); pedidos de
+//   quadro-chave de quem assiste (PLI/FIR) voltam ao app. O que chega da sala vai como RTP inteiro; vídeo começa pausado
+//   e só anda enquanto o app assiste (pause), como na mídia direta.
+// Mudo/ensurdecido pela moderação e a permissão de vídeo da sala valem igual.
+// out: { add(slot, uid, source, kind, codec), del(slot), frame(slot, seq, ts, payload), rtp(slot, packet), key(source), closed() }
+const TUN_PT = 100, TUN_MAX = 1500, TUN_VPT = { vp8: 101, h264: 102 };
+const noVideoOf = new Map(); // `${cid}:${uid}` -> sem permissão de vídeo (sfuDropVideo)
+const TUN_AUDIO = { mic: { channels: 1 }, screenaudio: { channels: 2 } };
+export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   const r = rooms.get(cid), peer = r?.peers.get(uid);
   if (!peer) throw new Error('fora da sala');
+  const nvKey = cid + ':' + uid;
+  if (!noVideoOf.has(nvKey) && opts.noVideo) noVideoOf.set(nvKey, true);
   peer.tunnel?.close();
   const t = await r.router.createDirectTransport({ maxMessageSize: 262144, appData: { tunnel: true } });
   peer.transports.set(t.id, t);
-  const tun = { closed: false, off: false, slots: new Map(), used: new Set(), mic: null, micP: null, seq: Math.floor(Math.random() * 65535), ssrc: 2000000 + Math.floor(Math.random() * 1e8) };
+  const tun = { closed: false, off: false, slots: new Map(), used: new Set(), prod: new Map() };
   const freeSlot = () => { for (let i = 1; i < 256; i++) if (!tun.used.has(i)) { tun.used.add(i); return i; } return 0; };
+  const slotOf = (n) => { for (const x of tun.slots.values()) if (x.slot === n) return x; return null; };
   tun.add = async (p, ownerUid) => {
-    if (tun.closed || p.closed || p.kind !== 'audio' || ownerUid === uid) return;
+    if (tun.closed || p.closed || ownerUid === uid) return;
     if ([...tun.slots.values()].some(x => x.c.producerId === p.id)) return;
     const slot = freeSlot(); if (!slot) return;
     let c;
     try { c = await t.consume({ producerId: p.id, rtpCapabilities: r.router.rtpCapabilities, paused: true }); } catch { tun.used.delete(slot); return; }
     if (tun.closed) { c.close(); return; }
-    const source = p.appData.source;
+    const source = p.appData.source, video = c.kind === 'video';
     c.appData.source = source; c.appData.tunnel = true;
     tun.slots.set(c.id, { c, slot }); peer.consumers.set(c.id, c);
     const gone = () => { if (!tun.slots.delete(c.id)) return; peer.consumers.delete(c.id); tun.used.delete(slot); if (!tun.closed) out.del(slot); };
     c.on('producerclose', gone); c.on('transportclose', gone); c.observer.on('close', gone);
-    c.on('rtp', (b) => {
+    if (video) {
+      // sem estimativa de banda no DirectTransport: a camada vem da preferência (tela cheia; câmera a do meio)
+      if (c.type === 'simulcast' || c.type === 'svc') await c.setPreferredLayers({ spatialLayer: source === 'cam' ? 1 : 2, temporalLayer: 2 }).catch(() => { });
+      c.on('rtp', (b) => out.rtp(slot, b));
+    } else c.on('rtp', (b) => {
       // RTP -> só o Opus: cabeçalho (12) + CSRCs + extensões + preenchimento
       if (b.length < 12) return;
       let o = 12 + 4 * (b[0] & 0x0f);
@@ -305,23 +320,84 @@ export async function sfuTunnelAttach(cid, uid, out) {
       if (end <= o) return;
       out.frame(slot, b.readUInt16BE(2), b.readUInt32BE(4), b.subarray(o, end));
     });
-    out.add(slot, ownerUid, source);
-    // ensurdecido (no app ou pela moderação): a voz dos outros não chega
-    if (!((tun.off || peer.modDeaf) && source === 'mic')) await c.resume().catch(() => { });
+    const codec = c.rtpParameters.codecs[0];
+    out.add(slot, ownerUid, source, c.kind, codec ? { mime: codec.mimeType, profile: codec.parameters?.['profile-level-id'] || null } : null);
+    // ensurdecido (no app ou pela moderação): a voz dos outros não chega. Vídeo espera o app pedir (tun.pause)
+    if (!video && !((tun.off || peer.modDeaf) && source === 'mic')) await c.resume().catch(() => { });
   };
-  // microfone: o app manda o Opus (20 ms) com o carimbo de tempo em amostras de 48 kHz; aqui vira RTP para o producer
-  tun.audio = async (ts, payload) => {
-    if (tun.closed || !payload.length || payload.length > TUN_MAX) return;
-    if (!tun.mic) {
-      tun.micP ||= t.produce({ kind: 'audio', appData: { source: 'mic' }, rtpParameters: {
-        codecs: [{ mimeType: 'audio/opus', payloadType: TUN_PT, clockRate: 48000, channels: 2, parameters: { useinbandfec: 1 } }],
-        encodings: [{ ssrc: tun.ssrc }] } }).then((p) => { if (tun.closed) { p.close(); return null; } tun.mic = p; registerProducer(r, peer, 'mic', p); return p; }, () => { tun.micP = null; return null; });
-      await tun.micP; if (!tun.mic) return;
+  // voz que o app manda (microfone ou áudio da transmissão): Opus de 20 ms com o carimbo em amostras de 48 kHz -> RTP
+  const audioProducer = (source) => {
+    let st = tun.prod.get(source);
+    if (st?.p && !st.p.closed) return st.p;
+    if (st?.wait) return st.wait;
+    if (source !== 'mic' && noVideoOf.get(nvKey)) return null;
+    st = { seq: Math.floor(Math.random() * 65535), ssrc: 2000000 + Math.floor(Math.random() * 1e8), p: null };
+    tun.prod.set(source, st);
+    const ch = TUN_AUDIO[source].channels;
+    st.wait = t.produce({ kind: 'audio', appData: { source }, rtpParameters: {
+      codecs: [{ mimeType: 'audio/opus', payloadType: TUN_PT, clockRate: 48000, channels: 2, parameters: { useinbandfec: 1, ...(ch === 2 ? { 'sprop-stereo': 1, stereo: 1 } : {}) } }],
+      encodings: [{ ssrc: st.ssrc }] } }).then((p) => {
+      st.wait = null;
+      if (tun.closed || tun.prod.get(source) !== st) { p.close(); return null; }
+      st.p = p; registerProducer(r, peer, source, p); return p;
+    }, () => { st.wait = null; tun.prod.delete(source); return null; });
+    return st.wait;
+  };
+  tun.audio = async (source, ts, payload) => {
+    if (tun.closed || !TUN_AUDIO[source] || !payload.length || payload.length > TUN_MAX) return;
+    const p = await audioProducer(source); if (!p || p.closed) return;
+    const st = tun.prod.get(source), h = Buffer.allocUnsafe(12);
+    h[0] = 0x80; h[1] = TUN_PT; h.writeUInt16BE(st.seq = (st.seq + 1) & 0xffff, 2); h.writeUInt32BE(ts >>> 0, 4); h.writeUInt32BE(st.ssrc, 8);
+    try { p.send(Buffer.concat([h, payload])); } catch { }
+  };
+  // vídeo que o app manda: começa (vstart: codec e ssrc), pacotes RTP prontos (vrtp) e para (stop)
+  tun.vstart = async (source, codec, ssrc) => {
+    if (tun.closed || (source !== 'cam' && source !== 'screen') || !TUN_VPT[codec]) return false;
+    if (noVideoOf.get(nvKey)) return false;
+    tun.stop(source);
+    ssrc = ssrc >>> 0; if (!ssrc) return false;
+    const st = { ssrc, pt: TUN_VPT[codec], p: null };
+    tun.prod.set(source, st);
+    const fb = [{ type: 'nack', parameter: 'pli' }, { type: 'ccm', parameter: 'fir' }];
+    const c = codec === 'vp8'
+      ? { mimeType: 'video/VP8', payloadType: st.pt, clockRate: 90000, rtcpFeedback: fb }
+      : { mimeType: 'video/H264', payloadType: st.pt, clockRate: 90000, parameters: { 'packetization-mode': 1, 'profile-level-id': '42e01f', 'level-asymmetry-allowed': 1 }, rtcpFeedback: fb };
+    let p;
+    try { p = await t.produce({ kind: 'video', appData: { source, tunnel: true }, rtpParameters: { codecs: [c], encodings: [{ ssrc }] } }); }
+    catch { if (tun.prod.get(source) === st) tun.prod.delete(source); return false; }
+    if (tun.closed || tun.prod.get(source) !== st) { p.close(); return false; }
+    st.p = p; registerProducer(r, peer, source, p);
+    return true;
+  };
+  tun.vrtp = (source, pkt) => {
+    const st = tun.prod.get(source); if (!st?.p || st.p.closed || pkt.length < 12 || pkt.length > TUN_MAX) return;
+    if ((pkt[1] & 0x7f) !== st.pt || pkt.readUInt32BE(8) !== st.ssrc) return; // só o que foi anunciado no vstart
+    try { st.p.send(pkt); } catch { }
+  };
+  tun.stop = (source) => {
+    const st = tun.prod.get(source); if (!st) return;
+    tun.prod.delete(source);
+    try { st.p?.close(); } catch { }
+    if (peer.producers.get(source) === st.p) peer.producers.delete(source);
+  };
+  // pedidos de quadro-chave de quem assiste (PLI/FIR que o mediasoup manda ao producer) -> o app força um quadro-chave
+  t.on('rtcp', (b) => {
+    for (let o = 0; o + 12 <= b.length;) {
+      const len = (b.readUInt16BE(o + 2) + 1) * 4, pt = b[o + 1], fmt = b[o] & 0x1f;
+      if (pt === 206 && (fmt === 1 || fmt === 4)) {
+        const ssrc = fmt === 1 ? b.readUInt32BE(o + 8) : (o + 16 <= b.length ? b.readUInt32BE(o + 12) : 0);
+        for (const [source, st] of tun.prod) if (st.ssrc === ssrc && st.pt) out.key(source);
+      }
+      if (len <= 0) break; o += len;
     }
-    const h = Buffer.allocUnsafe(12);
-    h[0] = 0x80; h[1] = TUN_PT; h.writeUInt16BE(tun.seq = (tun.seq + 1) & 0xffff, 2); h.writeUInt32BE(ts >>> 0, 4); h.writeUInt32BE(tun.ssrc, 8);
-    try { tun.mic.send(Buffer.concat([h, payload])); } catch { }
+  });
+  // o app assiste (ou parou de assistir) um vídeo/áudio de transmissão; pedido de quadro-chave de um vídeo que chega
+  tun.pause = (n, on) => {
+    const x = slotOf(n); if (!x || x.c.closed) return;
+    if (x.c.appData.source === 'mic' && !on && (tun.off || peer.modDeaf)) return;
+    (on ? x.c.pause() : x.c.resume()).catch(() => { });
   };
+  tun.key = (n) => { const x = slotOf(n); if (x?.c.kind === 'video' && !x.c.closed) x.c.requestKeyFrame().catch(() => { }); };
   tun.setOff = (off) => {
     tun.off = !!off;
     for (const { c } of tun.slots.values()) if (c.appData.source === 'mic' && !c.closed) (tun.off || peer.modDeaf ? c.pause() : c.resume()).catch(() => { });
@@ -330,7 +406,7 @@ export async function sfuTunnelAttach(cid, uid, out) {
   t.observer.on('close', () => { const was = tun.closed; tun.close(); if (!was) out.closed(); });
   peer.tunnel = tun;
   for (const o of r.peers.values()) if (o !== peer) for (const p of o.producers.values()) await tun.add(p, o.uid);
-  return { audio: tun.audio, setOff: tun.setOff, close: tun.close };
+  return { audio: tun.audio, vstart: tun.vstart, vrtp: tun.vrtp, stop: tun.stop, pause: tun.pause, key: tun.key, setOff: tun.setOff, close: tun.close };
 }
 
 // Bot de música: recebe RTP/Opus local (ffmpeg) e publica como o microfone de um participante.

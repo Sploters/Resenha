@@ -8,7 +8,7 @@ escolhe sozinho:
 |---|---|---|---|
 | **VPN** (Tailscale) | quem tem a VPN ligada | direto ao IP da VPN, porta 40000 | o melhor: voz, câmera e tela |
 | **IPv6 público** | quem tem IPv6 funcionando (o 4G costuma ter) | direto ao IPv6 do servidor, porta 40030 | voz, câmera e tela; ver abaixo |
-| **Pelo túnel** | todo o resto | pela conexão do site (WebSocket `/voz-tunel`) | **só voz**; entra se o direto não conectar em 5 s |
+| **Pelo túnel** | todo o resto | pela conexão do site (WebSocket `/voz-tunel`) | voz, câmera e tela (com o som); entra se o direto não conectar em 5 s |
 
 No app, o ícone de sinal do painel de voz mostra o caminho em "Conexão" (UDP/TCP = direto; "Pelo site (túnel)").
 
@@ -27,9 +27,18 @@ No app, o ícone de sinal do painel de voz mostra o caminho em "Conexão" (UDP/T
 - O app do servidor confere o login e repassa a conexão ao processo da voz (`server/tunnelproxy.js`), que põe a
   pessoa na sala por um DirectTransport do mediasoup (`server/voztunnel.js`, `sfuTunnelAttach` em `server/sfu.js`):
   para os outros ela é uma pessoa como qualquer outra.
-- Limites: só áudio (câmera e tela não passam); um pouco mais de atraso quando a internet oscila (TCP); precisa de
-  navegador com WebCodecs (Chrome/Edge e o app desktop; Firefox recente); chamada protegida (ponta a ponta) não usa o
-  túnel.
+- Câmera e tela (`public/voztunnel-video.js`): o navegador comprime (WebCodecs `VideoEncoder`: H.264 pela placa quando
+  houver, senão VP8) e já empacota em RTP; o servidor só confere o ssrc e repassa ao producer da sala. Quem assiste
+  direto recebe como qualquer transmissão; pedidos de quadro-chave (PLI/FIR) voltam a quem transmite. O que chega da
+  sala vai como RTP inteiro e o app monta e descomprime (`VideoDecoder`) numa faixa de vídeo comum. Vídeo que chega
+  começa pausado e só anda enquanto a pessoa assiste. Áudio da transmissão: Opus estéreo, como o microfone.
+- Pelo túnel a tela vai a até 1080p e ~60% da taxa da mídia direta; o programa nativo de 120 FPS não passa (volta à
+  captura do navegador). Rede travada: o vídeo cede antes da voz (quadros pulados antes de comprimir; quem recebe e
+  perdeu pacote espera o próximo quadro-chave).
+- Limites: um pouco mais de atraso quando a internet oscila (TCP); precisa de navegador com WebCodecs (Chrome/Edge e o
+  app desktop; Firefox recente); chamada protegida (ponta a ponta) não usa o túnel.
+- Testes: `voztunnel-test` (voz), `voztunnel-todos-test` (todos pelo túnel), `voztunnel-video-test` (tela e som nos
+  dois sentidos, túnel -> túnel).
 
 ## TURN
 
