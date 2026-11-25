@@ -20,7 +20,10 @@ function busyHandler(el, fn) {
 // ouvintes do h(): um despachante por tipo e a função em el.__on, para o morph() poder trocar a função de um elemento
 // reaproveitado pela do elemento novo (com os dados novos)
 function dispatchOn(e) { const f = this.__on?.[e.type]; return f ? f.call(this, e) : undefined; }
-function listen(el, type, fn) { const on = (el.__on ||= {}); if (!(type in on)) el.addEventListener(type, dispatchOn); on[type] = fn; }
+// rodinha/toque: os handlers dos h() podem chamar preventDefault (volume do Assistir Junto na rodinha), então ficam
+// "não passivos" — mas declarado, senão o Chrome avisa "Added non-passive event listener to a scroll-blocking event"
+const BLOCKING = /^(wheel|mousewheel|touchstart|touchmove)$/;
+function listen(el, type, fn) { const on = (el.__on ||= {}); if (!(type in on)) el.addEventListener(type, dispatchOn, BLOCKING.test(type) ? { passive: false } : undefined); on[type] = fn; }
 
 // Atualiza o elemento `a` (já na página) para ficar igual a `b` (recém-montado pelo h()), mexendo só no que mudou.
 // Elementos com a mesma chave (id, data-key, data-uid, data-mid, data-id) ou, sem chave, na mesma posição e com a mesma
