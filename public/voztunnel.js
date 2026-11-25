@@ -60,6 +60,9 @@ export class VoiceTunnel {
   // ---------- chegada ----------
   addSlot(slot, uid, source) {
     this.delSlot(slot);
+    // a mesma voz chegou por outro slot (a pessoa trocou de caminho ou de microfone; o servidor avisa o "del" do antigo
+    // só depois do "add" do novo): o antigo sai calado, senão o "del" atrasado apagava a voz nova (um ouvia, o outro não)
+    for (const o of [...this.slots.values()]) if (o.uid === uid && o.source === source) this.delSlot(o.slot, true);
     const node = new AudioWorkletNode(this.ctx, 'lc-tun-play', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     const dest = this.ctx.createMediaStreamDestination(); node.connect(dest);
     const dec = new AudioDecoder({
@@ -77,11 +80,11 @@ export class VoiceTunnel {
     this.slots.set(slot, s);
     this.h.onAdd(uid, source, dest.stream);
   }
-  delSlot(slot) {
+  delSlot(slot, quiet = false) {
     const s = this.slots.get(slot); if (!s) return;
     this.slots.delete(slot);
     try { s.dec.close(); } catch { } try { s.node.disconnect(); } catch { }
-    this.h.onDel(s.uid, s.source);
+    if (!quiet) this.h.onDel(s.uid, s.source);
   }
   dropAll() { for (const slot of [...this.slots.keys()]) this.delSlot(slot); }
   onFrame(dv) {

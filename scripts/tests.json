@@ -191,6 +191,7 @@
     "ipv6-unit-test": 5,
     "voztunnel-unit-test": 5,
     "voztunnel-test": 60,
+    "voztunnel-todos-test": 30,
     "turn-voice-test": 25,
     "micwatch-unit-test": 1,
     "mic-dead-test": 75,

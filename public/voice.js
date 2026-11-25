@@ -1302,9 +1302,12 @@ export class Voice {
     this.sfu.consumers.delete(consumer_id); e.c.close(); e.tap?.close();
     const p = this.peers.get(e.uid); if (!p) return;
     p.consumers.delete(consumer_id);
-    if (e.source === 'mic') { p.audioEl?.remove(); p.audioEl = null; this.analysers.get(e.uid)?.src.disconnect(); this.analysers.delete(e.uid); this.speaking.delete(e.uid); }
-    else if (e.source === 'screenaudio') { p.screenAudioEl?.remove(); p.screenAudioEl = null; }
-    else delete p.streams[e.source];
+    // só apaga se o que está tocando é deste consumer: a pessoa trocou de caminho (direto -> túnel) ou de microfone e a
+    // voz nova já chegou antes do aviso de que a antiga fechou
+    const mine = (el) => !el || !el.raw || el.raw.getTracks().includes(e.c.track);
+    if (e.source === 'mic') { if (mine(p.audioEl)) { p.audioEl?.remove(); p.audioEl = null; this.analysers.get(e.uid)?.src.disconnect(); this.analysers.delete(e.uid); this.speaking.delete(e.uid); } }
+    else if (e.source === 'screenaudio') { if (mine(p.screenAudioEl)) { p.screenAudioEl?.remove(); p.screenAudioEl = null; } }
+    else if (!p.streams[e.source] || p.streams[e.source].getTracks().includes(e.c.track)) delete p.streams[e.source];
     this.onUpdate();
   }
 
