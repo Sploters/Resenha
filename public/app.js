@@ -20,7 +20,7 @@ import './upload.js';
 import './backoff.js';
 import { loadPublicOrigin } from './util.js';
 import './timestamp.js';
-import { S, user, guild, channelById, nameOf, applyTheme, savePrefs, alertAllowed } from './state.js';
+import { S, user, guild, channelById, nameOf, applyTheme, savePrefs, alertAllowed, prefetch } from './state.js';
 import './tts.js';
 import './voice.js';
 import { playSound } from './sounds.js';
@@ -68,11 +68,11 @@ import { initActivity, refreshFeedView, activityOf, gameTitle } from './activity
 import './translate.js';
 import { initDiag } from './diag.js';
 import { initPwa } from './pwa.js';
-import './e2ee.js';
+import { e2eePrefetch } from './e2ee.js';
 import './rum.js';
 import './motion.js';
-import { initAppUpdate } from './appupdate.js';
-import { voice, pendingInvite, setPendingInvite, $, gwSend, showAuth, logout, connect, onEvent } from './gateway.js';
+import { initAppUpdate, latestDesktop } from './appupdate.js';
+import { voice, pendingInvite, setPendingInvite, $, gwSend, showAuth, logout, connect, onEvent, bootFromSnapshot } from './gateway.js';
 import { updateTitle } from './unread.js';
 import { openSettings, go, ctxSettings } from './nav.js';
 import { renderSide } from './side.js';
@@ -133,5 +133,10 @@ window.__lc = { S, updateTitle: () => updateTitle(), savePrefs, onEvent: (t, d) 
   const sc = location.pathname.match(/^\/convite\/([\w-]{4,40})\/?$/);
   if (sc) { try { sessionStorage.setItem('lc_signup', sc[1]); } catch { /* sem armazenamento: vale só nesta tela */ window.__lcSignup = sc[1]; } history.replaceState(null, '', '/' + location.hash); }
   loadPublicOrigin(); // endereço oficial para os links que o app gera (util.js)
-  if (S.token) connect(); else showAuth(pendingInvite || sc ? 'register' : 'login');
+  if (!S.token) return showAuth(pendingInvite || sc ? 'register' : 'login');
+  // a conexão (WebSocket) pelo túnel leva de 0,3 s a 1,3 s para abrir: enquanto isso, os pedidos que o app sempre faz
+  // depois do READY já saem (state.js prefetch) e a tela monta com o último READY guardado (public/bootcache.js)
+  connect();
+  prefetch(['/me/settings', '/bora', '/intents', '/call-invites']); e2eePrefetch(); latestDesktop();
+  bootFromSnapshot();
 })();

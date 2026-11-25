@@ -200,6 +200,7 @@
     "mobile-test": 130,
     "signup-invite-test": 12,
     "static-bundle-test": 20,
-    "gif-thumbs-test": 15
+    "gif-thumbs-test": 15,
+    "bootcache-test": 25
   }
 }

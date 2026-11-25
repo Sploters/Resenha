@@ -211,11 +211,20 @@ export const emojiUrl = (id) => allEmojis().find(e => e.id === id)?.url;
 // - O tempo de cada chamada fica em S.apiSlow (as lentas) para o relatório de velocidade (rum.js).
 const inflight = new Map(), short = new Map(), SHORT_MS = 10e3, SHORT = /^\/users\/\d+$/;
 S.apiSlow = [];
+// pré-busca da abertura (public/app.js boot): os GET que o app sempre faz logo depois do READY saem junto com a conexão,
+// sem esperar o WebSocket abrir (pelo túnel isso levava de 0,3 s a 1,3 s). O primeiro api() do mesmo endereço usa a
+// resposta já a caminho; passado PRE_MS sem ninguém pedir, ela é descartada (o api() busca de novo).
+const pre = new Map(), PRE_MS = 20e3; // caminho -> { at, p }
+export function prefetch(paths) {
+  if (!S.token) return;
+  for (const path of paths) if (!pre.has(path)) { const p = request('GET', path); p.catch(() => { }); pre.set(path, { at: Date.now(), p }); }
+}
+const takePre = (path) => { const x = pre.get(path); if (!x) return null; pre.delete(path); return Date.now() - x.at < PRE_MS ? x.p : null; };
 export async function api(method, path, body) {
   if (method === 'GET') {
     const hit = short.get(path); if (hit && Date.now() - hit.at < SHORT_MS) return structuredClone(hit.data);
     if (inflight.has(path)) return structuredClone(await inflight.get(path));
-    const p = request(method, path, body).finally(() => inflight.delete(path));
+    const p = (takePre(path) || request(method, path, body)).finally(() => inflight.delete(path));
     inflight.set(path, p);
     const data = await p; if (SHORT.test(path)) { short.set(path, { at: Date.now(), data: structuredClone(data) }); if (short.size > 100) for (const [k, v] of short) if (Date.now() - v.at >= SHORT_MS) short.delete(k); } // perfis vistos numa sessão longa: os vencidos saem
     return data;

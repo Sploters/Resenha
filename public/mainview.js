@@ -13,7 +13,7 @@ import { renderForum, paintLocked, forumOfPost } from './forum.js';
 import { renderClips, releaseClips } from './clipsgallery.js';
 import { profileCard } from './card.js';
 import { convoState, safetyModal, unlockModal, setupModal, isVerified, keyChangedSinceVerify } from './e2ee.js';
-import { voice, $, mergeUser, detached } from './gateway.js';
+import { voice, live, whenLive, $, mergeUser, detached } from './gateway.js';
 import { go } from './nav.js';
 import { chIcon } from './side.js';
 import { voiceAct, joinVoice } from './userbar.js';
@@ -183,6 +183,7 @@ async function renderDmPanel(uid) {
 const dmFull = new Map(); // uid -> perfil completo da última abertura do painel
 // vídeo na DM: entra na chamada (se preciso) e liga a câmera
 async function videoCall(cid) {
+  if (!live) await whenLive(); // tela aberta com a cópia guardada: espera a conexão (public/bootcache.js)
   if (voice.channelId === cid) return voiceAct(() => voice.toggleCam());
   voice.join(cid).then(() => { if (voice.error) { toast(voice.error, true); voice.error = null; return; } if (!voice.cam) voiceAct(() => voice.toggleCam()); });
 }

@@ -57,12 +57,25 @@ import { renderActiveNow } from './home.js';
 import { voiceUpdate, renderVoiceUI, hasScreenOf } from './stage.js';
 import { wsPings, wsPing } from './ping.js';
 import { incomingCall, startGameDetect, migrateClipKey, setupDesktop } from './desktopsetup.js';
+import { loadSnap, saveSnap, clearSnap } from './bootcache.js';
 // tela de entrar: só para quem não está logado
 const renderAuth = (...a) => import('./auth.js').then(m => m.renderAuth(...a));
 const approveQr = (...a) => import('./auth.js').then(m => m.approveQr(...a));
 const qrCodeInUrl = () => { const m = /^\/qr\/([\w-]{20,64})\/?$/.exec(location.pathname); return m ? m[1] : null; };
 
 export let ws, voice, retry = 0, ready = false, pendingInvite = null, offlineSince = 0, restarting = false; // restarting: o servidor avisou que vai reiniciar (atualização)
+// live: já chegou o READY de verdade desta página. Com a abertura pela cópia guardada (public/bootcache.js) a tela fica
+// pronta (ready) antes; o que precisa da conexão (entrar em chamada, voltar para a chamada) espera whenLive()
+export let live = false;
+let snapBoot = false, liveRes; const liveP = new Promise(r => { liveRes = r; });
+export const whenLive = () => liveP;
+// abre a tela com o último READY guardado neste aparelho, se a conexão ainda não respondeu (public/bootcache.js)
+export async function bootFromSnapshot() {
+  const d = await loadSnap(S.token);
+  if (!d || ready || !S.token) return;
+  snapBoot = true; d.__snap = true;
+  inEvent = true; try { onEvent('READY', d); } catch (err) { console.error('READY (cópia guardada)', err); } finally { inEvent = false; }
+}
 export const setPendingInvite = (code) => { pendingInvite = code; }; // link /invite/<código> aberto sem estar logado (boot)
 export const $ = (s) => document.querySelector(s);
 export const gwSend = (t, d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t, d }));
@@ -132,11 +145,13 @@ export function showAuth(mode = 'login') {
   $('#app').classList.add('hidden');
   const a = $('#auth'); a.classList.remove('hidden');
   let signupCode = window.__lcSignup || ''; try { signupCode = sessionStorage.getItem('lc_signup') || signupCode; } catch { /* sem armazenamento */ }
+  clearSnap();
   renderAuth(a, mode, { invited: !!pendingInvite, qrPending: !!qrCode, signupCode, onToken: (token) => { try { sessionStorage.removeItem('lc_signup'); } catch { /* idem */ } S.token = token; localStorage.setItem('lc_token', token); a.classList.add('hidden'); a.replaceChildren(); connect(); } });
 }
 export function logout() {
   api('POST', '/logout').catch(() => { });
-  localStorage.removeItem('lc_token'); S.token = null; voice?.leave(); ws?.close(); location.hash = ''; location.reload();
+  localStorage.removeItem('lc_token'); S.token = null; voice?.leave(); ws?.close(); location.hash = '';
+  clearSnap().finally(() => location.reload());
 }
 
 // =============== Gateway ===============
@@ -176,6 +191,7 @@ export function connect() {
     const { t, d } = JSON.parse(e.data), run = () => { inEvent = true; try { onEvent(t, d); } catch (err) { console.error(t, err); } finally { inEvent = false; } };
     // mensagem protegida (public/e2ee.js): abre antes de tratar; os eventos seguintes esperam na fila para não trocar de ordem
     const enc = e.data.includes('"e2ee:1:');
+    if (t === 'READY') saveSnap(S.token, e.data); // a próxima abertura monta a tela com ele (public/bootcache.js)
     if (!enc && !evQ) return run();
     const p = (evQ || Promise.resolve()).then(() => enc && decryptDeep(d)).catch(() => { }).then(run);
     evQ = p; p.then(() => { if (evQ === p) evQ = null; });
@@ -231,10 +247,13 @@ export function onEvent(t, d) {
   switch (t) {
     case 'SERVER_RESTART': restarting = true; return; // vem logo antes do servidor fechar a conexão
     case 'READY': {
-      const wasReady = ready; // conexão nova depois de uma que caiu (não a primeira abertura)
+      // fromSnap: tela montada com a cópia guardada (bootFromSnapshot), sem conexão ainda. afterSnap: o READY de verdade
+      // logo depois dela (o que foi buscado pela API na abertura já é recente: não busca de novo)
+      const fromSnap = !!d.__snap, afterSnap = !fromSnap && snapBoot && !live;
+      const wasReady = ready && !afterSnap; // conexão nova depois de uma que caiu (não a primeira abertura)
       if (d.now) S.clockOff = d.now - Date.now(); // relógio do servidor - o deste aparelho (cronômetro da chamada vem com a hora do servidor)
       S.me = d.user; S.users.set(d.user.id, d.user); S.ice = d.ice; S.unread = d.unread; S.mentions = {}; S.devices = []; S.desktopMin = d.desktop_min || null;
-      onUiVersion(d.ui); // interface nova no servidor desde que esta página abriu? (public/uiupdate.js)
+      if (!fromSnap) onUiVersion(d.ui); // interface nova no servidor desde que esta página abriu? (public/uiupdate.js)
       latestDesktop().then(v => { if (v && v !== S.desktopLatest) { S.desktopLatest = v; renderSide(); if (voice?.active) renderVoiceUI(); scanOutdated(); } });
       S.guilds.clear(); S.dms.clear(); S.rels.clear(); S.voice.clear();
       if (S.remote) onRemoteEvent('REMOTE_STATE', { ...S.remote, state: 'ended', reason: 'left' }); // reconectou: o servidor já encerrou a sessão
@@ -246,7 +265,7 @@ export function onEvent(t, d) {
       for (const r of d.relationships) { S.rels.set(r.user.id, r); S.users.set(r.user.id, r.user); }
       S.friendLosses = d.friend_losses || []; S.friendLosses.forEach(x => mergeUser(x.user)); noticeFriendLosses(S.friendLosses.filter(x => x.at > seenLoss()));
       setActivities(d.activities); // o servidor já filtrou pela privacidade (mesma regra dos eventos)
-      setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
+      if (!afterSnap) setTimeout(loadDeals, 1500); // promoções da wishlist (selo da caixa de entrada)
       if (!voice) { initBoard((t, d) => voice?.active && voice.send(t, d)); initCode((t, d) => voice?.active && voice.send(t, d)); }
       if (!voice) { voice = new Voice({ send: gwSend, ice: S.ice, myId: S.me.id, prefs: S.prefs, onUpdate: voiceUpdate, serverRoom: () => S.voice.get(S.me.id)?.channel_id || null }); prewarmVoice(S.prefs); }
       if (!voice.resolveDevices) { voice.resolveDevices = resolveDevices; navigator.mediaDevices?.addEventListener?.('devicechange', () => resolveDevices()); } // aparelho religado/com id novo: volta o escolhido
@@ -283,18 +302,20 @@ export function onEvent(t, d) {
       voice.ice = S.ice;
       // a conexão caiu e voltou: o servidor já nos tirou da sala, então reentra sem tocar os sons de sair/entrar
       if (ready && voice.channelId) { resetPresenceSounds(); voice.resume(); }
-      e2eeLoad(true);
-      if (!ready) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
+      if (!fromSnap) e2eeLoad(true);
+      if (!fromSnap && !live) checkRejoinOnLoad(); // recarregou (ou o app fechou) no meio de uma chamada: oferece voltar
       if (!ready) { buildShell(); warmEmojis(); } ready = true; sentView = undefined; syncView(); // conexão nova: o servidor ainda não sabe o que está na tela
       $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); releaseBoot(); rumReady(); watchClicks(); reportVideoCaps(track); initCallRating(); initVrrFix();
       applyTheme(); setupDesktop(); startGameDetect(); syncThrottle(voice); startUsageWatch(() => voice); startPressureWatch(() => voice); // pico de consumo e processador no limite (Modo leve)
-      loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
-      loadBora(); // "Bora?" vivos dos meus servidores (public/bora.js)
-      loadIntents(); // "A fim de jogar": minha intenção e os convites que chegaram enquanto estava fora (public/intents.js)
+      if (!afterSnap) {
+        loadPendingInvites(); // convites para chamada que chegaram enquanto estava fora (ou antes de recarregar)
+        loadBora(); // "Bora?" vivos dos meus servidores (public/bora.js)
+        loadIntents(); // "A fim de jogar": minha intenção e os convites que chegaram enquanto estava fora (public/intents.js)
+      }
       // administrador da instalação? As configurações mostram a seção "Administração" na hora (antes ela entrava depois de abrir)
       if (S.uxAdmin === undefined) (window.requestIdleCallback || setTimeout)(() => { if (S.uxAdmin === undefined) api('GET', '/ux/access').then(r => { S.uxAdmin ??= !!r?.admin; }, () => { }); }, { timeout: 3000 });
       if (qrCode && !S.qrDone) { S.qrDone = true; approveQr(qrCode, S.me).then(ok => { if (ok) toast('Pronto! O outro aparelho entrou na sua conta.'); }); }
-      if (!S.synced) Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()]).then(([r]) => { // sincroniza preferências entre dispositivos
+      if (!S.synced && !S.syncing) (S.syncing = Promise.all([api('GET', '/me/settings'), restoreDevicePrefs()])).then(([r]) => { // sincroniza preferências entre dispositivos
         resolveDevices(); // microfone/fone/câmera salvos: reencontra pelo nome se o id mudou
         S.friendPolicy = r.friend_policy; S.privacy = r.privacy || {};
         // mudança feita aqui que não chegou à conta (o app fechou/atualizou antes de enviar): vale a daqui, e vai para a conta agora
@@ -309,13 +330,14 @@ export function onEvent(t, d) {
         migrateClipKey();
         if (!Object.keys(r.settings || {}).length) { markNewsSeen(); savePrefs(); } else maybeShowNews(); pcNoticeCheck(); // conta nova não precisa da lista do que mudou
         renderSide();
-      }).catch(() => { S.synced = true; });
+      }).catch(() => { S.synced = true; }).finally(() => { S.syncing = null; });
       if (pendingInvite) { const c = pendingInvite; pendingInvite = null; history.replaceState({}, '', '/'); joinInvite(c); }
       // reconectou: o que chegou com a conexão caída não veio por evento. Os canais guardados (fora o aberto) são
       // esquecidos e carregam de novo ao abrir; o aberto busca o que falta (scripts/tab-lifecycle-test.mjs)
       if (wasReady) for (const cid of [...S.messages.keys()]) if (cid !== S.view.cid) { S.messages.delete(cid); S.loaded.delete(cid); }
       applyRoute(true);
-      if (wasReady && S.view.cid && S.messages.has(S.view.cid)) catchUp(S.view.cid);
+      if ((wasReady || afterSnap) && S.view.cid && S.messages.has(S.view.cid)) catchUp(S.view.cid); // depois da cópia: o que chegou desde ela
+      if (!fromSnap && !live) { live = true; liveRes(); }
       if (S.prefs.desktopNotif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
       break;
     }

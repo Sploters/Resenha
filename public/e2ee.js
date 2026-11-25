@@ -60,11 +60,18 @@ const idbPut = (k, v) => idbDo('readwrite', st => st.put(v, k));
 const idbClear = (uid) => idbDo('readwrite', st => { const c = st.openCursor(); c.onsuccess = () => { const x = c.result; if (!x) return; if (x.value?.uid === uid) x.delete(); x.continue(); }; return c; }).catch(() => { });
 
 // ---------- carregar ----------
+// pré-busca da abertura (public/app.js boot): as chaves da conta saem junto com a conexão, sem esperar o READY
+let preKeys = null;
+export function e2eePrefetch() {
+  if (!S.token || !e2eeSupported() || preKeys) return;
+  preKeys = { at: Date.now(), p: raw('GET', '/e2ee/me') }; preKeys.p.catch(() => { });
+}
 export function e2eeLoad(force) {
   if (!S.me || !e2eeSupported()) return Promise.resolve();
   if (E.loaded && !force) return E.loaded;
+  const pre = preKeys && Date.now() - preKeys.at < 20e3 ? preKeys.p : null; preKeys = null;
   E.loaded = (async () => {
-    const r = await raw('GET', '/e2ee/me').catch(() => null);
+    const r = await (pre || raw('GET', '/e2ee/me')).catch(() => null);
     E.mine = r?.keys || [];
     const have = new Set(E.mine.map(k => k.kid)); E.open.clear();
     for (const x of await idbAll()) if (x?.uid === S.me.id && have.has(x.kid) && x.priv) E.open.set(x.kid, x.priv);

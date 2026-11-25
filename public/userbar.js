@@ -20,7 +20,7 @@ import { NOISE_INFO } from './ui.js';
 import { styleName } from './themes.js';
 import { STATUS_TXT } from './card.js';
 import { swapIcon } from './motion.js';
-import { voice, ready, $, logout } from './gateway.js';
+import { voice, ready, live, whenLive, $, logout } from './gateway.js';
 import { musicOn } from './botmusic.js';
 import { activityLauncher, watchLauncherEntry } from './watch.js';
 import { openGameNight } from './games.js';
@@ -196,6 +196,8 @@ export function rejoinPanel() {
     h('button.btn.green.rj-go', { onclick: rejoinNow }, icon('phone', 16), 'Reconectar'));
 }
 export function joinVoice(cid, { moved = false } = {}) {
+  // tela aberta com a cópia guardada (public/bootcache.js) e a conexão ainda abrindo: entra assim que ela responder
+  if (!live) return void whenLive().then(() => joinVoice(cid, { moved }));
   if (voice.channelId === cid) return;
   // movido pela moderação: entra mesmo numa sala trancada para você (o servidor liberou essa entrada)
   { const c = channelById(cid); if (c?.guild_id && !moved && !chCan(c, CH.CONNECT)) return toast('Você não tem permissão para entrar nesta sala de voz', true); }
