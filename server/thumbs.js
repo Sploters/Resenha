@@ -100,20 +100,31 @@ export function createThumbs(dir) {
   // ou se o ffmpeg falhar, a rota manda para o original: a imagem sempre aparece.
   const imgOf = (f, sz) => path.join(UPLOAD_DIR, `${f}.w${sz}.webp`);
   const imgPending = new Map(); let imgRunning = 0; const imgQueue = [];
+  // imagem que o ffmpeg não conseguiu converter (arquivo corrompido, formato estranho): por 10 min a rota manda direto
+  // para o original, sem chamar o ffmpeg de novo a cada pedido (cada visualização gastava um processo à toa)
+  const imgFailed = new Map(), FAIL_MS = 10 * 60e3;
   const imgSlot = (job) => new Promise((res) => { const go = () => { imgRunning++; job().then(res, () => res(false)).finally(() => { imgRunning--; imgQueue.shift()?.(); }); }; imgRunning < 2 ? go() : imgQueue.push(go); });
   function ensureImg(f, sz) {
     const out = imgOf(f, sz), key = f + ':' + sz;
     if (fs.existsSync(out)) return Promise.resolve(fs.statSync(out).size > 0);
     const src = path.join(UPLOAD_DIR, f); if (!fs.existsSync(src)) return Promise.resolve(false);
+    const failedAt = imgFailed.get(key); if (failedAt && Date.now() - failedAt < FAIL_MS) return Promise.resolve(false);
     if (!imgPending.has(key)) imgPending.set(key, imgSlot(async () => {
       const tmp = out + '.tmp.webp';
       const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-frames:v', '1',
         '-vf', `scale='min(${sz},iw)':'min(${sz},ih)':force_original_aspect_ratio=decrease`, '-c:v', 'libwebp', '-quality', '78', '-compression_level', '4', tmp]);
-      if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } return false; }
+      if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } imgFailed.set(key, Date.now()); if (imgFailed.size > 2000) imgFailed.clear(); return false; }
       if (fs.statSync(tmp).size >= fs.statSync(src).size) { fs.unlinkSync(tmp); fs.writeFileSync(out, ''); return false; } // não compensa: marca e usa o original
       fs.renameSync(tmp, out); return true;
     }).finally(() => imgPending.delete(key)));
     return imgPending.get(key);
+  }
+  // foto recém-enviada: já prepara as versões que o chat pede (960 = foto sozinha, 480 = várias lado a lado / celular),
+  // em segundo plano, enquanto a mensagem ainda está sendo escrita/enviada. Sem isso, a primeira pessoa a abrir a conversa
+  // esperava o ffmpeg gerar a miniatura (todos os que estavam olhando o chat ao mesmo tempo, na mensagem nova)
+  function warm(f) {
+    f = path.basename(String(f || '')); if (!IMAGE.test(f)) return;
+    for (const sz of [960, 480]) ensureImg(f, sz).catch(() => { });
   }
   function imageRoute(req, res, f) {
     const want = +req.query.s || 480, sz = SIZES.find(x => x >= want) || SIZES.at(-1);
@@ -173,5 +184,5 @@ export function createThumbs(dir) {
       p.on('exit', (c) => { clearTimeout(t); try { res(c === 0 ? videoKind(JSON.parse(out).streams?.[0]) : null); } catch { res(null); } });
     });
   }
-  return { route, ensure, remove, stripRoute, faststart, moovFirst, probe };
+  return { route, ensure, remove, stripRoute, faststart, moovFirst, probe, warm };
 }

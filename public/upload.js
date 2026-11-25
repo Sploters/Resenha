@@ -4,7 +4,7 @@
 //   voltar, pergunta ao servidor quanto já chegou e continua dali, sem recomeçar. Mostra o progresso.
 // - Vídeo maior que o limite do servidor: é comprimido no próprio aparelho antes (compressVideo, por WebCodecs, com o
 //   Mediabunny carregado só nessa hora) para caber no limite, em vez do aviso "arquivo muito grande".
-import { S, api } from './state.js';
+import { S, api, tabId } from './state.js';
 
 const SMALL = 8 * 1024 * 1024;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -28,10 +28,36 @@ function put(url, body, onBytes, signal) {
   });
 }
 
+// envio de corpo inteiro (até 8 MB) por XHR: o fetch não informa o progresso do envio, e no 4G uma foto de 5 MB ficava
+// vários segundos só com "Enviando…". Também dá para cancelar (o X da prévia), o que antes não interrompia o envio.
+function postSmall(file, onProgress, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('Envio cancelado'));
+    const x = new XMLHttpRequest();
+    x.open('POST', `/api/upload?name=${encodeURIComponent(file.name)}`);
+    x.setRequestHeader('Authorization', 'Bearer ' + (S.token || '')); x.setRequestHeader('X-LC-Tab', tabId);
+    x.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.min(0.99, e.loaded / e.total)); };
+    x.onload = () => {
+      let j = {}; try { j = JSON.parse(x.responseText || '{}'); } catch { }
+      if (x.status >= 200 && x.status < 300) return resolve(j);
+      const e = new Error(j.error || 'Erro ' + x.status); e.status = x.status; e.data = j; reject(e);
+    };
+    x.onerror = x.ontimeout = () => reject(new Error('falha de conexão'));
+    x.onabort = () => reject(new Error('Envio cancelado'));
+    signal?.addEventListener('abort', () => x.abort(), { once: true });
+    x.send(file);
+  });
+}
+
 // opts: { onProgress(fração), signal }
 export async function uploadFile(file, opts = {}) {
   const onProgress = opts.onProgress || (() => { });
-  if (file.size <= SMALL) { const r = await api('POST', `/upload?name=${encodeURIComponent(file.name)}`, file); onProgress(1); return r; }
+  if (file.size <= SMALL) {
+    // sem XHR (ambiente de teste antigo): o envio de sempre
+    const r = typeof XMLHttpRequest === 'undefined' ? await api('POST', `/upload?name=${encodeURIComponent(file.name)}`, file) : await postSmall(file, onProgress, opts.signal);
+    onProgress(1); return r;
+  }
   const start = await api('POST', '/uploads', { name: file.name, size: file.size, type: file.type });
   const id = start.id, chunk = start.chunk || SMALL;
   let off = 0, wait = 1000;

@@ -17,6 +17,7 @@ export function mountUpload(app, d) {
       const r = await d.thumbs.faststart(fname);
       if (r !== fname) { f = r; n = name.replace(/\.[^.]*$/, '') + '.mp4'; type = 'video/mp4'; size = fs.statSync(path.join(UPLOAD_DIR, f)).size; }
     } catch { }
+    try { d.thumbs.warm?.(f); } catch { } // foto: miniaturas do chat prontas antes de alguém abrir (server/thumbs.js)
     let vc = null;
     if (/\.(mp4|webm)$/i.test(f)) { vc = await d.thumbs.probe(f).catch(() => null); if (vc) uxServerCount(uid, 'video_upload', vc); }
     return { url: `/files/${f}/${encodeURIComponent(n)}`, name: n, size, type, ...(vc ? { vc } : {}) };

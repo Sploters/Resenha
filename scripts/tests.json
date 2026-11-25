@@ -195,6 +195,8 @@
     "talkmuted-unit-test": 1,
     "muted-talk-test": 45,
     "voice-sessions-unit-test": 1,
-    "memory-since-test": 21
+    "memory-since-test": 21,
+    "image-flow-test": 31,
+    "mobile-test": 130
   }
 }

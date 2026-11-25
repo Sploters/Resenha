@@ -127,6 +127,10 @@ export function reactionFace(e) {
   if (m) { const u = emojiUrl(m[2]); return u ? h('img.cemoji', { src: u, alt: ':' + m[1] + ':', style: { height: '16px' } }) : h('span', ':' + m[1] + ':'); }
   return h('span', e);
 }
+// tamanho (px de tela) da miniatura pedida ao servidor: o que o chat de fato mostra. Foto sozinha ocupa no máximo 400 px
+// (style.css .mgrid.n1) e várias ficam lado a lado em ~275 px; no celular, menos. imgUrl dobra em tela de alta densidade.
+// Antes pedia 960 (1600 em tela retina) para mostrar 400: 3 a 6 vezes mais bytes por foto, pesando no 4G
+const chatImgSize = (n) => { const free = Math.max(160, (window.innerWidth || 1280) - 76); return n === 1 ? Math.min(400, free) : Math.min(280, Math.round(free / 2)); };
 const isImg = (f) => /^(png|jpe?g|gif|webp|avif|bmp)$/.test((f.name.split('.').pop() || '').toLowerCase());
 // imagens da mesma mensagem viram uma grade; cada anexo tem uma lixeira ao passar o mouse
 export function appendAttachments(el, m, canDel) {
@@ -152,7 +156,7 @@ export function appendAttachments(el, m, canDel) {
   const imgs = atts.filter(a => isImg(a.f) && !a.f.expired);
   // cada foto pode vir coberta (spoiler no envio ou "Esconder mídia até clicar") e GIF fica parado com "GIFs parados" (mediasafe.js)
   if (imgs.length) el.append(h('div.mgrid.n' + Math.min(imgs.length, 5), imgs.map(({ f, i }) => {
-    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, imgs.length === 1 ? 960 : 480), alt: f.alt || f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
+    const im = h('img' + (imgs.length === 1 && f.width && f.height ? '.sized' : ''), { style: imgs.length === 1 && f.width && f.height ? { '--ar': String(f.width / f.height) } : null, src: imgUrl(f.url, chatImgSize(imgs.length)), decoding: 'async', alt: f.alt || f.name, title: f.size ? `${f.name} • ${bytes(f.size)}` : f.name, 'data-size': f.size || '', loading: 'lazy', onclick: () => lightbox(f.url) });
     const tile = h('div.mtile' + (f.spoiler ? '.spoilfile' : ''), coverMedia(im, coverReason(m, f), m.id + ':' + i), del(f, i), favStarFor(f));
     if (f.alt) tile.append(h('button.alt-tag', { type: 'button', title: f.alt, 'aria-label': 'Texto alternativo: ' + f.alt, onclick: (e) => { e.stopPropagation(); popout(e.currentTarget, h('div.alt-pop', h('b', 'Texto alternativo'), h('p', f.alt))); } }, 'ALT'));
     if (isGifName(f.name)) { tile.classList.add('giftile'); tile.append(h('span.gtag', 'GIF')); freezeGif(im, f.url, tile); }

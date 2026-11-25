@@ -7,6 +7,12 @@ const GALLERY = '#msgs .mtile img, #msgs .attach img';
 const abs = (src) => { try { return new URL(src, location.href).href; } catch { return src; } };
 const sameOrigin = (src) => { try { return new URL(src, location.href).origin === location.origin; } catch { return false; } };
 const fileName = (src) => { try { return decodeURIComponent(new URL(src, location.href).pathname.split('/').pop()) || 'imagem'; } catch { return 'imagem'; } };
+// miniatura desta foto já carregada em algum lugar da tela (chat, aba Arquivos): /thumbs/<arquivo>?s=…
+const lowRes = (src) => {
+  const m = /^\/files\/([a-f0-9]{24}\.(?:png|jpe?g|webp|bmp|avif))\//i.exec(String(src || '')); if (!m) return null;
+  for (const im of document.querySelectorAll(`img[src^="/thumbs/${m[1]}"]`)) if (im.complete && im.naturalWidth) return im.currentSrc || im.src;
+  return null;
+};
 const item = (img) => ({ src: img.getAttribute('src'), name: img.alt || fileName(img.src), size: +img.dataset.size || 0 });
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -97,12 +103,21 @@ export function openViewer(src, { list, name, onClose } = {}) {
   async function show() {
     const it = list[i];
     setLens(false);
-    img.src = it.src; lens.style.backgroundImage = `url("${it.src.replace(/"/g, '%22')}")`;
+    // abre na hora com a miniatura que o chat já baixou (mesmo arquivo, menor) e troca pela original quando ela chega:
+    // no celular a original de alguns MB deixava a tela preta por segundos. Sem miniatura na tela, vai direto a original
+    const low = lowRes(it.src);
+    if (low) {
+      img.src = low; const full = new Image(); full.decoding = 'async';
+      full.onload = () => { if (list[i] === it) img.src = it.src; };
+      full.onerror = () => { if (list[i] === it) img.src = it.src; }; // deixa o erro aparecer pelo img.onerror
+      full.src = it.src;
+    } else img.src = it.src;
+    lens.style.backgroundImage = `url("${it.src.replace(/"/g, '%22')}")`;
     const dims = h('span.vdim'), size = h('span.vsize');
     info.replaceChildren(h('b', { title: it.name }, it.name), dims, size, list.length > 1 && h('span.vcount', `${i + 1} de ${list.length}`));
-    const fill = () => { if (list[i] === it && img.naturalWidth) { dims.textContent = `${img.naturalWidth} × ${img.naturalHeight}`; layout(); } };
+    const fill = () => { if (list[i] === it && img.naturalWidth) { if (!low || img.src === abs(it.src)) dims.textContent = `${img.naturalWidth} × ${img.naturalHeight}`; layout(); } }; // medidas só da original
     img.onerror = () => { if (list[i] === it) dims.textContent = 'não foi possível carregar a imagem'; };
-    img.complete && img.naturalWidth ? fill() : (img.onload = fill);
+    img.onload = fill; if (img.complete && img.naturalWidth) fill(); // roda de novo quando a original substitui a miniatura
     const n = await fileSize(it); if (n && list[i] === it) size.textContent = bytes(n);
   }
   const go = (d) => { if (list.length < 2) return; i = (i + d + list.length) % list.length; rot = 0; show(); };

@@ -1,0 +1,98 @@
+/* Celular, tablet e janelas estreitas (junto com public/mobile.js). Carregado por último: só ajusta o que já existe.
+   Larguras de referência: 320, 360, 375, 390, 414 (celular), 768 e 1024 (tablet). No computador quase nada muda. */
+
+/* ---------- altura de verdade da tela ----------
+   100vh no celular inclui a barra do navegador, e o teclado do iPhone não encolhe a página: o campo de mensagem ficava
+   escondido. dvh acompanha a barra; --app-h (mobile.js, pelo visualViewport) acompanha também o teclado */
+#app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); }
+html, body { overscroll-behavior: none; }
+
+/* ---------- barra do topo que se ajusta (mobile.js) ---------- */
+#topbar .tb-off { display: none !important; }
+#topbar .tb-more { flex: none; }
+.tb-proxy { position: fixed !important; visibility: hidden !important; pointer-events: none !important; margin: 0 !important; z-index: -1; }
+
+/* ---------- nada maior que a tela ---------- */
+.popout { max-width: calc(100vw - 16px); }
+.menu { max-width: calc(100vw - 16px); }
+.modal { max-height: 90vh; max-height: 90dvh; }
+#msgs, #chat, #main { min-width: 0; }
+.msg .content, .msg .body { overflow-wrap: anywhere; min-width: 0; }
+.msg pre { max-width: 100%; overflow-x: auto; }
+.msg img, .msg video { max-width: 100%; }
+
+/* ---------- celular ---------- */
+@media (max-width: 640px) {
+  #app { position: relative; overflow: hidden; }
+  /* fundo escurecido atrás da gaveta: tocar nele fecha */
+  #nav-scrim { position: absolute; inset: 0; z-index: 29; background: rgba(0, 0, 0, .5); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #app.nav-open #nav-scrim { opacity: 1; pointer-events: auto; }
+  #app.nav-open #rail { box-shadow: none; }
+  /* a lista fica acima da barra de servidores: o avatar do painel do usuário passa por cima dela (antes ficava escondido) */
+  #app.nav-open #side { box-shadow: 8px 0 24px rgba(0, 0, 0, .35); z-index: 32; }
+  /* "mostrar/ocultar lista de canais" não faz sentido com a gaveta: o ☰ já faz isso */
+  #hide-side { display: none !important; }
+  /* gaveta: a lista ocupa até quase a tela toda, sem passar dela */
+  #side { max-width: calc(100vw - 72px - 24px); }
+
+  /* barra do topo: botões no tamanho de dedo, sem apertar o nome */
+  #topbar { gap: 2px; }
+  #topbar .ibtn { min-width: 36px; min-height: 36px; }
+  #topbar > button, #topbar > div > button { flex: none; } /* botão não encolhe: se não couber, vai para o Mais (mobile.js) */
+
+  /* mensagens: menos recuo, o texto aproveita a largura */
+  .msg { padding-left: 64px; }
+  .msg .av { left: 12px; }
+  #msgs { overscroll-behavior: contain; }
+
+  /* campo de mensagem: encostado embaixo, acima da barra de gestos do iPhone */
+  #composer-wrap { padding-left: 10px; padding-right: 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  #composer textarea { font-size: 16px; } /* menos que 16 px: o iPhone dá zoom ao tocar */
+  #attach-prev { overflow-x: auto; flex-wrap: nowrap; }
+
+  /* janelas: quase a tela toda, rolando por dentro, botões alcançáveis */
+  .backdrop > .modal { width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important; max-height: calc(var(--app-h, 100dvh) - 16px); }
+  .modal .foot, .modal .actions { flex-wrap: wrap; }
+  .modal .btn { min-height: 40px; }
+  .menu .it { min-height: 40px; }
+  .popout { max-height: calc(var(--app-h, 100dvh) - 16px); overflow-y: auto; }
+
+  /* inputs: 16 px para o iPhone não dar zoom ao focar */
+  input[type=text], input[type=search], input[type=email], input[type=password], input:not([type]), select, textarea { font-size: 16px; }
+}
+
+/* ---------- configurações no celular ---------- */
+@media (max-width: 640px) {
+  #settings .close { top: 8px; right: 8px; }
+  #settings .nav .ninner > :first-child { margin-right: 44px; } /* o X não cobre o cartão do usuário */
+  #settings .nav { max-height: 34vh; }
+  #settings .pane { padding: 16px 12px 100px; min-width: 0; }
+  #settings .pane > * { max-width: 100%; }
+}
+/* editor de perfil: formulário e prévia lado a lado só onde cabem (o ux.css fixava as duas colunas e a prévia de 360 px
+   espremia o formulário até ilegível e saía da tela no celular) */
+@media (max-width: 1100px) {
+  .pgrid { grid-template-columns: minmax(0, 1fr); }
+  .pgrid > .col:last-child { position: static; }
+  .pgrid > .col:last-child > .preview > .popout.static { min-height: 0; }
+  #settings .pane:has(> div > .pgrid), #settings .pane:has(.profile-ed) { padding-right: 16px; }
+}
+
+/* ---------- tablet (até 1024) ---------- */
+@media (min-width: 641px) and (max-width: 1024px) {
+  #topbar { min-width: 0; }
+  #topbar > span:not(.hash) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* ---------- cartão de perfil: nome comprido quebra em vez de sair do cartão ---------- */
+.pcard .pb h3, .pcard .pb .un { overflow-wrap: anywhere; min-width: 0; }
+
+/* ---------- visualizador de imagens no celular: botões em cima, nome e medidas embaixo deles ---------- */
+@media (max-width: 640px) {
+  .vbar { flex-wrap: wrap; gap: 4px 8px; padding: 8px 8px 12px; }
+  .vtools { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+  .vtools .ibtn { width: 40px; height: 40px; }
+  .vinfo { order: 2; flex-basis: 100%; flex-wrap: wrap; gap: 4px 10px; }
+  .vinfo b { max-width: 100%; }
+  .vinfo > span { white-space: nowrap; }
+}

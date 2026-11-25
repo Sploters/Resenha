@@ -63,6 +63,7 @@ import './card.js';
 import './mod.js';
 import './voicemsg.js';
 import './plugins.js';
+import './mobile.js'; // celular: altura com teclado, gaveta e barra do topo que se ajusta
 import { initActivity, refreshFeedView, activityOf, gameTitle } from './activity.js';
 import './translate.js';
 import { initDiag } from './diag.js';

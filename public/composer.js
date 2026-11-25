@@ -118,7 +118,7 @@ export function renderReplyBar() {
   bar.classList.remove('hidden'); bar.replaceChildren(h('span', 'Respondendo a ', h('b', nameOf(S.replyTo.author_id, channelById(S.replyTo.channel_id)?.guild_id))), h('button.ibtn', { style: { width: '20px', height: '20px' }, onclick: () => { S.replyTo = null; renderReplyBar(); } }, icon('x', 14)));
 }
 // prévia das imagens anexadas é um blob: URL; precisa ser liberada quando o anexo sai da lista (senão o arquivo fica na memória)
-const freePending = (list) => { for (const p of list) if (p.preview) { URL.revokeObjectURL(p.preview); p.preview = null; } };
+const freePending = (list) => { for (const p of list) if (p.preview) { URL.revokeObjectURL(p.preview); p.preview = null; p.imgEl = null; } };
 export function clearPending() { freePending(S.pending); S.pending = []; }
 // fotos ficam bem mais leves antes de enviar: no máximo 2560 px no lado maior (o chat e o visualizador nunca mostram mais
 // que isso), no formato moderno mais compacto que este navegador sabe GERAR. GIF (animação), SVG e arquivos já pequenos
@@ -158,10 +158,15 @@ async function compressImage(file) {
 }
 export async function addFile(file) {
   { const c = channelById(S.view.cid); if (c?.guild_id && !chCan(c, CH.ATTACH)) return toast('Você não tem permissão para enviar arquivos neste canal', true); }
-  const item = { name: file.name, size: file.size, file, state: 'up', ctrl: new AbortController() }, cid = S.view.cid; S.pending.push(item); renderPendingPrev();
+  // prévia na hora, do próprio arquivo escolhido (blob: local, sem esperar comprimir nem enviar). Formato que este
+  // navegador não desenha (ex.: HEIC no Chrome) cai no ícone pelo onerror da imagem
+  const item = { name: file.name, size: file.size, file, state: 'up', stage: 'prep', pct: 0, ctrl: new AbortController(), preview: /^image\//.test(file.type) ? URL.createObjectURL(file) : null }, cid = S.view.cid;
+  S.pending.push(item); renderPendingPrev();
   const pct = (stage) => (f) => { const p = Math.floor(f * 100); if (p !== item.pct || item.stage !== stage) { item.pct = p; item.stage = stage; renderPendingPrev(); } };
   try {
     file = await compressImage(file); Object.assign(item, { name: file.name, size: file.size, file });
+    if (item.ctrl.signal.aborted) return;
+    pct('up')(0);
     // vídeo acima do limite do servidor: comprime aqui antes (upload.js), em vez do "arquivo muito grande"
     const max = await maxUpload();
     if (file.size > max) {
@@ -176,16 +181,20 @@ export async function addFile(file) {
     if (await protectFiles(cid)) { const x = await encryptFile(file); up = x.file; item.e2ee = x.meta; } // conversa protegida: sobe cifrado (public/e2ee.js)
     if (item.ctrl.signal.aborted) return;
     const r = await uploadFile(up, { onProgress: pct('up'), signal: item.ctrl.signal, onWait: (w) => { if (item.wait !== w) { item.wait = w; renderPendingPrev(); } } });
-    Object.assign(item, r, item.e2ee ? { name: file.name, size: file.size } : {}, { state: 'ok', preview: S.pending.includes(item) && file.type.startsWith('image/') ? URL.createObjectURL(file) : null }); // removido (ou trocou de canal) durante o envio: sem prévia
-  } catch (e) { if (!item.ctrl.signal.aborted) toast(`Falha ao enviar ${file.name}: ${e.message}`, true); S.pending = S.pending.filter(p => p !== item); }
+    Object.assign(item, r, item.e2ee ? { name: file.name, size: file.size } : {}, { state: 'ok' });
+    if (!S.pending.includes(item)) freePending([item]); // removido (ou trocou de canal) durante o envio: solta a prévia
+  } catch (e) { if (!item.ctrl.signal.aborted) toast(`Falha ao enviar ${file.name}: ${e.message}`, true); freePending([item]); S.pending = S.pending.filter(p => p !== item); }
   renderPendingPrev();
 }
-const upLabel = (p) => p.wait ? 'Sem conexão — continua quando voltar' : p.stage === 'compress' ? `Comprimindo… ${p.pct || 0}%` : p.stage === 'up' && p.pct < 100 && p.size > 8388608 ? `Enviando… ${p.pct || 0}%` : 'Enviando…';
+const upLabel = (p) => p.wait ? 'Sem conexão — continua quando voltar' : p.stage === 'prep' ? 'Preparando…' : p.stage === 'compress' ? `Comprimindo… ${p.pct || 0}%` : p.stage === 'up' && p.pct < 100 ? `Enviando… ${p.pct || 0}%` : 'Enviando…';
+// a mesma <img> da prévia em todo redesenho (o progresso redesenha a lista várias vezes por segundo: criar outra imagem
+// a cada vez decodificava a foto inteira de novo e piscava)
+const prevImg = (p) => p.imgEl ||= h('img', { src: p.preview, alt: '', decoding: 'async', onerror: () => { freePending([p]); renderPendingPrev(); } });
 function renderPendingPrev() {
   const box = $('#attach-prev'); if (!box) return;
   box.classList.toggle('hidden', !S.pending.length);
   // olho: marca o anexo como spoiler (borrado para todos até clicarem; mediasafe.js)
-  box.replaceChildren(...S.pending.map(p => h('div.prev-item' + (p.spoiler ? '.spoil' : ''), p.preview ? h('img', { src: p.preview }) : icon('file', 40),
+  box.replaceChildren(...S.pending.map(p => h('div.prev-item' + (p.spoiler ? '.spoil' : ''), p.preview ? prevImg(p) : icon('file', 40),
     h('button.pv-spoil' + (p.spoiler ? '.on' : ''), { type: 'button', title: p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-label': p.spoiler ? 'Tirar o spoiler' : 'Marcar como spoiler', 'aria-pressed': String(!!p.spoiler), onclick: () => { p.spoiler = !p.spoiler; renderPendingPrev(); } }, icon(p.spoiler ? 'eyeoff' : 'eye', 14)),
     p.preview && !p.e2ee && h('button.pv-alt' + (p.alt ? '.on' : ''), { type: 'button', title: p.alt ? 'Texto alternativo: ' + p.alt : 'Adicionar texto alternativo (descrição para quem usa leitor de tela)', 'aria-label': p.alt ? 'Editar texto alternativo' : 'Adicionar texto alternativo', onclick: async () => { const v = await promptBox('Texto alternativo', 'Descreva a imagem para quem não consegue vê-la (leitores de tela leem este texto)', p.alt || '', 'Salvar'); if (v == null) return; p.alt = v.trim().slice(0, 1000); renderPendingPrev(); } }, 'ALT'), h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name), p.state === 'up' && h('div.up-st' + (p.wait ? '.wait' : ''), upLabel(p), p.stage && h('i.up-bar', { style: { width: (p.pct || 0) + '%' } })),
     h('button.x', { onclick: () => { p.ctrl?.abort(); freePending([p]); S.pending = S.pending.filter(x => x !== p); renderPendingPrev(); } }, icon('x', 14)))));
