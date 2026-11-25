@@ -272,9 +272,9 @@ export function guildGamesPanel(list, redraw) {
       x.hot && h('span.gg-hot.ggp-hot', { title: 'Muita gente jogando nesta semana' }, icon('fire', 12)));
     return h('div.ggp.open', head, h('div.ggp-list', list.map(row)));
   }
-  // faixa de ícones: quem está jogando agora ganha um pontinho verde
+  // faixa de ícones
   const strip = h('div.ggp-strip', { role: 'list', 'aria-label': 'Jogos que a galera joga aqui' }, list.map(x => h('button.ggp-ic', { type: 'button', role: 'listitem', title: ggTip(x), 'aria-label': ggTip(x),
-    onclick: (e) => { e.stopPropagation(); openGame(x)(e); } }, gameIcon(x, 28), x.playing > 0 && h('span.ggp-live'), x.hot && h('span.gg-hot', icon('fire', 9)))));
+    onclick: (e) => { e.stopPropagation(); openGame(x)(e); } }, gameIcon(x, 28), x.hot && h('span.gg-hot', icon('fire', 9)))));
   const step = (dir) => (e) => { e.stopPropagation(); cancelAnimationFrame(raf); raf = 0; target = null; strip.style.scrollSnapType = ''; strip.scrollBy({ left: dir * strip.clientWidth * 0.8, behavior: 'smooth' }); };
   const prev = h('button.ggp-arr.prev', { type: 'button', title: 'Anteriores', 'aria-label': 'Jogos anteriores', onclick: step(-1) }, icon('chevl', 16));
   const next = h('button.ggp-arr.next', { type: 'button', title: 'Mais jogos', 'aria-label': 'Mais jogos', onclick: step(1) }, icon('chevr', 16));

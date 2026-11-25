@@ -166,7 +166,6 @@
 .ggp-strip::-webkit-scrollbar { display: none; }
 .ggp-ic { position: relative; flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: var(--bg-tert); cursor: pointer; scroll-snap-align: start; }
 .ggp-ic:hover { background: var(--bg-mod-sel); transform: translateY(-1px); }
-.ggp-ic .ggp-live { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 2px var(--bg-sec); }
 .ggp-ic .gg-hot { position: absolute; top: -3px; right: -3px; }
 .ggp-arr { flex: none; width: 22px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--interactive); cursor: pointer; }
 .ggp-arr:hover:not(:disabled) { background: var(--bg-mod-sel); color: var(--header); }
