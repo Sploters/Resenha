@@ -1,4 +1,5 @@
 import express from 'express';
+import { iceServers } from './turn.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -713,11 +714,6 @@ const onUpgrade = (req, socket, head) => {
 };
 server.on('upgrade', onUpgrade);
 
-const iceServers = () => {
-  const s = [{ urls: 'stun:stun.l.google.com:19302' }];
-  if (process.env.TURN_URL) s.push({ urls: process.env.TURN_URL, username: process.env.TURN_USER, credential: process.env.TURN_PASS });
-  return s;
-};
 // READY já em texto: as partes guardadas (servidores e perfis) entram prontas; o resto é calculado agora
 // Servidor grande (a partir de READY_LARGE membros, padrão 1.000): o READY leva só quem está online, a própria pessoa e o
 // dono; o app pede a lista inteira ao abrir o servidor (GET /api/guilds/:id/members). Com 5.000 membros o READY tinha
@@ -748,7 +744,7 @@ function buildReadyRaw(uid, extra) {
       FROM json_each(?) j LEFT JOIN read_states rs ON rs.user_id=? AND rs.channel_id=j.value`, uid, JSON.stringify(chIds), uid)) if (r.n) unread[r.c] = { count: r.n, last_id: r.l };
   const rels = relObj(uid), me = getUser(uid);
   for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) { const xu = { id: x.id, username: x.username, status: getUser(x.id)?.status }; x.status = statusFor(uid, xu); x.platforms = platformsFor(uid, xu); }
-  const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(), ...extra });
+  const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(uid), ...extra });
   return '{"t":"READY","d":{"users":[' + users.map(u => userJson(u, uid)).join(',') + '],"guilds":[' + gcs.map(c => (big.has(c.obj.id) ? c.headNoMembers + ',"members":' + JSON.stringify(big.get(c.obj.id)) + ',"partial":true,"member_count":' + c.obj.members.length : c.head) + ',"voice_states":' + JSON.stringify(voiceStatesFor(c.obj.id)) + '}').join(',') + '],' + rest.slice(1) + '}';
 }
 

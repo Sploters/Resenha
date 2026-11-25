@@ -99,13 +99,16 @@ function openPingChart(anchor) {
     // o ping acima vem do WebSocket (passa pelo site/túnel); a voz vai direto à porta 40000 do servidor. Sem par ICE
     // escolhido, a mídia não conectou: o número bom do ping não diz nada sobre a voz
     const noMedia = !ci.proto && (voice?.recovering || ['failed', 'disconnected', 'connecting'].includes(voice?.sfu?.send?.connectionState));
-    if (noMedia) tips.push(['bad', `A voz não conectou: o app fala com o servidor pelo site, mas a porta da voz (40000 UDP/TCP) não respondeu. Se você abriu pelo endereço público (túnel), a voz só chega pela VPN (Tailscale) ligada neste aparelho — ou com um servidor TURN configurado.`]);
+    const hasTurn = (S.ice || []).some(x => [].concat(x.urls).some(u => /^turns?:/.test(u)));
+    if (noMedia) tips.push(['bad', hasTurn
+      ? 'A voz não conectou, nem pelo servidor TURN: a sua rede pode estar bloqueando a porta do TURN (3478), ou o TURN está fora do ar. Com a VPN (Tailscale) ligada neste aparelho a voz vai direto.'
+      : 'A voz não conectou: o app fala com o servidor pelo site, mas a porta da voz (40000 UDP/TCP) não respondeu. Se você abriu pelo endereço público (túnel), a voz só chega pela VPN (Tailscale) ligada neste aparelho, ou com um servidor TURN configurado.']);
     if (ci.proto === 'tcp') tips.push(['bad', 'A conexão de voz está indo por TCP: o UDP parece bloqueado na sua rede (ou na VPN). TCP atrasa a voz quando há qualquer perda. Peça para liberar a porta 40000/UDP do servidor.']);
     if (loss > .02) tips.push(['bad', `Perda de pacotes de ${(loss * 100).toFixed(1)}%: a voz pode picotar. Wi-Fi fraco ou rede congestionada são as causas mais comuns; cabo de rede ajuda muito.`]);
     if (spread > 80 || (ci.jitterMs ?? 0) > 30) tips.push(['mid', 'Ping instável (variando muito): costuma ser Wi-Fi, download pesado na mesma rede ou a VPN passando por um relay em vez de ligar direto.']);
     if (avg > 120) tips.push(['mid', `Ping alto (${Math.round(avg)} ms). Se a VPN (Tailscale) estiver usando um relay, uma conexão direta reduz bastante: no seu computador, rode tailscale ping ${location.hostname} — se aparecer "via DERP", a ligação não está direta.`]);
     connBox.replaceChildren(
-      h('div.pcrow', h('span', 'Conexão'), h('b', ci.proto ? [ci.proto.toUpperCase(), ci.proto === 'udp' && icon('check', 14)] : '—'), h('span', 'Perda'), h('b', `${(loss * 100).toFixed(1)}%`), h('span', 'Oscilação'), h('b', ci.jitterMs != null ? `${ci.jitterMs} ms` : '—')),
+      h('div.pcrow', h('span', 'Conexão'), h('b', ci.proto ? [ci.proto.toUpperCase() + (ci.candidate === 'relay' ? ' via TURN' : ''), ci.proto === 'udp' && icon('check', 14)] : '—'), h('span', 'Perda'), h('b', `${(loss * 100).toFixed(1)}%`), h('span', 'Oscilação'), h('b', ci.jitterMs != null ? `${ci.jitterMs} ms` : '—')),
       ...(tips.length ? tips.map(([k, t]) => h('div.ptipline.' + k, t)) : [h('div.ptipline.good', 'Conexão boa e estável.')]));
   };
   readConn();

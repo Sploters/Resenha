@@ -25,7 +25,12 @@ ESPERA_HORAS=${ESPERA_HORAS:-24}; FUSO=${FUSO:-America/Sao_Paulo}
 
 hash_de() { (cd "$HOME/resenha" && find "$@" -type f 2>/dev/null | LC_ALL=C sort | xargs sha1sum | sha1sum | cut -c1-40); }
 # o que só muda com o container novo: o processo da voz, o SFU, as dependências e a imagem
-hash_voz() { hash_de server/voz.js server/sfu.js package.json package-lock.json Dockerfile; }
+# ~/resenha-voz.env (opcional, fora do repositório): variáveis da voz, como TURN_URL e TURN_SECRET (docs/TURN.md). Só valem
+# com o container novo, então mudar o arquivo também conta como "a voz mudou" (sem o arquivo o hash fica igual ao de antes)
+hash_voz() {
+  H=$(hash_de server/voz.js server/sfu.js package.json package-lock.json Dockerfile)
+  if [ -f "$HOME/resenha-voz.env" ]; then echo "$H $(sha1sum < "$HOME/resenha-voz.env")" | sha1sum | cut -c1-40; else echo "$H"; fi
+}
 # o resto do servidor (o app reinicia sozinho dentro do container)
 hash_app() { hash_de server PRIVACIDADE.md SECURITY.md scripts/reset-password.mjs; }
 
@@ -68,6 +73,7 @@ trocar_container() { # $1 = hash da voz, $2 = hash do app
   # O mesmo arquivo serve para OPENCRITIC_KEY=suachave (nota da crítica no popup do jogo)
   COOKIES=; [ -f "$HOME/resenha-data/cookies.txt" ] && COOKIES='-e YTDLP_COOKIES=/data/cookies.txt'
   STEAM=; [ -f "$HOME/resenha-steam.env" ] && STEAM="--env-file $HOME/resenha-steam.env"
+  VOZ=; [ -f "$HOME/resenha-voz.env" ] && VOZ="--env-file $HOME/resenha-voz.env" # TURN etc. (docs/TURN.md)
   # docker stop (não rm -f, que mata na hora): o servidor avisa os apps que está atualizando antes de fechar
   docker stop -t 10 resenha >/dev/null 2>&1 || true
   # cópia do banco com o servidor JÁ parado (fechou o banco com checkpoint: resenha.db inteiro, -wal vazio). Antes era
@@ -77,7 +83,7 @@ trocar_container() { # $1 = hash da voz, $2 = hash do app
   docker rm -f resenha >/dev/null 2>&1 || true
   docker run -d --name resenha --restart=always \
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \
-    -v "$HOME/resenha-data:/data" -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP $COOKIES $STEAM resenha >/dev/null
+    -v "$HOME/resenha-data:/data" -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP $COOKIES $STEAM $VOZ resenha >/dev/null
   echo "$1" > "$EST/rodando-voz"; echo "$2" > "$EST/rodando-app"; rm -f "$EST/rodando" "$EST/pendente"
   sleep 4
   docker logs resenha 2>&1 | head -3

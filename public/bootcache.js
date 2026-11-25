@@ -35,10 +35,10 @@ export async function loadSnap(token) {
   } catch { return null; }
 }
 // o que é só desta conexão ou já foi mostrado: a versão da interface (a guardada é de antes de uma atualização e pediria
-// para recarregar), a hora do servidor e os avisos de amizade desfeita
+// para recarregar), a hora do servidor, os servidores de voz (TURN) e os avisos de amizade desfeita
 function strip(d) {
   if (!d || typeof d !== 'object' || !d.user || !Array.isArray(d.guilds)) return null;
-  delete d.ui; delete d.now; d.friend_losses = [];
+  delete d.ui; delete d.now; delete d.ice; d.friend_losses = []; // ice: credencial do TURN é temporária; entrar em chamada já espera o READY de verdade
   return d;
 }
 // texto cru do READY (e.data do WebSocket): guardado quando o navegador estiver de folga, para não pesar a abertura
