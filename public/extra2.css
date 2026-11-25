@@ -4,6 +4,7 @@
 #settings .nav .ninner { width: 100%; padding: 28px 12px 24px 20px; display: flex; flex-direction: column; }
 #settings .nav h6 { margin: 18px 10px 6px; font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: .03em; }
 #settings .nsearch { background: var(--bg-tert); border: 0; border-radius: 4px; padding: 8px 10px; outline: none; color: var(--text); margin-bottom: 4px; }
+#settings .nsearch { -webkit-appearance: none; appearance: none; } #settings .nsearch::-webkit-search-cancel-button, #settings .nsearch::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
 #settings .ni { padding: 7px 10px; border-radius: 4px; margin-bottom: 2px; }
 #settings .nfoot { margin: 18px 10px 0; font-size: 12px; color: var(--text-muted); }
 #settings .content { flex: 1; min-width: 0; overflow-y: auto; display: flex; justify-content: flex-start; }

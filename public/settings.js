@@ -150,7 +150,9 @@ export function openSettings(kind, ctx) {
   // telemetria: nome da página (para "abriu e saiu em menos de 2 s")
   const pageLabel = (k) => k === 'profile' ? 'Perfil' : [...USER_GROUPS, ['', SERVER_PAGES], ['', [['app', 'Aplicativo (desktop)'], ['uxstats', 'Estatísticas de uso'], ['health', 'Saúde do servidor'], ['users', 'Usuários'], ['signup', 'Convites de cadastro'], ['servers', 'Servidores']]]].flatMap(([, l]) => l).find(([x]) => x === k)?.[1] || k;
   const show = (key, initial = false) => { settingsPage(pageLabel(key), { initial }); cleanups.forEach(f => f()); cleanups.length = 0; current = key; pane.replaceChildren(); pane.replaceChildren(R[sKey(key)](reg)); compactHints(pane); nav.querySelectorAll('.ni, .nme').forEach(n => n.classList.toggle('active', n.dataset.k === key)); content.scrollTop = 0; };
-  const search = h('input.nsearch', { placeholder: 'Buscar configuração…', oninput: () => drawNav() });
+  // o Chrome achava que a busca era o campo de usuário (vem antes das senhas de "Minha conta") e a preenchia sozinho:
+  // a lista filtrava pelo nome e sumiam todas as abas. Agora a busca se declara busca e texto que entra sem foco é descartado.
+  const search = h('input.nsearch', { type: 'search', name: 'settings-search', autocomplete: 'off', spellcheck: false, 'aria-label': 'Buscar configuração', placeholder: 'Buscar configuração…', oninput: () => { if (document.activeElement !== search) search.value = ''; drawNav(); } });
   const groups = isServer ? [[guild(gid)?.name || 'Servidor', SERVER_PAGES]] : USER_GROUPS.map(([t, l]) => [t, desktop && t === 'Aplicativo' ? [...l, ['app', 'Aplicativo (desktop)', 'iniciar bandeja hardware']] : l]);
   // Administração (só o administrador da instalação): o servidor diz se é; a lista ganha a seção quando a resposta chega
   const ADMIN_GROUP = ['Administração', [['health', 'Saúde do servidor', 'monitoramento cpu memória ram disco rede upload banda sfu worker erros logs alertas vps'], ['uxstats', 'Estatísticas de uso', 'telemetria estatísticas uso dados painel admin cliques funil'], ['users', 'Usuários', 'contas usuários banir suspender excluir apagar conta senha redefinir esqueceu sessões admin'], ['signup', 'Convites de cadastro', 'convite código cadastro registro criar conta fechar abrir cadastro admin'], ['servers', 'Servidores', 'servidores todos excluir entrar admin']]];
@@ -193,18 +195,20 @@ function accountPage(close) {
     section('Remoção da conta'), card(note('Excluir apaga seu perfil, suas mensagens, seus servidores (como dono) e remove você de todos os outros. Não dá para desfazer.'), h('button.btn.red', { onclick: () => deleteDialog(close) }, 'Excluir conta')));
 }
 function passwordForm() {
-  const o = h('input', { type: 'password', autocomplete: 'current-password' }), n = h('input', { type: 'password', autocomplete: 'new-password' }), n2 = h('input', { type: 'password', autocomplete: 'new-password' });
-  return h('div', h('label.f', 'Senha atual', o), h('label.f', 'Nova senha', n), h('label.f', 'Confirmar nova senha', n2),
+  const o = h('input', { type: 'password', name: 'current-password', autocomplete: 'current-password' }), n = h('input', { type: 'password', name: 'new-password', autocomplete: 'new-password' }), n2 = h('input', { type: 'password', name: 'new-password-confirm', autocomplete: 'new-password' });
+  // dentro de um form com o usuário (escondido): o gerenciador de senhas preenche aqui, e não na busca das configurações
+  return h('form', { onsubmit: (e) => e.preventDefault(), autocomplete: 'on' }, h('input', { type: 'text', name: 'username', autocomplete: 'username', value: S.me.username, hidden: true, readOnly: true }),
+    h('label.f', 'Senha atual', o), h('label.f', 'Nova senha', n), h('label.f', 'Confirmar nova senha', n2),
     note('Pelo menos 8 caracteres, fora das senhas mais comuns. Ao trocar, os outros aparelhos saem da conta (este continua).'),
-    h('button.btn', { onclick: async () => { if (n.value !== n2.value) return toast('As senhas não coincidem', true); const r = await tryApi('POST', '/me/password', { old: o.value, new: n.value }); if (r) { toast(r.ended ? `Senha alterada! ${r.ended} outro${r.ended > 1 ? 's aparelhos saíram' : ' aparelho saiu'} da conta.` : 'Senha alterada!'); o.value = n.value = n2.value = ''; } } }, 'Alterar senha'));
+    h('button.btn', { type: 'button', onclick: async () => { if (n.value !== n2.value) return toast('As senhas não coincidem', true); const r = await tryApi('POST', '/me/password', { old: o.value, new: n.value }); if (r) { toast(r.ended ? `Senha alterada! ${r.ended} outro${r.ended > 1 ? 's aparelhos saíram' : ' aparelho saiu'} da conta.` : 'Senha alterada!'); o.value = n.value = n2.value = ''; } } }, 'Alterar senha'));
 }
 function usernameDialog() {
-  const u = h('input', { value: S.me.username, maxLength: 32 }), p = h('input', { type: 'password' });
+  const u = h('input', { name: 'username', autocomplete: 'off', value: S.me.username, maxLength: 32 }), p = h('input', { type: 'password', name: 'password', autocomplete: 'current-password' });
   modal('Alterar nome de usuário', 'Seus amigos usam esse nome para te adicionar.', h('div', h('label.f', 'Novo nome de usuário', u), h('label.f', 'Senha atual', p)),
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Salvar', fn: async () => { if (await tryApi('POST', '/me/username', { username: u.value, password: p.value })) toast('Nome de usuário alterado'); else return false; } }]);
 }
 function deleteDialog(close) {
-  const p = h('input', { type: 'password' });
+  const p = h('input', { type: 'password', name: 'password', autocomplete: 'current-password' });
   modal('Excluir conta', 'Digite sua senha para confirmar. Esta ação é permanente.', h('label.f', 'Senha', p),
     [{ label: 'Cancelar', cls: 'link' }, { label: 'Excluir minha conta', cls: 'red', fn: async () => { if (await tryApi('POST', '/me/delete', { password: p.value })) { localStorage.removeItem('lc_token'); location.reload(); } else return false; } }]);
 }
