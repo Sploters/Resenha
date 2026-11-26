@@ -16,7 +16,9 @@ const IMAGE = /^[a-f0-9]{24}\.(png|jpe?g|webp|bmp|avif)$/i;
 // em GIF de 7,5 MB aparecia em 48 px e era baixado inteiro a cada abertura (trace real, 2026-11-25: ~26 MB de GIF).
 // GET /thumbs/<24 hex>.gif?s=<lado>
 const GIF = /^[a-f0-9]{24}\.gif$/i;
-const SIZES = [64, 128, 256, 480, 960, 1600];
+// 96: foto de 36–48 px em tela 2x (pede 72–96) caía no degrau de 128, do tamanho de um GIF de perfil comum (128×128):
+// a versão "menor" não ficava menor e ia o original inteiro (Lighthouse, 2026-11-26: GIF de 144 KB num avatar de 36 px)
+const SIZES = [64, 96, 128, 256, 480, 960, 1600];
 
 // HDR = curva PQ (HDR10/Dolby Vision) ou HLG (o HDR do iPhone); 10 bits sem HDR também pesa para decodificar
 export const VIDEO_KINDS = ['h264', 'h264_10', 'h264_hdr', 'hevc', 'hevc10', 'hevc_hdr', 'vp8', 'vp9', 'vp9_hdr', 'av1', 'av1_hdr', 'other'];
@@ -128,18 +130,24 @@ export function createThumbs(dir) {
   // Converter um GIF grande leva segundos (todos os quadros), então a fila é outra, de 1 em 1, e ninguém espera: enquanto a
   // versão não fica pronta (ou se não deu), o pedido vai para o original com um redirecionamento temporário (302, sem
   // cache), e a próxima abertura já pega o WebP. Não compensou (ficou maior que o original): marca e vai para o original.
+  // nome próprio (.a<lado>.webp): as marcas de "não compensa" do conversor antigo (.w<lado>.webp, libwebp) não valem
+  // para o novo, então cada GIF é convertido de novo uma vez, em segundo plano
+  const gifOf = (f, sz) => path.join(UPLOAD_DIR, `${f}.a${sz}.webp`);
   const gifPending = new Map(); let gifChain = Promise.resolve();
   const gifFailed = new Map(), GIF_FAIL_MS = 6 * 3600e3;
   function ensureGif(f, sz) {
-    const out = imgOf(f, sz), key = f + ':' + sz;
+    const out = gifOf(f, sz), key = f + ':' + sz;
     if (gifPending.has(key)) return gifPending.get(key);
     const failedAt = gifFailed.get(key); if (failedAt && Date.now() - failedAt < GIF_FAIL_MS) return Promise.resolve(false);
     const src = path.join(UPLOAD_DIR, f); if (!fs.existsSync(src)) return Promise.resolve(false);
     const p = (gifChain = gifChain.then(async () => {
       if (fs.existsSync(out)) return fs.statSync(out).size > 0;
       const tmp = out + '.tmp.webp';
-      const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', src,
-        '-vf', `scale='min(${sz},iw)':'min(${sz},ih)':force_original_aspect_ratio=decrease`, '-c:v', 'libwebp', '-loop', '0', '-quality', '70', '-compression_level', '4', tmp], 120e3);
+      // libwebp_anim: guarda só o que mudou de um quadro para o outro (como o GIF faz); o libwebp grava cada quadro inteiro
+      // e um GIF pequeno quase nunca ficava menor. ffmpeg sem o libwebp_anim: o libwebp de antes
+      const enc = (c) => run(['-hide_banner', '-loglevel', 'error', '-y', '-i', src,
+        '-vf', `scale='min(${sz},iw)':'min(${sz},ih)':force_original_aspect_ratio=decrease`, '-c:v', c, '-loop', '0', '-quality', '70', '-compression_level', '4', tmp], 120e3);
+      const ok = (await enc('libwebp_anim')) || (await enc('libwebp'));
       if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } gifFailed.set(key, Date.now()); if (gifFailed.size > 2000) gifFailed.clear(); return false; }
       if (fs.statSync(tmp).size >= fs.statSync(src).size) { fs.unlinkSync(tmp); fs.writeFileSync(out, ''); return false; }
       fs.renameSync(tmp, out); return true;
@@ -147,7 +155,7 @@ export function createThumbs(dir) {
     gifPending.set(key, p); return p;
   }
   function gifRoute(req, res, f) {
-    const want = +req.query.s || 480, sz = SIZES.find(x => x >= want) || SIZES.at(-1), out = imgOf(f, sz);
+    const want = +req.query.s || 480, sz = SIZES.find(x => x >= want) || SIZES.at(-1), out = gifOf(f, sz);
     if (!fs.existsSync(path.join(UPLOAD_DIR, f))) return res.sendStatus(404);
     const orig = `/files/${f}/imagem.gif`;
     if (fs.existsSync(out)) {
@@ -208,7 +216,7 @@ export function createThumbs(dir) {
   }
   const remove = (f) => {
     f = path.basename(f); fs.unlink(thumbOf(f), () => { }); fs.unlink(stripOf(f), () => { });
-    for (const sz of SIZES) fs.unlink(imgOf(f, sz), () => { });
+    for (const sz of SIZES) { fs.unlink(imgOf(f, sz), () => { }); fs.unlink(gifOf(f, sz), () => { }); }
   };
   // codec da imagem de um vídeo enviado, em forma curta: 'h264', 'hevc', 'hevc10', 'hevc_hdr', 'vp9', 'av1'… (null = não
   // deu para ler, ex.: arquivo cifrado da conversa protegida). Usado na medição de quem consegue tocar o quê (server/ux.js)

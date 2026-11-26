@@ -35,7 +35,7 @@ try {
     ok(done.headers.get('content-type') === 'image/webp' && /immutable/.test(done.headers.get('cache-control') || ''), 'WebP com cache longo', done.headers.get('content-type'));
     ok(buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP' && buf.includes('ANIM') && buf.indexOf('ANMF') !== buf.lastIndexOf('ANMF'), 'WebP animado (vários quadros)');
     ok(buf.length < src / 3, `bem menor que o GIF (${buf.length} de ${src} bytes)`);
-    ok(fs.existsSync(path.join(DIR, 'uploads', id + '.w128.webp')), 's=100 vira o degrau de 128 px');
+    ok(fs.existsSync(path.join(DIR, 'uploads', id + '.a128.webp')), 's=100 vira o degrau de 128 px');
   }
   const up2 = await upload(r.token, TINY), id2 = /\/files\/([a-f0-9]{24}\.gif)\//.exec(up2.url || '')?.[1];
   const u2 = `${BASE}/thumbs/${id2}?s=64`;

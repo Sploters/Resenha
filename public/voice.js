@@ -26,7 +26,8 @@ export function prewarmVoice(prefs) {
       if (mode === 'gtcrn' && prefs.vadGate !== false) loadWasm('rnnoise').catch(() => { }); // detector de voz da porta
     }).catch(() => { });
   };
-  (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(go, { timeout: 8000 });
+  // 4 s depois da abertura: antes o "ocioso" chegava em ~1 s e os 41 KB disputavam a rede com as fotos da tela inicial
+  setTimeout(() => (window.requestIdleCallback || ((f) => setTimeout(f, 0)))(go, { timeout: 8000 }), 4000);
 }
 
 export const NOISE_MODES = {
