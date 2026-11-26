@@ -23,7 +23,7 @@ export const NEWS = [
       { sec: 'Servidores', i: 'sparkle', t: 'Central de boas-vindas', d: 'Quem entra vê a apresentação, as regras e perguntas que já dão os cargos certos. Configure em Configurações do servidor → Boas-vindas.' },
       { sec: 'Servidores', i: 'calendar', t: 'Mais coisas no servidor', d: 'Eventos com aviso antes da hora, Wishlist da turma, aba Arquivos, canais de galeria e documento e permissões por categoria.' },
       { sec: 'A turma', i: 'star', t: 'A semana, o Rewind e A Noite', d: 'O que a turma jogou na semana, a retrospectiva do mês e do ano e as noites que viraram história.' },
-      { sec: 'Voz e privacidade', i: 'mic', t: 'Voz', d: 'Filtro "Só a minha voz", efeitos de voz, push-to-talk com o jogo em foco e o microfone que volta sozinho se cair. Pelo endereço do site, a chamada funciona sem VPN em qualquer internet: voz, câmera e transmissão de tela (com o som).', try: 'voice' },
+      { sec: 'Voz e privacidade', i: 'mic', t: 'Voz', d: 'Filtro "Só a minha voz", efeitos de voz, push-to-talk com o jogo em foco e o microfone que volta sozinho se cair. No soundboard, qualquer áudio vira som: você escolhe o trecho no próprio app. Pelo endereço do site, a chamada funciona sem VPN em qualquer internet: voz, câmera e transmissão de tela (com o som).', try: 'voice' },
       { sec: 'Voz e privacidade', i: 'lock', t: 'Privacidade', d: 'Conversas diretas protegidas de ponta a ponta, e você escolhe quem pode te ligar e quem vê seu status.', try: 'privacy' },
     ],
   },

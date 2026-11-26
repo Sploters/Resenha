@@ -2,6 +2,7 @@
 import { h, icon, avatar, initials, whenGone, soundEmoji, debounce } from './util.js';
 import { S, api, tryApi, toast, savePrefs, modal, popout, closeFloating, can, PERM, confirmBox, menu, emojiPicker } from './state.js';
 import { toggle, slider, comboFromEvent, comboLabel, captureKey } from './ui.js';
+import { trimAudio, decodeAudio, MAX_FILE } from './soundtrim.js';
 
 const MAX_BYTES = 2 * 1024 * 1024, MAX_SECS = 15;
 const vol = (s) => s.volume ?? s.vol ?? 100;
@@ -109,20 +110,17 @@ export function syncSoundKeys(voice) {
 export const playSoundById = (id, voice) => { const s = findSound(id); if (s) trigger(s, voice); };
 
 // ---- adicionar/editar ----
+// o arquivo pode passar de 15 s / 2 MB: o editor (soundtrim.js) deixa escolher o trecho e só ele sobe
 async function pickAudio() {
-  return new Promise(res => {
-    const i = h('input', { type: 'file', accept: 'audio/*', onchange: async () => {
-      const f = i.files[0]; if (!f) return res(null);
-      if (f.size > MAX_BYTES) { toast('Arquivo muito grande (máx. 2 MB)', true); return res(null); }
-      const url = URL.createObjectURL(f), a = new Audio(url);
-      const dur = await new Promise(r => { a.onloadedmetadata = () => r(a.duration); a.onerror = () => r(-1); });
-      URL.revokeObjectURL(url);
-      if (!(dur > 0)) { toast('Não foi possível ler esse áudio', true); return res(null); }
-      if (dur > MAX_SECS) { toast(`Áudio muito longo (máx. ${MAX_SECS}s, este tem ${Math.round(dur)}s)`, true); return res(null); }
-      try { const up = await api('POST', `/upload?name=${encodeURIComponent(f.name)}`, f); res({ url: up.url, name: f.name.replace(/\.[^.]+$/, '').slice(0, 32), dur }); } catch (e) { toast(e.message, true); res(null); }
-    } });
-    i.click();
-  });
+  const f = await new Promise(res => { const i = h('input', { type: 'file', accept: 'audio/*', onchange: () => res(i.files[0] || null) }); i.click(); });
+  if (!f) return null;
+  if (f.size > MAX_FILE) { toast('Arquivo muito grande para cortar aqui (máx. 60 MB)', true); return null; }
+  let buf; try { buf = await decodeAudio(f); } catch { buf = null; }
+  if (!(buf?.duration > 0)) { toast('Não foi possível ler esse áudio', true); return null; }
+  const cut = await trimAudio(f, buf, { maxSecs: MAX_SECS, maxBytes: MAX_BYTES }); if (!cut) return null;
+  const fname = cut.whole ? f.name : cut.name + '.wav';
+  try { const up = await api('POST', `/upload?name=${encodeURIComponent(fname)}`, cut.blob); return { url: up.url, name: cut.name.slice(0, 32), dur: cut.secs }; }
+  catch (e) { toast(e.message, true); return null; }
 }
 export async function addSound(guildId) {
   const f = await pickAudio(); if (!f) return;
@@ -130,7 +128,7 @@ export async function addSound(guildId) {
   const name = h('input', { value: st.name, maxLength: 32, oninput: () => (st.name = name.value) });
   const emo = h('button.btn.grey', { style: { minWidth: '48px', fontSize: '20px' }, onclick: (e) => emojiPicker(e.currentTarget, (x) => { if (x.startsWith('<:')) return; st.emoji = x; emo.textContent = x; }, { noCustom: true }) }, st.emoji);
   const prev = h('button.btn.grey', { onclick: () => playLocal(f.url, st.volume) }, '▶ Ouvir');
-  modal('Novo som', (guildId ? 'Será visível para todos do servidor.' : 'Fica na sua conta, em qualquer dispositivo.') + ` Duração máxima: ${MAX_SECS}s.`, h('div',
+  modal('Novo som', (guildId ? 'Será visível para todos do servidor.' : 'Fica na sua conta, em qualquer dispositivo.') + ` Trecho de até ${MAX_SECS}s.`, h('div',
     h('label.f', 'Nome', name), h('label.f', 'Emoji'), emo, h('label.f', { style: { marginTop: '14px' } }, 'Volume ', h('span', '100%'), slider(10, 200, 100, 5, v => (st.volume = v), v => v + '%')), prev),
   [{ label: 'Cancelar', cls: 'link' }, { label: 'Adicionar', fn: async () => {
     if (!st.name.trim()) { toast('Dê um nome ao som', true); return false; }

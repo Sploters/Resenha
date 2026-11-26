@@ -2542,3 +2542,9 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .au-code { font-family: var(--font-code, monospace); font-size: 15px; letter-spacing: .08em; color: var(--header); }
 .au-pw code.au-link { overflow-wrap: anywhere; font-size: 15px; }
 @media (max-width: 640px) { .au-modes { grid-template-columns: 1fr; } .au-new select, .au-new .btn { flex: 1 1 100%; } }
+
+/* ---------- Cortar áudio (soundboard) ---------- */
+.atrim .attrack { height: 84px; margin: 6px 8px 8px; }
+.atrim .atwave { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--brand, #4b8bff); opacity: .85; }
+.atrim .trsel { border-color: var(--brand, #4b8bff); }
+.atrim .trhandle { background: var(--brand, #4b8bff); }

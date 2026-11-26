@@ -845,7 +845,7 @@ function soundboardPage() {
           h('span.sbp-e', soundEmoji(s.emoji)), h('span.sbp-n', s.name), h('small.sbp-v', icon('vol', 12), soundVol(s) + '%')),
         canEdit && h('button.sbp-edit', { type: 'button', title: 'Editar ' + s.name, 'aria-label': 'Editar ' + s.name, onclick: () => editSound(src, s) }, icon('edit', 14)))),
         canEdit && src.own && h('button.sbp-pad.sbp-add', { type: 'button', onclick: () => addSound(null) }, icon('plus', 26), h('span', 'Novo som')))
-        : h('div.sbp-empty', icon('soundboard', 28), h('span', src.own ? 'Você ainda não tem sons. Adicione um curtinho (até 15 s).' : 'Nenhum som neste servidor ainda.'), src.own && h('button.btn', { onclick: () => addSound(null) }, '+ Novo som'));
+        : h('div.sbp-empty', icon('soundboard', 28), h('span', src.own ? 'Você ainda não tem sons. Adicione um curtinho (até 15 s; dá para cortar um áudio maior aqui).' : 'Nenhum som neste servidor ainda.'), src.own && h('button.btn', { onclick: () => addSound(null) }, '+ Novo som'));
       return card(head, pads);
     }));
   };
@@ -1180,7 +1180,7 @@ function serverSoundsPage(gid) {
     box.replaceChildren(...(src.sounds.length ? src.sounds.map(s => h('div.srow2', h('span.e', soundEmoji(s.emoji)), h('span.n', s.name), h('small.mut', soundVol(s) + '%'), h('button.btn.grey', { onclick: () => playLocal(s.url, soundVol(s)) }, '▶'), canEdit && h('button.btn.grey', { onclick: () => editSound(src, s) }, 'Editar'))) : [hint('Nenhum som neste servidor ainda.')]));
   };
   const onChange = () => draw(); document.addEventListener('sb-changed', onChange); draw(); queueMicrotask(() => whenGone(box, () => document.removeEventListener('sb-changed', onChange)));
-  return h('div', h('h2', 'Soundboard do servidor'), canEdit && card(hint('Sons curtos (até 15 s, 2 MB) que qualquer membro pode tocar na sala de voz, até 48 por servidor.'), h('button.btn', { onclick: () => addSound(gid) }, '+ Adicionar som')), card(box));
+  return h('div', h('h2', 'Soundboard do servidor'), canEdit && card(hint('Sons curtos (até 15 s; áudios maiores você corta ao adicionar) que qualquer membro pode tocar na sala de voz, até 48 por servidor.'), h('button.btn', { onclick: () => addSound(gid) }, '+ Adicionar som')), card(box));
 }
 function invitesPage(gid) {
   const box = h('div'), draw = async () => {
