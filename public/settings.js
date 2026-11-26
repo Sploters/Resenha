@@ -725,7 +725,11 @@ function voicePage(ctx, reg) {
         : pick === 'rnnoise' ? (bursty ? 'Apareceram barulhos que vêm e vão (teclado, porta, cachorro…). A IA Forte tira isso sem cortar sua voz.' : 'Há um ruído de fundo constante (ventilador, ar-condicionado, PC). A IA Forte resolve com pouca CPU.')
         : 'Ambiente bem barulhento. A Máxima tira mais ruído, mas usa ~2,5x a CPU da Forte; se o PC pesar, volte para a Forte.';
       const cur = S.prefs.noiseMode || 'standard';
-      envOut.replaceChildren(note([h('span.hint-ic', icon('waves', 16)), h('span', h('b', `Ruído de fundo: ${Math.round(floor)} dB. `), why,
+      // Linux: chiado/zumbido constante quase sempre é o reforço do microfone (Mic Boost) alto na placa de som; baixar
+      // lá resolve na origem, antes de qualquer filtro (que, com ruído forte, sempre come um pouco da voz)
+      const linuxTip = !silent && !bursty && floor >= -55 && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)
+        ? ' No Linux, ruído constante assim costuma ser o "Mic Boost" (reforço do microfone) alto: abra o pavucontrol ou o alsamixer, baixe o Boost para 0 e compense no volume do microfone.' : '';
+      envOut.replaceChildren(note([h('span.hint-ic', icon('waves', 16)), h('span', h('b', `Ruído de fundo: ${Math.round(floor)} dB. `), why + linuxTip,
         !silent && (cur === pick ? h('b', ' Você já está usando o recomendado.') : h('button.btn.sm', { style: { marginLeft: '8px' }, onclick: (e) => { S.prefs.noiseMode = pick; save(); drawNoise(); showVad(); restartTest(); e.currentTarget.replaceWith(h('b', ' Aplicado.')); } }, 'Usar ' + NOISE_INFO[pick][0])))]));
     } catch (e) { toast(e.message || 'Falha ao acessar o microfone', true); }
     finally { st?.getTracks().forEach(t => t.stop()); ctx?.close(); envBusy = false; envBtn.disabled = false; envBtn.textContent = 'Analisar meu ambiente'; }

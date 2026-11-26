@@ -23,6 +23,13 @@ export function gateParams(sens = 50, over = {}) {
     absMinDb: -70,               // abaixo disso (dBFS) nunca abre: é silêncio
     holdMs: lerp(250, 400),      // segura aberta depois da última voz provável
     floorDb: lerp(-45, -32),     // atenuação quando fechada (não é mudo)
+    // ruído constante forte que sobra depois da limpeza (zumbido elétrico, ventilador apontado para o microfone): o
+    // detector de voz do RNNoise deixa de ser confiável (diz "voz" o tempo todo, ou "não é voz" no começo das palavras) e a
+    // porta abria e fechava no meio da fala: voz picotada. Com o fundo entre steadyFromDb e steadyToDb (dBFS, já limpo),
+    // a porta fechada passa aos poucos de floorDb para só steadyFloorDb: abaixa em vez de cortar (a limpeza já tirou o
+    // grosso). Só perto da fala (até steadyCtxMs depois da última voz), onde o picote acontece: em silêncio longo a porta
+    // volta a cortar fundo. Em sala quieta nada muda (latido, teclado e voz de fundo continuam bem cortados)
+    steadyFloorDb: -12, steadyFromDb: -72, steadyToDb: -56, steadyCtxMs: 800,
     attackMs: 5, releaseMs: 150, // abrir rápido; fechar devagar
     lookahead: 0,                // quadros a mais de antecedência (modo RNNoise). 0 basta: o RNNoise já atrasa o áudio
                                  // limpo em relação à probabilidade de voz que devolve (medido: começos de fala iguais com 1)
@@ -166,7 +173,9 @@ export function createGate(p) {
           if (++medAge >= 10) { medAge = 0; med = pitchMed(); }
         }
       }
-      return state === ST.CLOSED ? 10 ** (p.floorDb / 20) : state === ST.ONSET && soft ? 10 ** (p.onsetSoftDb / 20) : 1;
+      const h = p.steadyFloorDb == null || since * FRAME_MS > p.steadyCtxMs ? 0 : Math.max(0, Math.min(1, (noise - p.steadyFromDb) / (p.steadyToDb - p.steadyFromDb)));
+      const floor = Math.max(p.floorDb, p.floorDb + (p.steadyFloorDb - p.floorDb) * h); g.floorNow = floor;
+      return state === ST.CLOSED ? 10 ** (floor / 20) : state === ST.ONSET && soft ? 10 ** (Math.max(floor, p.onsetSoftDb) / 20) : 1;
     },
   };
   return g;

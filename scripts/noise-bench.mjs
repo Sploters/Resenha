@@ -45,6 +45,10 @@ const add = (dst, src, at, g = 1) => { for (let i = 0; i < src.length && at + i 
 const fade = (x, ms) => { const n = Math.round(ms * SR / 1000); for (let i = 0; i < n && i < x.length; i++) { const g = i / n; x[i] *= g; x[x.length - 1 - i] *= g; } return x; };
 const pink = (n, target) => { let b0 = 0, b1 = 0, b2 = 0; const x = new Float32Array(n); for (let i = 0; i < n; i++) { const w = rnd(); b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913; x[i] = b0 + b1 + b2 + w * 0.1848; } return scaleTo(x, target); };
 const fan = (n, target) => { const x = pink(n, 0); let lp = 0; for (let i = 0; i < n; i++) { lp += (x[i] - lp) * 0.08; const t = i / SR; x[i] = lp + 0.04 * Math.sin(2 * Math.PI * 118 * t) * (1 + 0.2 * Math.sin(2 * Math.PI * 0.7 * t)); } return scaleTo(x, target); };
+// zumbido de rede elétrica: 60 Hz e harmônicos até ~3 kHz (ímpares mais fortes), com leve oscilação
+const buzz = (n, target) => { const x = new Float32Array(n); for (let i = 0; i < n; i++) { const t = i / SR; let v = 0; for (let k = 1; k <= 50; k++) v += Math.sin(2 * Math.PI * 60 * k * t + k * 1.3) * (k % 2 ? 1 : 0.4) / Math.sqrt(k); x[i] = v * (1 + 0.05 * Math.sin(2 * Math.PI * 0.3 * t)); } return scaleTo(x, target); };
+// chiado: ruído branco com um pouco mais de agudo (pré-amplificador)
+const hiss = (n, target) => { const x = new Float32Array(n); let p = 0; for (let i = 0; i < n; i++) { const w = rnd(); x[i] = w - 0.5 * p; p = w; } return scaleTo(x, target); };
 // sala (Schroeder: 4 pentes + 2 passa-tudo) — voz distante: pouco som direto e muita reflexão
 function room(x, wet = 0.8, dry = 0.35) {
   const combs = [1557, 1617, 1491, 1422].map(d => ({ b: new Float32Array(d), i: 0, f: 0.8 })), aps = [225, 556].map(d => ({ b: new Float32Array(d), i: 0 }));
@@ -138,6 +142,21 @@ const SCEN = {
     const t = talk([5, 9, 23], [2.5, 2.5], SPEECH_DB), n = fan(t.x.length, -33);
     return { s: t.x, n, desc: 'ventilador forte (-33 dBFS) o tempo todo' };
   },
+  // interferência elétrica constante (microfone/placa ruim, cabo, terra): zumbido de 60 Hz com harmônicos (o "buzz",
+  // com os harmônicos ímpares fortes) e chiado de pré-amplificador. Era o caso em que o Forte picotava a voz
+  zumbido: () => {
+    const t = talk([3, 12, 20], [1.2, 2.5], SPEECH_DB), n = buzz(t.x.length, -36);
+    return { s: t.x, n, desc: 'zumbido elétrico 60 Hz com harmônicos (-36 dBFS) o tempo todo' };
+  },
+  zumbido_chiado: () => {
+    const t = talk([5, 9, 23], [1.2, 2.5], SPEECH_DB), n = buzz(t.x.length, -38), h = hiss(t.x.length, -42);
+    for (let i = 0; i < n.length; i++) n[i] += h[i];
+    return { s: t.x, n, desc: 'zumbido (-38) + chiado (-42) o tempo todo' };
+  },
+  chiado: () => {
+    const t = talk([1, 8, 30], [1.2, 2.5], SPEECH_DB), n = hiss(t.x.length, -36);
+    return { s: t.x, n, desc: 'chiado forte de pré-amplificador (-36 dBFS) o tempo todo' };
+  },
   teclado_ventilador: () => {
     const t = talk([30, 50], [3], SPEECH_DB), n = fan(t.x.length, -50);
     for (let at = Math.round(0.3 * SR), k = 0; at < n.length; at += Math.round(4.6 * SR), k++) add(n, clip(KEYS[k % KEYS.length], 4.5, -34, 20), at);
@@ -160,6 +179,7 @@ const CHAINS = {
   'rnnoise+voz': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanFilter: false },
   'rnnoise+voz+vent': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanStrength: FAN, fanParams: FANP },
   'rnnoise+trava': { noiseMode: 'rnnoise', vadGate: true, vadSens: SENS, vadParams: PARAMS, fanFilter: false },
+  'rnnoise+vent': { noiseMode: 'rnnoise', vadGate: false, fanStrength: FAN, fanParams: FANP }, // só o filtro de ruído constante, sem a porta
   'gtcrn': { noiseMode: 'gtcrn', vadGate: false, fanFilter: false },
   'gtcrn+voz': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanFilter: false },
   'gtcrn+voz+vent': { noiseMode: 'gtcrn', vadGate: true, vadSens: SENS, vadParams: PARAMS, voiceLock: false, fanStrength: FAN, fanParams: FANP },
@@ -285,12 +305,19 @@ for (const S of scen) {
       inicioDb: on.length ? +(on.reduce((a, b) => a + b, 0) / on.length).toFixed(1) : null, inicioPiorDb: on.length ? +Math.min(...on).toFixed(1) : null,
       fimDb: off.length ? +(off.reduce((a, b) => a + b, 0) / off.length).toFixed(1) : null, fimPiorDb: off.length ? +Math.min(...off).toFixed(1) : null,
       snrFalaDb: +db(sum(refF, k => sp[k]) / Math.max(1e-15, sum(dF, k => sp[k]))).toFixed(1),       // voz/ruído na saída durante a fala
+      // picote em valor absoluto (não em relação à cadeia antiga, que também pode picotar): nos quadros de fala clara
+      // (até 15 dB abaixo do nível da fala), quanto sai mais de 6 dB abaixo da voz limpa; e quantos buracos de 20 ms ou
+      // mais isso faz por minuto de fala (o "picotando" que se ouve)
+      ...(() => { const strong = sp.map((x, k) => x && db(sF[k]) > sLvl - 15), cut = strong.map((x, k) => x && yF[k] < sF[k] * 0.25);
+        let holes = 0; for (let k = 1; k < K; k++) if (cut[k] && cut[k - 1] && !(k > 1 && cut[k - 2])) holes++;
+        const n = strong.filter(Boolean).length || 1;
+        return { picotePct: +(100 * cut.filter(Boolean).length / n).toFixed(1), buracosMin: +(holes / (n / 100 / 60)).toFixed(1) }; })(),
     };
   }
   console.log(`\n== ${S.name}: ${S.desc}`); if (DIAGLOG.length) { console.log(DIAGLOG.join('\n')); DIAGLOG.length = 0; }
   console.log(`   entrada: ruído nas pausas ${R.input.ruidoPausaDb} dBFS, voz/ruído durante a fala ${R.input.snrFalaDb} dB  (${R.frames.ruidoNaPausa} quadros de ruído na pausa, ${R.frames.inicios} inícios de fala)`);
-  console.log('   cadeia           ruído passa  sobra dBFS  audível%  porta abre%  voz dB  voz baixa  cortada%  início(pior)   fim(pior)    voz/ruído na fala');
-  for (const [c, m] of Object.entries(R.cadeias)) console.log(`   ${c.padEnd(16)} ${String(m.ruidoPassaDb).padStart(9)}  ${String(m.ruidoNivelDb).padStart(10)}  ${String(m.ruidoAudivelPct).padStart(8)}  ${String(m.portaAbertaPct ?? '—').padStart(11)}  ${String(m.vozDb).padStart(6)}  ${String(m.vozBaixaDb).padStart(9)}  ${String(m.vozCortadaPct).padStart(8)}  ${`${m.inicioDb}(${m.inicioPiorDb})`.padStart(12)}  ${`${m.fimDb}(${m.fimPiorDb})`.padStart(10)}  ${String(m.snrFalaDb).padStart(8)}`);
+  console.log('   cadeia           ruído passa  sobra dBFS  audível%  porta abre%  voz dB  voz baixa  cortada%  início(pior)   fim(pior)    voz/ruído na fala  picote%  buracos/min');
+  for (const [c, m] of Object.entries(R.cadeias)) console.log(`   ${c.padEnd(16)} ${String(m.ruidoPassaDb).padStart(9)}  ${String(m.ruidoNivelDb).padStart(10)}  ${String(m.ruidoAudivelPct).padStart(8)}  ${String(m.portaAbertaPct ?? '—').padStart(11)}  ${String(m.vozDb).padStart(6)}  ${String(m.vozBaixaDb).padStart(9)}  ${String(m.vozCortadaPct).padStart(8)}  ${`${m.inicioDb}(${m.inicioPiorDb})`.padStart(12)}  ${`${m.fimDb}(${m.fimPiorDb})`.padStart(10)}  ${String(m.snrFalaDb).padStart(8)}  ${String(m.picotePct).padStart(15)}  ${String(m.buracosMin).padStart(11)}`);
 }
 const CPU = Object.fromEntries(Object.entries(cpu).map(([c, v]) => [c, +(100 * v.ms / 1000 / v.secs).toFixed(2)]));
 console.log('\nCPU (renderização offline, % de um núcleo por segundo de áudio — a cadeia inteira):', CPU);
