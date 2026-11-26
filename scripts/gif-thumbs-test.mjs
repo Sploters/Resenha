@@ -36,7 +36,18 @@ try {
     ok(buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP' && buf.includes('ANIM') && buf.indexOf('ANMF') !== buf.lastIndexOf('ANMF'), 'WebP animado (vários quadros)');
     ok(buf.length < src / 3, `bem menor que o GIF (${buf.length} de ${src} bytes)`);
     ok(fs.existsSync(path.join(DIR, 'uploads', id + '.a128.webp')), 's=100 vira o degrau de 128 px');
+    // outro tamanho ainda não convertido: usa o de 128 já pronto (cache curto) em vez de mandar o GIF original inteiro
+    const near = await fetch(`${BASE}/thumbs/${id}?s=60`, { redirect: 'manual' });
+    ok(near.status === 200 && near.headers.get('content-type') === 'image/webp' && /max-age=600/.test(near.headers.get('cache-control') || ''), 'tamanho novo enquanto converte: WebP maior já pronto, não o original', { status: near.status, cc: near.headers.get('cache-control') });
+    // versão do conversor antigo (.w<lado>.webp) também serve enquanto a nova não fica pronta
+    fs.copyFileSync(path.join(DIR, 'uploads', id + '.a128.webp'), path.join(DIR, 'uploads', id + '.w256.webp'));
+    const old = await fetch(`${BASE}/thumbs/${id}?s=200`, { redirect: 'manual' });
+    ok(old.status === 200 && old.headers.get('content-type') === 'image/webp', 'versão do conversor antigo cobre enquanto converte', old.status);
   }
+  const map = await fetch(`${BASE}/vendor/ns/nao-existe.js.map`);
+  ok(map.status === 404, 'arquivo de interface que não existe: 404 (não a página)', map.status);
+  const page = await fetch(`${BASE}/convite/abc`);
+  ok(page.status === 200 && /<html/i.test(await page.text()), 'rota da interface sem extensão: a página', page.status);
   const up2 = await upload(r.token, TINY), id2 = /\/files\/([a-f0-9]{24}\.gif)\//.exec(up2.url || '')?.[1];
   const u2 = `${BASE}/thumbs/${id2}?s=64`;
   await fetch(u2, { redirect: 'manual' });

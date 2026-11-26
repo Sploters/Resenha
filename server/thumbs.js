@@ -164,6 +164,15 @@ export function createThumbs(dir) {
       res.type('image/webp'); return res.sendFile(out);
     }
     ensureGif(f, sz).catch(() => { });
+    // enquanto a versão deste tamanho não fica pronta: uma que já existe (deste conversor ou do antigo, .w<lado>.webp),
+    // do mesmo tamanho ou maior, com cache curto. Só sem nenhuma vai o original: depois da troca de conversor todos os
+    // GIFs voltaram ao original até reconverter, e um de 12 MB foi baixado inteiro na tela inicial (Lighthouse, 2026-11-26)
+    for (const s of SIZES.filter(x => x >= sz)) for (const alt of [gifOf(f, s), imgOf(f, s)]) {
+      let st; try { st = fs.statSync(alt); } catch { continue; }
+      if (!st.size) continue;
+      res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'public, max-age=600' });
+      res.type('image/webp'); return res.sendFile(alt);
+    }
     res.set('Cache-Control', 'no-store'); res.redirect(302, orig);
   }
   // foto recém-enviada: já prepara as versões que o chat pede (960 = foto sozinha, 480 = várias lado a lado / celular),

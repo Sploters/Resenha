@@ -698,6 +698,9 @@ for (const [route, file] of [['/privacidade', 'PRIVACIDADE.md'], ['/seguranca', 
   app.get(route, (req, res) => res.type('text/plain; charset=utf-8').sendFile(path.join(__dirname, '..', file), (e) => e && !res.headersSent && res.status(404).end()));
 const ui = process.env.STATIC_OFF !== '1' ? mountStatic(app, process.env.PUBLIC_DIR || path.join(__dirname, '..', 'public')) : null; // PUBLIC_DIR: só testes (scripts/uiupdate-test.mjs) // comprimido, versionado e com modulepreload (server/static.js)
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
+// arquivo de interface que não existe (ex.: o .map de uma biblioteca) é 404, não a página: o navegador tentava ler o HTML
+// como mapa/script ("Unexpected token '<'")
+app.get(/\.(js|mjs|map|css|json|wasm|woff2?|png|jpe?g|gif|webp|svg|ico|txt)$/i, (req, res, next) => (/^\/(api|files|gateway)\//.test(req.path) ? next() : res.sendStatus(404)));
 app.get(/^\/(?!api|files|gateway).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 // ---------- Gateway (WebSocket) ----------
