@@ -1652,8 +1652,8 @@ export class Voice {
   // todas as fontes de áudio da Resenha que entram no clipe: minha voz (com efeito), a voz de cada um na sala
   // (como eu ouço, já com o efeito deles; inclui o bot de música) e o soundboard. O áudio da transmissão entra à parte.
   clipAudio() {
-    const out = [this.clipVoice(), this.clipSounds()];
-    for (const p of this.peers.values()) if (p.audioEl) out.push(p.audioEl.srcObject || p.audioEl.raw);
+    const out = [this.prefs?.clipVoiceOff ? null : this.clipVoice(), this.clipSounds()];
+    for (const p of this.peers.values()) if (p.audioEl && !this.noClip?.(p.uid)) out.push(p.audioEl.srcObject || p.audioEl.raw); // quem desligou "Permitir que minha voz entre em clipes" fica de fora
     return out.filter(Boolean);
   }
   unboost(p, key) { const b = p[key + 'Boost']; if (!b) return; b.src.disconnect(); b.fxNode?.stop(); b.hold.srcObject = null; delete p[key + 'Boost']; }
@@ -1770,7 +1770,7 @@ export class Voice {
     const si = this.screenOpts?.srcInfo; if (!si || si.type !== 'window' || !(si.game || si.fullscreen)) return null;
     const t = String(si.name || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, 80) : null;
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, screenTitle: (this.screen && this.streamTitle()) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror }); }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, screenTitle: (this.screen && this.streamTitle()) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror, clips: !!this.clipRec, noclip: !!this.prefs?.clipVoiceOff }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)

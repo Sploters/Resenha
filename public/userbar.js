@@ -1,6 +1,7 @@
 // Barra do usuário e painel de voz: botões da chamada, voltar para a chamada, entrar na sala, troca rápida (Ctrl+K)
 // e atalhos de teclado gerais.
 import { lobbyEntry } from './lobby.js';
+import { autoClipActive, autoClipCount, AUTO_MAX } from './autoclip.js';
 import { openMyMessages } from './mymessages.js';
 import { openFxPicker } from './fxui.js';
 import { fxInfo } from './voicefx.js';
@@ -47,7 +48,8 @@ export function voicePanel() {
         h('button.ibtn', { title: 'Sair da chamada', onclick: () => voice.leave() }, icon('phoneoff', 20)))),
     voice.screen && liveStrip(),
     h('div.sub', { title: 'Ir para a sala', onclick: () => ch && (ch.type === 1 ? go('@me', ch.id) : go(ch.guild_id, ch.id)) }, `${ch?.type === 1 ? 'Chamada com ' + user(dmPeer(ch).id).display_name : (ch?.name || '')}${g ? ' / ' + g.name : ''}`,
-      fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label)),
+      fxInfo(voice.fx) && h('span.vp-fx', { title: 'Efeito de voz ligado' }, '·', fxIcon(voice.fx, 12), fxInfo(voice.fx).label),
+      autoClipActive() && h('span.vp-fx.vp-auto', { title: `Clipes automáticos: quando a call explodir (risada, grito, todo mundo junto) o lance é salvo neste aparelho. ${autoClipCount()}/${AUTO_MAX} nesta transmissão. Desligar: Configurações → Clipes.` }, '·', icon('clipsparkle', 12), 'Clipes auto')),
     h('div.row',
       h('button' + (voice.cam ? '.on' : ''), { title: 'Câmera (clique direito: escolher a câmera)', onclick: () => voiceAct(() => voice.toggleCam()), oncontextmenu: async (e) => { e.preventDefault(); const t = e.currentTarget; menuAbove(t, camOptItems(await mediaDevs())); } }, icon('video', 20)),
       voice.screen ? h('button.stopshare', { title: 'Parar transmissão' + shareKeyHint(), onclick: stopSharing }, icon('screenoff', 20)) : h('button', { title: 'Transmitir tela', onclick: startShare }, icon('screen', 20)),

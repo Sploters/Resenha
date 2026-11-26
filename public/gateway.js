@@ -283,6 +283,7 @@ export function onEvent(t, d) {
       voice.onNativeFail = (msg) => toast(msg, true);
       setNewsActions(newsActions);
       voice.isMusicBot = (uid) => S.voice.get(uid)?.bot?.kind === 'music';
+      voice.noClip = (uid) => !!S.voice.get(uid)?.noclip; // não quer a voz em clipes (fica fora do clipe e dos clipes automáticos)
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; S.nativeCode = r.code || ''; }); }
       // tela cheia exclusiva confirmada pela captura (voice.watchFse): avisa uma vez por transmissão; não para nada

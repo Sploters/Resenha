@@ -2618,3 +2618,7 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .lb-win { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--green, #23a55a); }
 .lb-win .icon { fill: currentColor; }
 .lb-agent { flex: none; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg-tert); color: var(--header); }
+/* clipes: quem está gravando clipes na call (side.js) e "Clipes auto" no painel de voz (userbar.js) */
+.vu-clip { display: inline-flex; align-items: center; color: var(--text-muted); flex: none; margin-left: 2px; }
+.vu-clip .icon { fill: currentColor; }
+#voice-panel .vp-auto .icon { fill: currentColor; }

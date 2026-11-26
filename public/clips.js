@@ -75,27 +75,28 @@ export async function postClip(blob, { channelId, secs, streamerId, hasAudio = t
 }
 
 // guarda no aparelho (padrão) ou posta no chat da sala, conforme Configurações → Clipes
-async function keepClip(blob, { channelId, secs, streamerId, hasAudio, title, who, game, guildId }) {
-  if (clipDest() === 'post') return postClip(blob, { channelId, secs, streamerId, hasAudio, title, who });
+// auto: clipe automático (autoclip.js) — sempre fica no aparelho, nunca posta sozinho
+async function keepClip(blob, { channelId, secs, streamerId, hasAudio, title, who, game, guildId, auto }) {
+  if (clipDest() === 'post' && !auto) return postClip(blob, { channelId, secs, streamerId, hasAudio, title, who });
   try {
-    await addLocalClip({ blob, title: title || stampTitle(who), secs, streamerId, who, game: game || '', hasAudio, guildId: guildId || null, channelId });
+    await addLocalClip({ blob, title: title || (auto ? 'Automático: ' : '') + stampTitle(who), secs, streamerId, who, game: game || '', hasAudio, guildId: guildId || null, channelId, ...(auto ? { auto } : {}) });
     // "Mandar para a turma" no próprio aviso: compartilhar sem ir ao + do campo de mensagem
     let sent = false;
     const share = h('button.btn.green.sm', { style: { marginLeft: '10px' }, onclick: () => { if (sent) return; sent = true; document.getElementById('toast')?.remove(); postClip(blob, { channelId, secs, streamerId, hasAudio, title, who }); } }, 'Mandar para a turma');
-    toast(h('span', { style: { display: 'inline-flex', alignItems: 'center' } }, hasAudio ? 'Clipe salvo neste aparelho.' : 'Clipe salvo neste aparelho, mas sem áudio.', share), !hasAudio, 8000);
+    toast(h('span', { style: { display: 'inline-flex', alignItems: 'center' } }, auto ? 'Clipe automático salvo neste aparelho.' : hasAudio ? 'Clipe salvo neste aparelho.' : 'Clipe salvo neste aparelho, mas sem áudio.', share), !hasAudio, 8000);
     return true;
   } catch (e) { toast('Não consegui guardar o clipe neste aparelho: ' + (e?.message || 'sem espaço'), true); return false; }
 }
 
 // corta os últimos `secs` segundos e guarda (ou posta).
 // onCaptured(ok, motivo): chamado logo depois do corte (local, instantâneo), antes de guardar — é a hora do aviso "capturado"
-export async function saveClip(key, secs, { channelId, who, game, guildId, onCaptured }) {
+export async function saveClip(key, secs, { channelId, who, game, guildId, onCaptured, auto }) {
   const b = bufs.get(key);
-  if (!b) { onCaptured?.(false, 'Os clipes não estão ligados'); return toast('Ative os clipes primeiro.', true); }
+  if (!b) { onCaptured?.(false, 'Os clipes não estão ligados'); return auto ? null : toast('Ative os clipes primeiro.', true); }
   const blob = await b.cut(secs);
-  if (!blob) { onCaptured?.(false, 'Ainda não há vídeo suficiente gravado'); return toast('Ainda não há vídeo suficiente gravado. Aguarde alguns segundos.', true); }
+  if (!blob) { onCaptured?.(false, 'Ainda não há vídeo suficiente gravado'); return auto ? null : toast('Ainda não há vídeo suficiente gravado. Aguarde alguns segundos.', true); }
   onCaptured?.(true);
-  return keepClip(blob, { channelId, secs, streamerId: key.slice(2), hasAudio: !!b.hasAudio, who, game, guildId });
+  return keepClip(blob, { channelId, secs, streamerId: key.slice(2), hasAudio: !!b.hasAudio, who, game, guildId, auto });
 }
 
 // pega o que estiver gravado (até a maior duração) e abre o editor para escolher o trecho antes de guardar/postar

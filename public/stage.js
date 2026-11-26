@@ -10,7 +10,8 @@ import { updatePip } from './livepip.js';
 import { zoomControls, pruneZoom } from './zoom.js';
 import { boardCanvas, boardTools, annotTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { codeTile, keepEditorFocus } from './code.js';
-import { startBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys, clipSecs, lenLabel, clipDest } from './clips.js';
+import { syncAutoClip, stopAutoClip, autoClipsOn } from './autoclip.js';
+import { startBuffer, stopBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys, clipSecs, lenLabel, clipDest } from './clips.js';
 import { openShareClip } from './myclips.js';
 import { syncThrottle } from './lite.js';
 import { syncGlobalPtt } from './ptt.js';
@@ -274,8 +275,11 @@ export function renderVoiceUI(speakOnly) {
   renderSide(); refreshFeedView();
   autoClosed(); // transmissão nova de outra pessoa começa fechada
   updatePip(pipCtx);
-  if (!voice.active) { stopAllBuffers(); for (const v of vidCache.values()) v.srcObject = null; vidCache.clear(); pruneBoardCanvases(new Set()); } // saiu da sala: nada do palco fica preso
+  if (!voice.active) { stopAllBuffers(); stopAutoClip(); for (const v of vidCache.values()) v.srcObject = null; vidCache.clear(); pruneBoardCanvases(new Set()); } // saiu da sala: nada do palco fica preso
   syncThrottle(voice);
+  // alguém da sala mudou "Permitir que minha voz entre em clipes": a mistura de áudio dos clipes é montada no começo da
+  // gravação, então recomeça sem (ou com) a voz da pessoa
+  if (voice.active) { const nc = [...S.voice.values()].filter(v => v.channel_id === voice.channelId && v.noclip).map(v => v.user_id).sort().join() + '|' + !!S.prefs.clipVoiceOff; if (lastNoClip !== null && nc !== lastNoClip) stopAllBuffers(); lastNoClip = nc; } else lastNoClip = null;
   const stage = $('#stage'); if (!stage) return syncWatching(null);
   const ch = channelById(S.view.cid); if (!ch || ![1, 2].includes(ch.type)) return syncWatching(null);
   const dm = ch.type === 1, gid = ch.guild_id;
@@ -301,6 +305,7 @@ export function renderVoiceUI(speakOnly) {
       // clipe = vídeo + áudio da transmissão + tudo da Resenha: voz de quem transmite e de todos na sala (com os efeitos de voz),
       // bot de música e soundboard. Na transmissão ao vivo nada disso vai (lá a voz segue separada, como voz da call)
       if (mine) voice.syncPreview(); // transmissão nativa: prévia leve, ou 30 fps se ela também alimenta o clipe próprio
+      if (!clipsAuto(mine) && clipping(key)) stopBuffer(key); // desligou (clipes ou clipes automáticos): para de gravar
       if (clipsAuto(mine) && inRoom) startBuffer(key, scr, [mine ? scr : p?.screenAudioEl?.raw, ...voice.clipAudio()], voice.getCtx(), { native: mine && voice.nativeClips(), tap: mine ? voice.ownTap() : voice.screenTap(uid) });
       const upd = () => (info.textContent = vid.videoWidth ? `${vid.videoWidth}×${vid.videoHeight}` : '');
       if (vid.tagName === 'VIDEO') { vid.onresize = vid.onloadedmetadata = upd; upd(); }
@@ -340,6 +345,8 @@ export function renderVoiceUI(speakOnly) {
   for (const [k, v] of [...vidCache]) if (!live.has(k)) { v.srcObject = null; vidCache.delete(k); } // solta o fluxo na hora (sem esperar o GC)
   pruneZoom(live); pruneBoardCanvases(new Set([...live, ...(inRoom && room?.wb ? ['wb'] : [])]));
   if (inRoom) pruneBuffers(live);
+  syncAutoClip({ voice, clipCtx, clipFlash }); // clipes automáticos da sua transmissão (autoclip.js)
+  { const rec = clipKeys().length > 0; if (voice.clipRec !== rec) { voice.clipRec = rec; voice.sendState(); } } // indicador "gravando clipes" para a sala
   syncWatching(inRoom ? members.filter(v => v.screen && v.user_id !== S.me.id && !voice.closedStreams.has(v.user_id) && voice.peers.get(v.user_id)?.streams.screen).map(v => v.user_id) : null);
   const hasFocus = tiles.some(t => t.dataset.key === S.focus);
   const screens = tiles.filter(t => t.classList.contains('screen')); // várias transmissões e nenhuma em destaque: grade com todas, do mesmo tamanho
@@ -441,7 +448,9 @@ export function clipFlash(ok, title, sub, kind) { // kind 'share': ícone de tel
   setTimeout(() => el.remove(), 2200);
 }
 // clipes: ligados por padrão para as transmissões dos outros; na sua própria só se você ativar (codificar o próprio jogo duas vezes pesa)
-const clipsAuto = (mine) => (mine ? S.prefs.clipsOn === true : S.prefs.clipsOn !== false);
+// Com os clipes automáticos ligados (padrão), a sua também grava ao transmitir: é dela que sai o clipe automático.
+let lastNoClip = null; // quem da sala não quer a voz em clipes (muda → a gravação recomeça)
+const clipsAuto = (mine) => (mine ? S.prefs.clipsOn === true || autoClipsOn() : S.prefs.clipsOn !== false);
 export function clipMenu(e, key, who) {
   if (!clipping(key)) return menu(e, [{ label: 'Ativar clipes', icon: 'clipsparkle', hint: `Grava os últimos ${lenLabel(Math.max(60, clipSecs()))} das transmissões em segundo plano`, fn: () => { S.prefs.clipsOn = true; savePrefs(); renderVoiceUI(); toast('Clipes ativados: em alguns segundos já dá para salvar'); } }]);
   const where = clipDest() === 'local' ? 'Guarda neste aparelho' : 'Posta no chat da sala', max = Math.max(60, clipSecs());
