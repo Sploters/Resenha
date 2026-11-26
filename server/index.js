@@ -57,6 +57,7 @@ import { mountGames } from './games.js';
 import { mountAchievements } from './achievements.js';
 import { mountEvents } from './events.js';
 import { createChPerms, CH } from './chperms.js';
+import { createVoiceRooms, MAX_WHISPER } from './voicerooms.js';
 import { createLimits, LIMITS } from './limits.js';
 import { createWatch } from './watch.js';
 import { searchTracks as musicSearch, musicAvailable, listPlaylist as musicPlaylist } from './music.js';
@@ -92,7 +93,7 @@ const DEFAULT_AVATARS = (() => { try { return fs.readdirSync(path.join(__dirname
 if (DEFAULT_AVATARS.length) for (const u of all("SELECT id, avatar FROM users WHERE avatar LIKE '/avatars/%'"))
   if (!DEFAULT_AVATARS.includes(u.avatar)) run('UPDATE users SET avatar=? WHERE id=?', DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)], u.id);
 
-const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512, VIEW_MSGLOG: 1024 };
+const P = { ADMIN: 1, MANAGE_GUILD: 2, MANAGE_CHANNELS: 4, MANAGE_MESSAGES: 8, KICK: 16, CREATE_INVITE: 32, MANAGE_ROLES: 64, BAN: 128, MODERATE: 256, VOICE_MOD: 512, VIEW_MSGLOG: 1024, PRIORITY: 2048 };
 const COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55d', '#faa61a', '#9b59b6', '#1abc9c'];
 
 // ---------- helpers ----------
@@ -232,6 +233,7 @@ if (!get("SELECT 1 x FROM meta WHERE k='roles-position-1'")) tx(() => {
   run("INSERT INTO meta VALUES('roles-position-1',?)", String(Date.now()));
 });
 const chp = createChPerms({ db, all, get, run, memberPerms, P }); // permissões por canal/categoria (server/chperms.js)
+const vrooms = createVoiceRooms({ db, get, run, can, P }); // limite, senha, prioridade, pedir a vez e sussurro (server/voicerooms.js)
 // castigo: não fala, não reage, não entra em voz
 const timedOut = (gid, uid) => !!gid && (get('SELECT timeout_until t FROM members WHERE guild_id=? AND user_id=?', gid, uid)?.t || 0) > Date.now();
 function audit(gid, actor, action, target = null, details = '') {
@@ -262,7 +264,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), ...(s.clips ? { clips: true } : {}), ...(s.noclip ? { noclip: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, ...(s.screen && s.screenTitle ? { screen_title: s.screenTitle } : {}), watching: !!s.watching, ...(s.wt ? { wt: true } : {}), fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), ...(s.clips ? { clips: true } : {}), ...(s.noclip ? { noclip: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, ...(s.screen && s.screenTitle ? { screen_title: s.screenTitle } : {}), watching: !!s.watching, ...(s.wt ? { wt: true } : {}), fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}), ...(s.hand ? { hand: s.hand } : {}), ...(s.prio ? { prio: true } : {}), ...(s.whisper ? { whisper: true } : {}) });
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -509,7 +511,7 @@ const movePass = new Map();
 const allowMove = (uid, cid) => { movePass.set(uid, { cid, until: Date.now() + 30e3 }); setTimeout(() => { if (movePass.get(uid)?.cid === cid && movePass.get(uid).until <= Date.now()) movePass.delete(uid); }, 31e3).unref(); };
 const core = {
   allowMove,
-  msglog,
+  msglog, vrooms,
   auth, wrap, wrapA, bad, clean, lim, db, all, get, run, newId, tx, P, CH, chp, can, memberPerms, rankOf, outranks, ABOVE, ROLE_ABOVE,
   dispatch, send, guildMemberIds, channelAudience, canAccessChannel, channelFor, getUser, userPub, pubUser, messageObj, audit, timedOut, rateOk,
   conns, voice, leaveVoice, currentVoice, isFileUrl, cssColor, privacy, statusFor, platformsFor, social, sessions, reputation,
@@ -810,6 +812,7 @@ function dropWatching(uid, cid) { // tira uid das transmissões que assistia e e
 function leaveVoice(uid, cid, reason) {
   const m = voice.get(cid); if (!m || !m.has(uid)) return;
   clearTimeout(m.get(uid).dropT);
+  for (const x of m.get(uid).whisper || []) if (m.get(x)) send(m.get(x).ws, 'VOICE_WHISPER', { channel_id: cid, from: uid, on: false }); // sussurro acaba ao sair
   remote.onLeave(uid); // controle remoto acaba antes de qualquer outra coisa
   m.delete(uid); dropWatching(uid, cid); if (!m.size) { voice.delete(cid); roomStart.delete(cid); acts.delete(cid); }
   else { const a = acts.get(cid); let ch = lobby.onLeave(a, uid); if (a?.spot && (a.spot.slice(2) === uid)) { a.spot = a.spotBy = null; ch = true; } if (ch) roomSend(cid, 'ROOM_STATE', actState(cid)); } // quem estava em destaque saiu; a fila do lobby anda
@@ -965,7 +968,7 @@ function pushDevices(uid) {
 // O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
-  TYPING: [1, 4], VOICE_JOIN: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  TYPING: [1, 4], VOICE_JOIN: [2, 10], VOICE_WHISPER: [4, 12], VOICE_HAND: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
   REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];
@@ -1071,6 +1074,7 @@ wss.on('connection', (ws) => {
           if (timedOut(ch.guild_id, uid)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, reason: 'Você está de castigo neste servidor' });
           const pass = movePass.get(uid), moved = pass?.cid === ch.id && pass.until > Date.now(); if (pass?.cid === ch.id) movePass.delete(uid);
           if (!chp.chCan(ch, uid, CH.CONNECT) && currentVoice(uid) !== ch.id && !moved) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'no_connect', reason: 'Você não tem permissão para entrar nesta sala de voz' });
+          { const why = vrooms.checkJoin(ch, uid, voice.get(ch.id), { password: typeof d.password === 'string' ? d.password : undefined, moved }); if (why) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, ...why }); } // sala cheia ou com senha
           { const min = desktopMin(); if (min && ws.app && olderVer(ws.app, min)) return send(ws, 'VOICE_DENIED', { channel_id: ch.id, code: 'outdated', min, reason: `Seu app está na versão ${ws.app}. Para entrar nas calls, atualize para a ${min} ou mais nova.` }); }
           // ligação numa DM: começar a chamada (sala vazia) toca para a outra pessoa — só se ela aceita ligações de quem liga
           if (ch.type === 1 && !(voice.get(ch.id)?.size)) {
@@ -1098,6 +1102,7 @@ wss.on('connection', (ws) => {
           sfuJoin(ch.id, uid, sfuNotify(ch.id, uid)).then(sfu => {
             if (voice.get(ch.id)?.get(uid) !== st) return sfuLeave(ch.id, uid); // saiu enquanto entrava
             if (st.modMute || st.modDeaf || st.noSpeak) sfuModerate(ch.id, uid, { mute: st.modMute || st.noSpeak, deaf: st.modDeaf });
+            if (st.whisper) sfuModerate(ch.id, uid, { whisper: st.whisper });
             send(ws, 'VOICE_JOINED', { channel_id: ch.id, peers, sfu });
           }).catch(e => { console.error('sfu join', e.message); if (voice.get(ch.id)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: ch.id, reason: 'join' }); }); // o app tenta de novo (ex.: worker sendo recriado)
           break;
@@ -1112,6 +1117,7 @@ wss.on('connection', (ws) => {
             // o par do SFU é novo: o mudo/surdo da moderação (e a falta de "Falar") vale de novo. Sem isto, refazer a mídia
             // devolvia a voz a quem foi mutado
             if (st.modMute || st.modDeaf || st.noSpeak) sfuModerate(c, uid, { mute: st.modMute || st.noSpeak, deaf: st.modDeaf });
+            if (st.whisper) sfuModerate(c, uid, { whisper: st.whisper }); // o par do SFU é novo: o sussurro vale de novo
             send(ws, 'VOICE_JOINED', { channel_id: c, peers: [...voice.get(c).keys()].filter(x => x !== uid), sfu, rejoin: true });
           }).catch(e => { console.error('sfu rejoin', e.message); if (voice.get(c)?.get(uid) === st) send(ws, 'SFU_RESET', { channel_id: c, reason: 'rejoin_failed' }); });
           break;
@@ -1249,6 +1255,8 @@ wss.on('connection', (ws) => {
           const c = currentVoice(uid); if (!c) return;
           const st = voice.get(c).get(uid), before = JSON.stringify(vsObj(c, uid, st));
           for (const k of ['mute', 'deaf', 'video', 'screen', 'hold', 'mirror', 'clips', 'noclip']) if (typeof d[k] === 'boolean') st[k] = d[k]; if (st.noVideo) st.video = st.screen = false;
+          if (typeof d.hand === 'boolean' && !st.bot) st.hand = d.hand ? (st.hand || Date.now()) : 0; // pedir a vez (o momento é a ordem da fila)
+          if (typeof d.prio === 'boolean') { const chv = get('SELECT * FROM channels WHERE id=?', c); st.prio = d.prio && !!chv && vrooms.canPriority(chv, uid); }
           if (d.screenTitle !== undefined) st.screenTitle = st.screen && typeof d.screenTitle === 'string' ? clean(d.screenTitle, 80) || null : null; // nome do jogo transmitido
           if (!st.screen) st.screenTitle = null;
           st.screenNote = st.screen && ['min', 'closed', 'away'].includes(d.screenNote) ? d.screenNote : null; // janela transmitida minimizada/fechada/jogo fora da tela (aviso para quem assiste)
@@ -1261,6 +1269,28 @@ wss.on('connection', (ws) => {
           if (JSON.stringify(vsObj(c, uid, st)) === before) break; // nada mudou: não manda para o servidor inteiro
           const ch = get('SELECT * FROM channels WHERE id=?', c);
           dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id });
+          break;
+        }
+        case 'VOICE_HAND': { // quem modera voz baixa a mão de alguém da sala
+          const c = currentVoice(uid), ch = c && get('SELECT * FROM channels WHERE id=?', c), who = String(d.user_id || ''), st = c && voice.get(c).get(who);
+          if (!st?.hand || (who !== uid && !vrooms.canLowerHands(ch, uid))) break;
+          st.hand = 0; dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, who, st), guild_id: ch.guild_id });
+          if (who !== uid) send(st.ws, 'VOICE_HAND_LOWERED', { channel_id: c, by: uid });
+          break;
+        }
+        case 'VOICE_WHISPER': { // sussurro: { to: [uids da mesma sala] } começa (ou troca os alvos); { to: null } acaba
+          const c = currentVoice(uid), st = c && voice.get(c).get(uid);
+          if (!st || st.ws !== ws) break;
+          const ch = get('SELECT * FROM channels WHERE id=?', c), room = voice.get(c);
+          const to = Array.isArray(d.to) ? [...new Set(d.to.map(String))].filter(x => x !== uid && room.has(x) && !room.get(x).bot).slice(0, MAX_WHISPER) : [];
+          if (to.length && (!sfuEnabled() || !ch?.guild_id)) { send(ws, 'VOICE_WHISPER_ERR', { reason: 'Sussurro só funciona nas salas de servidor' }); break; }
+          const prev = st.whisper || [];
+          st.whisper = to.length ? to : null;
+          sfuModerate(c, uid, { whisper: st.whisper });
+          for (const x of prev) if (!to.includes(x) && room.get(x)) send(room.get(x).ws, 'VOICE_WHISPER', { channel_id: c, from: uid, on: false });
+          for (const x of to) if (!prev.includes(x)) send(room.get(x).ws, 'VOICE_WHISPER', { channel_id: c, from: uid, on: true });
+          send(ws, 'VOICE_WHISPER_OK', { channel_id: c, to });
+          if (!!prev.length !== !!to.length) dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id });
           break;
         }
         case 'REMOTE_REQUEST': case 'REMOTE_ANSWER': case 'REMOTE_INPUT': case 'REMOTE_STOP': case 'REMOTE_PERMS': case 'REMOTE_INVITE': case 'REMOTE_JOIN': case 'REMOTE_PING': case 'REMOTE_PONG': {

@@ -56,6 +56,7 @@ import { ghostFor, renderTyping } from './composer.js';
 import { renderMembers } from './members.js';
 import { renderActiveNow } from './home.js';
 import { voiceUpdate, renderVoiceUI, hasScreenOf } from './stage.js';
+import { initVoiceRooms, onRoomDenied, onWhisperEvent, clearWhisperState } from './voicerooms.js';
 import { wsPings, wsPing } from './ping.js';
 import { incomingCall, startGameDetect, migrateClipKey, setupDesktop } from './desktopsetup.js';
 import { loadSnap, saveSnap, clearSnap } from './bootcache.js';
@@ -285,6 +286,8 @@ export function onEvent(t, d) {
       voice.isMusicBot = (uid) => S.voice.get(uid)?.bot?.kind === 'music';
       voice.noClip = (uid) => !!S.voice.get(uid)?.noclip; // não quer a voz em clipes (fica fora do clipe e dos clipes automáticos)
       voice.fxLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId ? S.voice.get(uid)?.fx : null;
+      voice.prioLookup = (uid) => S.voice.get(uid)?.channel_id === voice.channelId && !!S.voice.get(uid)?.prio; // orador prioritário
+      initVoiceRooms(voice, () => renderVoiceUI());
       if (S.nativeOk === undefined) { S.nativeOk = null; voice.nativeCapable().then(r => { S.nativeOk = !!r.ok; S.nativeWhy = r.reason || ''; S.nativeCode = r.code || ''; }); }
       // tela cheia exclusiva confirmada pela captura (voice.watchFse): avisa uma vez por transmissão; não para nada
       voice.onFse = () => { if (!voice.fseToasted) { voice.fseToasted = true; toast('O jogo parece estar em tela cheia exclusiva e a captura não recebe a imagem. Mude para "Janela sem bordas" nas opções de vídeo do jogo. A transmissão continua; veja as opções em Ajustes da transmissão.', true); } renderVoiceUI(); };
@@ -421,6 +424,8 @@ export function onEvent(t, d) {
       if (d.channel_id) S.voice.set(d.user_id, d); else S.voice.delete(d.user_id);
       if (d.channel_id && d.channel_id === voice.channelId) { if (d.user_id === S.me.id && before !== d.channel_id) scanOutdated(); else warnOutdated(d); }
       if (d.user_id !== S.me.id && (prevVs?.fx || null) !== (d.fx || null)) voice?.setPeerFx(d.user_id);
+      if (!!prevVs?.prio !== !!d.prio) voice?.prioCheck(); // orador prioritário ligou/desligou
+      if (d.user_id === S.me.id && !d.channel_id) clearWhisperState();
       if (d.user_id === S.me.id && d.channel_id && d.channel_id === voice?.channelId) {
         if (!!d.mod_mute !== !!prevVs?.mod_mute && prevVs?.channel_id === d.channel_id) toast(d.mod_mute ? 'A moderação mutou você nas salas deste servidor' : 'A moderação liberou o seu microfone');
         if (!!d.mod_deaf !== !!prevVs?.mod_deaf && prevVs?.channel_id === d.channel_id) toast(d.mod_deaf ? 'A moderação ensurdeceu você nas salas deste servidor' : 'A moderação liberou o seu áudio');
@@ -488,7 +493,8 @@ export function onEvent(t, d) {
       else if (d.action === 'disconnect') toast(`${by} desconectou você da chamada`, true);
       break;
     }
-    case 'VOICE_DENIED': if (voice.channelId === d.channel_id) { track('voice_fail', /^[a-z_]{1,24}$/.test(d.code || '') ? d.code : 'denied'); cancelTimer('voice_connect'); voice.leave(); if (d.code === 'outdated') outdatedModal(d); else toast(d.reason, true); } break;
+    case 'VOICE_DENIED': if (voice.channelId === d.channel_id) { track('voice_fail', /^[a-z_]{1,24}$/.test(d.code || '') ? d.code : 'denied'); cancelTimer('voice_connect'); voice.leave(); if (d.code === 'outdated') outdatedModal(d); else onRoomDenied(d, (cid) => joinVoice(cid)).then(done => { if (!done) toast(d.reason, true); }); } break;
+    case 'VOICE_WHISPER': case 'VOICE_WHISPER_OK': case 'VOICE_WHISPER_ERR': case 'VOICE_HAND_LOWERED': onWhisperEvent(t, d); break; // sussurro e pedir a vez (public/voicerooms.js)
     case 'VOICE_PEER_LEFT': voice.onPeerLeft(d); break;
     case 'VOICE_SIGNAL': voice.onSignal(d); break;
     case 'SFU_RES': voice.onSfuRes(d); break;

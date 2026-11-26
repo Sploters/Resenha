@@ -2622,3 +2622,21 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .vu-clip { display: inline-flex; align-items: center; color: var(--text-muted); flex: none; margin-left: 2px; }
 .vu-clip .icon { fill: currentColor; }
 #voice-panel .vp-auto .icon { fill: currentColor; }
+
+/* salas de voz para gamers (public/voicerooms.js): limite, senha, pedir a vez, prioridade, sussurro */
+.vr-lock, .vr-cap { flex: none; margin-left: 4px; color: var(--text-muted); font-size: 11px; display: inline-flex; align-items: center; }
+.vr-cap { font-variant-numeric: tabular-nums; padding: 0 4px; border-radius: 4px; background: var(--bg-mod-strong, rgba(128,128,128,.2)); }
+.vr-cap.full { color: var(--red); }
+.vr-hand, .vr-prio { flex: none; display: inline-flex; align-items: center; gap: 1px; margin-left: 4px; color: #f0b232; }
+.vr-hand small { font-size: 10px; font-weight: 700; }
+.vr-prio { color: var(--brand, #5865f2); }
+.vr-handbtn { position: relative; }
+.vr-handn { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; border-radius: 8px; background: #f0b232; color: #111; font-size: 10px; font-weight: 800; line-height: 16px; text-align: center; }
+.vr-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vr-wlist { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow: auto; margin-top: 8px; }
+.vr-wp { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.vr-wp:hover { background: var(--bg-mod-strong, rgba(128,128,128,.15)); }
+.vr-roles { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.vr-wbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; flex-direction: column; gap: 6px; max-width: calc(100vw - 32px); }
+.vr-wbar > div { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 10px; background: #2b1f4d; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 14px; }
+.vr-wbar .vr-win { background: #3b2a12; }

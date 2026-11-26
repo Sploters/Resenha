@@ -10,6 +10,7 @@ import { inviteModal } from './rail.js';
 import { renderSide } from './side.js';
 import { isFav, toggleFav, favGroupMenuItem } from './favs.js';
 import { joinVoice } from './userbar.js';
+import { roomSettingsFields } from './voicerooms.js';
 import { playInviteModal } from './callinvite.js';
 export function channelModal(g, type, parent) {
   const name = h('input', { placeholder: type === 2 ? 'Sala de voz' : type === 4 ? 'Nova categoria' : type === 15 ? 'ideias-e-discussões' : 'novo-canal', maxLength: 100 });
@@ -100,7 +101,9 @@ export function channelSettings(g, c) {
           h('small.mut', 'Dono, administradores e quem gerencia canais nunca são barrados. O permitir de um cargo vence o negar de outro.'))));
   };
   if (manageRoles) draw();
+  const room = c.type === 2 ? roomSettingsFields(c) : null; // limite de pessoas e senha da sala
   const body = h('div', h('label.f', cat ? 'Nome da categoria' : 'Nome do canal', name),
+    room?.el,
     (cat || [0, 2, 5, 15, 16, 17].includes(c.type)) && h('label.f', cat ? 'Descrição' : 'Tópico', topic),
     parentSel && h('label.f', 'Categoria', parentSel),
     manageRoles && h('div.f', h('div.chp-title', 'Permissões'), cat && h('small.mut', { style: { display: 'block', marginBottom: '8px' } }, 'Valem para todos os canais sincronizados desta categoria.'), permBox));
@@ -108,7 +111,7 @@ export function channelSettings(g, c) {
   const dlg = modal(cat ? 'Configurações da categoria' : 'Configurações do canal', c.name, body,
     [{ label: 'Excluir', cls: 'red', fn: async () => { if (await confirmBox(cat ? 'Excluir categoria' : 'Excluir canal', `Excluir ${c.name}?${cat ? ' Os canais dela ficam sem categoria.' : ''}`, 'Excluir')) await tryApi('DELETE', `/channels/${c.id}`); } }, { label: 'Cancelar', cls: 'link' },
      { label: 'Salvar', fn: async () => {
-       const patch = { name: name.value, topic: topic.value }; if (parentSel) patch.parent_id = parentSel.value || null;
+       const patch = { name: name.value, topic: topic.value, ...(room ? room.patch() : {}) }; if (parentSel) patch.parent_id = parentSel.value || null;
        if (!await tryApi('PATCH', `/channels/${c.id}`, patch)) return false;
        if (manageRoles && wantSync && parentCat()) { if (!await tryApi('PUT', `/channels/${c.id}/perms`, { sync: true })) return false; }
        else if (manageRoles && dirty) { if (!await tryApi('PUT', `/channels/${c.id}/perms`, { overwrites: [...ows].map(([t, v]) => ({ target: t, ...v })) })) return false; }

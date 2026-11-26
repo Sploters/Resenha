@@ -28,10 +28,14 @@ export function mountChannels(app, d) {
     const np = req.body.parent_id !== undefined && ch.type !== 4 && ch.type !== 11
       ? (req.body.parent_id && get('SELECT id FROM channels WHERE id=? AND guild_id=? AND type=4', String(req.body.parent_id), ch.guild_id)?.id || null) : undefined;
     if (np && np !== ch.parent_id) { const why = lim.inCategory(np); if (why) return bad(res, why, 409); }
+    // sala de voz: limite de pessoas e senha (server/voicerooms.js; o hash da senha nunca vai no canal)
+    const roomCfg = req.body.user_limit !== undefined || typeof req.body.password === 'string';
+    if (roomCfg) { const why = d.vrooms.configure(ch, { user_limit: req.body.user_limit, password: req.body.password }); if (why) return bad(res, why); }
     run('UPDATE channels SET name=?,topic=?,position=? WHERE id=?', clean(req.body.name, 100) || ch.name, req.body.topic !== undefined ? clean(req.body.topic, 1024) : ch.topic, Number.isFinite(+req.body.position) && req.body.position !== undefined ? +req.body.position : ch.position, ch.id);
     // mudar de categoria (null: sem categoria). Sincronizado continua sincronizado: passa a seguir a categoria nova
     if (np !== undefined && np !== (ch.parent_id || null)) run('UPDATE channels SET parent_id=? WHERE id=?', np, ch.id);
     dispatch(guildMemberIds(ch.guild_id), 'CHANNEL_UPDATE', get('SELECT * FROM channels WHERE id=?', ch.id));
+    if (roomCfg) audit(ch.guild_id, req.uid, 'channel_update', ch.id, `${ch.name} · ${typeof req.body.password === 'string' ? (req.body.password.trim() ? 'senha da sala trocada' : 'senha da sala tirada') : 'limite da sala: ' + ((+req.body.user_limit | 0) || 'sem limite')}`);
     if (req.body.name !== undefined || req.body.topic !== undefined) audit(ch.guild_id, req.uid, 'channel_update', ch.id, get('SELECT name FROM channels WHERE id=?', ch.id).name);
     res.json({});
   }));

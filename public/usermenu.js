@@ -10,6 +10,7 @@ import { canCallInvite, sendCallInvite } from './callinvite.js';
 import { isLightPair, styleName } from './themes.js';
 import { profileCard, STATUS_TXT, topGames } from './card.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, voiceModItems } from './mod.js';
+import { roomUserItems } from './voicerooms.js';
 import { voice, logout, mergeUser } from './gateway.js';
 import { openBot, botMenu } from './botmusic.js';
 import { openSettings, openFullProfile, go } from './nav.js';
@@ -201,6 +202,7 @@ function callUserMenu(e, uid, gid) {
       : rt === 4 ? { label: 'Cancelar Pedido de Amizade', fn: () => tryApi('DELETE', `/relationships/${uid}`) }
       : rt === 0 && { label: 'Adicionar Amizade', fn: () => tryApi('POST', '/relationships', { username: user(uid).username }).then(r => r && toast('Pedido enviado')) },
     rt !== 2 ? { label: 'Bloquear', danger: true, fn: () => tryApi('PUT', `/relationships/${uid}`, { type: 2 }) } : { label: 'Desbloquear', fn: () => tryApi('DELETE', `/relationships/${uid}`) },
+    ...(roomUserItems(uid).length ? ['-', ...roomUserItems(uid)] : []), // sussurrar, baixar a mão (public/voicerooms.js)
     // moderação continua disponível para quem tem permissão
     ...(voiceModItems(gid, uid).length ? ['-', ...voiceModItems(gid, uid)] : []),
     g && outranks(gid, uid) && (can(gid, PERM.MODERATE) || can(gid, PERM.BAN) || can(gid, PERM.KICK)) && '-',

@@ -308,7 +308,7 @@ export class Voice {
     this.serverRoom = serverRoom || (() => null); // sala em que o servidor tem esta pessoa (último VOICE_STATE recebido)
     this.autoKbps = AUTO_MAX; // nível escolhido pelo modo automático (32-64 kbps, voz mono)
     this.channelId = null; this.peers = new Map(); this.micGraph = null; this.mic = null; this.cam = null; this.screen = null;
-    this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set();
+    this.closedStreams = new Set(); this.muted = false; this.deafened = false; this.ptt = false; this.speaking = new Set(); this.sbActive = new Set(); this.roomPass = {}; this.hand = false; this.prio = false; this.whisperTo = null;
     this.ctx = null; this.analysers = new Map(); this.timer = null; this.screenOpts = null; this._natLive = new Set();
     document.addEventListener('visibilitychange', () => this.syncVoiceFlow());
     // a internet voltou (Wi-Fi trocou, cabo, 4G): não espera o navegador perceber que a mídia caiu
@@ -494,7 +494,7 @@ export class Voice {
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), 100);
     this._mw = newMicWatch(); this._tm = newTalkMuted(); this._mfix = null; clearInterval(this._mwT); this._mwT = setInterval(() => this.micWatch(), 250); // vigia da captura do microfone
     this._cq = new CallQuality(); clearInterval(this._cqT); this._cqT = setInterval(() => this.qualitySample(), SAMPLE_MS); // qualidade técnica (public/callqual.js)
-    this._jt = { sent: performance.now() }; this.send('VOICE_JOIN', { channel_id: channelId });
+    this._jt = { sent: performance.now() }; this.send('VOICE_JOIN', { channel_id: channelId, ...(this.roomPass[channelId] ? { password: this.roomPass[channelId] } : {}) }); // senha da sala (public/voicerooms.js)
     this.sendState(); this.onUpdate(); if (!silent) playSound('selfJoin');
     await micP;
     if (stale() || this.channelId !== channelId) return; // saiu (ou o servidor recusou) enquanto o microfone ficava pronto
@@ -534,7 +534,7 @@ export class Voice {
     this.stopAppAudio(); // programa de áudio do jogo também para
     const c = this._clipMe; if (c) { c.src?.disconnect(); c.node?.stop(); c.dest.stream.getTracks().forEach(t => t.stop()); } this._clipSb?.stream.getTracks().forEach(t => t.stop()); this._clipMe = this._clipSb = null; // áudio dos clipes
     for (const s of [this.cam, this.screen]) s?.getTracks().forEach(t => t.stop());
-    this.mic = this.cam = this.screen = null; this.channelId = null; this.speaking.clear();
+    this.mic = this.cam = this.screen = null; this.channelId = null; this.speaking.clear(); this.hand = false; this.whisperTo = null; this._prioKey = '';
     for (const a of this.analysers.values()) a.src.disconnect(); this.analysers.clear();
     clearInterval(this.timer); this.timer = null; this.sleepCtx(); this.onUpdate();
   }
@@ -1555,8 +1555,19 @@ export class Voice {
   applyVolume(uid) {
     const p = this.peers.get(uid); if (!p) return;
     const master = this.testMute ? 0 : (this.prefs.volume ?? 100) / 100;
-    this.setLevel(p, 'audioEl', this.prefs.mutedUsers?.[uid] ? 0 : this.volOf(uid) / 100 * master); // "Mute" do menu do usuário
+    this.setLevel(p, 'audioEl', this.prefs.mutedUsers?.[uid] ? 0 : this.volOf(uid) / 100 * master * this.duckOf(uid)); // "Mute" do menu do usuário
     this.setLevel(p, 'screenAudioEl', (this.streamVolumes[uid] ?? 100) / 100 * master);
+  }
+  // orador prioritário: enquanto alguém com "Falar com prioridade" ligado fala, as outras vozes ficam a 25%
+  // (prioLookup vem do estado de voz da sala, mantido pelo app; o servidor só deixa ligar quem tem a permissão)
+  duckOf(uid) {
+    if (!this._prioKey || this.prioLookup?.(uid)) return 1;
+    return (this.prefs.prioDuck ?? 25) / 100;
+  }
+  prioCheck() {
+    const k = [...this.speaking].filter(id => id !== this.myId && this.prioLookup?.(id)).sort().join();
+    if (k === (this._prioKey || '')) return;
+    this._prioKey = k; for (const id of this.peers.keys()) this.applyVolume(id);
   }
   // até 100% usa o volume do elemento; acima disso o áudio passa por um ganho WebAudio (com limitador para não estourar)
   setLevel(p, key, f) {
@@ -1711,7 +1722,7 @@ export class Voice {
       const on = loud || (a.at > 0 && now - a.at < (a.rx ? SSRC_HOLD_MS : 300) && !(mine && (this.muted || this.deafened)));
       if (on !== this.speaking.has(uid)) { on ? this.speaking.add(uid) : this.speaking.delete(uid); changed = true; }
     }
-    if (changed) this.onUpdate(true);
+    if (changed) { this.prioCheck(); this.onUpdate(true); }
     this.onLevel?.(this.analysers.get(this.myId)?.level || 0);
   }
 
@@ -1770,7 +1781,7 @@ export class Voice {
     const si = this.screenOpts?.srcInfo; if (!si || si.type !== 'window' || !(si.game || si.fullscreen)) return null;
     const t = String(si.name || '').replace(/[™®]/g, '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, 80) : null;
   }
-  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, screenTitle: (this.screen && this.streamTitle()) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror, clips: !!this.clipRec, noclip: !!this.prefs?.clipVoiceOff }); }
+  sendStateNow() { if (!this.channelId) return; this.syncVoiceFlow(); this.send('VOICE_STATE', { mute: this.muted || this.deafened || !!this.testMute, deaf: this.deafened || !!this.testMute, video: !!this.cam, screen: !!this.screen, screenNote: (this.screen && this.screenNote) || null, screenTitle: (this.screen && this.streamTitle()) || null, fx: this.fx || null, hold: !!this.hold, mirror: !!this.prefs?.camMirror, clips: !!this.clipRec, noclip: !!this.prefs?.clipVoiceOff, hand: !!this.hand, prio: !!this.prio }); }
 
   // um pedido de cada vez: clicar de novo enquanto a câmera/tela abre não abre outra (antes cada clique abria uma câmera,
   // só a última ficava no app e as outras continuavam ligadas, com a luz da câmera acesa, até fechar o app)

@@ -1,7 +1,7 @@
 // Palco da chamada: quadros (câmera, tela, avatar), layouts, visibilidade e qualidade dos vídeos, e clipes.
 import { fxBadge } from './fxui.js';
 import { h, icon, avatar, parsePos, imgUrl } from './util.js';
-import { S, user, channelById, nameOf, toast, menu, popout, closeFloating, desktop, savePrefs, CH, chCan } from './state.js';
+import { S, user, channelById, nameOf, toast, menu, popout, closeFloating, desktop, savePrefs, CH, chCan, can, PERM } from './state.js';
 import { playSound } from './sounds.js';
 import { openSoundboard } from './soundboard.js';
 import { volumeControl } from './quick.js';
@@ -23,6 +23,7 @@ import { activityOf, refreshFeedView, gameTitle } from './activity.js';
 import { swapIcon, animOn } from './motion.js';
 import { voice, $, gwSend, roomVoice } from './gateway.js';
 import { botTile } from './botmusic.js';
+import { handBadge, handsOf, toggleHand, whisperPicker, stopWhisper, togglePriority, canPriority, lowerHand } from './voicerooms.js';
 import { appBadge } from './appver.js';
 import { openSettings, ctxSettings } from './nav.js';
 import { renderSide } from './side.js';
@@ -327,7 +328,7 @@ export function renderVoiceUI(speakOnly) {
     const camVid = cam && v.video ? videoFor(ckey, cam) : null;
     const t = h('div.tile.utile' + (v.hold ? '.onhold' : '') + (cam && v.video ? '.hasvid' : '') + (camVid?.classList.contains('nofr') ? '.waitvid' : '') + (mirrored ? '.mirrored' : '') + (voice.speaking.has(uid) ? '.speaking' : '') + (voice.sbActive.has(uid) ? '.sbplay' : ''), { 'data-uid': uid, 'data-key': ckey, oncontextmenu: (e) => userMenu(e, uid, gid), onclick: () => { S.focus = S.focus === ckey ? null : ckey; renderVoiceUI(); } },
       ...(cam && v.video ? [camVid, camVid.classList.contains('nofr') && waitAvatar(user(uid))] : [avatar(user(uid), 96, { status: false })]),
-      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), appBadge(v), v.hold && h('span.vu-hold', 'Em espera')),
+      h('div.label', muteIco(v), v.deaf && icon('headoff', 14), styleName(h('span', nm(uid)), user(uid).name_style), fxBadge(v.fx), handBadge(v), v.prio && h('span.vr-prio', { title: 'Falando com prioridade' }, icon('megaphone', 13)), appBadge(v), v.hold && h('span.vu-hold', 'Em espera')),
       // opções do participante à vista (antes só no clique direito): volume, silenciar, desativar vídeo, parar de assistir
       inRoom && h('button.tmore', { title: 'Opções de ' + nm(uid), 'aria-label': 'Opções de ' + nm(uid), onclick: (e) => { e.stopPropagation(); userMenu(e, uid, gid); } }, icon('more', 16)));
     tiles.push(paintTile(t, user(uid)));
@@ -367,6 +368,7 @@ export function renderVoiceUI(speakOnly) {
     ctxOpts(btn('screen', voice.screen ? 'Configurar a transmissão (qualidade, fonte, áudio) · clique direito: opções rápidas' : 'Transmitir tela', false, startShare, voice.screen ? '.sharing' : ''), async () => [...screenOptItems(), ...(watchOptItems().length ? ['-', ...watchOptItems()] : [])]),
     fxButton(24, true, '.solo-narrow'),
     activityButton(24), // Atividades: Watch Together, música, chamar pra jogar, lousa, código (userbar.js)
+    handButton(ch), // pedir a vez; clique direito: sussurrar e falar com prioridade (public/voicerooms.js)
     h('button.roundbtn.solo-narrow', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => openSoundboard(e.currentTarget, voice, { openSettings: (k) => openSettings(k, ctxSettings()) }) }, icon('soundboard', 24)),
     // transmitindo: a bola vermelha da ponta vira "Parar transmissão" (mesmo tamanho das outras) no lugar do "Sair da chamada";
     // para sair da chamada continua o botão do painel de voz (ou parar a transmissão e o Sair volta aqui)
@@ -459,4 +461,20 @@ export function clipMenu(e, key, who) {
     { label: 'Meus clipes…', icon: 'clip', hint: 'Os clipes guardados neste aparelho', fn: () => openShareClip(null) }, '-',
     { label: 'Configurações dos clipes', icon: 'gear', fn: () => openSettings('clips', ctxSettings()) },
     { label: 'Desativar clipes', icon: 'x', danger: true, fn: () => { S.prefs.clipsOn = false; savePrefs(); stopAllBuffers(); renderVoiceUI(); } }]);
+}
+
+// pedir a vez: mão levantada (o número é a fila da sala). Clique direito (ou o ⋯ do menu): sussurrar, falar com
+// prioridade e, para quem modera voz, baixar as mãos da fila
+function handButton(ch) {
+  const hands = handsOf(ch.id), others = hands.filter(v => v.user_id !== S.me.id).length;
+  const extra = (e) => { e.preventDefault(); menu(e, [
+    { label: voice.hand ? 'Baixar a mão' : 'Pedir a vez', fn: toggleHand },
+    ch.guild_id && { label: voice.whisperTo ? 'Trocar quem ouve o sussurro…' : 'Sussurrar…', fn: () => whisperPicker() },
+    voice.whisperTo && { label: 'Parar de sussurrar', fn: stopWhisper },
+    canPriority() && { label: 'Falar com prioridade', checked: !!voice.prio, fn: togglePriority },
+    hands.length > 0 && '-',
+    ...hands.map((v, i) => ({ label: `${i + 1}º ${nameOf(v.user_id, ch.guild_id)}${v.user_id === S.me.id ? ' (você)' : ''}`, ...(v.user_id === S.me.id || (ch.guild_id && can(ch.guild_id, PERM.VOICE_MOD)) ? { sub: [{ label: 'Baixar a mão', fn: () => lowerHand(v.user_id) }] } : { fn: () => { } }) })),
+  ].filter(Boolean)); };
+  return h('button.roundbtn.vr-handbtn' + (voice.hand ? '.active' : ''), { title: (voice.hand ? 'Baixar a mão' : 'Pedir a vez') + ' · clique direito: sussurrar' + (canPriority() ? ', falar com prioridade' : ''), 'aria-label': voice.hand ? 'Baixar a mão' : 'Pedir a vez', onclick: toggleHand, oncontextmenu: extra },
+    icon('hand', 22), others > 0 && h('span.vr-handn', String(others)));
 }

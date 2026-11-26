@@ -214,15 +214,33 @@ export function sfuLeave(cid, uid) {
 
 // Moderação de voz: mutado não tem a voz repassada (o producer do microfone fica pausado no servidor); ensurdecido não
 // recebe as vozes dos outros (os consumers de microfone ficam pausados e não voltam a pedido do app)
-export function sfuModerate(cid, uid, { mute, deaf }) {
-  const peer = rooms.get(cid)?.peers.get(uid); if (!peer) return;
+// Sussurro: a voz de quem sussurra só chega a alguns da sala. O consumer do microfone dela fica pausado no servidor para os
+// outros (wBlocked); não volta a pedido do app enquanto o sussurro durar. whisper: lista de uids, ou null para acabar.
+const blockedFor = (r, listenerUid, fromUid) => { const w = r?.peers.get(fromUid)?.whisperTo; return !!w && !w.has(listenerUid); };
+const micMayPlay = (listener, c) => !c.appData.wBlocked && !(listener.modDeaf && c.appData.source === 'mic');
+export function sfuModerate(cid, uid, { mute, deaf, whisper }) {
+  const r = rooms.get(cid), peer = r?.peers.get(uid); if (!peer) return;
+  if (whisper !== undefined) {
+    peer.whisperTo = Array.isArray(whisper) && whisper.length ? new Set(whisper.map(String)) : null;
+    for (const x of r.peers.values()) {
+      if (x === peer) continue;
+      for (const c of x.consumers.values()) {
+        if (c.closed || c.appData.source !== 'mic' || c.appData.from !== uid) continue;
+        const block = blockedFor(r, x.uid, uid);
+        if (block === !!c.appData.wBlocked) continue;
+        c.appData.wBlocked = block;
+        if (block) c.pause().catch(() => { });
+        else if (micMayPlay(x, c) && !c.appData.clientPaused && !(c.appData.tunnel && x.tunnel?.off)) c.resume().catch(() => { });
+      }
+    }
+  }
   if (typeof mute === 'boolean' && peer.modMute !== mute) {
     peer.modMute = mute;
     const p = peer.producers.get('mic'); if (p && !p.closed) (mute ? p.pause() : p.resume()).catch(() => { });
   }
   if (typeof deaf === 'boolean' && peer.modDeaf !== deaf) {
     peer.modDeaf = deaf;
-    for (const c of peer.consumers.values()) if (!c.closed && c.appData.source === 'mic') (deaf ? c.pause() : c.resume()).catch(() => { });
+    for (const c of peer.consumers.values()) if (!c.closed && c.appData.source === 'mic' && !c.appData.wBlocked) (deaf ? c.pause() : c.resume()).catch(() => { });
   }
 }
 
@@ -244,7 +262,7 @@ const LEVEL_DB = +(process.env.SFU_SPEAK_DB || -50);
 function levelsFor(r) {
   return r.levelsP ||= r.router.createAudioLevelObserver({ maxEntries: 16, threshold: LEVEL_DB, interval: 250 }).then((o) => {
     let last = '';
-    const push = (ids) => { const k = ids.sort().join(); if (k === last) return; last = k; for (const x of r.peers.values()) if (x.wantLevels) x.notify('SFU_SPEAKING', { ids }); };
+    const push = (ids) => { const k = ids.sort().join(); if (k === last) return; last = k; for (const x of r.peers.values()) if (x.wantLevels) x.notify('SFU_SPEAKING', { ids: ids.filter(id => !blockedFor(r, x.uid, id)) }); };
     o.on('volumes', (v) => (r.lastVoiceAt = Date.now(), push([...new Set(v.map(x => x.producer.appData.uid).filter(Boolean))])));
     o.on('silence', () => push([]));
     r.levelsNow = () => last ? last.split(',') : [];
@@ -303,7 +321,7 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
     try { c = await t.consume({ producerId: p.id, rtpCapabilities: r.router.rtpCapabilities, paused: true }); } catch { tun.used.delete(slot); return; }
     if (tun.closed) { c.close(); return; }
     const source = p.appData.source, video = c.kind === 'video';
-    c.appData.source = source; c.appData.tunnel = true;
+    c.appData.source = source; c.appData.tunnel = true; c.appData.from = ownerUid; if (source === 'mic' && blockedFor(r, uid, ownerUid)) c.appData.wBlocked = true;
     tun.slots.set(c.id, { c, slot }); peer.consumers.set(c.id, c);
     const gone = () => { if (!tun.slots.delete(c.id)) return; peer.consumers.delete(c.id); tun.used.delete(slot); if (!tun.closed) out.del(slot); };
     c.on('producerclose', gone); c.on('transportclose', gone); c.observer.on('close', gone);
@@ -323,7 +341,7 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
     const codec = c.rtpParameters.codecs[0];
     out.add(slot, ownerUid, source, c.kind, codec ? { mime: codec.mimeType, profile: codec.parameters?.['profile-level-id'] || null } : null);
     // ensurdecido (no app ou pela moderação): a voz dos outros não chega. Vídeo espera o app pedir (tun.pause)
-    if (!video && !((tun.off || peer.modDeaf) && source === 'mic')) await c.resume().catch(() => { });
+    if (!video && !((tun.off || peer.modDeaf || c.appData.wBlocked) && source === 'mic')) await c.resume().catch(() => { });
   };
   // voz que o app manda (microfone ou áudio da transmissão): Opus de 20 ms com o carimbo em amostras de 48 kHz -> RTP
   const audioProducer = (source) => {
@@ -394,7 +412,7 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   // o app assiste (ou parou de assistir) um vídeo/áudio de transmissão; pedido de quadro-chave de um vídeo que chega
   tun.pause = (n, on) => {
     const x = slotOf(n); if (!x || x.c.closed) return;
-    if (x.c.appData.source === 'mic' && !on && (tun.off || peer.modDeaf)) return;
+    if (x.c.appData.source === 'mic' && !on && (tun.off || peer.modDeaf || x.c.appData.wBlocked)) return;
     (on ? x.c.pause() : x.c.resume()).catch(() => { });
   };
   // este navegador não abre o H.264 daquele vídeo (Linux sem o codec, Firefox): pede a quem transmite para trocar pelo
@@ -409,7 +427,7 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   tun.key = (n) => { const x = slotOf(n); if (x?.c.kind === 'video' && !x.c.closed) x.c.requestKeyFrame().catch(() => { }); };
   tun.setOff = (off) => {
     tun.off = !!off;
-    for (const { c } of tun.slots.values()) if (c.appData.source === 'mic' && !c.closed) (tun.off || peer.modDeaf ? c.pause() : c.resume()).catch(() => { });
+    for (const { c } of tun.slots.values()) if (c.appData.source === 'mic' && !c.closed) (tun.off || peer.modDeaf || c.appData.wBlocked ? c.pause() : c.resume()).catch(() => { });
   };
   tun.close = () => { if (tun.closed) return; tun.closed = true; if (peer.tunnel === tun) peer.tunnel = null; peer.transports.delete(t.id); try { t.close(); } catch { } };
   t.observer.on('close', () => { const was = tun.closed; tun.close(); if (!was) out.closed(); });
@@ -524,7 +542,8 @@ export async function sfuRequest(cid, uid, op, d) {
       // para essa pessoa (senão o servidor seguia mandando vídeo acima do que a internet dela aguenta e a voz picotava)
       c.on('score', (sc) => { if (sc.score < 7 && !t.appData.weak && MIN_OUT_KBPS > WEAK_KBPS) { t.appData.weak = true; clearTimeout(t.appData.floorTimer); t.setMinOutgoingBitrate(t.appData.floorOn ? WEAK_KBPS * 1000 : 0).catch(() => { }); } });
       c.appData.recvT = t;
-      for (const o of r.peers.values()) for (const p of o.producers.values()) if (p.id === pid) c.appData.source = p.appData.source;
+      for (const o of r.peers.values()) for (const p of o.producers.values()) if (p.id === pid) { c.appData.source = p.appData.source; c.appData.from = o.uid; }
+      if (c.appData.source === 'mic' && blockedFor(r, uid, c.appData.from)) c.appData.wBlocked = true;
       const drop = () => { if (peer.consumers.delete(c.id)) peer.notify('SFU_CONSUMER_CLOSED', { consumer_id: c.id }); };
       c.on('producerclose', drop); c.on('transportclose', () => peer.consumers.delete(c.id));
       return { id: c.id, producer_id: pid, kind: c.kind, rtpParameters: c.rtpParameters, producerPaused: c.producerPaused };
@@ -533,7 +552,7 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.wantLevels = !!d.on; if (peer.wantLevels) await levelsFor(r);
       return { ids: peer.wantLevels ? r.levelsNow?.() || [] : [] };
     }
-    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) { if (d.paused) await c.pause(); else if (peer.modDeaf && c.appData.source === 'mic') { /* ensurdecido pela moderação */ } else { await c.resume(); if (c.kind === 'video') rampFloor(c.appData.recvT); } } return {}; }
+    case 'pause': { const c = peer.consumers.get(String(d.consumer_id)); if (c) { c.appData.clientPaused = !!d.paused; if (d.paused) await c.pause(); else if (!micMayPlay(peer, c)) { /* ensurdecido pela moderação ou fora de um sussurro */ } else { await c.resume(); if (c.kind === 'video') rampFloor(c.appData.recvT); } } return {}; }
     case 'layers': { const c = peer.consumers.get(String(d.consumer_id)); if (c?.kind === 'video') { const sp = Math.max(0, Math.min(2, d.spatial | 0)); const up = sp > (c.preferredLayers?.spatialLayer ?? 2); await c.setPreferredLayers({ spatialLayer: sp, temporalLayer: 2 }).catch(() => { }); if (up) rampFloor(c.appData.recvT); } return {}; }
     // perda de verdade da voz que esta pessoa envia, vista pelo servidor. O relatório RTCP que o navegador recebe não serve:
     // com a correção de erros do Opus ligada, o mediasoup põe nele a PIOR perda entre quem ouve (para o Opus mandar mais
@@ -572,7 +591,7 @@ export async function sfuRequest(cid, uid, op, d) {
       await c.requestKeyFrame().catch(() => { });
       return { ok: true };
     }
-    case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); if (peer.modDeaf && c?.appData.source === 'mic') return {}; await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
+    case 'resume': { const c = peer.consumers.get(String(d.consumer_id)); if (c) c.appData.clientPaused = false; if (c && !micMayPlay(peer, c)) return {}; await c?.resume(); if (c?.kind === 'video') rampFloor(c.appData.recvT); return {}; }
     default: throw new Error('operação desconhecida');
   }
 }
