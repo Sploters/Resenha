@@ -50,6 +50,8 @@ const old = (await call(own, 'POST', `/guilds/${g.id}/roles`, { name: 'Antigo', 
 
 ok((await call(mem, 'POST', `/guilds/${g.id}/discord-structure/preview`, { template: 'https://discord.new/raidtpl' })).status === 403, 'membro sem administrador não importa');
 ok((await call(own, 'POST', `/guilds/${g.id}/discord-structure/preview`, { template: 'isso não é link!' })).status === 400, 'texto que não é link é recusado');
+{ const r = await call(own, 'POST', `/guilds/${g.id}/discord-structure/preview`, { template: 'https://discord.gg/abc123' });
+  ok(r.status === 400 && /convite/.test(r.data.error) && /discord\.new/.test(r.data.error), 'link de convite: explica que não serve e onde achar o modelo', r.data); }
 ok((await call(own, 'POST', `/guilds/${g.id}/discord-structure/preview`, { template: 'https://discord.new/naoexiste' })).status === 422, 'modelo inexistente: erro claro');
 const pv = await call(own, 'POST', `/guilds/${g.id}/discord-structure/preview`, { template: 'https://discord.new/raidtpl' });
 ok(pv.status === 200 && pv.data.counts.roles === 3 && pv.data.counts.categories === 2 && pv.data.counts.voice === 2 && pv.data.counts.text === 5, 'prévia: 3 cargos (sem o do bot), 2 categorias, 5 de texto, 2 de voz', pv.data.counts);

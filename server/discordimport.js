@@ -53,8 +53,17 @@ const TYPE = { 0: 0, 2: 2, 4: 4, 5: 5, 13: 2, 15: 15, 16: 16 };
 
 export function templateCode(s) {
   const t = String(s || '').trim();
-  const m = t.match(/(?:discord\.new\/|discord(?:app)?\.com\/template\/)([A-Za-z0-9-]{2,64})/i) || t.match(/^([A-Za-z0-9-]{2,64})$/);
+  const m = t.match(/(?:discord\.new\/|discord(?:app)?\.com\/template\/)([A-Za-z0-9_-]{2,64})/i) || t.match(/^([A-Za-z0-9_-]{2,64})$/);
   return m ? m[1] : null;
+}
+// o que foi colado não é um modelo: diz o que parece ser e onde achar o certo
+export function notTemplateWhy(s) {
+  const t = String(s || '').trim();
+  const how = 'No Discord: Configurações do servidor → Modelo de servidor → Gerar modelo → Copiar (o link começa com https://discord.new/).';
+  if (!t) return 'Cole o link do modelo do servidor. ' + how;
+  if (/discord(?:app)?\.(?:gg|com\/invite)\//i.test(t)) return 'Esse é um link de convite, que não traz canais nem cargos. ' + how;
+  if (/discord(?:app)?\.com\/channels\//i.test(t)) return 'Esse é o link de um canal. ' + how;
+  return 'Isso não parece um link de modelo do Discord. ' + how;
 }
 async function fetchTemplate(code) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10e3);
@@ -107,7 +116,7 @@ export function mountDiscordImport(app, d) {
   const gate = (req, res) => {
     const g = get('SELECT * FROM guilds WHERE id=?', req.params.id);
     if (!g || !can(g.id, req.uid, P.ADMIN)) { bad(res, 'Só o dono e os administradores importam a estrutura do servidor', 403); return null; }
-    const code = templateCode(req.body?.template); if (!code) { bad(res, 'Cole o link do modelo do Discord (discord.new/…)'); return null; }
+    const code = templateCode(req.body?.template); if (!code) { bad(res, notTemplateWhy(req.body?.template)); return null; }
     return { g, code };
   };
   app.post('/api/guilds/:id/discord-structure/preview', auth, async (req, res) => {
