@@ -21,7 +21,6 @@ import './backoff.js';
 import { loadPublicOrigin } from './util.js';
 import './timestamp.js';
 import { S, user, guild, channelById, nameOf, applyTheme, savePrefs, alertAllowed, prefetch } from './state.js';
-import './tts.js';
 import './voice.js';
 import { playSound } from './sounds.js';
 import './music.js';

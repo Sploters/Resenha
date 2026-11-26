@@ -4,8 +4,7 @@ import { isGifMessage, toggleFav as toggleGifFav, isFav as isGifFav } from './gi
 import { favMenuItems } from './mediafavs.js';
 import { undoImportModal } from './importer.js';
 import { h, icon, avatar, sameDay, imgUrl, cleanLinks } from './util.js';
-import { S, api, tryApi, user, channelById, nameOf, can, PERM, toast, modal, confirmBox, menu, emojiPicker, savePrefs, CH, chCan, isChatCh } from './state.js';
-import { speak, speakableText, ttsSupported, ttsSpeaking, ttsStop } from './tts.js';
+import { S, api, tryApi, user, channelById, can, PERM, toast, modal, confirmBox, menu, emojiPicker, savePrefs, CH, chCan, isChatCh } from './state.js';
 import { chName } from './chnames.js';
 import { flaggedMap, flagMessage, unflagMessage } from './mod.js';
 import { mentionUser } from './plugins.js';
@@ -60,7 +59,6 @@ export function msgMenu(e, m) {
     { label: 'Responder', fn: () => setReply(m) },
     !mine && { label: 'Mencionar', fn: () => mentionUser(m.author_id) },
     m.content && { label: 'Copiar texto', fn: () => navigator.clipboard?.writeText(m.content) },
-    m.content && ttsSupported() && (ttsSpeaking() ? { label: 'Parar leitura', fn: () => ttsStop() } : { label: 'Ler em voz alta', hint: 'Voz do aparelho', fn: () => speak(`${nameOf(m.author_id, gid)} disse: ${speakableText(m.content, { nameOf: (id) => nameOf(id, gid) })}`, { localOnly: !!m.e2ee }) }),
     pearlMenuItem(m, gid),
     canForward(m) && { label: 'Encaminhar', hint: 'Para outras conversas e canais', fn: () => forwardModal(m) },
     ...favMenuItems(m),

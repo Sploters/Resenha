@@ -113,19 +113,50 @@ export function decodeTheme(code) {
 
 // ---------- temas de perfil: gradiente vertical da cor principal para a de destaque ----------
 // Os marcados com "dt" vieram do discordthemes.com (cores compartilhadas pela comunidade).
+// g: grupo na galeria do editor
+export const PROFILE_THEME_GROUPS = { dark: 'Escuros', vivid: 'Vibrantes', neon: 'Neon', pastel: 'Pastel', nature: 'Natureza', community: 'Da comunidade' };
 export const PROFILE_THEMES = [
-  { name: 'Yabba dabba', p: '#53aba9', a: '#2f4451', dt: true },
-  { name: 'Light Pastel Pink', p: '#b884b3', a: '#593566', dt: true },
-  { name: 'Black & Pastel Green', p: '#0b0c0d', a: '#93e9be', dt: true },
-  { name: 'Black and Red', p: '#000000', a: '#ff0000', dt: true },
-  { name: 'A T M O I C', p: '#000000', a: '#6f2da8', dt: true },
-  { name: 'Koa', p: '#ff0063', a: '#ff0063', dt: true },
-  { name: 'Turquesa', p: '#118a95', a: '#3eabb0', dt: true },
-  { name: 'Grafite', p: '#0d0d0d', a: '#434343', dt: true },
-  { name: 'Aurora', p: '#0f5c4f', a: '#2a1f6b' },
-  { name: 'Pôr do sol', p: '#f5a25d', a: '#8e3b75' },
-  { name: 'Céu', p: '#a8d8ff', a: '#5865f2' },
-  { name: 'Algodão-doce', p: '#ffd6e8', a: '#b9c8ff' },
+  { name: 'Meia-noite', p: '#0b1026', a: '#2b3a8f', g: 'dark' },
+  { name: 'Grafite', p: '#0d0d0d', a: '#434343', g: 'dark', dt: true },
+  { name: 'Carvão azul', p: '#11161f', a: '#2d3b52', g: 'dark' },
+  { name: 'Abismo', p: '#020b14', a: '#0f4c5c', g: 'dark' },
+  { name: 'Ameixa', p: '#1a0b1f', a: '#5a2a6b', g: 'dark' },
+  { name: 'Vinho', p: '#1c0509', a: '#6d1a2a', g: 'dark' },
+  { name: 'Floresta noturna', p: '#06140d', a: '#1f4d36', g: 'dark' },
+  { name: 'Eclipse', p: '#000000', a: '#3a3f58', g: 'dark' },
+  { name: 'Oceano', p: '#0052d4', a: '#4364f7', g: 'vivid' },
+  { name: 'Elétrico', p: '#4b8bff', a: '#1b2a6b', g: 'vivid' },
+  { name: 'Uva', p: '#7f00ff', a: '#3d0a91', g: 'vivid' },
+  { name: 'Framboesa', p: '#d1006f', a: '#5a0a4f', g: 'vivid' },
+  { name: 'Rubi', p: '#e0112b', a: '#5c0611', g: 'vivid' },
+  { name: 'Esmeralda', p: '#00a86b', a: '#064e3b', g: 'vivid' },
+  { name: 'Lagoa', p: '#00b4db', a: '#0083b0', g: 'vivid' },
+  { name: 'Pôr do sol', p: '#f5a25d', a: '#8e3b75', g: 'vivid' },
+  { name: 'Cyberpunk', p: '#ff00a0', a: '#00e5ff', g: 'neon' },
+  { name: 'Synthwave', p: '#2b0a3d', a: '#ff2bd6', g: 'neon' },
+  { name: 'Matrix', p: '#000000', a: '#00ff41', g: 'neon' },
+  { name: 'Laser', p: '#0a0a23', a: '#00f0ff', g: 'neon' },
+  { name: 'Ácido', p: '#0d0d0d', a: '#b6ff00', g: 'neon' },
+  { name: 'Plasma', p: '#3a00ff', a: '#ff00e6', g: 'neon' },
+  { name: 'Céu', p: '#a8d8ff', a: '#5865f2', g: 'pastel' },
+  { name: 'Algodão-doce', p: '#ffd6e8', a: '#b9c8ff', g: 'pastel' },
+  { name: 'Lavanda', p: '#e3d5ff', a: '#a78bfa', g: 'pastel' },
+  { name: 'Menta', p: '#d4fce7', a: '#7dd3b0', g: 'pastel' },
+  { name: 'Pêssego', p: '#ffe1d2', a: '#f6a5c0', g: 'pastel' },
+  { name: 'Nuvem', p: '#f1f5f9', a: '#94a3b8', g: 'pastel' },
+  { name: 'Aurora', p: '#0f5c4f', a: '#2a1f6b', g: 'nature' },
+  { name: 'Mata', p: '#2d5a27', a: '#0f2a12', g: 'nature' },
+  { name: 'Areia', p: '#d8c3a5', a: '#6b5b45', g: 'nature' },
+  { name: 'Mar raso', p: '#48c6ef', a: '#1d6fa5', g: 'nature' },
+  { name: 'Cerejeira', p: '#f7b2c4', a: '#7a3b5c', g: 'nature' },
+  { name: 'Tempestade', p: '#4b5563', a: '#111827', g: 'nature' },
+  { name: 'Yabba dabba', p: '#53aba9', a: '#2f4451', g: 'community', dt: true },
+  { name: 'Light Pastel Pink', p: '#b884b3', a: '#593566', g: 'community', dt: true },
+  { name: 'Black & Pastel Green', p: '#0b0c0d', a: '#93e9be', g: 'community', dt: true },
+  { name: 'Black and Red', p: '#000000', a: '#ff0000', g: 'community', dt: true },
+  { name: 'A T M O I C', p: '#000000', a: '#6f2da8', g: 'community', dt: true },
+  { name: 'Koa', p: '#ff0063', a: '#ff0063', g: 'community', dt: true },
+  { name: 'Turquesa', p: '#118a95', a: '#3eabb0', g: 'community', dt: true },
 ];
 // acha as duas primeiras cores hex num texto qualquer (ex.: copiado do discordthemes.com)
 export function parseColorPair(text) {
@@ -140,9 +171,12 @@ export function isLightPair(p, a) {
 }
 
 // ---------- estilo do nome (fonte, efeito e cores) ----------
-export const NAME_FONTS = { default: 'Padrão', serif: 'Clássica', mono: 'Código', rounded: 'Arredondada', script: 'Cursiva', display: 'Impacto', comic: 'Gibi', type: 'Máquina' };
-export const NAME_EFFECTS = { solid: 'Sólido', gradient: 'Gradiente', neon: 'Neon', toon: 'Contorno', pop: 'Sombra 3D', shimmer: 'Brilho', rainbow: 'Arco-íris' };
-export const TWO_COLOR_EFFECTS = new Set(['gradient', 'neon', 'toon', 'pop', 'shimmer']);
+// fontes do sistema (Windows primeiro, depois Mac/Linux): nada é baixado. "comic" é a Comic Sans.
+export const NAME_FONTS = { default: 'Padrão', comic: 'Comic Sans', serif: 'Clássica', mono: 'Código', rounded: 'Arredondada', script: 'Cursiva', hand: 'À mão', marker: 'Caneta', display: 'Impacto', heavy: 'Pesada', wide: 'Larga', thin: 'Fina', caps: 'Versalete', elegant: 'Elegante', type: 'Máquina' };
+export const NAME_EFFECTS = { solid: 'Sólido', gradient: 'Gradiente', neon: 'Neon', glow: 'Aura', toon: 'Contorno', hollow: 'Vazado', pop: 'Sombra 3D', retro: 'Retrô', glitch: 'Glitch', chrome: 'Metal', shimmer: 'Brilho', wave: 'Onda', pulse: 'Pulsar', rainbow: 'Arco-íris' };
+export const TWO_COLOR_EFFECTS = new Set(['gradient', 'neon', 'toon', 'hollow', 'pop', 'retro', 'glitch', 'chrome', 'shimmer', 'wave', 'pulse']);
+// efeitos com cor fixa (não mostram os seletores de cor)
+export const FIXED_COLOR_EFFECTS = new Set(['rainbow']);
 // aplica o estilo do usuário num elemento de nome (sobrepõe a cor do cargo)
 export function styleName(el, ns) {
   if (!ns || !el) return el;

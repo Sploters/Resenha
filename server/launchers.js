@@ -17,6 +17,8 @@ const EXES = [
   'xboxpcapp', 'xboxapp', 'gamingservices', 'gamebar', 'xboxgamebar',
   'amazongames', 'amazon games', 'amazon games ui', 'itch', 'playnite.desktopapp', 'playnite.fullscreenapp',
   'overwolf', 'curseforge', 'minecraftlauncher', 'minecraft launcher', 'hoyoplay', 'launcher', 'bsglauncher',
+  // não são jogos: gravação/transmissão e papel de parede animado
+  'obs', 'obs64', 'obs32', 'obs studio', 'streamlabs', 'streamlabs obs', 'wallpaper32', 'wallpaper64', 'webwallpaper32', 'wallpaperservice32', 'wallpaper engine', 'wallpaperengine',
   'heroic', 'legendary', 'parsecd', 'nvidia app', 'geforce experience', 'nvidia share',
 ];
 // nomes que aparecem como título da janela
@@ -24,12 +26,14 @@ const TITLES = [
   'Riot Client', 'Steam', 'Epic Games Launcher', 'Epic Games', 'Battle.net', 'Blizzard Battle.net', 'EA', 'EA app', 'Origin',
   'Ubisoft Connect', 'Uplay', 'GOG Galaxy', 'GOG GALAXY', 'Rockstar Games Launcher', 'Xbox', 'Amazon Games', 'itch', 'Playnite',
   'Overwolf', 'CurseForge', 'Minecraft Launcher', 'HoYoPlay', 'Battlestate Games Launcher', 'Heroic Games Launcher',
-  'NVIDIA App', 'GeForce Experience',
+  'NVIDIA App', 'GeForce Experience', 'OBS', 'OBS Studio', 'Streamlabs', 'Streamlabs OBS', 'Wallpaper Engine', 'Wallpaper Engine: Wallpaper Editor',
 ];
+// títulos que começam assim (a janela do OBS mostra "OBS 30.2.3 - Perfil: … - Cenas: …")
+const TITLE_PREFIX = /^(obs( studio)?|streamlabs|wallpaper engine)\b/i;
 const BAD = new Set([...EXES, ...TITLES].map(norm));
 
 // game = { id, title } (ou id e title soltos)
 // programas da própria Resenha (lc-audio, lc-stream, lc-stream-poc: a janela de teste "Resenha PoC captura" fica em tela
 // cheia e o app antigo achava que era jogo). Também esconde o que já ficou registrado.
 const OWN = (game) => /^lc-[a-z0-9_-]+$/i.test(String(game.id || '')) || /^resenha\b/i.test(String(game.title || '').trim());
-export const isLauncher = (game) => !!game && (BAD.has(norm(game.id)) || BAD.has(norm(game.title)) || OWN(game));
+export const isLauncher = (game) => !!game && (BAD.has(norm(game.id)) || BAD.has(norm(game.title)) || TITLE_PREFIX.test(String(game.title || '').trim()) || OWN(game));

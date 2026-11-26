@@ -9,7 +9,7 @@ import { soundSources, addSound, editSound, playLocal, soundVol, findSound, nump
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
-import { SOLID_THEMES, GRADIENT_THEMES, gradientCss, decodeTheme, PROFILE_THEMES, parseColorPair, isLightPair, NAME_FONTS, NAME_EFFECTS, TWO_COLOR_EFFECTS, styleName } from './themes.js';
+import { SOLID_THEMES, GRADIENT_THEMES, gradientCss, decodeTheme, PROFILE_THEMES, PROFILE_THEME_GROUPS, parseColorPair, isLightPair, NAME_FONTS, NAME_EFFECTS, TWO_COLOR_EFFECTS, FIXED_COLOR_EFFECTS, styleName } from './themes.js';
 import { openThemeEditor, shareTheme } from './themeeditor.js';
 import { prettyName, DEFAULT_NAME_WORDS } from './chnames.js';
 import { PREVIEW_TRIGGERS } from './chpreview.js';
@@ -27,7 +27,6 @@ import { backCloses } from './backclose.js';
 import { checkAppUpdate, installAppUpdate, silentUpdate, runAppUpdate } from './appupdate.js';
 import { openReport } from './diag.js';
 import { openVoiceHelp, resetVoiceSettings } from './voicehelp.js';
-import { speak, ttsStop, ttsVoices, ttsSupported } from './tts.js';
 import { storagePage, serverStoragePage } from './storagepage.js';
 import { localClipsUsage, clearLocalClips, onLocalClips } from './cliplocal.js';
 import { openMyClips, mb } from './myclips.js';
@@ -115,7 +114,7 @@ function compactHints(pane) {
 // ============================ shell ============================
 const USER_GROUPS = [
   ['Você', [['account', 'Minha conta', 'senha usuário nome excluir'], ['privacy', 'Privacidade e segurança', 'amizade sessões dispositivos links bloqueados apagar mensagens em massa estatísticas telemetria uso anônimo'], ['connections', 'Contas vinculadas', 'steam jogos atividade vincular conta']]],
-  ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação cores dos cargos texto para voz tts leitura voz alta tema de perfil animações sistema windows'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
+  ['Visual', [['appearance', 'Aparência', 'tema cor fonte compacto hora'], ['accessibility', 'Acessibilidade', 'movimento contraste saturação cores dos cargos tema de perfil animações sistema windows'], ['lite', 'Modo leve', 'desempenho otimizar leve fps jogo cpu gpu rápido pesado']]],
   ['Voz e vídeo', [['voice', 'Voz e vídeo', 'microfone ruído eco câmera dispositivo bitrate'], ['stream', 'Transmissão', 'tela resolução fps qualidade codec codecs h264 hevc av1 vp9 placa de vídeo'], ['clips', 'Clipes', 'clipe gravar atalho duração 2 minutos fps 60 120 quadros codificação placa armazenamento aparelho local compartilhar'], ['sounds', 'Sons', 'efeitos silenciar ensurdecer entrar sair'], ['soundboard', 'Soundboard', 'sons pad meme']]],
   ['Aplicativo', [['notifications', 'Notificações', 'avisos menção silenciar servidor'], ['storage', 'Armazenamento', 'espaço cache memória limpar mídias apagar arquivos celular disco cheio'], ['keys', 'Atalhos', 'teclas push-to-talk mutar'], ['extras', 'Recursos extras', 'plugins imagem lente zoom galeria prévia canal nomes volume amplificar links rastreio utm duplo clique responder editar celular plataforma amizade desfeita'], ['advanced', 'Avançado', 'desenvolvedor exportar importar redefinir']]],
   ['Ajuda', [['news', 'Novidades', 'novidades atualização changelog o que mudou versão'], ['report', 'Relatar um problema', 'bug erro problema relatório suporte ajuda travou log diagnóstico']]],
@@ -218,7 +217,7 @@ function profilePage({ full } = {}) {
   const me = S.me;
   const base = () => ({ name_style: me.name_style ? { ...me.name_style } : null, theme_primary: me.theme_primary || null, theme_accent: me.theme_accent || null, display_name: me.display_name, avatar: me.avatar, banner: me.banner, avatar_pos: me.avatar_pos || '', banner_pos: me.banner_pos || '', color: me.color, banner_color: me.banner_color || me.color, pronouns: me.pronouns || '', bio: me.bio || '', custom_status: me.custom_status || '', status_emoji: me.status_emoji || '' });
   const d = base(), wrap = h('div.profile-ed'), prevBox = h('div.preview'), bar = h('div.savebar.hidden');
-  const draft = () => ({ ...me, ...d, status: me.status === 'invisible' ? 'invisible' : 'online' });
+  const draft = () => ({ ...me, ...d, status: S.me.status || 'online' }); // a prévia mostra a presença atual (S.me é trocado a cada mudança)
   const redraw = () => { prevBox.replaceChildren(h('div.popout.static', profileCard(draft(), { accent: d.banner ? null : d.banner_color, onEditAvatar: editAvatar, onEditBanner: editBanner }))); };
   const touch = () => { bar.classList.remove('hidden'); redraw(); };
   const changeAvatar = () => avatarPicker(d.avatar, (url, pos) => { d.avatar = url; d.avatar_pos = pos; touch(); });
@@ -231,17 +230,21 @@ function profilePage({ full } = {}) {
     d.banner && { label: 'Remover banner', danger: true, fn: () => { d.banner = null; touch(); } }]);
   const bind = (key, input) => { input.value = d[key]; input.oninput = () => { d[key] = input.value; touch(); }; return input; };
   const emojiBtn = h('button.btn.grey', { style: { minWidth: '44px' }, title: 'Escolher emoji', onclick: (e) => emojiPicker(e.currentTarget, (em) => { d.status_emoji = em.startsWith('<:') ? '' : em; emojiBtn.replaceChildren(d.status_emoji || icon('smile', 20)); touch(); }, { noCustom: true }) }, d.status_emoji || icon('smile', 20));
+  const themeCard = profileThemeCard(d, touch);
+  // atalho de tema embaixo da prévia: o editor completo fica na coluna da esquerda
+  const quick = h('div.pquick', h('div.fh', 'Tema rápido'), h('div.pqrow', PROFILE_THEMES.filter((t, i) => i % 3 === 0).slice(0, 12).map(t => h('button', { title: t.name, style: { background: `linear-gradient(${t.p}, ${t.a})` }, onclick: () => themeCard._set(t.p, t.a) })),
+    h('button.pqmore', { title: 'Ver todos os temas', onclick: () => themeCard.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, '+')));
   const left = h('div.col',
     card(h('label.f', 'Nome de exibição', bind('display_name', h('input', { maxLength: 32 }))),
       h('label.f', 'Cor do avatar'), swatches(d.color, (c) => { d.color = c; touch(); }), h('label.f', { style: { marginTop: '16px' } }, 'Cor do banner / destaque'), swatches(d.banner_color, (c) => { d.banner_color = c; touch(); }), hint('Com tema do perfil ativo, o banner sem imagem usa a cor principal do tema.')),
+    themeCard,
     nameStyleCard(d, touch),
-    profileThemeCard(d, touch),
     card(h('label.f', 'Status personalizado'), h('div.btns', emojiBtn, bind('custom_status', h('input', { maxLength: 100, placeholder: 'O que você está fazendo?', style: { flex: 1, background: 'var(--bg-tert)', border: 0, borderRadius: '3px', padding: '10px', minWidth: 0 } }))),
-      h('label.f', { style: { marginTop: '16px' } }, 'Presença', seg({ online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', invisible: 'Invisível' }, me.status, (v) => tryApi('PATCH', '/me', { status: v }))),
+      h('label.f', { style: { marginTop: '16px' } }, 'Presença', seg({ online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', invisible: 'Invisível' }, S.me.status, async (v) => { if (await tryApi('PATCH', '/me', { status: v })) { S.me = { ...S.me, status: v }; redraw(); } })),
       h('label.f', { style: { marginTop: '16px' } }, 'Sobre mim', bind('bio', h('textarea', { rows: 4, maxLength: 300 })))));
   bar.append(h('span', 'Cuidado — você tem alterações não salvas!'), h('div.btns', h('button.btn.link', { onclick: () => { Object.assign(d, base()); bar.classList.add('hidden'); redraw(); wrap.replaceWith(profilePage({ full })); } }, 'Redefinir'),
     h('button.btn.green', { onclick: async () => { const r = await tryApi('PATCH', '/me', { display_name: d.display_name, avatar: d.avatar || '', banner: d.banner || '', avatar_pos: d.avatar_pos || '', banner_pos: d.banner_pos || '', color: d.color, banner_color: d.banner_color, pronouns: d.pronouns, bio: d.bio, custom_status: d.custom_status, status_emoji: d.status_emoji, theme_primary: d.theme_primary || '', theme_accent: d.theme_accent || '', name_style: d.name_style }); if (r) { toast('Perfil salvo!'); bar.classList.add('hidden'); } } }, 'Salvar alterações')));
-  wrap.append(h('h2', 'Perfil'), h('div.pgrid', left, h('div.col', h('div.fh', 'Prévia'), prevBox)), bar);
+  wrap.append(h('h2', 'Perfil'), h('div.pgrid', left, h('div.col', quick, h('div.fh', 'Prévia'), prevBox)), bar);
   redraw(); return wrap;
 }
 // "perfil completo": estilos à esquerda (avatar, banner, cores, tema, estilo do nome) e a prévia do cartão à direita
@@ -268,19 +271,20 @@ function nameStyleCard(d, touch) {
       h('div.nsgrid', Object.entries(NAME_FONTS).map(([k, l]) => h('button' + (s.font === k ? '.on' : ''), { onclick: () => upd({ font: k }) }, sample({ ...s, font: k }), h('small', l)))),
       h('label.f', { style: { margin: 0 } }, 'Efeito'),
       h('div.nsgrid', Object.entries(NAME_EFFECTS).map(([k, l]) => h('button' + (s.effect === k ? '.on' : ''), { onclick: () => upd({ effect: k }) }, sample({ ...s, effect: k }), h('small', l)))),
-      s.effect !== 'rainbow' && h('div.ptheme', h('div.pcols', colorIn('c1', two ? 'Cor 1' : 'Cor'), two && colorIn('c2', s.effect === 'gradient' || s.effect === 'shimmer' ? 'Cor 2' : 'Cor do efeito'))),
+      !FIXED_COLOR_EFFECTS.has(s.effect) && h('div.ptheme', h('div.pcols', colorIn('c1', two ? 'Cor 1' : 'Cor'), two && colorIn('c2', ['gradient', 'shimmer', 'wave', 'chrome'].includes(s.effect) ? 'Cor 2' : 'Cor do efeito'))),
       d.name_style && h('div.pfoot', h('span'), h('button.btn.grey', { onclick: () => { d.name_style = null; touch(); draw(); } }, 'Remover estilo')));
   };
   draw();
   return card(h('label.f', { style: { marginBottom: '4px' } }, 'Estilo do nome'), box);
 }
 
-// tema do perfil: duas cores (principal → destaque), prontos ou colados do discordthemes.com
+// tema do perfil: duas cores (principal → destaque), de uma galeria por grupos, sorteadas ou coladas do discordthemes.com
 function profileThemeCard(d, touch) {
-  const ctls = {}, gal = h('div.pgal'), foot = h('div.pfoot');
+  const ctls = {}, gal = h('div.pgal'), foot = h('div.pfoot'), tabs = h('div.pgtabs');
+  let group = Object.keys(PROFILE_THEME_GROUPS).find(g => PROFILE_THEMES.some(t => t.g === g && t.p === d.theme_primary && t.a === d.theme_accent)) || 'dark';
   const sync = () => { // atualiza campos, galeria e rodapé sem recriar os seletores (o nativo fecharia no meio do arraste)
     for (const [k, c] of Object.entries(ctls)) { if (document.activeElement !== c.txt) c.txt.value = d[k]?.toUpperCase() || ''; if (d[k]) c.pick.value = d[k]; }
-    gal.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', d.theme_primary === PROFILE_THEMES[i].p && d.theme_accent === PROFILE_THEMES[i].a));
+    gal.querySelectorAll('button').forEach(b => b.classList.toggle('on', d.theme_primary === b.dataset.p && d.theme_accent === b.dataset.a));
     foot.replaceChildren(h('a', { href: 'https://discordthemes.com/', target: '_blank', rel: 'noopener' }, 'Mais temas em discordthemes.com →'),
       d.theme_primary && h('button.btn.grey', { onclick: () => set(null, null) }, 'Remover tema'));
   };
@@ -290,18 +294,29 @@ function profileThemeCard(d, touch) {
     // a primeira cor escolhida vale para as duas, para o tema já aparecer
     const apply = (v) => { d[key] = v; d[other] ||= v; touch(); sync(); };
     const txt = h('input', { type: 'text', maxLength: 7, placeholder: '#000000', onchange: () => { const v = parseColorPair(txt.value)?.[0]; if (v) apply(v); else sync(); } });
-    const pick = h('input', { type: 'color', value: '#5865f2', oninput: () => apply(pick.value) });
+    const pick = h('input', { type: 'color', value: '#4b8bff', oninput: () => apply(pick.value) });
     ctls[key] = { txt, pick };
     return h('div.pcol', h('label.f', { style: { marginBottom: 0 } }, label), h('div', pick, txt));
   };
+  // sorteio: matiz aleatório, a principal escura e a de destaque mais viva (ou o contrário), sempre legível
+  const hsl = (hh, ss, ll) => { const f = (n) => { const k = (n + hh / 30) % 12, a = ss * Math.min(ll, 1 - ll); return Math.round(255 * (ll - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
+  const random = () => { const h1 = Math.random() * 360, h2 = (h1 + 20 + Math.random() * 140) % 360, dark = hsl(h1, .55 + Math.random() * .3, .08 + Math.random() * .14), vivid = hsl(h2, .6 + Math.random() * .35, .38 + Math.random() * .2); Math.random() < .7 ? set(dark, vivid) : set(vivid, dark); };
   const paste = h('input.ppaste', { placeholder: 'Cole as cores aqui (ex.: #53aba9 #2f4451)', oninput: () => { const pr = parseColorPair(paste.value); if (pr) { paste.value = ''; set(...pr); toast('Cores aplicadas na prévia'); } } });
-  gal.append(...PROFILE_THEMES.map(t => h('button' + (isLightPair(t.p, t.a) ? '.tlight' : '.tdark'),
-    { title: t.name + (t.dt ? ' — discordthemes.com' : '') + `
-${t.p} → ${t.a}`, style: { background: `linear-gradient(${t.p}, ${t.a})` }, onclick: () => set(t.p, t.a) }, t.name)));
+  const drawGal = () => {
+    tabs.replaceChildren(...Object.entries(PROFILE_THEME_GROUPS).map(([k, l]) => h('button' + (k === group ? '.on' : ''), { onclick: () => { group = k; drawGal(); } }, l)));
+    gal.replaceChildren(...PROFILE_THEMES.filter(t => t.g === group).map(t => h('button' + (isLightPair(t.p, t.a) ? '.tlight' : '.tdark'),
+      { 'data-p': t.p, 'data-a': t.a, title: t.name + (t.dt ? ' — discordthemes.com' : '') + `\n${t.p} → ${t.a}`, style: { background: `linear-gradient(${t.p}, ${t.a})` }, onclick: () => set(t.p, t.a) }, t.name)));
+    sync();
+  };
+  const tools = h('div.btns.ptools',
+    h('button.btn.grey', { onclick: random, title: 'Sorteia duas cores que combinam' }, '🎲 Surpresa'),
+    h('button.btn.grey', { onclick: () => d.theme_primary && set(d.theme_accent, d.theme_primary), title: 'Troca a principal com a de destaque' }, '⇅ Inverter'));
   const box = h('div.ptheme', hint('Duas cores viram o fundo do seu cartão: a principal no topo e a de destaque embaixo. Todo mundo vê.'),
-    h('div.pcols', colorCtl('Principal', 'theme_primary'), colorCtl('Destaque', 'theme_accent')), paste, gal, foot);
-  sync();
-  return card(h('label.f', { style: { marginBottom: '4px' } }, 'Tema do perfil'), box);
+    tabs, gal, h('div.pcols', colorCtl('Principal', 'theme_primary'), colorCtl('Destaque', 'theme_accent')), tools, paste, foot);
+  drawGal();
+  const el = card(h('label.f.ptitle', { style: { marginBottom: '4px' } }, 'Tema do perfil'), box);
+  el._set = set;
+  return el;
 }
 
 // ============================ Privacidade ============================
@@ -575,17 +590,6 @@ function accessibilityPage() {
   const sysNote = (on, what) => h('small.ac-sys', on ? `O seu sistema está com ${what} ligado agora.` : `O seu sistema está com ${what} desligado agora.`);
   // cores dos cargos: prévia de como um nome aparece em cada modo
   const rcPrev = (mode) => h('span.ac-rc', h('b', { style: mode === 'name' ? { color: '#f47fff' } : null }, 'Ana'), mode === 'dot' && h('span.role-dot', { style: { background: '#f47fff' } }), h('small', 'oi!'));
-  // texto para voz
-  const tts = h('div');
-  if (!ttsSupported()) tts.append(note('Este navegador não tem leitura em voz alta.'));
-  else {
-    const voiceSel = h('select', { onchange: () => { S.prefs.ttsVoice = voiceSel.value; save(); } }, h('option', { value: '' }, 'Automática (português, se houver)'));
-    ttsVoices().then(vs => voiceSel.append(...vs.sort((a, b) => (b.lang.startsWith('pt') - a.lang.startsWith('pt')) || a.name.localeCompare(b.name)).map(v => h('option', { value: v.voiceURI, selected: S.prefs.ttsVoice === v.voiceURI }, `${v.name} (${v.lang})${v.localService ? '' : ' · online'}`))));
-    tts.append(h('label.f', 'Velocidade da leitura', slider(0.5, 2, S.prefs.ttsRate ?? 1, 0.1, (v) => { S.prefs.ttsRate = v; save(); }, v => v.toFixed(1).replace('.', ',') + 'x')),
-      h('label.f', 'Voz', voiceSel),
-      h('div.btns', h('button.btn.grey', { onclick: () => speak('Esta é a velocidade em que as mensagens serão lidas para você.') }, icon('vol', 16), 'Prévia'), h('button.btn.link', { onclick: () => ttsStop() }, 'Parar')),
-      hint('Clique direito numa mensagem → "Ler em voz alta". A voz é a do seu aparelho; vozes marcadas "online" enviam o texto ao serviço do navegador, então mensagens protegidas só são lidas com vozes do aparelho.'));
-  }
   return h('div', h('h2', 'Acessibilidade'),
     section('Cores'), card(
       h('label.f', 'Saturação', slider(0, 100, S.prefs.saturation ?? 100, 5, (v) => { set('saturation')(v); paintSat(); }, v => v + '%')),
@@ -605,7 +609,6 @@ function accessibilityPage() {
       hint('"Ao lado dos nomes" deixa o nome na cor do texto (sempre legível no seu tema) e mostra a cor do cargo numa bolinha.')),
     section('Cartões de perfil'), card(toggleCards([{ on: !!S.prefs.syncProfileThemes, label: 'Sincronizar temas de perfil', sub: 'Todos os cartões com as cores do seu tema', desc: 'Os cartões de perfil dos outros deixam de usar as cores que cada pessoa escolheu e seguem o tema do app, mais fácil de ler. O seu próprio perfil continua como você montou.',
       prev: h('span.ac-pt', h('i', { style: { background: 'linear-gradient(#f47fff,#5865f2)' } }), h('b', '→'), h('i', { style: { background: 'var(--bg-float)' } })), fn: (v) => { S.prefs.syncProfileThemes = v; save(); } }])),
-    section('Texto para voz'), card(tts),
     section('Links'), card(toggleCards([{ on: !!S.prefs.underlineLinks, label: 'Sublinhar links', desc: 'Todo link no chat aparece sublinhado.', prev: h('span.ac-link', 'veja ', h('u', 'este link')), fn: set('underlineLinks') }])),
     // ideia "Spoiler Button and GIF Freeze Option" (Stoat #1374): para epilepsia fotossensível e sensibilidade à luz
     section('Imagens, vídeos e GIFs'),

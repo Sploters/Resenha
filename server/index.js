@@ -105,8 +105,8 @@ const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, 
 const BOARD_OK = (b) => b === 'wb' || /^s:[w-]{1,40}$/.test(b);
 const voice = new Map(); // channelId -> Map<userId, {ws, mute, deaf, video, screen}>
 
-const NAME_FONTS = ['default', 'serif', 'mono', 'rounded', 'script', 'display', 'comic', 'type'];
-const NAME_EFFECTS = ['solid', 'gradient', 'neon', 'toon', 'pop', 'shimmer', 'rainbow'];
+const NAME_FONTS = ['default', 'comic', 'serif', 'mono', 'rounded', 'script', 'hand', 'marker', 'display', 'heavy', 'wide', 'thin', 'caps', 'elegant', 'type'];
+const NAME_EFFECTS = ['solid', 'gradient', 'neon', 'glow', 'toon', 'hollow', 'pop', 'retro', 'glitch', 'chrome', 'shimmer', 'wave', 'pulse', 'rainbow'];
 // estilo do nome vindo do cliente: só valores conhecidos e cores hex
 const cleanNameStyle = (v) => {
   if (!v || typeof v !== 'object') return null;
