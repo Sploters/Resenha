@@ -50,7 +50,6 @@ const rLead = (await call(own.tok, 'POST', `/guilds/${g.id}/roles`, { name: 'Lí
 await call(own.tok, 'PATCH', `/guilds/${g.id}/members/${mod.id}`, { roles: [rMod] });
 await call(own.tok, 'PATCH', `/guilds/${g.id}/members/${a.id}`, { roles: [rLead] });
 
-const joined = (u, cid) => u.gw.wait('VOICE_STATE', d => d.user_id === u.id && d.channel_id === cid);
 const tryJoin = async (u, cid, extra = {}) => {
   u.gw.flush();
   const p = u.gw.first([['VOICE_STATE', d => d.user_id === u.id && d.channel_id === cid], ['VOICE_DENIED', d => d.channel_id === cid]]);
