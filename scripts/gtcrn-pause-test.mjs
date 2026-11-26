@@ -8,7 +8,6 @@ import fs from 'node:fs';
 import { ownServer } from './test-server.mjs';
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const BASE = await ownServer('gtcrnpause', 3435, 41800);
 const WAV = './.testdata-gtcrnpause.wav';
 {
