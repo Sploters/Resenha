@@ -303,3 +303,6 @@
 .menu.gmenu .it.danger:hover { background: var(--red, #da373c); color: #fff; }
 .menu.gmenu .it:hover .mic { opacity: 1; }
 .menu.gmenu .sp { height: 1px; margin: 6px 4px; background: color-mix(in srgb, var(--header) 9%, transparent); border: 0; }
+
+/* "Adicionar amigo": o verde do tema é claro (#3ecf8e), então o texto é escuro (contraste ~10:1; branco dava 2:1) */
+:root[data-theme="dark"]:not(.classic):not(.grad) #home .tab.green:not(.active) { background: var(--green); color: #04170d; }

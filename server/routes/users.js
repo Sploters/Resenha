@@ -73,6 +73,8 @@ export function mountUsers(app, d) {
     if (body.length > 4096 && /\bgzip\b/.test(req.get('accept-encoding') || '')) { res.set('Content-Encoding', 'gzip'); return res.end(zlib.gzipSync(body, { level: 4 })); }
     res.end(body);
   }));
+  // só confere se a sessão ainda vale (o gateway pergunta quando a conexão cai): 204 = sim, 401 = sessão encerrada
+  app.get('/api/auth/check', auth, (req, res) => res.sendStatus(204));
   app.get('/api/users/:id', auth, wrap((req, res) => {
     const u = getUser(req.params.id); if (!u) return bad(res, 'Não encontrado', 404);
     const mutual = all('SELECT g.id,g.name,g.icon FROM members a JOIN members b ON a.guild_id=b.guild_id JOIN guilds g ON g.id=a.guild_id WHERE a.user_id=? AND b.user_id=?', req.uid, u.id);

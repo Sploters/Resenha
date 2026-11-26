@@ -81,7 +81,7 @@ export function renderHome(main) {
   };
   main.replaceChildren(h('div#home' + (S.prefs.anOff ? '.an-off' : ''),
     // abas da tela inicial: Amigos | Jogar | Descobrir (gamestabs.js); "Adicionar amigo" ao lado
-    h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
+    h('div#topbar', h('button.ibtn.menu-btn', { 'aria-label': 'Menu', title: 'Menu', onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
       topTabs('friends', () => { if (S.view.tab === 'add') { S.view.tab = 'list'; viewTransition(() => renderHome(main)); } }), h('div.mtab-sep'),
       h('div.tabs',
         h('div.tab.green' + (tab === 'add' ? '.active' : ''), { onclick: () => { if (S.view.tab === 'add') return; S.view.tab = 'add'; viewTransition(() => renderHome(main)); } }, icon('plus', 18), 'Adicionar amigo',

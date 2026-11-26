@@ -99,7 +99,7 @@ export function buildShell() {
     const a = e.target.closest?.('.msg .body a[href]'); if (!a || !S.prefs.confirmLinks) return;
     e.preventDefault(); confirmBox('Abrir link externo?', a.href, 'Abrir').then(ok => ok && window.open(a.href, '_blank', 'noopener'));
   });
-  $('#app').replaceChildren(railEl = h('div#rail'), h('div#side'), h('div#gsearch.hidden', { role: 'search', 'aria-label': 'Buscar em tudo' }), h('div#main'));
+  $('#app').replaceChildren(railEl = h('div#rail'), h('div#side'), h('div#gsearch.hidden', { role: 'search', 'aria-label': 'Buscar em tudo' }), h('div#main', { role: 'main' }));
   $('#app').addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files') && $('#composer')) { e.preventDefault(); if (!$('#dropzone')) $('#chat').append(h('div#dropzone', 'Solte para anexar')); } });
   $('#app').addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#dropzone')?.remove(); });
   railSortable(railEl);

@@ -27,7 +27,8 @@ function sendFreezes() {
   fetch('/api/rum/freeze', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token }, body: JSON.stringify(body) }).catch(() => { });
 }
 observe('long-animation-frame', (e) => {
-  if (e.duration < 1000 || freezeSent + freezes.length >= 30) return;
+  // blockingDuration 0: nenhuma tarefa longa nem pintura pesada (aba em segundo plano, volta do cache de navegação): não é travada
+  if (e.duration < 1000 || !e.blockingDuration || freezeSent + freezes.length >= 30) return;
   const r = Math.round, scripts = [...e.scripts].sort((a, b) => b.duration - a.duration).slice(0, 5).map(x => ({ ms: r(x.duration), layout_ms: r(x.forcedStyleAndLayoutDuration), invoker: String(x.invoker).slice(0, 120), fn: x.sourceFunctionName || '', src: (x.sourceURL || '').split('/').pop().split('?')[0] + ':' + x.sourceCharPosition }));
   const f = { at: r(e.startTime), ms: r(e.duration), blocking_ms: r(e.blockingDuration), render_ms: e.renderStart ? r(e.startTime + e.duration - e.renderStart) : 0, layout_ms: e.styleAndLayoutStart ? r(e.startTime + e.duration - e.styleAndLayoutStart) : 0, scripts, ...ctx() };
   freezes.push(f); console.warn('[travada]', f.ms + ' ms', f);

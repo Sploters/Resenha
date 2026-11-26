@@ -221,7 +221,7 @@ export function connect() {
     clearTimeout(connect.t); connect.t = setTimeout(connect, reconnectDelay(retry++, voice?.channelId ? 2000 : 10000));
     // sessão encerrada (senha trocada, saiu em outro aparelho): volta ao login. Em paralelo e sem esperar: numa queda de
     // rede este pedido pode ficar pendurado por minutos, e antes a reconexão só era agendada depois dele
-    api('GET', '/users/0').catch((e) => { if (e.status === 401 && S.token) { clearTimeout(connect.t); clearTimeout(connect.open); $('#reconnect')?.remove(); localStorage.removeItem('lc_token'); S.token = null; showAuth(); } });
+    api('GET', '/auth/check').catch((e) => { if (e.status === 401 && S.token) { clearTimeout(connect.t); clearTimeout(connect.open); $('#reconnect')?.remove(); localStorage.removeItem('lc_token'); S.token = null; showAuth(); } });
   };
 }
 

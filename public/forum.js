@@ -79,7 +79,7 @@ export function renderForum(main, f) {
   sideEl = h('aside.fo-side');
   main.replaceChildren(
     h('div#topbar',
-      h('button.ibtn.menu-btn', { onclick: () => document.getElementById('app').classList.toggle('nav-open') }, icon('more')),
+      h('button.ibtn.menu-btn', { 'aria-label': 'Menu', title: 'Menu', onclick: () => document.getElementById('app').classList.toggle('nav-open') }, icon('more')),
       h('span.hash', icon('forum', 24)), h('span', { title: f.name }, ctx.chName(f)), f.topic && h('span.topic', f.topic),
       h('div.spacer'), h('div.fo-search', icon('search', 16), q)),
     h('div#content.fo-page', h('div.fo-wrap', h('div.fo-main', h('div.fo-head', h('button.btn.fo-new', { onclick: () => newPostModal(f) }, icon('plus', 16), 'Criar post'), toolsEl), feedEl), sideEl)));

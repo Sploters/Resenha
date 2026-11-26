@@ -221,7 +221,7 @@ pre.md-pre { background: #2b2d31; border: 1px solid #1e1f22; border-radius: 4px;
 /* ---------- Home / friends ---------- */
 #home { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #home .tabs { display: flex; gap: 8px; align-items: center; } #home .tab { padding: 2px 8px; border-radius: 4px; color: var(--interactive); font-weight: 500; font-size: 16px; } #home .tab:hover { background: var(--bg-mod-hover); color: var(--interactive-hover); } #home .tab.active { background: var(--bg-mod-sel); color: #fff; }
-#home .tab.green { background: var(--green); color: #fff; } #home .tab.green.active { background: none; color: var(--green); }
+#home .tab.green { background: color-mix(in srgb, var(--green) 75%, #000); color: #fff; } /* verde escurecido: texto branco com contraste 5:1 (antes 3,2:1) */ #home .tab.green.active { background: none; color: var(--green); }
 #home .pane { flex: 1; overflow-y: auto; padding: 16px 20px; }
 .fsearch { background: var(--bg-tert); border: 0; border-radius: 8px; padding: 8px 10px 8px 34px; width: 100%; outline: none; margin-bottom: 16px;
   /* lupa, como nas outras buscas (Buscar conversa, Buscar membros) */

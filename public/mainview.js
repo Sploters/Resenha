@@ -77,7 +77,7 @@ export function renderMain() {
   const dm = ch.type === 1, vc = ch.type === 2, post = ch.type === 11, peer = dm && dmPeer(ch);
   const inCall = dm && callActive(ch.id), chatOpen = !vcChatHidden(ch);
   const top = h('div#topbar',
-      h('button.ibtn.menu-btn', { onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
+      h('button.ibtn.menu-btn', { 'aria-label': 'Menu', title: 'Menu', onclick: () => $('#app').classList.toggle('nav-open') }, icon('more')),
       dm ? [h('span.hash', '@'), h('span', user(peer.id).display_name), h('div.status.s-' + user(peer.id).status, { style: { position: 'static', borderColor: 'transparent', width: '10px', height: '10px', minWidth: 0, minHeight: 0 } })]
         : post ? [h('button.ibtn.fo-back', { title: 'Voltar ao fórum', 'aria-label': 'Voltar ao fórum', onclick: () => go(ch.guild_id, ch.parent_id) }, icon('arrowr', 20)), h('span.hash', icon('forum', 22)),
           h('button.fo-crumb', { onclick: () => go(ch.guild_id, ch.parent_id) }, forumOfPost(ch) ? chName(forumOfPost(ch)) : 'Fórum'), h('span.fo-crumbsep', '›'), h('span.fo-crumbt', { title: ch.name }, ch.name)]

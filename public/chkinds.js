@@ -14,7 +14,7 @@ export const initKinds = (c) => Object.assign(ctx, c);
 const isMedia = (f) => !f.expired && !f.enc && (/^(image|video)\//.test(f.type || '') || /\.(png|jpe?g|gif|webp|avif|bmp|mp4|webm|mov|m4v)$/i.test(f.name || ''));
 const isVid = (f) => /^video\//.test(f.type || '') || /\.(mp4|webm|mov|m4v)$/i.test(f.name || '');
 const topbar = (ch, kindIcon, ...right) => h('div#topbar',
-  h('button.ibtn.menu-btn', { onclick: () => document.getElementById('app').classList.toggle('nav-open') }, icon('more')),
+  h('button.ibtn.menu-btn', { 'aria-label': 'Menu', title: 'Menu', onclick: () => document.getElementById('app').classList.toggle('nav-open') }, icon('more')),
   h('span.hash', icon(kindIcon, 24)), h('span', { title: ch.name }, ctx.chName(ch)), ch.topic && h('span.topic', ch.topic), h('div.spacer'), ...right);
 
 // ============================ Galeria ============================

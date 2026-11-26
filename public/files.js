@@ -118,7 +118,7 @@ function draw() {
   const more = st.next && h('div.fv-more-row', st.loading ? skeleton('cards', 3) : h('button.btn.grey', { onclick: () => load(false) }, 'Carregar mais'));
   const title = g ? `em ${g.name}` : peer ? `com ${peer.display_name}` : '';
   root.replaceChildren(
-    h('div#topbar', h('button.ibtn.menu-btn', { onclick: () => document.getElementById('app')?.classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('file', 24)), h('span', 'Arquivos'), h('span.topic', `Mídias, documentos e links ${title}`),
+    h('div#topbar', h('button.ibtn.menu-btn', { 'aria-label': 'Menu', title: 'Menu', onclick: () => document.getElementById('app')?.classList.toggle('nav-open') }, icon('more')), h('span.hash', icon('file', 24)), h('span', 'Arquivos'), h('span.topic', `Mídias, documentos e links ${title}`),
       st.dm && h('button.btn.grey.sm.fv-back', { onclick: () => ctx.go?.('@me', st.dm) }, 'Voltar para a conversa')),
     h('div.fv-body',
       h('div.fv-tool', tabs, h('div.fv-filters', search, authorSel, chanSel, periodSel, dates, clear)),
