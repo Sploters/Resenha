@@ -2663,3 +2663,14 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .ev-rrow input[type=number] { flex: none; }
 .ev-check { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
 .ev-check span { display: flex; flex-direction: column; } .ev-check small { color: var(--text-muted); }
+
+/* importar estrutura do Discord (public/discordimport.js) */
+.dsi-row { display: flex; gap: 8px; align-items: center; } .dsi-row input { flex: 1; min-width: 0; margin-top: 0 !important; }
+.dsi-sum { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; } .dsi-sum span { color: var(--text-muted); font-size: 13px; }
+.dsi-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dsi-list { max-height: 200px; overflow: auto; font-size: 13px; padding: 6px; border-radius: 8px; background: var(--bg-tert); }
+.dsi-list > div { display: flex; align-items: center; gap: 6px; padding: 2px 0; } .dsi-list .dsi-in { padding-left: 12px; } .dsi-list .dsi-cat { font-weight: 700; text-transform: uppercase; font-size: 11px; margin-top: 6px; color: var(--text-muted); }
+.dsi-list .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dsi-opts { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 4px; } .dsi-opts label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.dsi-warn { margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px; }
+@media (max-width: 560px) { .dsi-cols { grid-template-columns: 1fr; } }

@@ -57,6 +57,15 @@ export function createChPerms({ db, all, get, run, memberPerms, P }) {
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
+  // o mesmo, dentro de uma transação que já está aberta (importar a estrutura do Discord: server/discordimport.js)
+  function setOverwritesNoTx(chId, gid, list) {
+    const valid = new Set(all('SELECT id FROM roles WHERE guild_id=?', gid).map(r => r.id)); valid.add('everyone');
+    run('DELETE FROM channel_perms WHERE channel_id=?', chId);
+    for (const o of list.slice(0, 100)) {
+      const t = String(o?.target || ''), allow = (+o?.allow | 0) & CH_ALL, deny = (+o?.deny | 0) & CH_ALL & ~allow;
+      if (valid.has(t) && (allow || deny)) run('INSERT OR REPLACE INTO channel_perms VALUES(?,?,?,?)', chId, t, allow, deny);
+    }
+  }
   function copyOverwrites(fromId, toId) { for (const o of overwrites(fromId)) run('INSERT OR REPLACE INTO channel_perms VALUES(?,?,?,?)', toId, o.target, o.allow, o.deny); }
   // tudo de um servidor, para a abertura do app: { canal: [ajustes] }
   function guildOverwrites(gid) {
@@ -65,5 +74,5 @@ export function createChPerms({ db, all, get, run, memberPerms, P }) {
       (out[r.channel_id] ||= []).push({ target: r.target, allow: r.allow, deny: r.deny });
     return out;
   }
-  return { CH, CH_ALL, chPerms, chCan, source, overwrites, setOverwrites, copyOverwrites, guildOverwrites };
+  return { CH, CH_ALL, chPerms, chCan, source, overwrites, setOverwrites, setOverwritesNoTx, copyOverwrites, guildOverwrites };
 }

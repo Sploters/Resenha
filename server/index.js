@@ -68,6 +68,7 @@ import { createSiteUrl, mountSiteUrl } from './siteurl.js';
 import { mountAccount } from './routes/account.js';
 import { mountGuilds } from './routes/guilds.js';
 import { mountChannels } from './routes/channels.js';
+import { mountDiscordImport } from './discordimport.js';
 import { mountInvites } from './routes/invites.js';
 import { mountEmojis } from './routes/emojis.js';
 import { mountMessages, mountMessageActions } from './routes/messages.js';
@@ -527,6 +528,7 @@ mountQrLogin(app, { auth, wrap, bad, run, userPub, ipLimited, clean, createSessi
 const { deleteAccount } = mountAccount(app, { ...core, cleanPos, cleanNameStyle, DEFAULT_AVATARS, broadcastPresence, userCache, dropViewers, sharedAudience, get activity() { return activity; } }); // a própria conta (server/routes/account.js)
 mountGuilds(app, { ...core, renumberRoles, guildFull, memberObj, vsObj, auditSince, AUDIT_DAYS, dropViewers, get activity() { return activity; } }); // servidores, membros e cargos (server/routes/guilds.js)
 mountChannels(app, { ...core, get forum() { return forum; }, get intents() { return intents; } }); // canais e permissões (server/routes/channels.js)
+mountDiscordImport(app, core); // estrutura de um servidor do Discord por link de modelo (server/discordimport.js)
 // aviso no celular (ntfy) para quem configurou: "Bora?" e convite direto para a chamada (server/push.js)
 const prefsOfUser = (uid) => { try { return JSON.parse(getUser(uid)?.settings || '{}') || {}; } catch { return {}; } };
 const push = createPush({ prefsOf: prefsOfUser, isOnline: (uid) => conns.has(uid), statusOf: (uid) => getUser(uid)?.status || 'online', publicUrl: () => site.publicUrl() });

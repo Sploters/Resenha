@@ -1,5 +1,6 @@
 // Trilho de servidores (barra da esquerda): servidores, conversas fixadas, cartão de quem está em call, menu do
 // servidor, convidar e criar/entrar em servidor.
+import { discordStructureModal } from './discordimport.js';
 import { openMyMessages } from './mymessages.js';
 import { h, icon, avatar, debounce, imgUrl, publicOrigin } from './util.js';
 import { S, api, tryApi, user, member, nameOf, can, canInvite, PERM, dmPeer, toast, modal, confirmBox, promptBox, menu, savePrefs, chVisible } from './state.js';
@@ -164,6 +165,7 @@ export function guildMenu(e, g, opts = {}) {
     can(g.id, PERM.MANAGE_CHANNELS) && { icon: 'grid4', label: 'Criar categoria', fn: () => channelModal(g, 4) },
     isRepMod(g.id) && { icon: 'shield', label: 'Reputação (casos da comunidade)', fn: () => openRep(g.id) },
     (can(g.id, PERM.MANAGE_GUILD) || can(g.id, PERM.VIEW_MSGLOG)) && { icon: 'clock', label: 'Registro de auditoria', fn: () => auditModal(g.id) },
+    can(g.id, PERM.ADMIN) && { icon: 'upload', label: 'Importar estrutura do Discord', fn: () => discordStructureModal(g) },
   ].filter(Boolean);
   return menu(e, [
     canInvite(g) && { icon: 'invite', brand: true, label: 'Convidar pessoas', fn: () => inviteModal(g) },
