@@ -70,7 +70,7 @@ try {
   // respostas
   ok((await call(beto.tok, 'PUT', `/events/${ev.id}/rsvp`, { state: 'yes' })).yes?.length === 2, 'beto: Vou');
   const full = await call(carla.tok, 'PUT', `/events/${ev.id}/rsvp`, { state: 'yes' });
-  ok(full.status === 400 && /esgotadas/.test(full.error), 'vagas esgotadas: carla não consegue "Vou"', full.error);
+  ok(full.wait?.join() === carla.id && full.yes.length === 2, 'vagas esgotadas: carla vai para a lista de espera', { yes: full.yes, wait: full.wait, error: full.error });
   ok((await call(carla.tok, 'PUT', `/events/${ev.id}/rsvp`, { state: 'maybe' })).maybe?.join() === carla.id, 'carla: Talvez');
   ok((await call(davi.tok, 'PUT', `/events/${ev.id}/rsvp`, { state: 'yes' })).status === 404 && (await call(davi.tok, 'GET', `/guilds/${g.id}/events`)).status === 403, 'quem não é do servidor não vê nem responde');
   ok((await call(beto.tok, 'DELETE', `/events/${ev.id}`)).status === 403, 'beto (não marcou, sem Gerenciar servidor) não cancela');

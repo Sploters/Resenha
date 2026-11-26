@@ -2640,3 +2640,26 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .vr-wbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; flex-direction: column; gap: 6px; max-width: calc(100vw - 32px); }
 .vr-wbar > div { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 10px; background: #2b1f4d; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 14px; }
 .vr-wbar .vr-win { background: #3b2a12; }
+
+/* eventos: vagas por função, lista de espera e semanal (public/events.js) */
+.ev-roles { display: flex; flex-direction: column; gap: 4px; padding: 4px 16px 8px; }
+.ev-role { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--bg-mod-strong, rgba(128,128,128,.1)); font-size: 13px; }
+.ev-role.mine { outline: 1px solid var(--brand, #5865f2); }
+.ev-role .ev-rname { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; min-width: 96px; }
+.ev-role .ev-rcount { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.ev-role.full .ev-rcount { color: var(--yellow, #f0b232); }
+.ev-role .sc-avs { flex: 1; }
+.ev-rwait, .ev-waitn { color: var(--text-muted); }
+.ev-weekly { color: var(--brand, #5865f2); }
+.ev-waitme { display: flex; align-items: center; gap: 6px; margin: 0 16px 8px; padding: 6px 10px; border-radius: 8px; background: rgba(240,178,50,.14); color: var(--text-normal); font-size: 13px; }
+.ev-roled { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.ev-rrow { display: flex; gap: 6px; align-items: center; }
+.ev-rolesf input, .ev-rolesf .evc-row select { padding: 8px 10px; background: var(--bg-tert); color: var(--text-normal); border: 0; border-radius: var(--r-s, 4px); outline: none; font-size: 15px; font-family: inherit; }
+.ev-rolesf input:focus, .ev-rolesf select:focus { outline: 1px solid var(--brand); }
+.ev-rolesf .evc-row select { flex: 1; min-width: 0; }
+.ev-rrow input { width: auto; }
+.ev-rrow input:nth-child(2) { flex: 1; min-width: 0; }
+.ev-rrow .ev-remoin { width: 52px; flex: none; text-align: center; padding: 8px 4px; }
+.ev-rrow input[type=number] { flex: none; }
+.ev-check { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
+.ev-check span { display: flex; flex-direction: column; } .ev-check small { color: var(--text-muted); }

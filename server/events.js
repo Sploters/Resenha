@@ -17,8 +17,14 @@ import { createArt, catalogGame, ART_CATALOG } from './eventart.js';
 //                                              banner (capa: arquivo desta instalação, /files/...), banner_link (de onde veio a capa, só para mostrar) }
 //   POST   /api/guilds/:id/event-art         { url } | { game } -> { url, title, source } capa de um link (Epic, Riot, Battle.net, imagem…) ou do catálogo
 //   GET    /api/event-art/catalog            -> [{ name, store }] jogos fora da Steam que já têm capa automática
-//   PATCH  /api/events/:id                   (mesmos campos)          DELETE /api/events/:id -> cancela (fica no chat como "Cancelado")
-//   PUT    /api/events/:id/rsvp              { state: 'yes' | 'maybe' | 'no' | null }
+//   PATCH  /api/events/:id                   (mesmos campos + roles, weekly)   DELETE /api/events/:id[?serie=1] -> cancela (fica no chat como "Cancelado"; serie=1 para de repetir)
+//   PUT    /api/events/:id/rsvp              { state: 'yes' | 'maybe' | 'no' | null, role? }
+//
+// Vagas por função (raid, time): roles = [{ id, name, emoji, slots }] no evento; "Vou" pede a função. Função cheia (ou o
+// evento cheio, sem funções) põe a pessoa na lista de espera (state 'wait', na ordem de chegada); quando abre uma vaga,
+// o primeiro da espera daquela função sobe sozinho e recebe EVENT_REMINDER kind 'promoted'.
+// Semanal (weekly = 1, "raid fixa"): quando o evento termina, o da semana seguinte é marcado sozinho (mesmo horário,
+// funções, sala e canal); quem foi recebe EVENT_REMINDER kind 'weekly' para confirmar de novo.
 //   GET    /api/events/:id.ics               -> arquivo de agenda (iCalendar)
 // Eventos em tempo real: EVENT_UPDATE { event }, EVENT_REMINDER { event, kind: 'soon' | 'start' } (só para quem respondeu Vou/Talvez).
 export const REMIND_MIN = 30;
@@ -35,20 +41,25 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
   CREATE TABLE IF NOT EXISTS event_rsvps(
     event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     state TEXT NOT NULL, updated_at INTEGER, PRIMARY KEY(event_id, user_id));`);
-  for (const col of ['banner TEXT', 'banner_link TEXT']) try { db.exec('ALTER TABLE events ADD COLUMN ' + col); } catch { } // capa (jogos fora da Steam / imagem própria)
+  for (const col of ['banner TEXT', 'banner_link TEXT', 'roles TEXT', 'weekly INTEGER DEFAULT 0', 'next_id TEXT']) try { db.exec('ALTER TABLE events ADD COLUMN ' + col); } catch { } // capa; funções, semanal
+  try { db.exec('ALTER TABLE event_rsvps ADD COLUMN role TEXT'); } catch { } // função escolhida no "Vou" (ou na espera)
   const art = uploadDir ? createArt({ uploadDir, allowPrivate: artPrivate, log }) : null;
 
   const member = (gid, uid) => !!get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', gid, uid);
   const ends = (e) => e.starts_at + e.duration_min * 60e3;
   const status = (e) => (e.cancelled_at ? 'cancelled' : now() >= ends(e) ? 'ended' : now() >= e.starts_at ? 'live' : 'scheduled');
+  const rolesOf = (e) => { try { const r = JSON.parse(e.roles || '[]'); return Array.isArray(r) ? r : []; } catch { return []; } };
   function eventObj(e) {
     if (!e) return null;
-    const r = all('SELECT user_id, state FROM event_rsvps WHERE event_id=? ORDER BY updated_at', e.id);
+    const r = all('SELECT user_id, state, role FROM event_rsvps WHERE event_id=? ORDER BY updated_at, rowid', e.id);
     const of = (s) => r.filter(x => x.state === s).map(x => x.user_id);
+    const roles = rolesOf(e).map(x => ({ ...x, yes: r.filter(y => y.state === 'yes' && y.role === x.id).map(y => y.user_id), wait: r.filter(y => y.state === 'wait' && y.role === x.id).map(y => y.user_id) }));
+    const picks = {}; for (const x of r) if (x.role && (x.state === 'yes' || x.state === 'wait')) picks[x.user_id] = x.role;
     return { id: e.id, guild_id: e.guild_id, author_id: e.author_id, title: e.title, description: e.description || '', game: e.game || '', appid: e.appid || null,
       banner: e.banner || null, banner_link: e.banner_link || null,
       channel_id: e.channel_id || null, announce_id: e.announce_id || null, message_id: e.message_id || null, starts_at: e.starts_at, duration_min: e.duration_min,
-      ends_at: ends(e), slots: e.slots || 0, created_at: e.created_at, status: status(e), yes: of('yes'), maybe: of('maybe'), no: of('no') };
+      ends_at: ends(e), slots: e.slots || 0, created_at: e.created_at, status: status(e), yes: of('yes'), maybe: of('maybe'), no: of('no'),
+      wait: of('wait'), roles, picks, weekly: !!e.weekly, next_id: e.next_id || null };
   }
   const byId = (id) => get('SELECT * FROM events WHERE id=?', id);
   // avisa: o anúncio no chat (MESSAGE_UPDATE) e a tela Eventos (EVENT_UPDATE)
@@ -81,6 +92,22 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     }
     if (b.duration_min !== undefined || !cur.id) { const d = +b.duration_min || 120; if (!DURATIONS.has(d)) throw new Error('Duração inválida'); out.duration_min = d; }
     if (b.slots !== undefined) { const s = Math.round(+b.slots || 0); if (s < 0 || s > 100) throw new Error('Vagas: de 0 (sem limite) a 100'); out.slots = s; }
+    if (b.weekly !== undefined) out.weekly = b.weekly ? 1 : 0;
+    if (b.roles !== undefined) {
+      const list = Array.isArray(b.roles) ? b.roles : [];
+      if (list.length > 12) throw new Error('No máximo 12 funções');
+      const prev = new Map(rolesOf(cur).map(x => [x.id, x])), used = new Set();
+      const roles = list.map((x) => {
+        const name = clean(x?.name, 30); if (!name) throw new Error('Dê um nome a cada função');
+        const slots = Math.round(+x?.slots || 0); if (slots < 1 || slots > 50) throw new Error('Cada função tem de 1 a 50 vagas');
+        // função que já existia mantém o id (e quem estava nela); nova ganha um id que nunca foi de outra
+        let id = String(x?.id || '');
+        if (!/^r\d{1,3}$/.test(id) || used.has(id) || (!prev.has(id) && cur.id)) { let n = 1; while (used.has('r' + n) || prev.has('r' + n) || list.some(y => y?.id === 'r' + n)) n++; id = 'r' + n; }
+        used.add(id);
+        return { id, name, emoji: clean(x?.emoji, 8) || '', slots };
+      });
+      out.roles = roles.length ? JSON.stringify(roles) : null;
+    }
     if (b.channel_id !== undefined) {
       out.channel_id = b.channel_id || null;
       if (out.channel_id && !get('SELECT 1 x FROM channels WHERE id=? AND guild_id=? AND type=2', out.channel_id, gid)) throw new Error('Sala de voz não encontrada');
@@ -105,20 +132,50 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     let v; try { v = read(req.body || {}, gid); } catch (e) { return bad(res, e.message); }
     const ann = req.body?.announce_id ? get('SELECT * FROM channels WHERE id=? AND guild_id=?', req.body.announce_id, gid) : null;
     if (req.body?.announce_id && (!ann || ![0, 5].includes(ann.type))) return bad(res, 'Canal de texto não encontrado');
+    // quem marca vai (com a função que escolheu, se o evento tem funções)
+    const list = v.roles ? JSON.parse(v.roles) : [], myRole = list.find(x => x.id === req.body?.my_role) || list[0] || null;
+    const id = create(gid, req.uid, { ...v, announce_id: ann?.id || null }, myRole?.id || null);
+    res.json(changed(byId(id)));
+  }));
+  // cria o evento (e o anúncio no canal); usado pela rota e pelo evento semanal
+  function create(gid, author, v, authorRole = null) {
     const id = newId(), t = now();
-    run(`INSERT INTO events(id,guild_id,author_id,title,description,game,appid,channel_id,announce_id,starts_at,duration_min,slots,created_at,banner,banner_link) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, gid, req.uid, v.title, v.description || '', v.game || '', v.appid || null, v.channel_id || null, ann?.id || null, v.starts_at, v.duration_min, v.slots || 0, t, v.banner || null, v.banner_link || null);
-    run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at) VALUES(?,?,?,?)', id, req.uid, 'yes', t); // quem marca vai
+    run(`INSERT INTO events(id,guild_id,author_id,title,description,game,appid,channel_id,announce_id,starts_at,duration_min,slots,created_at,banner,banner_link,roles,weekly) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, gid, author, v.title, v.description || '', v.game || '', v.appid || null, v.channel_id || null, v.announce_id || null, v.starts_at, v.duration_min, v.slots || 0, t, v.banner || null, v.banner_link || null, v.roles || null, v.weekly ? 1 : 0);
+    run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at,role) VALUES(?,?,?,?,?)', id, author, 'yes', t, authorRole);
     if (v.starts_at - t <= REMIND_MIN * 60e3) run('UPDATE events SET reminded_at=? WHERE id=?', t, id); // marcado em cima da hora: não manda "começa em 30 min" para quem acabou de marcar
+    const ann = v.announce_id && get('SELECT * FROM channels WHERE id=? AND guild_id=?', v.announce_id, gid);
     if (ann) { // anúncio no canal: o app desenha o cartão do evento
       const mid = newId();
-      run('INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES(?,?,?,?,?)', mid, ann.id, req.uid, '📅 ' + v.title, t);
-      run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', req.uid, ann.id, mid);
+      run('INSERT INTO messages(id,channel_id,author_id,content,created_at) VALUES(?,?,?,?,?)', mid, ann.id, author, '📅 ' + v.title, t);
+      run('INSERT INTO read_states VALUES(?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET last_id=excluded.last_id', author, ann.id, mid);
       run('UPDATE events SET message_id=? WHERE id=?', mid, id);
       dispatch(guildMemberIds(gid), 'MESSAGE_CREATE', { ...messageObj(get('SELECT * FROM messages WHERE id=?', mid)), guild_id: gid, mentions: [] });
     }
-    res.json(changed(byId(id)));
-  }));
+    return id;
+  }
+  // abre vaga -> o primeiro da espera (da função, ou do evento sem funções) sobe; devolve quem subiu
+  function promote(e) {
+    const up = [], roles = rolesOf(e);
+    const fill = (cap, roleId) => {
+      const cond = roleId === undefined ? '' : ' AND role IS ?';
+      const args = roleId === undefined ? [] : [roleId];
+      let free = cap - get(`SELECT COUNT(*) n FROM event_rsvps WHERE event_id=? AND state='yes'${cond}`, e.id, ...args).n;
+      if (free <= 0) return;
+      for (const w of all(`SELECT user_id FROM event_rsvps WHERE event_id=? AND state='wait'${cond} ORDER BY updated_at, rowid LIMIT ?`, e.id, ...args, free)) {
+        run("UPDATE event_rsvps SET state='yes' WHERE event_id=? AND user_id=?", e.id, w.user_id); up.push(w.user_id); free--;
+      }
+    };
+    if (roles.length) for (const r of roles) fill(r.slots, r.id);
+    else if (e.slots) fill(e.slots, undefined);
+    else run("UPDATE event_rsvps SET state='yes' WHERE event_id=? AND state='wait'", e.id); // sem limite: ninguém espera
+    return up;
+  }
+  function afterChange(e, skip) {
+    const up = promote(e).filter(u => u !== skip), ev = changed(byId(e.id));
+    if (up.length) dispatch(up, 'EVENT_REMINDER', { event: ev, kind: 'promoted' });
+    return ev;
+  }
   app.patch('/api/events/:id', auth, wrap((req, res) => {
     const e = byId(req.params.id); if (!e || !member(e.guild_id, req.uid)) return bad(res, 'Evento não encontrado', 404);
     if (!canManage(e, req.uid)) return bad(res, 'Só quem criou (ou quem gerencia o servidor) pode editar', 403);
@@ -128,28 +185,43 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     run(`UPDATE events SET ${keys.map(k => k + '=?').join(',')} WHERE id=?`, ...keys.map(k => v[k]), e.id);
     if (v.starts_at && v.starts_at !== e.starts_at) run('UPDATE events SET reminded_at=NULL, started_at=NULL WHERE id=?', e.id); // mudou a hora: avisa de novo
     if (v.title && e.message_id) run('UPDATE messages SET content=? WHERE id=?', '📅 ' + v.title, e.message_id);
-    res.json(changed(byId(e.id)));
+    if (v.roles !== undefined) { // função que saiu: quem estava nela fica como Talvez (sem função)
+      const keep = new Set((v.roles ? JSON.parse(v.roles) : []).map(x => x.id));
+      for (const x of all("SELECT user_id, role FROM event_rsvps WHERE event_id=? AND role IS NOT NULL", e.id)) if (!keep.has(x.role)) run("UPDATE event_rsvps SET state='maybe', role=NULL WHERE event_id=? AND user_id=?", e.id, x.user_id);
+      if (keep.size) run("UPDATE event_rsvps SET state='maybe' WHERE event_id=? AND state IN ('yes','wait') AND role IS NULL", e.id); // virou evento com funções: quem ia sem função escolhe uma
+    }
+    res.json(afterChange(byId(e.id)));
   }));
   app.delete('/api/events/:id', auth, wrap((req, res) => {
     const e = byId(req.params.id); if (!e || !member(e.guild_id, req.uid)) return bad(res, 'Evento não encontrado', 404);
     if (!canManage(e, req.uid)) return bad(res, 'Só quem criou (ou quem gerencia o servidor) pode cancelar', 403);
     if (!e.cancelled_at) run('UPDATE events SET cancelled_at=? WHERE id=?', now(), e.id);
+    if (req.query.serie === '1') run('UPDATE events SET weekly=0 WHERE id=?', e.id); // semanal: cancelar a série inteira (não marca a próxima)
     const ev = changed(byId(e.id));
     if (!e.cancelled_at) dispatch([...ev.yes, ...ev.maybe].filter(u => u !== req.uid), 'EVENT_REMINDER', { event: ev, kind: 'cancelled' });
     res.json(ev);
   }));
   app.put('/api/events/:id/rsvp', auth, wrap((req, res) => {
     const e = byId(req.params.id); if (!e || !member(e.guild_id, req.uid)) return bad(res, 'Evento não encontrado', 404);
-    const st = req.body?.state ?? null;
+    let st = req.body?.state ?? null;
     if (st !== null && !['yes', 'maybe', 'no'].includes(st)) return bad(res, 'Resposta inválida');
     const s = status(e); if (s === 'cancelled' || s === 'ended') return bad(res, s === 'cancelled' ? 'Evento cancelado' : 'Evento encerrado');
-    if (st === 'yes' && e.slots) {
-      const cur = get('SELECT state FROM event_rsvps WHERE event_id=? AND user_id=?', e.id, req.uid)?.state;
-      if (cur !== 'yes' && get("SELECT COUNT(*) n FROM event_rsvps WHERE event_id=? AND state='yes'", e.id).n >= e.slots) return bad(res, 'Vagas esgotadas: marque Talvez para ficar na espera');
+    const roles = rolesOf(e), cur = get('SELECT state, role FROM event_rsvps WHERE event_id=? AND user_id=?', e.id, req.uid);
+    let role = null;
+    if (st === 'yes') {
+      if (roles.length) { role = roles.find(x => x.id === String(req.body?.role || cur?.role || ''))?.id; if (!role) return bad(res, 'Escolha uma função'); }
+      const same = cur && (cur.state === 'yes' || cur.state === 'wait') && (cur.role || null) === role;
+      if (same) st = cur.state; // já está nessa função (confirmado ou na espera): nada muda
+      else {
+        const cap = roles.length ? roles.find(x => x.id === role).slots : e.slots;
+        const taken = cap ? get(`SELECT COUNT(*) n FROM event_rsvps WHERE event_id=? AND state='yes' AND user_id<>?${roles.length ? ' AND role=?' : ''}`, e.id, req.uid, ...(roles.length ? [role] : [])).n : 0;
+        // cheia e alguém já esperando: entra no fim da fila (não fura); cheia: espera
+        if (cap && (taken >= cap || get(`SELECT 1 x FROM event_rsvps WHERE event_id=? AND state='wait' AND user_id<>?${roles.length ? ' AND role=?' : ''}`, e.id, req.uid, ...(roles.length ? [role] : [])))) st = 'wait';
+      }
     }
     if (st === null) run('DELETE FROM event_rsvps WHERE event_id=? AND user_id=?', e.id, req.uid);
-    else run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at', e.id, req.uid, st, now());
-    res.json(changed(e));
+    else if (!(cur && cur.state === st && (cur.role || null) === role)) run('INSERT INTO event_rsvps(event_id,user_id,state,updated_at,role) VALUES(?,?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at, role=excluded.role', e.id, req.uid, st, now(), role);
+    res.json(afterChange(e, req.uid));
   }));
   // capa a partir de um link (página da loja/site do jogo ou imagem) ou de um jogo do catálogo
   const artBusy = new Map(); // uid -> último pedido (1 a cada 2 s)
@@ -190,6 +262,19 @@ export function mountEvents(app, { auth, wrap, bad, db, all, get, run, newId, di
     for (const e of all('SELECT * FROM events WHERE cancelled_at IS NULL AND started_at IS NULL AND starts_at<=? AND starts_at>?', t, t - 30 * 60e3)) {
       run('UPDATE events SET started_at=?, reminded_at=COALESCE(reminded_at, ?) WHERE id=?', t, t, e.id);
       const ev = changed(byId(e.id)); dispatch([...ev.yes, ...ev.maybe], 'EVENT_REMINDER', { event: ev, kind: 'start' });
+    }
+    // semanal: terminou (ou foi cancelado só este) -> marca o da semana seguinte, uma vez
+    for (const e of all('SELECT * FROM events WHERE weekly=1 AND next_id IS NULL AND starts_at + duration_min*60000 <= ?', t)) {
+      if (!get('SELECT 1 x FROM guilds WHERE id=?', e.guild_id)) continue;
+      let at = e.starts_at; while (at <= t) at += 7 * 864e5;
+      const author = get('SELECT 1 x FROM members WHERE guild_id=? AND user_id=?', e.guild_id, e.author_id) ? e.author_id : null;
+      if (!author) { run('UPDATE events SET next_id=? WHERE id=?', '-', e.id); continue; } // quem marcava saiu do servidor: para de repetir
+      const was = all("SELECT user_id FROM event_rsvps WHERE event_id=? AND state IN ('yes','wait') AND user_id<>?", e.id, author).map(x => x.user_id);
+      const role = get('SELECT role FROM event_rsvps WHERE event_id=? AND user_id=?', e.id, author)?.role || null;
+      const nid = create(e.guild_id, author, { ...e, starts_at: at }, rolesOf(e).some(x => x.id === role) ? role : null);
+      run('UPDATE events SET next_id=? WHERE id=?', nid, e.id);
+      const ev = changed(byId(nid));
+      if (was.length) dispatch(was, 'EVENT_REMINDER', { event: ev, kind: 'weekly' });
     }
     // terminou: o cartão passa a "Encerrado" (uma vez)
     for (const e of all('SELECT * FROM events WHERE cancelled_at IS NULL AND started_at IS NOT NULL AND started_at < starts_at + duration_min*60000 AND starts_at + duration_min*60000 <= ? AND starts_at + duration_min*60000 > ?', t, t - 2 * (+process.env.EVENTS_TICK_MS || 30e3))) changed(e);

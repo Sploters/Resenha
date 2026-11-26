@@ -3,7 +3,7 @@
 // Capa: da Steam (link/appid), de jogos fora dela (catálogo Riot/Battle.net/Epic…, ou link de qualquer loja/site) ou imagem própria.
 // Horários no fuso e formato de quem lê (o servidor guarda em UTC).
 import { h, icon, avatar, skeleton, imgUrl } from './util.js';
-import { S, api, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, chVisible, guild, notify } from './state.js';
+import { S, api, tryApi, toast, modal, confirmBox, can, PERM, user, channelById, chVisible, guild, notify, menu } from './state.js';
 import { steamInfo, steamApp } from './steamcard.js';
 import { uploadFile } from './upload.js';
 
@@ -44,11 +44,19 @@ export function eventCard(ev0, { compact } = {}) {
 }
 function paint(el, ev0, compact) {
   const ev = live(ev0), g = guild(ev.guild_id), room = ev.channel_id && channelById(ev.channel_id);
-  const mine = ev.yes.includes(S.me.id) ? 'yes' : ev.maybe.includes(S.me.id) ? 'maybe' : ev.no.includes(S.me.id) ? 'no' : null;
-  const open = ev.status === 'scheduled' || ev.status === 'live', full = ev.slots && ev.yes.length >= ev.slots;
+  const wait = ev.wait || [], roles = ev.roles || [], myRole = ev.picks?.[S.me.id] || null;
+  const mine = ev.yes.includes(S.me.id) ? 'yes' : wait.includes(S.me.id) ? 'wait' : ev.maybe.includes(S.me.id) ? 'maybe' : ev.no.includes(S.me.id) ? 'no' : null;
+  const open = ev.status === 'scheduled' || ev.status === 'live', full = !roles.length && ev.slots && ev.yes.length >= ev.slots;
   const manage = open && (ev.author_id === S.me.id || (g && can(g.id, PERM.MANAGE_GUILD)));
   const d = new Date(ev.starts_at);
-  const rsvp = (st) => async (e) => { e.stopPropagation(); const r = await tryApi('PUT', `/events/${ev.id}/rsvp`, { state: mine === st ? null : st }); if (r) onEventUpdate({ event: r }); };
+  const send = async (body) => { const r = await tryApi('PUT', `/events/${ev.id}/rsvp`, body); if (!r) return; onEventUpdate({ event: r }); if (body.state === 'yes' && r.wait?.includes(S.me.id)) toast('Vagas cheias: você entrou na lista de espera e sobe sozinho quando abrir uma'); };
+  const rsvp = (st) => async (e) => {
+    e.stopPropagation();
+    // com funções, "Vou" pergunta qual (ou sai, se já estava confirmado/na espera)
+    if (st === 'yes' && roles.length && !(mine === 'yes' || mine === 'wait')) return menu(e, roles.map(x => ({ label: `${x.emoji ? x.emoji + ' ' : ''}${x.name} · ${x.yes.length}/${x.slots}${x.yes.length >= x.slots ? ' (espera)' : ''}`, fn: () => send({ state: 'yes', role: x.id }) })));
+    send({ state: (mine === st || (st === 'yes' && mine === 'wait')) ? null : st });
+  };
+  const waitPos = mine === 'wait' ? (roles.length ? (roles.find(x => x.id === myRole)?.wait || []) : wait).indexOf(S.me.id) + 1 : 0;
   const banner = h('div.ev-banner', h('span.ev-bph', { 'aria-hidden': 'true' }, icon(ev.game ? 'gamepad' : 'calendar', 30), ev.game && h('b', ev.game))); // sem capa: só na tela Eventos (CSS)
   el.className = 'evcard ev-' + ev.status + (compact ? ' compact' : '');
   el.replaceChildren(
@@ -61,15 +69,23 @@ function paint(el, ev0, compact) {
         h('div.ev-meta', h('span', icon('clock', 14), whenText(ev)),
           room && h('span', icon('voice', 14), room.name),
           ev.game && h('span', icon('gamepad', 14), ev.game),
-          ev.slots ? h('span' + (full ? '.ev-full' : ''), icon('users', 14), `${ev.yes.length}/${ev.slots} vagas`) : null),
+          ev.weekly && h('span.ev-weekly', { title: 'Repete toda semana: o da semana seguinte é marcado sozinho quando este termina' }, icon('refresh', 14), 'Toda semana'),
+          !roles.length && ev.slots ? h('span' + (full ? '.ev-full' : ''), icon('users', 14), `${ev.yes.length}/${ev.slots} vagas`) : null,
+          wait.length ? h('span.ev-waitn', `${wait.length} na espera`) : null),
         ev.description && !compact && h('p.ev-desc', ev.description))),
+    roles.length > 0 && h('div.ev-roles', roles.map(x => h('div.ev-role' + (x.yes.length >= x.slots ? '.full' : '') + (myRole === x.id ? '.mine' : ''),
+      h('span.ev-rname', x.emoji && h('span.ev-remo', x.emoji), x.name), h('span.ev-rcount', `${x.yes.length}/${x.slots}`),
+      h('span.sc-avs', x.yes.slice(0, 6).map(uid => avatar(user(uid), 20, { status: false }))),
+      x.wait.length ? h('small.ev-rwait', `+${x.wait.length} na espera`) : null,
+      open && myRole !== x.id && h('button.ev-link', { type: 'button', onclick: (e) => { e.stopPropagation(); send({ state: 'yes', role: x.id }); } }, x.yes.length >= x.slots ? 'Esperar' : mine === 'yes' || mine === 'wait' ? 'Trocar' : 'Entrar')))),
+    mine === 'wait' && h('div.ev-waitme', icon('clock', 14), `Você está na lista de espera (${waitPos}º)${roles.length ? ' de ' + (roles.find(x => x.id === myRole)?.name || '') : ''}: sobe sozinho quando abrir uma vaga`),
     h('div.ev-people',
       ev.yes.length ? h('span.sc-avs', ev.yes.slice(0, 8).map(uid => avatar(user(uid), 24, { status: false }))) : null,
       h('span', [ev.yes.length && `${ev.yes.length} ${ev.yes.length === 1 ? 'vai' : 'vão'}`, ev.maybe.length && `${ev.maybe.length} talvez`].filter(Boolean).join(' · ') || 'Ninguém confirmou ainda'),
       (ev.yes.length || ev.maybe.length || ev.no.length) ? h('button.ev-link', { type: 'button', onclick: (e) => { e.stopPropagation(); whoModal(ev); } }, 'Ver quem') : null),
     h('div.ev-acts',
       open && h('div.ev-rsvp', { role: 'group', 'aria-label': 'Sua resposta' },
-        h('button.ev-btn' + (mine === 'yes' ? '.on.yes' : ''), { type: 'button', 'aria-pressed': String(mine === 'yes'), disabled: !!full && mine !== 'yes', title: full && mine !== 'yes' ? 'Vagas esgotadas' : null, onclick: rsvp('yes') }, icon('check', 16), 'Vou'),
+        h('button.ev-btn' + (mine === 'yes' || mine === 'wait' ? '.on.yes' : ''), { type: 'button', 'aria-pressed': String(mine === 'yes' || mine === 'wait'), title: full && mine !== 'yes' ? 'Vagas esgotadas: entra na lista de espera' : null, onclick: rsvp('yes') }, icon(mine === 'wait' ? 'clock' : 'check', 16), mine === 'wait' ? 'Na espera' : full && mine !== 'yes' ? 'Entrar na espera' : 'Vou'),
         h('button.ev-btn' + (mine === 'maybe' ? '.on.maybe' : ''), { type: 'button', 'aria-pressed': String(mine === 'maybe'), onclick: rsvp('maybe') }, 'Talvez'),
         h('button.ev-btn' + (mine === 'no' ? '.on.no' : ''), { type: 'button', 'aria-pressed': String(mine === 'no'), onclick: rsvp('no') }, 'Não vou')),
       ev.status === 'live' && room && h('button.btn.green.ev-join', { type: 'button', onclick: (e) => { e.stopPropagation(); ctx.joinVoice?.(room.id); } }, icon('voice', 16), 'Entrar na sala'),
@@ -90,7 +106,7 @@ async function downloadIcs(ev) {
 }
 function whoModal(ev) {
   const sec = (cap, ids) => ids.length ? [h('div.gm-cap', `${cap} · ${ids.length}`), h('div.gm-people', ids.map(uid => h('div.gm-person', { onclick: (e) => { m.close(); ctx.profile?.(e.currentTarget, uid); } }, avatar(user(uid), 32), h('div.an-who', h('b', nameOf(uid)), uid === ev.author_id && h('small', 'marcou o evento')))))] : [];
-  const m = modal(ev.title, whenText(ev), h('div.gp', ...sec('Vão', ev.yes), ...sec('Talvez', ev.maybe), ...sec('Não vão', ev.no)), [{ label: 'Fechar', cls: 'grey' }], { width: 'min(420px, 94vw)' });
+  const m = modal(ev.title, whenText(ev), h('div.gp', ...(ev.roles?.length ? ev.roles.flatMap(x => [...sec(`${x.emoji ? x.emoji + ' ' : ''}${x.name} (${x.yes.length}/${x.slots})`, x.yes), ...sec(`Espera de ${x.name}`, x.wait)]) : [...sec('Vão', ev.yes), ...sec('Na espera', ev.wait || [])]), ...sec('Talvez', ev.maybe), ...sec('Não vão', ev.no)), [{ label: 'Fechar', cls: 'grey' }], { width: 'min(420px, 94vw)' });
 }
 
 // ---------- tempo real ----------
@@ -104,10 +120,12 @@ export function onEventReminder(d) {
   const ev = d.event, room = ev.channel_id && channelById(ev.channel_id), g = guild(ev.guild_id);
   const where = room ? ` na sala ${room.name}` : '';
   const mins = Math.max(1, Math.round((ev.starts_at - Date.now()) / 60000)), soon = mins >= 25 ? '30 min' : `${mins} min`;
-  const txt = d.kind === 'soon' ? `${ev.title} começa em ${soon}${where}` : d.kind === 'start' ? `${ev.title} começou${where}` : `${ev.title} foi cancelado`;
+  const txt = d.kind === 'soon' ? `${ev.title} começa em ${soon}${where}` : d.kind === 'start' ? `${ev.title} começou${where}`
+    : d.kind === 'promoted' ? `Abriu uma vaga: você saiu da espera e está confirmado em ${ev.title}`
+    : d.kind === 'weekly' ? `${ev.title} da próxima semana foi marcado (${whenText(ev)}). Confirme se vai.` : `${ev.title} foi cancelado`;
   toast(txt + (g ? ` (${g.name})` : ''));
-  ctx.playSound?.(d.kind === 'soon' ? 'event' : 'eventStart'); // som próprio dos eventos (dá para trocar/desligar em Configurações → Sons)
-  notify(d.kind === 'cancelled' ? 'Evento cancelado' : d.kind === 'soon' ? `Evento em ${soon}` : 'Evento começando', txt, () => { if (room && d.kind !== 'cancelled') ctx.joinVoice?.(room.id); else if (g) ctx.go?.(g.id, 'events'); }, 'event-' + ev.id);
+  if (d.kind === 'soon' || d.kind === 'start' || d.kind === 'cancelled') ctx.playSound?.(d.kind === 'soon' ? 'event' : 'eventStart'); // som próprio dos eventos (dá para trocar/desligar em Configurações → Sons)
+  notify(d.kind === 'cancelled' ? 'Evento cancelado' : d.kind === 'promoted' ? 'Você entrou no evento' : d.kind === 'weekly' ? 'Evento da semana' : d.kind === 'soon' ? `Evento em ${soon}` : 'Evento começando', txt, () => { if (room && (d.kind === 'soon' || d.kind === 'start')) ctx.joinVoice?.(room.id); else if (g) ctx.go?.(g.id, 'events'); }, 'event-' + ev.id);
   onEventUpdate({ event: ev });
 }
 
@@ -174,17 +192,21 @@ export function eventModal(gid, ev = null, pre = null) {
   const ann = !ev && h('select', h('option', { value: '' }, 'Não anunciar (só na tela Eventos)'), texts.map(c => h('option', { value: c.id, selected: S.view.gid === gid && S.view.cid === c.id ? true : c === texts[0] }, '#' + c.name)));
   const slots = h('input', { type: 'number', min: 0, max: 100, value: ev?.slots || '', placeholder: 'Sem limite' });
   const desc = h('textarea', { maxLength: 1000, rows: 3, placeholder: 'Detalhes: modo, quem leva o quê… (opcional)' }, ev?.description || '');
+  const rolesEd = rolesEditor(ev, slots);
+  const weekly = h('input', { type: 'checkbox', checked: !!ev?.weekly });
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const body = h('div.evform',
     h('label.f', 'Nome do evento', title), h('label.f', 'Jogo', game),
     h('div.ev-frow', h('label.f', 'Dia e hora', when), h('label.f', 'Duração', dur)),
     h('small.ev-tz', `No seu fuso (${tz}); cada pessoa vê no fuso dela.`),
     h('div.ev-frow', h('label.f', 'Sala de voz', room), h('label.f', 'Vagas', slots)),
+    rolesEd.el,
+    h('label.ev-check', weekly, h('span', h('b', 'Repetir toda semana'), h('small', 'Raid fixa: quando este termina, o da semana seguinte é marcado sozinho no mesmo horário, com as mesmas funções.'))),
     ann && h('label.f', 'Anunciar no canal', ann),
     h('label.f', 'Descrição', desc),
     cover.el);
   const buttons = [{ label: 'Cancelar', cls: 'link' }];
-  if (ev) buttons.unshift({ label: 'Cancelar evento', cls: 'red', fn: async () => { if (!(await confirmBox('Cancelar evento', `Cancelar "${ev.title}"? Quem respondeu Vou ou Talvez recebe um aviso.`, 'Cancelar evento'))) return false; const r = await tryApi('DELETE', `/events/${ev.id}`); if (r) { onEventUpdate({ event: r }); toast('Evento cancelado.'); } return !!r; } });
+  if (ev) buttons.unshift({ label: 'Cancelar evento', cls: 'red', fn: async () => { if (!(await confirmBox('Cancelar evento', `Cancelar "${ev.title}"? Quem respondeu Vou ou Talvez recebe um aviso.`, 'Cancelar evento'))) return false; const r = await tryApi('DELETE', `/events/${ev.id}${ev.weekly && await confirmBox('Evento semanal', 'Parar de repetir também? Senão, só esta semana é cancelada e a próxima é marcada normalmente.', 'Parar a série') ? '?serie=1' : ''}`); if (r) { onEventUpdate({ event: r }); toast('Evento cancelado.'); } return !!r; } });
   buttons.push({ label: ev ? 'Salvar' : 'Marcar evento', fn: async () => {
     const t = new Date(when.value).getTime();
     if (!title.value.trim()) { toast('Dê um nome ao evento', true); title.focus(); return false; }
@@ -196,7 +218,10 @@ export function eventModal(gid, ev = null, pre = null) {
     else if (/^https?:\/\//i.test(raw)) gameName = cover.title() || nameFromLink(raw); // link de outra loja: o nome vem da página
     const c = cover.value();
     const payload = { title: title.value.trim(), starts_at: t, duration_min: +dur.value, channel_id: room.value || null, slots: +slots.value || 0, game: gameName.slice(0, 80), appid, description: desc.value.trim(),
-      banner: appid && c.auto ? null : c.url, banner_link: appid && c.auto ? null : c.link };
+      banner: appid && c.auto ? null : c.url, banner_link: appid && c.auto ? null : c.link, weekly: weekly.checked };
+    const rl = rolesEd.value(); if (rl.error) { toast(rl.error, true); return false; }
+    if (rl.roles || ev?.roles?.length) payload.roles = rl.roles || [];
+    if (!ev && rl.mine) payload.my_role = rl.mine;
     if (!ev) payload.announce_id = ann.value || null;
     const r = await tryApi(ev ? 'PATCH' : 'POST', ev ? `/events/${ev.id}` : `/guilds/${gid}/events`, payload);
     if (!r) return false;
@@ -281,4 +306,42 @@ function coverPicker(gid, ev, gameInput) {
   loadCatalog().then(list => { const dl = el.querySelector('#ev-games'); dl?.replaceChildren(...list.map(g => h('option', { value: g.name }, g.store))); });
   draw();
   return { el, value: () => ({ url: st.url, link: st.link, auto: st.auto }), busy: () => !!st.busy, title: () => st.title };
+}
+
+// ---------- vagas por função ----------
+// modelos por jogo (o pessoal ajusta antes de marcar); cada função tem nome, emoji e vagas
+export const ROLE_TEMPLATES = [
+  { id: 'wow-raid', name: 'WoW: raid (10)', roles: [['🛡️', 'Tanque', 2], ['💚', 'Cura', 2], ['⚔️', 'Dano', 6]] },
+  { id: 'wow-mplus', name: 'WoW: Mítica+ (5)', roles: [['🛡️', 'Tanque', 1], ['💚', 'Cura', 1], ['⚔️', 'Dano', 3]] },
+  { id: 'dota', name: 'Dota 2', roles: [['🗡️', 'Carry', 1], ['🎯', 'Mid', 1], ['🪓', 'Offlane', 1], ['🧭', 'Suporte 4', 1], ['🛟', 'Suporte 5', 1]] },
+  { id: 'lol', name: 'League of Legends / Clash', roles: [['⛰️', 'Top', 1], ['🌿', 'Selva', 1], ['🎯', 'Meio', 1], ['🏹', 'Atirador', 1], ['🛟', 'Suporte', 1]] },
+  { id: 'valorant', name: 'Valorant', roles: [['💥', 'Duelista', 1], ['🔦', 'Iniciador', 1], ['🌫️', 'Controlador', 1], ['🧱', 'Sentinela', 1], ['🔁', 'Flex', 1]] },
+  { id: 'deadlock', name: 'Deadlock (6)', roles: [['🎮', 'Jogador', 6]] },
+  { id: 'times', name: 'Dois times de 5', roles: [['🔵', 'Time azul', 5], ['🔴', 'Time vermelho', 5]] },
+];
+function rolesEditor(ev, slotsInput) {
+  let rows = (ev?.roles || []).map(x => ({ id: x.id, emoji: x.emoji || '', name: x.name, slots: x.slots }));
+  const box = h('div.ev-roled'), mineSel = !ev && h('select');
+  const tpl = h('select', { onchange: () => { const t = ROLE_TEMPLATES.find(x => x.id === tpl.value); tpl.value = ''; if (!t) return; rows = t.roles.map(([emoji, name, n], i) => ({ id: 'r' + (i + 1), emoji, name, slots: n })); draw(); } },
+    h('option', { value: '' }, 'Usar um modelo…'), ROLE_TEMPLATES.map(t => h('option', { value: t.id }, t.name)));
+  const draw = () => {
+    slotsInput.disabled = rows.length > 0; slotsInput.title = rows.length ? 'Com funções, as vagas são as de cada função' : '';
+    box.replaceChildren(...rows.map((r, i) => h('div.ev-rrow',
+      h('input.ev-remoin', { value: r.emoji, maxLength: 8, placeholder: '🙂', 'aria-label': 'Emoji', oninput: (e) => { r.emoji = e.target.value; } }),
+      h('input', { value: r.name, maxLength: 30, placeholder: 'Função (ex.: Tanque)', 'aria-label': 'Nome da função', oninput: (e) => { r.name = e.target.value; syncMine(); } }),
+      h('input', { type: 'number', min: 1, max: 50, value: r.slots, 'aria-label': 'Vagas', style: { width: '64px' }, oninput: (e) => { r.slots = +e.target.value || 1; } }),
+      h('button.btn.link.sm', { type: 'button', title: 'Tirar função', 'aria-label': 'Tirar função', onclick: () => { rows.splice(i, 1); draw(); } }, icon('x', 14)))));
+    syncMine();
+  };
+  const syncMine = () => { if (!mineSel) return; const cur = mineSel.value; mineSel.replaceChildren(...rows.map((r, i) => h('option', { value: r.id || 'r' + (i + 1), selected: (r.id || 'r' + (i + 1)) === cur }, `${r.emoji ? r.emoji + ' ' : ''}${r.name || 'Função ' + (i + 1)}`))); mineLbl.hidden = !rows.length; };
+  const mineLbl = mineSel ? h('label.f', 'A sua função', mineSel) : h('span');
+  const add = h('button.btn.grey.sm', { type: 'button', onclick: () => { let n = 1; while (rows.some(r => r.id === 'r' + n)) n++; rows.push({ id: ev ? null : 'r' + n, emoji: '', name: '', slots: 1 }); draw(); } }, icon('plus', 14), 'Função');
+  const el = h('div.f.ev-rolesf', h('span', 'Vagas por função ', h('small.mut', '(opcional: raid, times, rotas)')), h('div.evc-row', tpl, add), box, mineLbl,
+    h('small.mut', 'Cheia, quem clicar fica na lista de espera e sobe sozinho quando abrir uma vaga.'));
+  draw();
+  return { el, value() {
+    if (!rows.length) return { roles: null };
+    for (const r of rows) if (!r.name.trim()) return { error: 'Dê um nome a cada função' };
+    return { roles: rows.map(r => ({ ...(r.id ? { id: r.id } : {}), emoji: r.emoji.trim(), name: r.name.trim(), slots: Math.max(1, Math.min(50, r.slots | 0)) })), mine: mineSel?.value || null };
+  } };
 }
