@@ -44,6 +44,7 @@ import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
 import { createLobby } from './lobby.js';
+import { createSbLimiter } from './sblimit.js';
 import { mountOnboarding } from './onboarding.js';
 import { mountAdmin } from './admin.js';
 import { createPush } from './push.js';
@@ -103,6 +104,7 @@ const acts = new Map(); // channelId -> { wb: bool, code: {text, lang}|null, boa
 const actOf = (c) => { let a = acts.get(c); if (!a) acts.set(c, a = { wb: false, code: null, boards: {}, spot: null, spotBy: null }); return a; };
 const roomSend = (c, type, d, except) => { for (const [id, st] of voice.get(c) || []) if (id !== except) send(st.ws, type, d); };
 const lobby = createLobby({ db, get, run, all }); // "Times e fila" da sala (server/lobby.js)
+const sbLimit = createSbLimiter(); setInterval(() => sbLimit.prune(), 300e3).unref?.(); // soundboard: anti-spam
 const botIds = new Map(); // bots (música) não entram no lobby
 const isBotUser = (id) => { if (!botIds.has(id)) botIds.set(id, !!get("SELECT 1 x FROM users WHERE id=? AND username LIKE 'bot\\_%' ESCAPE '\\'", id)); return botIds.get(id); };
 const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, code: a.code, boards: a.boards, spot: a.spot, spot_by: a.spotBy, lobby: lobby.state(a.lobby) }; };
@@ -1142,7 +1144,7 @@ wss.on('connection', (ws) => {
         case 'SOUNDBOARD': { // toca um som para todos na sala de voz
           const c = currentVoice(uid); if (!c) return;
           const url = String(d.url || ''); if (!url.startsWith('/files/')) return;
-          if (Date.now() - (ws.lastSb || 0) < 1200) return; ws.lastSb = Date.now();
+          { const r = sbLimit.hit(uid); if (!r.ok) { if (r.fresh) send(ws, 'SOUNDBOARD_LIMIT', { until: r.until, secs: r.secs, strikes: r.strikes }); return; } } // rajada livre, castigo que cresce (server/sblimit.js)
           const msg = { user_id: uid, channel_id: c, url, volume: Math.max(1, Math.min(200, +d.volume || 100)), name: clean(d.name, 32), emoji: clean(d.emoji, 16) };
           for (const [, st] of voice.get(c)) send(st.ws, 'SOUNDBOARD', msg);
           break;

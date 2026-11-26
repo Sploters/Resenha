@@ -43,9 +43,18 @@ export function onIncoming(msg, voice) {
     stage.append(el); setTimeout(() => el.remove(), 2600);
   }
 }
+// anti-spam (servidor: server/sblimit.js): até 6 sons em 10 s à vontade; passou disso, espera de 10 s, que cresce
+// (20, 40, 60 s) para quem continua. O servidor avisa (SOUNDBOARD_LIMIT) e aqui o app segura os cliques até liberar.
+let sbUntil = 0;
+const sbWait = () => Math.ceil((sbUntil - Date.now()) / 1000);
+export function sbLimited(d) {
+  sbUntil = Date.now() + (+d.secs || 10) * 1000;
+  toast(d.strikes > 1 ? `Calma aí! Soundboard bloqueado por ${d.secs} s (continuou no spam, a espera aumentou).` : `Calma aí! Muitos sons seguidos: o soundboard volta em ${d.secs} s.`, true);
+}
 export function trigger(sound, voice, { preview = false } = {}) {
   if (!sound) return;
   if (!preview && voice?.deafened) return toast('Soundboard indisponível enquanto você está ensurdecido.', true);
+  if (!preview && voice?.active && sbWait() > 0) return toast(`Soundboard em espera: volta em ${sbWait()} s.`, true);
   if (!preview && sound.id) { const u = (S.prefs.sbUse ||= {}); u[sound.id] = (u[sound.id] || 0) + 1; savePrefs(); } // alimenta "Usados com frequência"
   if (!preview && voice?.active) voice.send('SOUNDBOARD', { url: sound.url, volume: vol(sound), name: sound.name, emoji: sound.emoji });
   else { if (!preview && !voice?.active) toast('Entre em uma sala de voz para tocar para os outros. Tocando prévia.'); playLocal(sound.url, vol(sound)); }

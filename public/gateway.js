@@ -14,7 +14,7 @@ import { S, api, guild, channelById, member, nameOf, toast, warmEmojis, notify, 
 import { Voice, prewarmVoice } from './voice.js';
 import { playSound, presenceSound, resetPresenceSounds } from './sounds.js';
 import { initMusic, onState as musicOnState, onRes as musicOnRes, musicState } from './music.js';
-import { onIncoming as sbIncoming } from './soundboard.js';
+import { onIncoming as sbIncoming, sbLimited } from './soundboard.js';
 import { paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { initBoard, boardState, onDraw } from './board.js';
 import { initCode, codeSet, codeReset } from './code.js';
@@ -454,6 +454,7 @@ export function onEvent(t, d) {
     }
     case 'STREAM_VIEWERS': if (d.viewers.length) S.viewers.set(d.streamer_id, d.viewers); else S.viewers.delete(d.streamer_id); renderVoiceUI(); break;
     case 'SOUNDBOARD': sbIncoming(d, voice); break;
+    case 'SOUNDBOARD_LIMIT': sbLimited(d); break;
     case 'CALL_INVITE': onCallInvite(d); break;
     case 'BORA_NEW': case 'BORA_UPDATE': case 'BORA_FORMED': case 'BORA_START': case 'BORA_ANSWER': onBoraEvent(t, d); break;
     case 'INTENT_INVITE': case 'INTENT_UPDATE': case 'INTENT_RESPONSE': case 'INTENT_FORMED': case 'INTENT_EXPIRED': onIntentEvent(t, d); break;
