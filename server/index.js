@@ -965,7 +965,7 @@ function pushDevices(uid) {
 // O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
-  TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  TYPING: [1, 4], VOICE_JOIN: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
   REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];

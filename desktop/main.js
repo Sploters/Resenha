@@ -88,6 +88,8 @@ if (gpuCompat && cfg.hardwareAcceleration !== false) {
   app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
 }
 app.commandLine.appendSwitch('disable-features', [...offFeatures].join(','));
+// WebGPU desligado: o app não usa, e o dxcompiler.dll que ele carregaria sai do instalador (desktop/afterpack.js)
+app.commandLine.appendSwitch('disable-blink-features', 'WebGPU');
 const log = (...a) => { try { fs.appendFileSync(path.join(app.getPath('userData'), 'main.log'), `${new Date().toISOString()} ${a.join(' ')}\n`); } catch { /* sem log */ } };
 let win, tray, quitting = false, pickedSource = null, pickedName = '', badge = 0;
 const serverHost = () => { try { return new URL(cfg.server).hostname; } catch { return ''; } };

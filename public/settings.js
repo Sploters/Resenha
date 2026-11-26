@@ -549,7 +549,7 @@ function extrasPage(ctx) {
     hint('Para marcar um horário que cada um vê no próprio fuso, use o + do campo de mensagem → Inserir horário (ou escreva <t:SEGUNDOS:R>).'),
     section('Pessoas'),
     card(
-      row('Avisar quando alguém desfizer a amizade', 'Mostra um aviso na hora e guarda por 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. Também vale se aconteceu com o app fechado.', toggle(P.friendLossNotice !== false, set('friendLossNotice')))),
+      row('Avisar quando alguém desfizer a amizade', 'Mostra um aviso na hora e guarda por 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. Também vale se aconteceu com o app fechado.', toggle(P.friendLossNotice === true, set('friendLossNotice')))),
     section('Visualizador de imagens'),
     card(
       toggleCards([

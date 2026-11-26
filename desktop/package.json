@@ -72,7 +72,8 @@
         "from": "native/lc-audio.exe",
         "to": "lc-audio.exe"
       }
-    ]
+    ],
+    "afterPack": "./afterpack.js"
   },
   "devDependencies": {
     "electron": "^45.1.0",

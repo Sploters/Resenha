@@ -151,13 +151,13 @@ export const seenLoss = () => { try { return +localStorage.getItem(LOSS_SEEN + '
 export function noticeFriendLosses(list) {
   if (!list.length) return;
   try { localStorage.setItem(LOSS_SEEN + ':' + S.me.id, String(Math.max(seenLoss(), ...list.map(x => x.at)))); } catch { }
-  if (S.prefs.friendLossNotice === false) return;
+  if (S.prefs.friendLossNotice !== true) return; // desligado por padrão (socialmente arriscado)
   const names = list.map(x => user(x.user.id).display_name);
   toast(names.length === 1 ? `${names[0]} desfez a amizade com você` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ` e mais ${names.length - 2}` : ''} desfizeram a amizade com você`);
 }
 export function refreshInboxRequests() { if ($('.inboxpop') && inboxTab === 'requests') $('.inboxpop .ib-tabs button.on')?.click(); }
 function friendLossRows(redraw) {
-  const list = S.prefs.friendLossNotice === false ? [] : (S.friendLosses || []);
+  const list = S.prefs.friendLossNotice !== true ? [] : (S.friendLosses || []);
   if (!list.length) return [];
   const row = (x) => {
     const u = user(x.user.id), rt = S.rels.get(u.id)?.type;
