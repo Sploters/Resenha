@@ -550,6 +550,8 @@ function extrasPage(ctx) {
     section('Pessoas'),
     card(
       row('Avisar quando alguém desfizer a amizade', 'Mostra um aviso na hora e guarda por 30 dias na caixa de entrada → Pedidos, com o botão para mandar o pedido de novo. Também vale se aconteceu com o app fechado.', toggle(P.friendLossNotice === true, set('friendLossNotice')))),
+    section('Chamada'),
+    card(row('Editor de código nas atividades', 'Mostra o editor de código compartilhado no foguete de atividades da chamada. Desligado, ele só aparece se alguém da sala já abriu.', toggle(P.codeEditor === true, set('codeEditor')))),
     section('Visualizador de imagens'),
     card(
       toggleCards([
@@ -829,7 +831,9 @@ function soundsPage() {
   return h('div', h('h2', 'Sons'),
     card(toggleCards([{ on: !!S.prefs.soundsMuted, label: 'Silenciar todos os sons do app', sub: 'Nenhum efeito sonoro toca', prev: h('span.snd-hero', icon('volmute', 30), h('i.sh-x')), fn: v => { S.prefs.soundsMuted = v; save(); } }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Volume geral dos sons', slider(0, 100, S.prefs.soundVolume, 5, v => { S.prefs.soundVolume = v; save(); }, v => v + '%'))),
-    ...Object.entries(groups).flatMap(([g, [title, ic]]) => [h('h3.sec.snd-sec', icon(ic, 16), title), groupVol(g), h('div.snd-grid', Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g).map(tileFor))]),
+    // cada grupo fechado por padrão (19 sons com chave, volume e arquivo próprio pesavam a página): abre para personalizar
+    ...Object.entries(groups).map(([g, [title, ic]]) => { const names = Object.keys(SOUND_DEFS).filter(n => SOUND_DEFS[n][1] === g), on = names.filter(n => soundCfg(n).on).length;
+      return h('details.snd-det', h('summary', icon(ic, 16), h('b', title), h('small.mut', `${on} de ${names.length} ligados`), icon('chevdown', 16)), groupVol(g), h('div.snd-grid', names.map(tileFor))); }),
     hint([icon('music', 14), ' troca o som pelo seu próprio arquivo de áudio; ', icon('refresh', 14), ' volta ao padrão. As configurações acompanham sua conta.']));
 }
 

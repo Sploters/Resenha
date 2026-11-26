@@ -2674,3 +2674,12 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .dsi-opts { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 4px; } .dsi-opts label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .dsi-warn { margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 560px) { .dsi-cols { grid-template-columns: 1fr; } }
+
+/* Configurações → Sons: grupos fechados por padrão */
+.snd-det { margin-top: 12px; border-radius: 10px; background: var(--bg-sec); }
+.snd-det > summary { display: flex; align-items: center; gap: 8px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.snd-det > summary::-webkit-details-marker { display: none; }
+.snd-det > summary small { margin-left: auto; }
+.snd-det > summary > .icon:last-child { transition: transform .15s; }
+.snd-det[open] > summary > .icon:last-child { transform: rotate(180deg); }
+.snd-det > :not(summary) { margin: 0 14px 14px; }

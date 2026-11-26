@@ -102,6 +102,9 @@ try {
   await shot(p, 'conversa');
 
   // ---------- amizade desfeita ----------
+  // desligado por padrão (socialmente arriscado): a ana liga em Configurações → Recursos extras
+  ok(await p.evaluate(() => window.__lc.S.prefs.friendLossNotice !== true), 'aviso de amizade desfeita vem desligado');
+  await p.evaluate(() => { window.__lc.S.prefs.friendLossNotice = true; window.__lc.savePrefs(); });
   await call(bia.tok, 'DELETE', `/relationships/${ana.id}`); await sleep(500);
   const toasts = await p.$$eval('#toast', els => els.map(e => e.textContent));
   ok(toasts.some(t => /bia desfez a amizade/i.test(t)), 'aviso na hora quando a Bia desfaz a amizade', toasts);

@@ -58,7 +58,7 @@ export function voicePanel() {
       sbButton()));
 }
 // ---------- Atividades (foguete) ----------
-// Um botão só para tudo que se faz junto na chamada: Watch Together, música, chamar pra jogar, o que jogar, lousa e código.
+// Um botão só para tudo que se faz junto na chamada: Watch Together, música, chamar pra jogar, o que jogar e lousa.
 // Fica no painel de voz e na barra da chamada (stage.js); abre o lançador com busca, recentes e a grade (watch.js).
 export function activityEntries() {
   const ch = voice?.channelId && channelById(voice.channelId), srv = !!ch?.guild_id;
@@ -70,7 +70,9 @@ export function activityEntries() {
     lobbyEntry(),
     { id: 'gamenight', icon: 'compass', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#7c5cff', fn: () => openGameNight(voice.channelId) },
     { id: 'wb', icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#2f9e5f', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
-    { id: 'code', icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
+    // Editor de código: fora do lançador por padrão (app de turma de jogo); aparece se alguém já abriu (para fechar) ou com
+    // Configurações → Recursos extras → "Editor de código nas atividades"
+    (room?.code || S.prefs.codeEditor === true) && { id: 'code', icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
   ].filter(Boolean);
 }
 // size 20 = painel de voz; 24 = barra da chamada (roundbtn). data-music-btn: o painel de música se prende a ele

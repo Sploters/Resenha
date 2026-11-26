@@ -6,8 +6,12 @@
 //    esquerda abre (arrastar para a esquerda fecha), como nos apps de celular.
 // 3) Barra do topo do canal: quando os botões não cabem (celular, janela estreita, tablet), os menos usados vão para um
 //    botão "Mais opções" no fim da barra, em vez de saírem da tela. Nenhum botão some: todos ficam no menu.
+// 4) Navegação inferior no celular (como nos apps): Servidores (abre a gaveta), Amigos, Jogos, Caixa de entrada (com o
+//    número de menções e pedidos) e Você. Some dentro de uma conversa (volta com a gaveta) e com o teclado aberto.
 import { h, icon } from './util.js';
-import { menu } from './state.js';
+import { S, menu } from './state.js';
+import { go } from './nav.js';
+import { showInbox, inboxBadge } from './inbox.js';
 
 const narrow = matchMedia('(max-width: 640px)');
 const root = document.documentElement;
@@ -107,3 +111,36 @@ function watch() {
 }
 new MutationObserver(watch).observe(document.body, { childList: true, subtree: true });
 watch();
+
+// ---------- 4) navegação inferior ----------
+let mnav = null, typing = false;
+const tab = (id, ic, label, fn) => h('button.mn-tab', { type: 'button', 'data-tab': id, 'aria-label': label, onclick: fn }, h('span.mn-ic', icon(ic, 22)), h('span.mn-l', label));
+function buildNav() {
+  mnav = h('nav#mnav', { 'aria-label': 'Navegação' },
+    tab('servers', 'grid', 'Servidores', () => setOpen(!isOpen())),
+    tab('home', 'users', 'Amigos', () => { setOpen(false); go('@me'); }),
+    tab('games', 'gamepad', 'Jogos', () => { setOpen(false); go('@me', 'lfg'); }),
+    tab('inbox', 'inbox', 'Caixa', (e) => { setOpen(false); showInbox(e.currentTarget); }),
+    tab('me', 'user', 'Você', () => { setOpen(false); window.__lc?.openSettings?.('account'); }));
+  document.body.append(mnav);
+}
+function syncNav() {
+  // numa conversa (com o campo de mensagem) a barra sai para dar espaço, como nos apps; a gaveta (☰ ou arrastar) traz de volta
+  const inChat = !!document.querySelector('#app #composer');
+  const show = narrow.matches && !!app() && !!S.me && !typing && (isOpen() || !inChat);
+  root.classList.toggle('has-mnav', show);
+  if (!show) { if (mnav) mnav.hidden = true; return; }
+  if (!mnav) buildNav();
+  mnav.hidden = false;
+  const v = S.view || {}, on = isOpen() ? 'servers' : v.gid === '@me' && v.cid === 'lfg' ? 'games' : v.gid === '@me' && !v.cid ? 'home' : null;
+  for (const b of mnav.children) b.classList.toggle('on', b.dataset.tab === on);
+  const ib = mnav.querySelector('[data-tab=inbox] .mn-ic'), badge = inboxBadge();
+  ib.querySelector('.ibadge')?.remove(); if (badge) ib.append(badge);
+}
+document.addEventListener('focusin', (e) => { if (!e.target.closest?.('#composer') && e.target.matches?.('textarea, input:not([type=checkbox]):not([type=radio]):not([type=range]), [contenteditable=true]')) { typing = true; syncNav(); } });
+document.addEventListener('focusout', () => { typing = false; setTimeout(syncNav, 50); });
+narrow.addEventListener?.('change', syncNav);
+addEventListener('hashchange', () => setTimeout(syncNav, 0));
+if (app()) new MutationObserver(syncNav).observe(app(), { attributes: true, attributeFilter: ['class'] }); // gaveta abriu/fechou
+setInterval(() => { if (narrow.matches && !document.hidden) syncNav(); }, 2000); // número da caixa de entrada
+syncNav();
