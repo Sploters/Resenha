@@ -7,8 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'desktop');
-const files = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).build.files;
-const seen = new Set(), todo = ['main.js'], missing = new Set();
+const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')), files = pkg.build.files;
+// começa pelo "main" do pacote (boot.js, que carrega o main.js) e pelo main.js
+const seen = new Set(), todo = [...new Set(['main.js', pkg.main || 'main.js'])], missing = new Set();
 while (todo.length) {
   const f = todo.pop();
   if (seen.has(f)) continue;

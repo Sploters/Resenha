@@ -11,7 +11,10 @@ const fs = require('node:fs');
 const https = require('node:https');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { verifyUpdate } = require('./updatekey');
+const { verifyUpdate, verifyAsar } = require('./updatekey');
+const overlay = require('./overlay');
+// versão que está rodando: a recebida por diferença (boot.js carregou o app.asar da pasta de dados) ou a instalada
+const appVersion = () => global.__resenhaOverlay?.version || app.getVersion();
 const updReady = require('./updready');
 
 // O app se chamava LocalCord: na primeira abertura depois da troca de nome, a pasta de dados antiga (servidor salvo,
@@ -246,6 +249,8 @@ function createWindow(forceShow) {
   win.webContents.once('dom-ready', () => log('abertura', ms(), 'ms: página montada'));
   win.webContents.once('did-finish-load', () => {
     log('abertura', ms(), 'ms: página carregada');
+    // abriu de verdade: a versão por diferença está saudável (zera as tentativas que o boot.js soma a cada abertura)
+    if (global.__resenhaOverlay && cfg.overlay?.version === global.__resenhaOverlay.version && cfg.overlay.tries) { cfg.overlay.tries = 0; saveCfg(); }
     win.webContents.executeJavaScript("(()=>{const n=performance.getEntriesByType('navigation')[0];return n?JSON.stringify({dns:Math.round(n.domainLookupEnd-n.domainLookupStart),conexao:Math.round(n.connectEnd-n.connectStart),primeiroByte:Math.round(n.responseStart-n.requestStart),pronta:Math.round(n.domContentLoadedEventEnd)}):''})()").then(r => r && log('abertura: rede', r)).catch(() => { });
     setTimeout(rememberServerIp, 1500);
   });
@@ -485,7 +490,7 @@ ipcMain.on('open-optional-features', () => { if (process.platform === 'win32') s
 native.onNativeEvent((ev) => { if (win && !win.isDestroyed()) win.webContents.send('native-event', ev); });
 // modo leve: deixa o Chromium desacelerar a página escondida (o renderer só liga fora de chamada)
 ipcMain.on('set-throttle', (_e, on) => { if (win && !win.isDestroyed()) win.webContents.setBackgroundThrottling(!!on); });
-ipcMain.handle('get-settings', () => ({ ...cfg, version: app.getVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName, updateFailed }));
+ipcMain.handle('get-settings', () => ({ ...cfg, version: appVersion(), gpuCompatActive: gpuCompat, gpuName: gpuName, updateFailed }));
 ipcMain.handle('set-settings', (_e, patch) => {
   if (!patch || typeof patch !== 'object') patch = {};
   for (const k of ['autoStart', 'startMinimized', 'closeToTray', 'globalHotkeys']) if (k in patch) cfg[k] = !!patch[k];
@@ -514,7 +519,7 @@ ipcMain.handle('cache-info', async () => ({ http: await session.defaultSession.g
 ipcMain.handle('relaunch', () => {
   quitting = true;
   // reabre já atualizado; se o instalador não abrir (ou não conferir mais), reabre a versão atual em vez de só fechar
-  if (update?.file && !updating && !portable) { updating = true; if (runInstaller(update.file, true)) { app.exit(0); return true; } updating = false; }
+  if (update?.file && update.kind !== 'asar' && !updating && !portable) { updating = true; if (runInstaller(update.file, true)) { app.exit(0); return true; } updating = false; } // por diferença: o relaunch abaixo já abre a nova
   app.relaunch(); app.exit(0); return true;
 });
 ipcMain.handle('change-server', () => { showConnect(); return true; });
@@ -575,6 +580,8 @@ async function doCheckUpdate() {
   if (cfg.server && isHttps(cfg.server)) {
     const r = await getJson(new URL('/api/desktop/update', cfg.server).href);
     if (r?.version && r.url) found = { version: String(r.version), url: new URL(r.url, cfg.server).href, name: r.name || `Resenha-Setup-${r.version}.exe`, signature: r.signature || null };
+    // só o app.asar (atualização por diferença), quando o servidor oferece: desktop/overlay.js
+    if (found && r.asar?.url && r.asar.signature) found.asar = { url: new URL(r.asar.url, cfg.server).href, name: String(r.asar.name || ''), signature: r.asar.signature };
   } else if (cfg.server) log('atualização: o servidor não é HTTPS; procurando direto no GitHub');
   if (!found) {
     const rel = await getJson(`https://api.github.com/repos/${REPO}/releases/latest`);
@@ -585,7 +592,7 @@ async function doCheckUpdate() {
   // o nome do arquivo vem de fora: só o formato esperado (vai para a pasta temporária e é executado)
   // e tem de ser o desta versão (Resenha-Setup-<versão>.exe): sem barra, "..", nem outro nome
   if (found && found.name !== `Resenha-Setup-${found.version}.exe`) { log('atualização: nome de arquivo inesperado', String(found.name).slice(0, 80)); return; }
-  if (!found || !newer(found.version, app.getVersion())) return;
+  if (!found || !newer(found.version, appVersion())) return;
   if (update?.version === found.version) return; // já encontrada (e baixada ou baixando)
   update = found;
   log('atualização disponível', found.version, found.url);
@@ -593,10 +600,37 @@ async function doCheckUpdate() {
   await prepareUpdate().catch((e) => log('download da atualização falhou', e.message));
   if (update === found) win?.webContents.send('update-available', { version: found.version, ready: !!found.file });
 }
-// instalador da versão nova, baixado uma vez para a pasta temporária
+// dá para atualizar só o app.asar? Mesmo Electron e mesmos programas nativos da instalação, e essa versão não falhou antes
+function asarFits(u) {
+  const s = u.asar?.signature;
+  if (!s || portable || !app.isPackaged || cfg.overlayBad === u.version) return false;
+  if (u.asar.name !== `Resenha-app-${u.version}.asar` || s.name !== u.asar.name || s.version !== u.version) return false;
+  if (s.electron !== process.versions.electron) return false;
+  try { return String(s.natives).toLowerCase() === overlay.nativesHash(process.resourcesPath); } catch { return false; }
+}
+// baixa e confere o app.asar novo (~200 KB); pronto: anota em cfg.overlay e a próxima abertura já é a versão nova
+async function prepareAsar(u) {
+  const dir = path.join(app.getPath('userData'), 'app-updates'), file = path.join(dir, u.asar.name), part = file + '.part', s = u.asar.signature;
+  const max = +s.size; if (!(max > 0 && max <= 64 * 2 ** 20)) throw new Error('assinatura com tamanho inválido');
+  fs.mkdirSync(dir, { recursive: true });
+  await download(u.asar.url, part, 5, null, max);
+  const sha256 = updReady.sha256File(part);
+  const bad = verifyAsar(s, { name: u.asar.name, version: u.version, size: fs.statSync(part).size, sha256, electron: process.versions.electron, natives: overlay.nativesHash(process.resourcesPath) });
+  if (bad) { fs.rmSync(part, { force: true }); throw new Error(bad); }
+  fs.renameSync(part, file);
+  for (const old of fs.readdirSync(dir)) if (old !== u.asar.name) fs.rm(path.join(dir, old), { force: true }, () => { }); // só a mais nova fica
+  cfg.overlay = { version: u.version, file, sha256, signature: s, electron: process.versions.electron, tries: 0 }; saveCfg();
+  u.file = file; u.kind = 'asar'; u.sha256 = sha256;
+  log('atualização por diferença baixada e conferida', u.version, `${(fs.statSync(file).size / 1024).toFixed(0)} KB`);
+  return file;
+}
+// instalador da versão nova, baixado uma vez para a pasta temporária (ou só o app.asar, quando dá: prepareAsar)
 function prepareUpdate() {
   const u = update; if (!u) return Promise.reject(new Error('sem atualização'));
   return (u.downloading ||= (async () => {
+    if (asarFits(u)) {
+      try { return await prepareAsar(u); } catch (e) { log('atualização por diferença falhou: usando o instalador completo', u.version, e.message); }
+    }
     // já baixada numa abertura anterior (e o arquivo é o mesmo que foi assinado): não baixa de novo
     const r = cfg.readyUpdate;
     if (r?.version === u.version && r.name === u.name) { const f = updReady.checkReady(r, verifyUpdate); if (f) { u.file = f; log('atualização já estava baixada', u.version); return f; } }
@@ -661,9 +695,9 @@ function runInstaller(file, reopen, quiet = false) {
 let updateFailed = null;
 if (cfg.pendingUpdate) {
   const pu = cfg.pendingUpdate; delete cfg.pendingUpdate; saveCfg();
-  const ok = !newerVer(pu.version, app.getVersion());
+  const ok = !newerVer(pu.version, appVersion());
   let tail = ''; try { tail = fs.readFileSync(path.join(app.getPath('userData'), 'update.log'), 'utf8').trim().split(/\r?\n/).slice(-4).join(' | '); } catch { }
-  log(ok ? 'atualização instalada' : 'ATUALIZAÇÃO NÃO INSTALOU', 'pedida', pu.version, 'aberta', app.getVersion(), tail ? '| ' + tail : '');
+  log(ok ? 'atualização instalada' : 'ATUALIZAÇÃO NÃO INSTALOU', 'pedida', pu.version, 'aberta', appVersion(), tail ? '| ' + tail : '');
   if (!ok && Date.now() - pu.at < 3 * 3600e3) updateFailed = { version: pu.version };
 }
 // max: tamanho máximo (o da assinatura, no instalador); MAX_UPDATE_MS: tempo total (o timeout do pedido só pega conexão
@@ -701,7 +735,7 @@ ipcMain.handle('get-diagnostics', async () => {
   let gpus = []; try { const g = await app.getGPUInfo('basic'); gpus = (g.gpuDevice || []).map(d => ({ nome: d.deviceString || `${d.vendorId.toString(16)}:${d.deviceId.toString(16)}`, driver: d.driverVersion, ativa: !!d.active })); } catch { }
   const os = require('node:os'), d = screen.getPrimaryDisplay();
   return {
-    app: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome,
+    app: appVersion(), electron: process.versions.electron, chrome: process.versions.chrome,
     sistema: `${os.type()} ${os.release()} ${os.arch()}`, memoriaGB: Math.round(os.totalmem() / 2 ** 30), cpu: os.cpus()[0]?.model, nucleos: os.cpus().length,
     tela: { largura: d.size.width, altura: d.size.height, escala: d.scaleFactor, hz: d.displayFrequency },
     gpus, aceleracao: app.getGPUFeatureStatus(), compatibilidadeVideo: { escolha: cfg.gpuCompat, ativa: gpuCompat }, aceleracaoHardware: cfg.hardwareAcceleration !== false,
@@ -718,6 +752,7 @@ ipcMain.handle('install-update', async () => {
   updating = true;
   try {
     const file = update.file || await prepareUpdate();
+    if (update.kind === 'asar') { log('reiniciando na versão', update.version, '(por diferença)'); quitting = true; setTimeout(() => { app.relaunch(); app.exit(0); }, 300); return true; }
     if (!runInstaller(file, true)) { updating = false; return false; } // instalador não abriu: o app continua aberto
     // a página mostra "Instalando…" por um instante; o instalador já está rodando e fecha o app se ele demorar
     quitting = true; setTimeout(() => app.quit(), 500); return true;
@@ -728,7 +763,7 @@ app.on('second-instance', () => showWin());
 app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
-  if (update?.file && !updating && !portable) { updating = true; runInstaller(update.file, false); }
+  if (update?.file && update.kind !== 'asar' && !updating && !portable) { updating = true; runInstaller(update.file, false); } // por diferença: a próxima abertura já é a nova
 });
 app.on('window-all-closed', () => { if (quitting) app.quit(); });
 
@@ -758,7 +793,7 @@ function isStartHidden() {
 // Abriu com uma versão nova já baixada e conferida (updready.js): instala em silêncio, com a janelinha "Atualizando…",
 // e o app reabre na versão nova. Devolve true se o app vai fechar para instalar.
 function installReadyOnStart() {
-  const r = cfg.readyUpdate, act = updReady.startupAction(r, app.getVersion(), newerVer, portable);
+  const r = cfg.readyUpdate, act = updReady.startupAction(r, appVersion(), newerVer, portable);
   if (act === 'none') return false;
   if (act === 'drop') { delete cfg.readyUpdate; saveCfg(); return false; }
   if (act === 'skip') { log('atualização baixada não entrou em', updReady.MAX_TRIES, 'aberturas: fica para o "Reiniciar agora"', r.version); return false; }

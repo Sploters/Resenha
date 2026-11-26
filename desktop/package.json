@@ -2,7 +2,7 @@
   "name": "resenha-desktop",
   "version": "1.0.40",
   "description": "Resenha Desktop — cliente do seu servidor Resenha",
-  "main": "main.js",
+  "main": "boot.js",
   "author": "Resenha",
   "private": true,
   "scripts": {
@@ -22,6 +22,8 @@
       "output": "dist"
     },
     "files": [
+      "overlay.js",
+      "boot.js",
       "main.js",
       "preload.js",
       "connect.html",
