@@ -9,17 +9,20 @@ import { ownServer } from './test-server.mjs';
 import { threads as procThreads, diff, TICK } from './proc-cpu.mjs';
 const EXE = process.env.BROWSER || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
 const SECS = +(process.env.SECS || 15), ROUNDS = +(process.env.ROUNDS || 2);
-// "rnnoise" e "gtcrn" = com a proteção por voz (o padrão do app); "rnnoise-antigo"/"gtcrn-antigo" = sem ela
+// "rnnoise" e "gtcrn" = com a proteção por voz (o padrão do app); "rnnoise-antigo"/"gtcrn-antigo" = sem ela;
+// "gtcrn-pausa" = Máxima com "pausar no silêncio" (experimental). PERIOD/TALK: ciclo e segundos de fala do arquivo
+// (padrão 3 e 1,8; para a pausa aparecer o silêncio precisa passar de 2 s, ex.: PERIOD=8 TALK=2)
 const MODES = (process.env.MODES || 'off,standard,rnnoise-antigo,rnnoise,gtcrn-antigo,gtcrn').split(',');
-const prefsOf = (m) => ({ noiseMode: m.replace(/-antigo$/, ''), vadGate: !m.endsWith('-antigo') });
+const prefsOf = (m) => ({ noiseMode: m.replace(/-(antigo|pausa)$/, ''), vadGate: !m.endsWith('-antigo'), gtcrnPause: m.endsWith('-pausa') });
+const PERIOD = +(process.env.PERIOD || 3), TALK = +(process.env.TALK || 1.8);
 const BASE = await ownServer('noisecpu', 3338, 41290);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // "fala" (tom com vibrato e sílabas) e pausas, sempre com chiado por baixo
 const WAV = './.testdata-noisecpu.wav';
 {
-  const rate = 48000, secs = 12, n = rate * secs, pcm = new Int16Array(n);
+  const rate = 48000, secs = Math.max(12, PERIOD * 2), n = rate * secs, pcm = new Int16Array(n);
   let seed = 1; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
-  for (let i = 0; i < n; i++) { const t = i / rate, talk = (t % 3) < 1.8, env = talk ? 0.35 * (0.55 + 0.45 * Math.sin(2 * Math.PI * 4 * t)) : 0;
+  for (let i = 0; i < n; i++) { const t = i / rate, talk = (t % PERIOD) < TALK, env = talk ? 0.35 * (0.55 + 0.45 * Math.sin(2 * Math.PI * 4 * t)) : 0;
     pcm[i] = Math.round(32767 * Math.max(-1, Math.min(1, env * Math.sin(2 * Math.PI * (180 + 40 * Math.sin(2 * Math.PI * 5 * t)) * t) + 0.04 * rnd()))); }
   const hd = Buffer.alloc(44); hd.write('RIFF', 0); hd.writeUInt32LE(36 + n * 2, 4); hd.write('WAVEfmt ', 8); hd.writeUInt32LE(16, 16); hd.writeUInt16LE(1, 20); hd.writeUInt16LE(1, 22);
   hd.writeUInt32LE(rate, 24); hd.writeUInt32LE(rate * 2, 28); hd.writeUInt16LE(2, 32); hd.writeUInt16LE(16, 34); hd.write('data', 36); hd.writeUInt32LE(n * 2, 40);

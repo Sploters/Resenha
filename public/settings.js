@@ -687,7 +687,12 @@ function voicePage(ctx, reg) {
   const lockBox = h('div', toggleCards([{ on: S.prefs.voiceLock === true, label: 'Só a minha voz', sub: 'Abafa vozes ao fundo',
     desc: 'Aprende, nos primeiros segundos falando, o volume e o tom da SUA voz e abafa as outras: alguém conversando no cômodo ao lado (mãe, namorada, TV), além de latido e moto. Gritar ou rir alto continua passando. Vem desligado: só vale a pena com gente falando perto de você. Se a sua voz ficar baixa ou cortando, desligue. Se outra pessoa for falar no mesmo microfone, desligue.',
     prev: h('span.vp-fx', icon('user', 30)), fn: (v) => { S.prefs.voiceLock = v; save(); voice.micGraph?.setVadGate?.({ lock: v }); test?.setVadGate?.({ lock: v }); } }]));
-  const vadExtra = h('div', vadSens, lockBox);
+  // Máxima (GTCRN) pausada no silêncio (voice.js GTCRN_PAUSE_MS): economiza processador; experimental (o começo da fala
+  // depois de uma pausa pode sair cortado por ~30 ms, até o modelo voltar), por isso desligado e só para quem quiser testar
+  const pauseBox = h('div', toggleCards([{ on: S.prefs.gtcrnPause === true, label: 'Pausar a Máxima no silêncio', sub: 'Experimental: economiza processador',
+    desc: 'Depois de 2 segundos sem você falar, a IA da redução Máxima para de processar e volta assim que a proteção por voz ouve a sua fala. Gasta bem menos processador em chamadas longas. Pode cortar um pedacinho do começo da primeira palavra depois de um silêncio: teste ouvindo a gravação do teste de microfone.',
+    prev: h('span.vp-fx', icon('pause', 30)), fn: (v) => { S.prefs.gtcrnPause = v; save(); restartTest(); } }]));
+  const vadExtra = h('div', vadSens, lockBox, pauseBox);
   vadExtra.style.display = S.prefs.vadGate !== false ? '' : 'none';
   const vadBox = h('div', toggleCards([{ on: S.prefs.vadGate !== false, label: 'Proteção por voz', sub: 'Abafa o que não é fala',
     desc: 'Quando a IA não reconhece voz (latido, moto passando, teclado), o microfone é abafado aos poucos em vez de deixar o barulho passar. Não corta o começo nem o fim das palavras.',
@@ -700,7 +705,7 @@ function voicePage(ctx, reg) {
   const fanBox = h('div', toggleCards([{ on: S.prefs.fanFilter !== false, label: 'Filtro de ventilador', sub: 'Tira o chiado constante',
     desc: 'Aprende o som que não para (ventilador, ar-condicionado, ventoinha do PC, chiado do microfone) e tira só ele, antes da IA. A IA sozinha deixava esse chiado passar por baixo da sua voz. Numa sala silenciosa não muda nada.',
     prev: h('span.vp-fx', icon('waves', 30)), fn: (v) => { S.prefs.fanFilter = v; save(); fanSens.style.display = v ? '' : 'none'; restartTest(); } }]), fanSens);
-  const showVad = () => { vadBox.style.display = aiNoise() ? '' : 'none'; fanBox.style.display = S.prefs.noiseMode === 'rnnoise' ? '' : 'none'; };
+  const showVad = () => { vadBox.style.display = aiNoise() ? '' : 'none'; pauseBox.style.display = S.prefs.noiseMode === 'gtcrn' ? '' : 'none'; fanBox.style.display = S.prefs.noiseMode === 'rnnoise' ? '' : 'none'; };
   showVad();
   const noiseCards = h('div'), drawNoise = () => noiseCards.replaceChildren(choiceCards(Object.keys(NOISE_MODES).map(k => [k, h('span.nz-l', h('b', NOISE_INFO[k][0]), h('small', NOISE_INFO[k][1])), noisePrev(k)]), S.prefs.noiseMode || 'standard', (k) => { if ((S.prefs.noiseMode || 'standard') === k) return; S.prefs.noiseMode = k; save(); showVad(); restartTest(); }));
   drawNoise(); setTimeout(placeMark, 0);

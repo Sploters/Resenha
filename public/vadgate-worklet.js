@@ -7,7 +7,7 @@
 //   a decisão chega antes do áudio correspondente: antecedência de graça, e o áudio passa sem atraso nenhum a mais.
 // O ganho anda em dB, em rampa (abre em attackMs, fecha em releaseMs); fechada a porta atenua, não emudece.
 import { Rnnoise } from './vendor/ns/vadgate/rnnoise.js';
-import { FRAME, createGate, gateParams, createBand, createPitch, levelDb } from './vadgate-core.js';
+import { FRAME, createGate, gateParams, createBand, createPitch, levelDb, ST } from './vadgate-core.js';
 
 const RING = 8192; // fila de saída do modo RNNoise (amostras)
 
@@ -26,12 +26,17 @@ class VadGateProcessor extends AudioWorkletProcessor {
     this.gDb = this.gate.p.floorDb; this.tgtDb = this.gate.p.floorDb; this.underruns = 0; this.frames = 0; // quadros analisados (testes)
     this.latency = this.denoise ? FRAME * (1 + this.gate.p.lookahead) : 0; this.w = this.latency;
     this.dbg = o.debug ? { vad: [], lvl: [], noise: [], low: [], hf: [], open: [], st: [], pitch: [], harm: [], spk: [], med: [] } : null;
+    // modo GTCRN com "pausar no silêncio" (experimental, processorOptions.pauseMs): porta fechada por pauseMs seguidos ->
+    // avisa o app para tirar o GTCRN da cadeia (sem entrada ele não processa nada); a fala volta -> avisa para religar.
+    // O detector continua ouvindo o microfone cru (entrada 1), então percebe a fala mesmo com o GTCRN parado.
+    this.pauseFrames = !this.denoise && o.pauseMs > 0 ? Math.round(o.pauseMs / 10) : 0; this.quiet = 0; this.paused = false;
     this.destroyed = false;
     this.port.onmessage = (e) => {
       const d = e.data;
       if (d === 'destroy') this.destroy();
       else if (d === 'stats') this.port.postMessage({ stats: this.dbg, underruns: this.underruns, latency: this.latency, ready: !!this.st, frames: this.frames });
       else if (d && typeof d === 'object') { // ajuste ao vivo (sensibilidade, liga/desliga) sem refazer o microfone
+        if (d.gtcrnReset) { this.paused = false; this.quiet = 0; } // o app religou o GTCRN (desmutou / apertou para falar)
         if ('gate' in d) this.gateOn = d.gate !== false;
         if ('sens' in d) this.sens = d.sens;
         if ('lock' in d) this.lock = d.lock !== false;
@@ -87,7 +92,7 @@ class VadGateProcessor extends AudioWorkletProcessor {
     this.idle = false;
     for (let i = 0; i < n; i++) {
       this.inBuf[this.inN++] = ana ? ana[i] : 0;
-      if (this.inN === FRAME) { this.inN = 0; const t = this.analyze(); if (this.denoise) this.pushFrame(t); else this.tgtDb = t >= 1 ? 0 : Math.max(this.gate.p.floorDb, 20 * Math.log10(t)); }
+      if (this.inN === FRAME) { this.inN = 0; const t = this.analyze(); if (this.denoise) this.pushFrame(t); else { this.tgtDb = t >= 1 ? 0 : Math.max(this.gate.p.floorDb, 20 * Math.log10(t)); if (this.pauseFrames) this.pauseStep(); } }
     }
     if (this.denoise) {
       for (let i = 0; i < n; i++) { if (this.r === this.w) { out[i] = 0; this.underruns++; continue; } out[i] = this.ring[this.r]; this.r = (this.r + 1) % RING; }
@@ -97,6 +102,11 @@ class VadGateProcessor extends AudioWorkletProcessor {
     }
     for (let c = 1; c < outputs[0].length; c++) outputs[0][c].set(out);
     return true;
+  }
+  pauseStep() {
+    const talking = !this.gateOn || this.gate.state !== ST.CLOSED;
+    if (talking) { this.quiet = 0; if (this.paused) { this.paused = false; this.port.postMessage({ gtcrn: 'resume' }); } return; }
+    if (++this.quiet >= this.pauseFrames && !this.paused) { this.paused = true; this.port.postMessage({ gtcrn: 'pause' }); }
   }
   // ao ficar sem entrada: descarta o que estava na fila e recomeça como no construtor (porta fechada, antecedência de
   // silêncio já na saída); o estado do RNNoise e o nível de ruído aprendido pela porta continuam

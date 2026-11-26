@@ -115,6 +115,8 @@ export const fanFilterOn = (prefs) => prefs.noiseMode === 'rnnoise' && prefs.fan
 const fanFilterNode = (ctx, prefs) => new AudioWorkletNode(ctx, 'lc-fanfilter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
   channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers', processorOptions: { strength: prefs.fanStrength ?? 50, params: prefs.fanParams } });
 // porta guiada por voz (vadgate-worklet.js): ligada por padrão com RNNoise/GTCRN; prefs.vadGate === false desliga
+// Máxima (GTCRN) pausada depois deste silêncio (prefs.gtcrnPause, experimental): só com a porta por voz ligada
+export const GTCRN_PAUSE_MS = 2000;
 export const vadGateOn = (prefs) => (prefs.noiseMode === 'rnnoise' || prefs.noiseMode === 'gtcrn') && prefs.vadGate !== false;
 const vadGateNode = (ctx, opts) => new AudioWorkletNode(ctx, 'lc-vadgate', { numberOfInputs: opts.denoise ? 1 : 2, numberOfOutputs: 1, outputChannelCount: [1],
   channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers', processorOptions: opts });
@@ -141,7 +143,7 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
       let smart = vadGateOn(prefs);
       if (smart) await ensureModule(ctx, 'vadgate', '/vadgate-worklet.js').catch((e) => { console.warn('vadgate', e); smart = false; });
       const vg = (denoise, wasmBinary) => { const n = vadGateNode(ctx, { denoise, wasmBinary, sens: prefs.vadSens ?? 50, lock: prefs.voiceLock === true, // "Só a minha voz": desligado por padrão (ligado, cortava a própria voz de quem fala perto do microfone)
-      params: prefs.vadParams, debug: !!prefs.vadDebug }); out.vadGate = n; return n; };
+      params: prefs.vadParams, debug: !!prefs.vadDebug, pauseMs: mode === 'gtcrn' && prefs.gtcrnPause === true ? GTCRN_PAUSE_MS : 0 }); out.vadGate = n; return n; };
       if (mode === 'rnnoise') {
         // com a porta: o próprio nó dela faz o RNNoise (e reaproveita a probabilidade de voz); sem: o nó RNNoise de sempre
         if (smart) chain(vg(true, await loadWasm('rnnoise')));
@@ -152,7 +154,15 @@ export async function buildChain(ctx, src, prefs, out = { nodes: [], error: null
         chain(new nsLib.GtcrnWorkletNode(ctx, { maxChannels: 1, wasmBinary: g }));
         // RNNoise separado, só como detector de voz, analisando o microfone ANTES do GTCRN (entrada 1): a saída do GTCRN
         // confunde o detector, e o atraso do GTCRN vira antecedência para a porta
+        const gt = last;
         if (smart && r) { chain(vg(false, r)); pre.connect(last, 0, 1); if (pre === out.fanFilter) out.fanOuts.push([last, 0, 1]); }
+        // pausar no silêncio (experimental, prefs.gtcrnPause): a porta avisa quando ficou quieto e quando a fala voltou
+        if (smart && r && prefs.gtcrnPause === true) {
+          out.gtcrnPaused = false;
+          const setPaused = (on) => { if (on === out.gtcrnPaused) return; out.gtcrnPaused = on; out.gtcrnPauses = (out.gtcrnPauses || 0) + (on ? 1 : 0); if (out.idle && pre === out.fanFilter) return; /* mutado: o setIdle religa (ou não) ao desmutar */ try { on ? pre.disconnect(gt) : pre.connect(gt); } catch { } };
+          out.gtcrnLink = { pre, node: gt };
+          out.vadGate.port.addEventListener('message', (e) => { if (e.data?.gtcrn) setPaused(e.data.gtcrn === 'pause'); }); out.vadGate.port.start?.();
+        }
       }
       out.processed = true;
     }
@@ -267,7 +277,13 @@ export async function createMic(prefs, ctx, opts = {}) {
   out.setIdle = (on) => {
     if (!first || on === idle) return; idle = on;
     try { on ? src.disconnect(first) : src.connect(first); } catch { }
-    if (ff) for (const [n, o, i] of ffOuts) { try { on ? ff.disconnect(n, o, i) : ff.connect(n, o, i); } catch { } }
+    // GTCRN pausado no silêncio: desmutar (ou apertar para falar) religa na hora, porque a fala vem logo em seguida; mutar
+    // com ele pausado não mexe na ligação que já está de fora
+    const L = out.gtcrnLink, wasPaused = !on && out.gtcrnPaused;
+    if (wasPaused) { out.gtcrnPaused = false; try { out.vadGate.port.postMessage({ gtcrnReset: true }); } catch { } if (L.pre !== ff) { try { L.pre.connect(L.node); } catch { } } }
+    const skip = (n, i) => on && out.gtcrnPaused && L?.node === n && i === 0;
+    if (ff) for (const [n, o, i] of ffOuts) { if (skip(n, i)) continue; try { on ? ff.disconnect(n, o, i) : ff.connect(n, o, i); } catch { } }
+    out.idle = on;
   };
   out.dispose = () => {
     out.setLoopback(false);
