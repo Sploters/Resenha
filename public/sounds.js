@@ -29,6 +29,7 @@ const SYN = {
   error: [N(196, 0, .16, { type: 'sawtooth', gain: .5 }), N(165, .18, .2, { type: 'sawtooth', gain: .5 })],
   // evento: sininho de 4 notas (diferente da menção, dá para saber sem olhar que é o lembrete da jogatina)
   event: [N(784, 0, .12, { type: 'triangle' }), N(988, .12, .12, { type: 'triangle' }), N(1175, .24, .12, { type: 'triangle' }), N(1568, .36, .32, { type: 'triangle', gain: .8 })],
+  lobbyTurn: [N(659, 0, .09, { type: 'triangle' }), N(880, .1, .09, { type: 'triangle' }), N(1319, .2, .22, { type: 'triangle' })],
   eventStart: [N(523, 0, .1, { type: 'triangle' }), N(784, .1, .1, { type: 'triangle' }), N(1047, .2, .1, { type: 'triangle' }), N(784, .34, .08, { type: 'triangle' }), N(1047, .42, .3, { type: 'triangle' })],
 };
 
@@ -45,6 +46,7 @@ export const SOUND_DEFS = {
   ring: ['Chamada recebida (toque)', 'chat'], mention: ['Menção ou mensagem direta', 'chat'], message: ['Mensagem em outro canal', 'chat'],
   friend: ['Pedido de amizade', 'chat'], error: ['Erro', 'chat'],
   event: ['Evento começa em 30 min', 'chat'], eventStart: ['Evento começou / cancelado', 'chat'],
+  lobbyTurn: ['Sua vez na fila do lobby', 'voz'],
 };
 const OFF_BY_DEFAULT = new Set(['message', 'error']);
 // volume de cada grupo (por cima do volume geral e do volume de cada som): "Volume das notificações" = grupo chat

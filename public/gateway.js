@@ -1,5 +1,6 @@
 // Conexão com o servidor (gateway): WebSocket, reconexão, tela de entrar/sair e o tratamento de cada evento (onEvent).
 // Guarda o estado da conexão (ws, voice, ready…): só este módulo escreve nele; os outros leem pelo import (valor ao vivo).
+import { lobbyChanged } from './lobby.js';
 import { onbUpdated } from './onboarding.js';
 import { nativeEnded } from './nativetest.js';
 import { setNewsActions, maybeShowNews, markSeen as markNewsSeen } from './changelog.js';
@@ -466,7 +467,8 @@ export function onEvent(t, d) {
       if (t === 'CLIP_CREATE' && d.streamer?.id === S.me.id && d.author?.id && d.author.id !== S.me.id) clipOfMe(d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
-    case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null }; boardState(d.boards);
+    case 'ROOM_LOBBY_ERR': toast(d.code === 'full' ? 'O lobby está cheio.' : 'Precisa de pelo menos 2 pessoas para sortear times.', true); break;
+    case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null, prevLobby = S.room?.cid === d.channel_id ? S.room.lobby : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null, lobby: d.lobby || null }; if (JSON.stringify(prevLobby) !== JSON.stringify(d.lobby || null)) lobbyChanged(prevLobby, d.lobby || null); boardState(d.boards);
       if ((d.spot || null) !== prevSpot && S.prefs.followSpot !== false) { // destaque para todos: acompanha, a não ser que tenha desligado
         if (d.spot) { S.focus = d.spot; if (d.spot_by && d.spot_by !== S.me.id) toast(`${nameOf(d.spot_by, channelById(d.channel_id)?.guild_id)} destacou uma transmissão para a sala`); } else if (S.focus === prevSpot) S.focus = null;
       } if (S.annot && !hasScreenOf(S.annot)) S.annot = null; renderVoiceUI(); } break;
@@ -569,7 +571,7 @@ function onMessage(m) {
   const isMention = isDM ? !pol.muted && pol.level !== 'none' : ((m.mentions || []).includes(S.me.id) && (direct || !pol.noEveryone)); // DM silenciada ainda conta como não lida, mas sem som nem aviso
   const counts = isDM || (isMention && pol.level !== 'none') || (!pol.muted && pol.level === 'all');
   if (!viewing) {
-    if (counts) { const u = S.unread[m.channel_id] ||= { count: 0 }; u.count++; u.last_id = m.id; }
+    if (counts) { const u = S.unread[m.channel_id] ||= { count: 0 }; u.count++; u.last_id = m.id; if (!u.first_id) { u.first_id = m.id; u.first_at = m.created_at; } } // first_id: "Retomar de onde parou" (chat.js)
     // outro aparelho da conta em uso e este parado: conta como não lida, mas sem som nem aviso aqui (state.js quietHere)
     // modo foco: só mensagens diretas avisam; não perturbe: nada avisa (as não lidas continuam contando)
     const quiet = quietHere() || !alertAllowed(isDM ? 'dm' : 'server');

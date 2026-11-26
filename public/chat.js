@@ -51,8 +51,37 @@ function slowSwitch(ms, netMs, drawMs, cid) {
   if (S.messages.get(cid)?.some(m => m.e2ee === true)) ctx.push('cripto');
   track('slow_switch', where + (ctx.length ? ':' + ctx.join('+') : ''));
 }
+// "Retomar de onde parou": ao abrir um canal com não lidas, guarda a primeira delas (vem do READY ou do gateway), marca uma
+// linha "Novas" antes dela e, se ela não estiver à vista (o chat abre no fim), mostra a barra que pula até lá. Mesmo depois de
+// dias sem abrir: o servidor calcula pela posição lida (read_states).
+const newFrom = new Map(); // cid -> id da primeira não lida
+const sinceLabel = (t) => {
+  if (!t) return ''; const d = new Date(+t), now = new Date(), y = new Date(now); y.setDate(y.getDate() - 1);
+  if (sameDay(t, now)) return 'hoje às ' + clock(t);
+  if (sameDay(t, y)) return 'ontem às ' + clock(t);
+  if (now - d < 6 * 864e5) return d.toLocaleDateString('pt-BR', { weekday: 'long' }).replace('-feira', '') + ' às ' + clock(t);
+  return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
+};
+function resumeBar(cid, un) {
+  $('#resume-bar')?.remove();
+  const box = $('#msgs'), el = box?.querySelector(`[data-mid="${un.first_id}"]`);
+  const inView = (x) => { const r = x.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.top >= b.top - 4 && r.top <= b.bottom; };
+  if (el && inView(el)) return; // a primeira não lida já está à vista
+  const n = un.count >= 100 ? '99+' : un.count;
+  const bar = h('div#resume-bar',
+    h('span', icon('totop', 16), `${n} ${un.count === 1 ? 'mensagem nova' : 'mensagens novas'}${un.first_at ? ' desde ' + sinceLabel(un.first_at) : ''}`),
+    h('button.btn', { onclick: async () => { bar.remove(); await jumpTo(un.first_id); const sep = box.querySelector(':scope > .newsep'); if (sep) { box.stick = false; box.scrollTop += sep.getBoundingClientRect().top - box.getBoundingClientRect().top - 12; } } }, 'Retomar de onde parou'), // a linha "Novas" no topo: dá para ler dali para baixo
+    h('button.ibtn', { title: 'Fechar', 'aria-label': 'Fechar', onclick: () => bar.remove() }, icon('x', 16)));
+  $('#chat')?.append(bar);
+  // rolou até a linha "Novas": a barra não precisa mais
+  const watch = () => { const sep = box.querySelector(':scope > .newsep'); if (!bar.isConnected || S.view.cid !== cid) return box.removeEventListener('scroll', watch); if (sep && inView(sep)) { bar.remove(); box.removeEventListener('scroll', watch); } };
+  box.addEventListener('scroll', watch, { passive: true });
+}
 export async function loadChannel(cid) {
   const box = $('#msgs');
+  $('#resume-bar')?.remove();
+  const un = S.unread[cid]?.first_id ? { ...S.unread[cid] } : null; // antes do ack, que apaga a não lida
+  if (un) newFrom.set(cid, un.first_id); else if (!S.unread[cid]) newFrom.delete(cid);
   if (detached.delete(cid)) { S.messages.delete(cid); S.loaded.delete(cid); }
   // voltando a um chat lido para trás (até 300 guardadas): abre no fim, então monta só as 50 mais novas. As outras voltam
   // do servidor ao rolar para cima (~4 ms cada página). Antes eram montadas todas (300 mensagens = quadro de ~1 s na CPU 4x)
@@ -78,6 +107,7 @@ export async function loadChannel(cid) {
   }
   if (S.view.cid !== cid) return;
   const tr = performance.now(); renderMessages(false); ack(cid); renderTyping(); const drawMs = performance.now() - tr;
+  if (un) resumeBar(cid, un);
   requestAnimationFrame(() => { const ms = stopTimer('channel_switch', cid); if (ms > 1000) slowSwitch(ms, netMs, drawMs, cid); }); // telemetria: do clique até as mensagens na tela
   const msgs = $('#msgs');
   msgs.onscroll = async () => {
@@ -145,9 +175,10 @@ export function renderMessages(keepPos) {
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120, old = box.scrollTop;
   // monta tudo fora da página e entra de uma vez (antes: um append por mensagem direto no chat)
   const frag = document.createDocumentFragment(); frag.append(h('div.grow')); if (S.loaded.get(ch.id)) frag.append(welcomeBlock(ch));
-  let prev = null;
+  let prev = null; const nf = newFrom.get(ch.id);
   for (const m of list) {
     if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    if (m.id === nf && prev) frag.append(h('div.newsep', h('span', 'Novas')));
     frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
   }
   box.replaceChildren(frag);
@@ -164,8 +195,10 @@ function prependMessages(cid, older) {
   const grow = box.querySelector(':scope > .grow'); if (!firstEl || !grow) return false;
   const ch = channelById(cid), frag = document.createDocumentFragment(); let prev = null;
   if (S.loaded.get(cid) && !box.querySelector(':scope > .welcome')) frag.append(welcomeBlock(ch));
+  const nf = newFrom.get(cid);
   for (const m of older) {
     if (!prev || !sameDay(prev.created_at, m.created_at)) frag.append(h('div.daysep', h('span', dayLabel(m.created_at))));
+    if (m.id === nf && prev) frag.append(h('div.newsep', h('span', 'Novas')));
     frag.append(msgEl(m, prev && sameDay(prev.created_at, m.created_at) ? prev : null)); prev = m;
   }
   // fronteira: a antiga primeira mensagem pode agrupar com a anterior, e o separador de dia dela pode sobrar

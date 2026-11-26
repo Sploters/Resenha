@@ -43,6 +43,7 @@ import { mountRadar } from './radar.js';
 import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
+import { createLobby } from './lobby.js';
 import { mountOnboarding } from './onboarding.js';
 import { mountAdmin } from './admin.js';
 import { createPush } from './push.js';
@@ -101,7 +102,10 @@ const sessions = initSessions({ db, all, get, run, onRevoke: (uid, match) => { f
 const acts = new Map(); // channelId -> { wb: bool, code: {text, lang}|null, boards: { [board]: [{id, uid, color, w, pts}] } }
 const actOf = (c) => { let a = acts.get(c); if (!a) acts.set(c, a = { wb: false, code: null, boards: {}, spot: null, spotBy: null }); return a; };
 const roomSend = (c, type, d, except) => { for (const [id, st] of voice.get(c) || []) if (id !== except) send(st.ws, type, d); };
-const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, code: a.code, boards: a.boards, spot: a.spot, spot_by: a.spotBy }; };
+const lobby = createLobby({ db, get, run, all }); // "Times e fila" da sala (server/lobby.js)
+const botIds = new Map(); // bots (música) não entram no lobby
+const isBotUser = (id) => { if (!botIds.has(id)) botIds.set(id, !!get("SELECT 1 x FROM users WHERE id=? AND username LIKE 'bot\\_%' ESCAPE '\\'", id)); return botIds.get(id); };
+const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, code: a.code, boards: a.boards, spot: a.spot, spot_by: a.spotBy, lobby: lobby.state(a.lobby) }; };
 const BOARD_OK = (b) => b === 'wb' || /^s:[w-]{1,40}$/.test(b);
 const voice = new Map(); // channelId -> Map<userId, {ws, mute, deaf, video, screen}>
 
@@ -746,8 +750,13 @@ function buildReadyRaw(uid, extra) {
   // 20 mil mensagens; com 1000 pessoas abrindo o app juntas, 48 s de fila (achado no teste de carga, scripts/load).
   for (const r of all(`SELECT j.value c,
       (SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE m.channel_id=j.value AND m.id > COALESCE(rs.last_id, '0') AND m.author_id<>? LIMIT 100)) n,
-      (SELECT MAX(id) FROM messages WHERE channel_id=j.value) l
-      FROM json_each(?) j LEFT JOIN read_states rs ON rs.user_id=? AND rs.channel_id=j.value`, uid, JSON.stringify(chIds), uid)) if (r.n) unread[r.c] = { count: r.n, last_id: r.l };
+      (SELECT MAX(id) FROM messages WHERE channel_id=j.value) l,
+      (SELECT m.id || ' ' || m.created_at FROM messages m WHERE m.channel_id=j.value AND m.id > COALESCE(rs.last_id, '0') AND m.author_id<>? ORDER BY m.id LIMIT 1) f
+      FROM json_each(?) j LEFT JOIN read_states rs ON rs.user_id=? AND rs.channel_id=j.value`, uid, uid, JSON.stringify(chIds), uid)) if (r.n) {
+    // f: a primeira não lida (id e hora), para o "Retomar de onde parou" do chat
+    const [fid, fat] = String(r.f || '').split(' ');
+    unread[r.c] = { count: r.n, last_id: r.l, ...(fid ? { first_id: fid, first_at: +fat || null } : {}) };
+  }
   const rels = relObj(uid), me = getUser(uid);
   for (const x of [...dms.flatMap(d => d.recipients), ...rels.map(r => r.user)]) if (x) { const xu = { id: x.id, username: x.username, status: getUser(x.id)?.status }; x.status = statusFor(uid, xu); x.platforms = platformsFor(uid, xu); }
   const rest = JSON.stringify({ user: { ...pubUser(me), status: realStatus(me), platforms: platformsOf(me) }, dms, relationships: rels, friend_losses: friendLossesFor(uid), activities: activity.readyFor(uid), unread, dm_voice: dmVoice, ice: iceServers(uid), ...extra });
@@ -801,7 +810,7 @@ function leaveVoice(uid, cid, reason) {
   clearTimeout(m.get(uid).dropT);
   remote.onLeave(uid); // controle remoto acaba antes de qualquer outra coisa
   m.delete(uid); dropWatching(uid, cid); if (!m.size) { voice.delete(cid); roomStart.delete(cid); acts.delete(cid); }
-  else { const a = acts.get(cid); if (a?.spot && (a.spot.slice(2) === uid)) { a.spot = a.spotBy = null; roomSend(cid, 'ROOM_STATE', actState(cid)); } } // quem estava em destaque saiu
+  else { const a = acts.get(cid); let ch = lobby.onLeave(a, uid); if (a?.spot && (a.spot.slice(2) === uid)) { a.spot = a.spotBy = null; ch = true; } if (ch) roomSend(cid, 'ROOM_STATE', actState(cid)); } // quem estava em destaque saiu; a fila do lobby anda
   sfuLeave(cid, uid);
   const ch = get('SELECT * FROM channels WHERE id=?', cid);
   if (ch) dispatch(channelAudience(ch), 'VOICE_STATE', { channel_id: null, prev_channel_id: cid, user_id: uid, guild_id: ch.guild_id, ...(reason ? { reason } : {}) });
@@ -954,7 +963,7 @@ function pushDevices(uid) {
 // O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
-  TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  TYPING: [1, 4], VOICE_JOIN: [1, 5], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
   REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];
@@ -1081,7 +1090,7 @@ wss.on('connection', (ws) => {
           activity.onVoice(uid); // horas de jogo só contam em call
           musicOnJoin(ch.id, ws);
           watch.onVoiceJoin(uid, ch.id);
-          if (acts.has(ch.id)) send(ws, 'ROOM_STATE', actState(ch.id));
+          if (acts.has(ch.id)) { if (!isBotUser(uid) && lobby.onJoin(acts.get(ch.id), uid)) roomSend(ch.id, 'ROOM_STATE', actState(ch.id)); else send(ws, 'ROOM_STATE', actState(ch.id)); }
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));
           if (!sfuEnabled()) break;
           sfuJoin(ch.id, uid, sfuNotify(ch.id, uid)).then(sfu => {
@@ -1155,6 +1164,14 @@ wss.on('connection', (ws) => {
           else if (d.act === 'code') a.code = on ? (a.code || { text: '', lang: 'javascript' }) : null;
           else return;
           roomSend(c, 'ROOM_STATE', actState(c));
+          break;
+        }
+        case 'ROOM_LOBBY': { // "Times e fila" (server/lobby.js): qualquer um da call mexe
+          const c = currentVoice(uid); if (!c) return;
+          const chx = get('SELECT guild_id FROM channels WHERE id=?', c), members = [...voice.get(c).entries()].sort((x, y) => x[1].at - y[1].at).map(([id]) => id).filter(id => !isBotUser(id));
+          const r = lobby.op(actOf(c), { uid, members, scope: chx?.guild_id || c }, d || {});
+          if (r === 'full' || r === 'few') send(ws, 'ROOM_LOBBY_ERR', { code: r });
+          else if (r) roomSend(c, 'ROOM_STATE', actState(c));
           break;
         }
         case 'ROOM_SPOTLIGHT': { // destaca uma transmissão/câmera para a sala toda (quem quiser acompanha); d.key = 's:<uid>' | 'c:<uid>' | null

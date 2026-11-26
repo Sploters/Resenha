@@ -1,5 +1,6 @@
 // Barra do usuário e painel de voz: botões da chamada, voltar para a chamada, entrar na sala, troca rápida (Ctrl+K)
 // e atalhos de teclado gerais.
+import { lobbyEntry } from './lobby.js';
 import { openMyMessages } from './mymessages.js';
 import { openFxPicker } from './fxui.js';
 import { fxInfo } from './voicefx.js';
@@ -63,6 +64,7 @@ export function activityEntries() {
     watchLauncherEntry(),
     srv && { id: 'music', icon: 'musicbot', title: 'Música', desc: 'Tocar músicas na sala, com fila para todo mundo', color: '#1aa37a', on: musicOn(), fn: (a) => openMusic(a, voice) },
     srv && { id: 'play', icon: 'gamepad', title: 'Chamar pra jogar', desc: 'Escolha o jogo e quem chamar: recebem um aviso com toque', color: '#4b8bff', fn: () => playInviteModal() },
+    lobbyEntry(),
     { id: 'gamenight', icon: 'compass', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#7c5cff', fn: () => openGameNight(voice.channelId) },
     { id: 'wb', icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#2f9e5f', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
     { id: 'code', icon: 'code', title: 'Editor de código', desc: 'Programar junto no mesmo arquivo', on: !!room?.code, color: '#5865f2', fn: () => voice.send('ROOM_ACT', { act: 'code', on: !room?.code }) },
