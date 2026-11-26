@@ -25,19 +25,19 @@ Ordem de trabalho das ideias aprovadas em `docs/historico/CONCORRENTES.md` (seç
 - [x] `PRIVACIDADE.md`: o que o servidor guarda, quem vê, terceiros e como desligar cada um, nada vendido nem usado para treinar IA; abre em Privacidade e segurança → Como seus dados são tratados (`/privacidade`, `/seguranca`; entram na imagem Docker).
 
 ## 4. Eventos → Raids e times
-- [ ] Composição por função (vagas por função, inscrição com função e reserva, quadro no cartão).
+- [x] Composição por função (vagas por função, inscrição com função e espera, quadro no cartão) — `5415d73`, `server/events.js`.
 - [ ] Vários times no mesmo evento, mover entre times, balancear pelo elo do LFG.
-- [ ] Lista de espera por função com promoção automática.
-- [ ] Modelos por jogo (WoW, Dota 2, Deadlock, LoL Clash, Valorant, Grand Line Adventures, personalizado).
-- [ ] Evento semanal (raid fixa).
+- [x] Lista de espera por função com promoção automática (também no evento sem funções) — `5415d73`.
+- [x] Modelos por jogo (WoW raid e Mítica+, Dota 2, Deadlock, LoL/Clash, Valorant, dois times, personalizado) — `5415d73`. Grand Line Adventures ficou de fora (sem funções fixas conhecidas: usar o personalizado).
+- [x] Evento semanal (raid fixa): o da semana seguinte é marcado ao terminar; cancelar pode parar a série — `5415d73`.
 - [ ] "Chamar quem falta" e uma sala de voz por time.
 
 ## 5. Voz para gamers
-- [ ] Sala com limite de pessoas.
-- [ ] Sala com senha.
-- [ ] Orador prioritário.
-- [ ] Pedir a vez de falar.
-- [ ] Sussurro (tecla, alvos: pessoas, cargo, sala).
+- [x] Sala com limite de pessoas — `81329e3`, `server/voicerooms.js`.
+- [x] Sala com senha (hash só no servidor; quem acertou volta sem digitar) — `81329e3`.
+- [x] Orador prioritário (permissão de cargo; as outras vozes a 25% no app de quem ouve) — `81329e3`.
+- [x] Pedir a vez de falar (fila na ordem; quem modera voz baixa a mão) — `81329e3`.
+- [x] Sussurro para pessoas ou um cargo da mesma sala (o SFU pausa a voz para os outros) — `81329e3`. Ainda não: tecla de atalho e sussurro para outra sala.
 - [ ] Modo competitivo e ping por pessoa.
 
 ## 6. Moderação automática
@@ -46,7 +46,7 @@ Ordem de trabalho das ideias aprovadas em `docs/historico/CONCORRENTES.md` (seç
 - [ ] Fila de aprovação opcional e denúncia com motivo.
 
 ## 7. Migração do Discord
-- [ ] Importar a estrutura do servidor (canais, categorias, cargos, permissões, emojis).
+- [x] Importar a estrutura do servidor por link de modelo (canais, categorias, cargos, permissões) — `7cdac73`, `server/discordimport.js`. Emojis não vêm no modelo do Discord.
 - [ ] Guia "Vindo do Discord?".
 
 ## 8. E2EE mais ampla

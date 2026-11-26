@@ -12,6 +12,7 @@ export const NEWS = [
     id: '2026-11', title: 'Novembro de 2026',
     items: [
       { sec: 'Visual', i: 'palette', t: 'Resenha 2.0', d: 'Grafite com azul elétrico e a fonte Geist. No servidor: capa nova, botão para entrar na call de quem já está lá e contador de mensagens não lidas em cada canal. Prefere como era? Aparência → Layout → Visual clássico.', try: 'appearance' },
+      { sec: 'Visual', i: 'devphone', t: 'Celular', d: 'Barra embaixo com Servidores, Amigos, Jogos, Caixa de entrada e Você, como nos apps.' },
       { sec: 'Jogar com a turma', i: 'megaphone', t: 'Bora?', d: 'Chame a turma do servidor para jogar ou só resenhar, agora ou mais tarde, com o contador de quem topou ao vivo. Fica no "+" da barra dos servidores.', try: 'bora' },
       { sec: 'Jogar com a turma', i: 'gamepad', t: 'Seção Jogos', d: 'Procurar jogadores com conversa em cada anúncio, "A fim de jogar" que forma o grupo sozinho e as suas Conquistas.', try: 'lfg' },
       { sec: 'Jogar com a turma', i: 'users', t: 'Ativo agora', d: 'O que cada amigo está jogando, quem está em chamada e o que você perdeu. Se adapta a você: quem está chegando vê os primeiros passos; quem já usa, só o que está rolando (dá para escolher no ⋯).' },
@@ -21,6 +22,9 @@ export const NEWS = [
       { sec: 'Transmissão e clipes', i: 'clip', t: 'Clipes', d: 'F8 salva os últimos segundos (até 2 min, 60 ou 120 FPS), no seu aparelho. Corte, mande para o servidor e veja os Clipes da semana.', try: 'clipsettings' },
       { sec: 'Transmissão e clipes', i: 'play', t: 'Watch Together e música', d: 'Vídeos do YouTube em Full HD, sincronizados, com playlists. E um bot de música na sala de voz.' },
       { sec: 'Servidores', i: 'sparkle', t: 'Central de boas-vindas', d: 'Quem entra vê a apresentação, as regras e perguntas que já dão os cargos certos. Configure em Configurações do servidor → Boas-vindas.' },
+      { sec: 'Servidores', i: 'voice', t: 'Salas de voz para raid', d: 'Limite de pessoas e senha na sala, pedir a vez com fila, sussurro para algumas pessoas ou um cargo e o orador prioritário, que abaixa as outras vozes enquanto fala. Clique direito no botão da mão, na chamada.' },
+      { sec: 'Servidores', i: 'calendar', t: 'Eventos com funções', d: 'Vagas por função (tanque, cura, rotas do LoL, Valorant…), lista de espera que sobe sozinha quando abre vaga e evento que se repete toda semana.' },
+      { sec: 'Servidores', i: 'upload', t: 'Vindo do Discord?', d: 'Cole o link do modelo do seu servidor do Discord e os cargos, categorias, canais e permissões entram aqui. Menu do servidor → Importar estrutura do Discord.' },
       { sec: 'Servidores', i: 'calendar', t: 'Mais coisas no servidor', d: 'Eventos com aviso antes da hora, Wishlist da turma, aba Arquivos, canais de galeria e documento e permissões por categoria.' },
       { sec: 'A turma', i: 'star', t: 'A semana, o Rewind e A Noite', d: 'O que a turma jogou na semana, a retrospectiva do mês e do ano e as noites que viraram história.' },
       { sec: 'Voz e privacidade', i: 'mic', t: 'Voz', d: 'Filtro "Só a minha voz", efeitos de voz, push-to-talk com o jogo em foco e o microfone que volta sozinho se cair. No soundboard, qualquer áudio vira som: você escolhe o trecho no próprio app. Pelo endereço do site, a chamada funciona sem VPN em qualquer internet: voz, câmera e transmissão de tela (com o som).', try: 'voice' },

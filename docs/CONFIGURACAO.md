@@ -60,6 +60,7 @@ público não oficial do Google Tradutor (o texto traduzido sai do servidor). `T
 | `ACH_GAMES` | Quantos jogos mais recentes da biblioteca trazem conquistas (padrão 40). |
 | `ACH_SYNC=0` | Desliga a sincronização de conquistas a cada 24 h. |
 | `GUILD_GAMES_MIN` | Mínimo de pessoas para um jogo aparecer em "Jogam aqui" (padrão 2). |
+| `DISCORD_API` | Endereço da API do Discord usado por "Importar estrutura do Discord" (padrão `https://discord.com/api/v10`; os testes apontam para um Discord falso). O link de modelo é público: não precisa de bot nem de chave. |
 | `DISCOVER_OFF=1` | Desliga a aba Descobrir (fontes em [DESCOBRIR.md](DESCOBRIR.md)). |
 
 ## Watch Together
@@ -81,6 +82,7 @@ variável `KLIPY_API_KEY` / `GIPHY_API_KEY`. Com as duas, cada pessoa escolhe a 
 |---|---|
 | `GITHUB_TOKEN` | Chave somente leitura para o servidor consultar as releases com o repositório privado (ou o arquivo `github-token.txt` na pasta de dados). |
 | `DESKTOP_MIN_VERSION` | Versão mínima do app para entrar nas calls (ou o arquivo `desktop-min-version.txt`). |
+| `DESKTOP_ASAR=1` | Liga a atualização por diferença (só o `app.asar`, ~200 KB, em vez do instalador de ~113 MB) para os apps que têm o mesmo Electron e os mesmos programas nativos da versão nova (ou o arquivo `desktop-asar.txt` com `1`). Desligada por padrão até o teste no Windows (`desktop/overlay.js`). |
 | `LC_ADMIN` | Nome de usuário do administrador da instalação, que recebe os relatórios de problema (sem ela, a conta mais antiga). |
 
 Detalhes: [ATUALIZACOES-E-RELATORIOS.md](ATUALIZACOES-E-RELATORIOS.md).

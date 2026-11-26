@@ -33,6 +33,7 @@ Comece pelo [README](../README.md) da raiz. Aqui está o resto, por assunto.
 - [CAPTURA-WGC-DXGI.md](CAPTURA-WGC-DXGI.md): captura WGC + DXGI no `lc-stream` (pesquisa, prova de conceito e resultados).
 - [TESTE-CAPTURA-AMIGOS.md](TESTE-CAPTURA-AMIGOS.md): roteiro de testes da captura com os amigos e resultados recebidos.
 - [PORTA-POR-VOZ.md](PORTA-POR-VOZ.md): proteção por voz (porta guiada por VAD), "Só a minha voz" e áudio "só desta tela".
+- [VOZ-FORA-DA-VPN.md](VOZ-FORA-DA-VPN.md) e [TURN.md](TURN.md): voz para quem está fora da VPN (IPv6 público e túnel pela conexão do site) e o TURN próprio, se um dia valer a pena.
 - [BANDA-E-LATENCIA.md](BANDA-E-LATENCIA.md): banda da voz e como baixar o ping de quem está longe.
 - [DESKTOP-VISUAL.md](DESKTOP-VISUAL.md): app desktop com tela cheia com defeito, texto borrado, vídeo piscando.
 

@@ -1,4 +1,4 @@
-# Próximos passos: passagem para a próxima sessão (nov/2026)
+# Próximos passos: passagem para a próxima sessão (atualizado em 26/11/2026)
 
 Guia para quem continuar (outra sessão do Claude ou uma pessoa). Resume o que a sessão de nov/2026 fez depois da
 auditoria de recursos ([AUDITORIA-RECURSOS.md](AUDITORIA-RECURSOS.md)), com os números medidos, como medir de novo,
@@ -23,6 +23,52 @@ o que aprendeu e o que falta (roadmap em ordem). **Leia antes de começar.**
   dono, que não estavam em commit, estão guardadas no stash `wip-musica-antigo-local` (**não mexer sem pedir**). A
   worktree `/home/user/audit` ficou num commit antigo (útil para comparar com o código de antes).
 - Testes de ponta a ponta usam portas fixas: **um por vez**, `flock /tmp/resenha-tests.lock node scripts/run-tests.mjs <nomes>`.
+- **Antes de analisar qualquer coisa: `git fetch origin` e confira se a branch local está atrás.** Em 26/11 a cópia local
+  estava 64 commits atrás do GitHub e a primeira análise saiu de uma versão velha.
+
+## Situação em 26/11/2026 (leia primeiro)
+
+Este documento era de 21/11. Desde então entrou muita coisa que as seções abaixo não descrevem:
+
+**Entre 23 e 26/11 (o dono e outras sessões, 64 commits):**
+- **Voz fora da VPN** ([VOZ-FORA-DA-VPN.md](VOZ-FORA-DA-VPN.md), [TURN.md](TURN.md)): a casa do servidor tem CGNAT. A voz tenta
+  VPN (Tailscale) → IPv6 público (porta 40030, `server/ipv6watch.js`) → **túnel pela conexão do site** (`/voz-tunel`,
+  `server/voztunnel.js`, `public/voztunnel*.js`), com voz, câmera e tela (até 1080p, ~60% da taxa direta; o nativo de 120
+  FPS não passa pelo túnel). O TURN da Cloudflare foi testado e descartado (só IPv4).
+- **Clipes automáticos** (`public/autoclip*.js`): quando a call explode, o lance da própria transmissão é salvo sozinho
+  (sempre no aparelho, nunca posta sozinho).
+- **Resenha 2.0** (visual): grafite frio, azul elétrico, fonte Geist (`public/v2.css`); atividades num botão só (foguete)
+  com lançador; menus e categorias no estilo do Discord. "Visual clássico" em Aparência → Layout.
+- Central de **boas-vindas** do servidor (`server/onboarding.js`), **cadastro por código de convite**, Administração →
+  Usuários e Servidores, abertura sem esperar o WebSocket, sorteio de times e fila do lobby, "retomar de onde parou",
+  soundboard com corte no app, filtro Forte sem picotar.
+
+**Nesta sessão (26/11, pedido do dono):**
+| Commit | O quê | Teste |
+|---|---|---|
+| `6a53c0d` | Decisões do dono: `VOICE_JOIN` rajada 10 e 2/s; aviso de amizade desfeita **desligado** por padrão; instalador sem `dxcompiler.dll` (`desktop/afterpack.js`) e WebGPU desligado (`disable-blink-features=WebGPU`) | — (dxcompiler: só no Windows) |
+| `81329e3` | Salas de voz: limite, senha, orador prioritário (permissão `PRIORITY = 2048`), pedir a vez, sussurro (o SFU pausa a voz para quem não é alvo; mídia direta e túnel) — `server/voicerooms.js`, `public/voicerooms.js` | `voice-rooms-test` (3 navegadores, kbps de verdade) |
+| `5415d73` | Eventos: vagas por função com modelos por jogo, lista de espera com promoção automática, evento semanal | `events-roles-unit-test`, `events-test` |
+| `7cdac73` | Importar a estrutura de um servidor do Discord por **link de modelo** (discord.new): cargos, categorias, canais, permissões — `server/discordimport.js` | `discord-structure-test` (Discord falso) |
+| `ceb2b9f` | Interface mais leve: Editor de código fora do foguete (opção em Recursos extras), Sons com grupos fechados; **navegação inferior no celular** (`public/mobile.js`) | `mobile-test`, `community5-test` |
+| `45313f3` | Máxima (GTCRN): **pausar no silêncio**, opção experimental desligada | `gtcrn-pause-test`; `noise-cpu` (abaixo) |
+| `edeec82` | App desktop: **atualização por diferença** (só o `app.asar`) com volta ao instalador completo — `desktop/boot.js`, `desktop/overlay.js` | `overlay-unit-test`; Electron carregando de um asar externo conferido aqui |
+
+Medido (GTCRN pausado, `MODES=gtcrn,gtcrn-pausa PERIOD=8 TALK=2 SECS=16 ROUNDS=3 node scripts/noise-cpu.mjs`, 2 s de fala a
+cada 8 s, 3 rodadas alternadas): total 11,91% → 11,03% de um núcleo; thread de áudio 10,08% → 8,31%. Menos que o teto
+estimado (~6–7 pontos): o detector de voz (RNNoise) continua rodando e o GTCRN só pausa depois de 2 s de silêncio.
+
+**O que depende do dono (desta sessão):**
+1. **Teste de escuta** da "Pausar a Máxima no silêncio" (Configurações → Voz, com a Máxima): o começo da primeira
+   palavra depois de um silêncio pode sair cortado (~30 ms). Se ficar bom, pode virar padrão.
+2. **Atualização por diferença** (desligada no servidor): depois do próximo push para a `main`, a release passa a ter
+   `Resenha-app-X.asar` e `.sig`. Instale essa versão pelo instalador normal; na release SEGUINTE, ligue com
+   `echo 1 > ~/resenha-data/desktop-asar.txt` e confira no `main.log` do app: "atualização por diferença baixada e
+   conferida" e, ao reabrir, "abrindo a versão X recebida por diferença". Se algo der errado, apague o arquivo
+   `desktop-asar.txt` e tudo volta ao instalador completo. Precisa ser no Windows 10 e 11.
+3. **`dxcompiler.dll` removido**: na próxima versão, conferir que o app abre, transmite e mostra vídeo normalmente (o
+   WebGPU fica desligado). Se algo de vídeo quebrar, tirar `afterPack` do `desktop/package.json`.
+4. Salas com senha/limite, sussurro e eventos com funções com a turma de verdade.
 
 ## O que foi feito (commits, do mais antigo ao mais novo)
 
@@ -434,9 +480,9 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
 - **GPU e VRAM no Windows** com o `medir-resenha.ps1`: depende do dono.
 
 ### 3. Médio prazo (medir antes e depois; risco médio)
-- **Pausar o GTCRN em silêncio longo**: **depende do dono** (teste de escuta). O GTCRN é opcional ("Máxima"; o padrão é
-  o RNNoise) e minificado (`public/vendor/ns/gtcrn`): pausar exige tirar e recolocar o nó no grafo no começo da fala,
-  com o estado do modelo velho e a troca de atraso (~30 ms). Teto de ~6–7 pontos só para quem escolheu o GTCRN.
+- ~~Pausar o GTCRN em silêncio longo~~ **feito como opção experimental desligada** (`45313f3`, 26/11): 2 s de porta
+  fechada tiram o GTCRN da cadeia; a fala ou desmutar religa. Medido: thread de áudio 10,08% → 8,31%. **Falta o teste
+  de escuta do dono** para decidir se vira padrão.
 - ~~Carregar sob demanda~~ **medido, não aplicado** (`perf-open.mjs`, CPU 4x mais lenta: pronto em ~1,2–1,4 s). O JS
   executa pouco na abertura; o maior item ("topo" do `util.js`, ~50 ms a 4x) é a 1ª inicialização do ICU, que qualquer
   `Intl` paga (adiar o `RelativeTimeFormat` não mudou nada: desfeito). CSS: teto de −15% sem os 6 arquivos pouco usados
@@ -451,13 +497,14 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
 - ~~Buffer de clipe da própria transmissão~~ **feito** (`2c676a7`): pelo Chromium, os quadros saem do enviador para o
   buffer (`perf-clip-own.mjs`: custo dos clipes em 1080p30 +14,9 → +0,5 ponto; 720p30 +10,1 → +4,6). Pelo programa
   nativo já era o buffer nativo. Teste `clip-own-tap-test`.
-- **`dxcompiler.dll`** (25,8 MB; WebGPU não é usado): só com teste no Windows, porque o Chromium pode tentar carregá-la.
+- ~~`dxcompiler.dll`~~ **removido do instalador** (`6a53c0d`, decisão do dono) com o WebGPU desligado. **Conferir no
+  Windows** na próxima versão.
 
 ### 4. Grandes atualizações
-- **Atualização por diferença:** **depende do dono** (teste no Windows). Hoje cada versão baixa ~113 MB (v1.0.54), sendo
-  que o app (`app.asar`) tem 174 KB e os nativos ~5 MB. Um atualizador que falhe deixa todo mundo sem as próximas
-  versões (inclusive a que o corrigiria): só com o ciclo baixar → conferir assinatura → trocar → reabrir testado no
-  Windows 10 e 11. Mexe em `desktop/main.js`, `updready.js` e na assinatura (`updatekey.js`).
+- ~~Atualização por diferença~~ **feita, desligada no servidor até o teste no Windows** (`edeec82`, 26/11). Nada da
+  instalação é trocado: o `app.asar` novo (assinado com o Electron e a impressão dos nativos) fica na pasta de dados e o
+  `boot.js` abre por ele; versão que não abre em 2 tentativas volta ao embutido e vai pelo instalador completo. Ligar:
+  `DESKTOP_ASAR=1` ou `desktop-asar.txt` com `1`. Roteiro em "Situação em 26/11".
 - ~~Telemetria de desempenho real~~ **feito** (`e45e515`): quadro "Consumo real do app desktop" (metade e 90% por modo).
 - ~~Teste automático no Windows~~ **preparado** (`a5b4714`, `windows-testes.yml`): roda no GitHub depois do push; o
   primeiro resultado precisa ser conferido. Não cobre captura de verdade nem GPU (a máquina do GitHub não tem).
@@ -468,11 +515,13 @@ versão do app; **não executado no Windows**). Nada mudou nos nativos.
    assiste deve ver a última imagem e o aviso "O jogo não está na tela"); iniciar com o Windows com uma versão baixada
    (deve continuar escondido); GPU e VRAM.
 2. Quedas a cada ~5 min: as linhas `[voz] conexão de quem está em chamada caiu` do log e se há VPN/túnel/proxy.
-5. Teste de escuta para pausar o GTCRN em silêncio; teste no Windows para a atualização por diferença e o `dxcompiler.dll`.
+5. Teste de escuta da pausa do GTCRN (já implementada, desligada); teste no Windows da atualização por diferença (já
+   implementada, desligada no servidor) e do instalador sem `dxcompiler.dll` (ver "Situação em 26/11").
 6. Push (5+ commits locais) e conferir o primeiro resultado do `windows-testes.yml`.
 8. Acabamento e pendências (nov/2026, 3ª passagem): os 6 itens de [O que testar no Windows](#o-que-testar-no-windows-dono).
-7. Chamada e transmissão (nov/2026, 2ª passagem): o teste de queda de verdade e a decisão do limite de entradas por
-   segundo, em [O que medir no Windows](#o-que-medir-no-windows-dono).
+7. Chamada e transmissão (nov/2026, 2ª passagem): o teste de queda de verdade, em
+   [O que medir no Windows](#o-que-medir-no-windows-dono). O limite de entradas por segundo foi decidido em 26/11 (rajada
+   de 10, depois 2 por segundo).
 
 ## Referências
 
