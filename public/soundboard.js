@@ -112,7 +112,15 @@ export const playSoundById = (id, voice) => { const s = findSound(id); if (s) tr
 // ---- adicionar/editar ----
 // o arquivo pode passar de 15 s / 2 MB: o editor (soundtrim.js) deixa escolher o trecho e só ele sobe
 async function pickAudio() {
-  const f = await new Promise(res => { const i = h('input', { type: 'file', accept: 'audio/*', onchange: () => res(i.files[0] || null) }); i.click(); });
+  // cancelar a janela de arquivos também termina a espera (evento "cancel"); sem isso o botão "Novo som" ficava ocupado
+  // até trocar de aba. Navegador sem "cancel": a janela volta ao foco ao fechar, e sem arquivo escolhido vale como cancelar.
+  const f = await new Promise(res => {
+    let done = false; const end = (v) => { if (done) return; done = true; removeEventListener('focus', onFocus); res(v); };
+    const i = h('input', { type: 'file', accept: 'audio/*', onchange: () => end(i.files[0] || null), oncancel: () => end(null) });
+    const onFocus = () => setTimeout(() => { if (!i.files?.length) end(null); }, 1000);
+    setTimeout(() => addEventListener('focus', onFocus), 0);
+    i.click();
+  });
   if (!f) return null;
   if (f.size > MAX_FILE) { toast('Arquivo muito grande para cortar aqui (máx. 60 MB)', true); return null; }
   let buf; try { buf = await decodeAudio(f); } catch { buf = null; }
