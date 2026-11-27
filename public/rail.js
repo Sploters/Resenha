@@ -20,6 +20,8 @@ import { profile, pinnedDMs, dmWith, ensureDM, initialsOf, openDM, userMenu } fr
 import { jumpTo } from './msgactions.js';
 import { openBoraModal } from './bora.js';
 import { notifCard, inboxBadge, showInbox } from './inbox.js';
+import { initFolders, folder, inAnyFolder, folderRailItem, moveMenuItems, refreshFolder, closeFolder } from './gfolders.js';
+initFolders({ change: () => { renderRail(); refreshFolder(); }, go: (gid) => { gFlyHide(); S.favMode = false; go(gid); } });
 // ---------- trilho de servidores ----------
 function guildUnread(g) { return g.channels.some(c => S.unread[c.id]); }
 function guildMentions(g) { return g.channels.reduce((n, c) => n + (S.mentions[c.id] || 0), 0); }
@@ -47,6 +49,7 @@ export function renderRail() {
       return wrap('.raildm' + (S.view.cid === dm.id ? '.active' : '') + (S.unread[dm.id] && S.view.cid !== dm.id ? '.unread' : ''), u.display_name, h('div.rail-item', { onclick: () => go('@me', dm.id), oncontextmenu: (e) => userMenu(e, u.id) }, u.avatar ? h('img', { src: imgUrl(u.avatar, 48), alt: '', draggable: 'false' }) : initialsOf(u.display_name)), [h('div.rd-st.status.s-' + (u.status || 'offline')), badge(S.mentions[dm.id] || 0)], u.id); }),
     h('div.sep'),
     ...railGuilds().map(g => {
+      if (g.folder) return folderRailItem(g.folder, { wrap, badge, activeGid: S.favMode ? null : S.view.gid });
       const rooms = voiceRooms(g);
       const w = wrap('.railg' + (S.view.gid === g.id && !S.favMode ? '.active' : '') + (guildUnread(g) && S.view.gid !== g.id ? '.unread' : ''), rooms.length ? null : g.name,
         h('div.rail-item', { 'data-fly': 'g', 'data-gid': g.id, onclick: () => { gFlyHide(); S.favMode = false; go(g.id); }, oncontextmenu: (e) => { gFlyCancel(); guildMenu(e, g); } }, g.icon ? h('img', { src: imgUrl(g.icon, 48), alt: '', draggable: 'false' }) : g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3)),
@@ -58,16 +61,18 @@ export function renderRail() {
     // caixa de entrada: no pé da barra, logo acima do seu perfil
     wrap('.rail-inbox', 'Caixa de entrada', h('div.rail-item.rail-tool.inbox-btn', { onclick: (e) => showInbox(e), style: { fontSize: '0' } }, icon('inbox', 24), inboxBadge())));
 }
-// ordem dos servidores na barra: a que você arrastou (fica na conta); servidores novos vão para o fim
+// ordem dos servidores na barra: a que você arrastou (fica na conta); servidores novos vão para o fim. Pastas (gfolders.js)
+// entram na mesma ordem como 'f:<id>' ({ folder }); servidores dentro de uma pasta não aparecem soltos
 function railGuilds() {
   const order = S.prefs.guildOrder || [], at = (id) => { const i = order.indexOf(id); return i < 0 ? Infinity : i; };
-  return [...S.guilds.values()].map((g, i) => [g, i]).sort((a, b) => (at(a[0].id) - at(b[0].id)) || (a[1] - b[1])).map(x => x[0]);
+  const tops = (Array.isArray(S.prefs.gfolders) ? S.prefs.gfolders : []).filter(f => !f.parent || !folder(f.parent)).map(f => ({ id: 'f:' + f.id, folder: f }));
+  return [...tops, ...[...S.guilds.values()].filter(g => !inAnyFolder(g.id))].map((g, i) => [g, i]).sort((a, b) => (at(a[0].id) - at(b[0].id)) || (a[1] - b[1])).map(x => x[0]);
 }
 // segurar e arrastar: servidores trocam de lugar entre si, conversas fixadas entre si
 export function railSortable(rail) {
   sortable(rail, { items: '.rail-wrap.railg, .rail-wrap.raildm', axis: 'y', group: (el) => el.classList.contains('railg') ? 'g' : 'dm',
     onDrop: (ids, el) => {
-      if (el.classList.contains('railg')) S.prefs.guildOrder = ids; else S.prefs.pinnedDMs = ids;
+      if (el.classList.contains('railg')) { closeFolder(); S.prefs.guildOrder = ids; } else S.prefs.pinnedDMs = ids;
       savePrefs(); renderRail(); if (!el.classList.contains('railg')) renderSide();
     } });
 }
@@ -172,6 +177,7 @@ export function guildMenu(e, g, opts = {}) {
     { icon: 'users', label: fr.length ? `Amigos neste servidor (${fr.length})` : 'Amigos neste servidor', hint: fr.length ? friendNames(fr) : 'Nenhum ainda', fn: () => friendsInServer(g) },
     { icon: 'radar', label: 'Procurar jogadores', fn: () => { setLfgGuild(g.id); S.favMode = false; go('@me', 'lfg'); } },
     { icon: 'check', label: 'Marcar tudo como lido', fn: () => g.channels.forEach(c => ack(c.id)) },
+    { icon: 'folder', label: 'Mover para pasta', sub: moveMenuItems('g:' + g.id) },
     '-',
     { icon: 'bell', label: 'Notificações', fn: () => notifCard({ currentTarget: $('#side-head') || document.body }, { g }) },
     { icon: 'edit', label: 'Apelido neste servidor', fn: async () => { const n = await promptBox('Apelido neste servidor', 'Apelido', member(g.id, S.me.id)?.nickname || ''); if (n != null) tryApi('PATCH', `/guilds/${g.id}/members/me`, { nickname: n }); } },
