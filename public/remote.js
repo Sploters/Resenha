@@ -8,6 +8,7 @@
 import { h, icon, whenGone } from './util.js';
 import { S, toast, modal, desktop } from './state.js';
 import { playSound } from './sounds.js';
+import { cleanEvent } from './remoteclean.js';
 
 let ctx = {}; // injetado por app.js: send(t, d), name(uid), rerender()
 export const initRemote = (c) => { ctx = c; };
@@ -108,7 +109,7 @@ const push = (e) => {
 function flush() {
   flushTimer = 0; lastSent = performance.now(); if (lastMove) { if (lastMove.k === 'r') { const c = (v) => Math.max(-2000, Math.min(2000, Math.round(v))); lastMove = { k: 'r', dx: c(lastMove.dx), dy: c(lastMove.dy) }; } if (lastMove.k !== 'r' || lastMove.dx || lastMove.dy) queue.push(lastMove); lastMove = null; }
   const s = ctlSess(); if (!s || !queue.length) { queue = []; return; }
-  while (queue.length) ctx.send('REMOTE_INPUT', { id: s.id, ev: queue.splice(0, 64) });
+  while (queue.length) sendInput(s.id, queue.splice(0, 64));
 }
 // ponto do vídeo (0..1) sob o cursor, descontando as faixas pretas do object-fit: contain
 function norm(video, cx, cy) {
@@ -186,7 +187,7 @@ function readPad() {
 const padTarget = () => { const p = myPlay(); if (p?.state === 'active' && (p.kind === 'pad' || p.perms.gamepad)) return p; const s = S.remote; return s && s.state === 'active' && s.controller === S.me.id && s.perms.gamepad ? s : null; };
 const NEUTRAL = { k: 'g', b: 0, ax: [0, 0, 0, 0], lt: 0, rt: 0 };
 // jogador: manda direto (só o estado que mudou, ~60/s no máximo); controle remoto: pela fila junto com mouse e teclado
-function padSend(st, s = padTarget()) { if (!s) return; if (s.kind === 'pad' || s.kind === 'play') ctx.send('REMOTE_INPUT', { id: s.id, ev: [st || NEUTRAL] }); else push(st || NEUTRAL); }
+function padSend(st, s = padTarget()) { if (!s) return; if (s.kind === 'pad' || s.kind === 'play') sendInput(s.id, [st || NEUTRAL]); else push(st || NEUTRAL); }
 function padNeutral() { if (padLast && padLast !== '0') { padLast = '0'; padSend(null); } }
 function padTick() {
   const s = padTarget();
@@ -286,7 +287,7 @@ export function limitations() {
       h('li', 'Programas abertos ', h('b', 'como administrador'), ' não recebem os comandos (regra do Windows); você vê um aviso quando acontecer.'),
       h('li', 'Jogos em ', h('b', 'tela cheia exclusiva'), ' podem não receber os comandos e às vezes aparecem pretos na transmissão; use "janela sem bordas".'),
       h('li', h('b', 'Ctrl+Alt+Del'), ' e a tela de bloqueio/UAC do Windows não podem ser controlados.'),
-      h('li', 'Há um pequeno atraso: os comandos passam pelo servidor. Bom para ajudar; para jogar à distância pode não ser ideal.'),
+      h('li', 'Há um pequeno atraso: os comandos vão pelo mesmo caminho do vídeo (direto ao servidor de voz) e, se ele não estiver disponível, pelo servidor do app, que é mais lento.'),
       h('li', 'Controle de videogame: quem controla usa o próprio controle ligado no PC dele; no PC de quem transmite ele aparece como um controle de Xbox 360 (precisa do driver gratuito ViGEmBus instalado lá).'),
       h('li', 'Com vários monitores, só o monitor transmitido é controlado.')));
 }
@@ -297,6 +298,76 @@ export function limitations() {
 export const perf = { rtt: new Map(), host: new Map(), inputs: new Map() };
 export const sessionsForPing = () => { const a = [...pads().values()].filter(s => s.state === 'active' && s.kind === 'play' && (s.owner === S.me.id || s.controller === S.me.id)); if (S.remote?.state === 'active') a.push(S.remote); return a; };
 export const sendPing = (id) => ctx.send('REMOTE_PING', { id, t: performance.now() });
+
+// ---------- canal direto dos comandos (DataChannel pelo SFU) ----------
+// Pelo gateway, cada comando ia de quem joga até o servidor e de lá até quem transmite, as duas vezes pela Cloudflare
+// (WebSocket/TCP, junto com o resto do app). Pelo canal de dados do WebRTC ele segue o caminho da mídia (UDP direto ao
+// SFU). Quem joga cria o canal e avisa (REMOTE_DC ready); quem transmite assina o canal daquela pessoa e confirma (on).
+// Só então os comandos passam por ele; caiu (reconexão, túnel de voz, navegador sem SCTP), voltam sozinhos pelo gateway.
+// Como o servidor não confere o que passa por aqui, quem transmite confere cada evento (remoteclean.js, a mesma regra do
+// servidor), a permissão da sessão, quem mandou (o SFU diz de quem é o canal) e a taxa.
+const dc = { prod: null, sfu: null, making: false, on: new Set(), want: new Set(), told: new Set() };
+const hostDc = new Map(); // uid de quem joga -> { c, sfu }
+const hostTry = new Map(); // uid -> última tentativa de assinar
+const dcBucket = new Map(); // id da sessão -> { b, t }
+const DC_RATE = 400, DC_BURST = 800;
+export const dcState = () => ({ prod: dc.prod?.readyState || null, on: [...dc.on], host: [...hostDc.keys()] }); // testes/painel
+const vc = () => ctx.voice?.();
+const calm = () => !keysDown.size && !btnsDown.size && (!padLast || padLast === '0'); // nada apertado: trocar de caminho sem inverter apertar/soltar
+function sendInput(id, ev) {
+  if (dc.want.has(id) && calm()) { dc.want.delete(id); dc.on.add(id); }
+  const p = dc.prod;
+  if (dc.on.has(id) && p && !p.closed && p.readyState === 'open' && dc.sfu === vc()?.sfu && (p.bufferedAmount || 0) < 65536) {
+    try { p.send(JSON.stringify({ i: id, e: ev })); return; } catch { }
+  }
+  ctx.send('REMOTE_INPUT', { id, ev });
+}
+const ctlIds = () => { const a = [...pads().values()].filter(s => s.state === 'active' && s.controller === S.me.id).map(s => s.id); if (S.remote?.state === 'active' && S.remote.controller === S.me.id) a.push(S.remote.id); return a; };
+const hostSessions = () => { const a = [...pads().values()].filter(s => s.state === 'active' && s.owner === S.me.id && s.kind !== 'pad'); if (S.remote?.state === 'active' && S.remote.owner === S.me.id) a.push(S.remote); return a; };
+let dcTimer = 0;
+function dcSync() {
+  const v = vc(), sfu = v?.sfu, ids = ctlIds(), hosts = hostSessions();
+  for (const id of [...dc.on, ...dc.want, ...dc.told]) if (!ids.includes(id)) { dc.on.delete(id); dc.want.delete(id); dc.told.delete(id); }
+  // quem joga: um canal por conexão de voz, criado na primeira sessão
+  if (ids.length && sfu?.ready && sfu.send && !v.tunnel && !dc.making && (dc.sfu !== sfu || !dc.prod || dc.prod.closed)) {
+    dc.making = true; dc.on.clear(); dc.want.clear(); dc.told.clear();
+    sfu.send.produceData({ ordered: true, label: 'input' }).then((p) => {
+      dc.prod = p; dc.sfu = sfu;
+      const lost = () => { if (dc.prod === p) { dc.prod = null; dc.on.clear(); dc.want.clear(); dc.told.clear(); } };
+      p.on('open', dcSync); p.on('close', lost); p.on('transportclose', lost); p.on('error', () => { });
+    }).catch(() => { dc.prod = null; }).finally(() => { dc.making = false; });
+  }
+  if (dc.prod?.readyState === 'open' && dc.sfu === sfu) for (const id of ids) if (!dc.told.has(id)) { dc.told.add(id); ctx.send('REMOTE_DC', { id, ready: true }); }
+  // quem transmite: assina o canal de cada jogador ativo (tenta de novo a cada 5 s se ainda não existir)
+  for (const [uid, x] of hostDc) if (x.sfu !== sfu || !hosts.some(s => s.controller === uid)) { hostDc.delete(uid); x.c.close(); }
+  for (const s of hosts) if (!hostDc.has(s.controller) && Date.now() - (hostTry.get(s.controller) || 0) > 5000) dcConsume(s.controller);
+  if (ids.length || hosts.length) { if (!dcTimer) dcTimer = setInterval(dcSync, 3000); } else if (dcTimer) { clearInterval(dcTimer); dcTimer = 0; }
+}
+async function dcConsume(uid) {
+  const v = vc(), sfu = v?.sfu; if (!sfu?.ready || !sfu.recv || v.tunnel) return;
+  hostTry.set(uid, Date.now());
+  const r = await v.sfuReq('consume_data', { transport_id: sfu.recv.id, from: uid }).catch(() => null);
+  if (!r?.id || vc()?.sfu !== sfu) return;
+  const c = await sfu.recv.consumeData({ id: r.id, dataProducerId: r.dataProducerId, sctpStreamParameters: r.sctpStreamParameters, label: r.label, protocol: r.protocol }).catch(() => null);
+  if (!c) return;
+  const old = hostDc.get(uid); const x = { c, sfu }; hostDc.set(uid, x); old?.c.close();
+  const tell = (on) => { for (const s of hostSessions()) if (s.controller === uid) ctx.send('REMOTE_DC', { id: s.id, on }); };
+  const gone = () => { if (hostDc.get(uid) === x) { hostDc.delete(uid); hostTry.delete(uid); tell(false); } };
+  if (c.readyState === 'open') tell(true); else c.on('open', () => tell(true));
+  c.on('message', (m) => onDcMessage(uid, m));
+  c.on('close', gone); c.on('transportclose', gone); c.on('dataproducerclose', gone); c.on('error', () => { });
+}
+function onDcMessage(from, m) {
+  if (typeof m !== 'string' || m.length > 16384) return;
+  let d; try { d = JSON.parse(m); } catch { return; }
+  if (!d || typeof d.i !== 'string' || !Array.isArray(d.e)) return;
+  const s = S.remote?.id === d.i ? S.remote : pads().get(d.i);
+  if (!s || s.state !== 'active' || s.owner !== S.me.id || s.controller !== from) return;
+  const t = performance.now(), bk = dcBucket.get(s.id) || { b: DC_BURST, t }; bk.b = Math.min(DC_BURST, bk.b + (t - bk.t) / 1000 * DC_RATE); bk.t = t; dcBucket.set(s.id, bk);
+  const perms = s.caps?.rel ? { ...s.perms, rel: true } : s.perms, ev = [];
+  for (const e of d.e.slice(0, 64)) { if (bk.b < 1) break; const c = cleanEvent(e, perms); if (c) { bk.b -= 1; ev.push(c); } }
+  if (ev.length) onRemoteEvent('REMOTE_INPUT', { id: s.id, ev });
+}
 let hostCache = null, hostAt = 0;
 function onPing(d) {
   const mineHost = pads().get(d.id)?.owner === S.me.id || S.remote?.id === d.id && S.remote.owner === S.me.id;
@@ -322,8 +393,14 @@ export function onRemoteEvent(t, d) {
   if (t === 'REMOTE_ERROR') return toast(d.error, true);
   if (t === 'REMOTE_PING') return onPing(d);
   if (t === 'REMOTE_PONG') return onPong(d);
+  if (t === 'REMOTE_DC') { // canal direto: quem transmite confirmou (on) ou perdeu; quem joga avisou que o canal existe (ready)
+    if (ctlIds().includes(d.id)) { if (d.on) { if (dc.on.has(d.id)) { } else if (calm()) dc.on.add(d.id); else dc.want.add(d.id); } else { dc.on.delete(d.id); dc.want.delete(d.id); } }
+    else if (d.ready) { const s = hostSessions().find(x => x.id === d.id); if (s) dcConsume(s.controller); }
+    return;
+  }
   if (t === 'REMOTE_INPUT') { countInputs(d.id, d.ev?.length || 0); if (S.remote?.id === d.id && S.remote.owner === S.me.id) desktop?.remoteInput?.(d.ev); else if (pads().get(d.id)?.owner === S.me.id) routeInput(pads().get(d.id), d.ev); return; }
   if (t !== 'REMOTE_STATE') return;
+  queueMicrotask(dcSync);
   if (d.kind === 'pad' || d.kind === 'play') return padState(d);
   const mine = d.owner === S.me.id, other = ctx.name(mine ? d.controller : d.owner);
   if (d.state === 'ended') {

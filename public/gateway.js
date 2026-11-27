@@ -473,7 +473,7 @@ export function onEvent(t, d) {
     case 'CLIP_STATS': onClipStats(d); onFeedClipStats(d); break; // visualizações, curtidas, compartilhamentos e retenção mudaram
     case 'CLIP_CREATE': case 'CLIP_UPDATE': case 'CLIP_DELETE': onClipEvent(t, d);
       if (t === 'CLIP_CREATE' && d.streamer?.id === S.me.id && d.author?.id && d.author.id !== S.me.id) clipOfMe(d); if (t !== 'CLIP_CREATE') { updateClipEmbeds(t, d); onFilesClip(t, d); } break;
-    case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': onRemoteEvent(t, d); break;
+    case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': case 'REMOTE_DC': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_LOBBY_ERR': toast(d.code === 'full' ? 'O lobby está cheio.' : 'Precisa de pelo menos 2 pessoas para sortear times.', true); break;
     case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); if (!d.rpg) rpgReset(); if (d.rpg && !(S.room?.cid === d.channel_id && S.room.rpg)) S.focus = 'rpg'; const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null, prevLobby = S.room?.cid === d.channel_id ? S.room.lobby : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null, lobby: d.lobby || null, rpg: !!d.rpg }; if (JSON.stringify(prevLobby) !== JSON.stringify(d.lobby || null)) lobbyChanged(prevLobby, d.lobby || null); boardState(d.boards);

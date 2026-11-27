@@ -97,6 +97,15 @@ try {
   await pressPad(B, true); await pressPad(B, false);
   br = await bridge(A);
   ok(br.inputs.some(e => e.k === 'g' && e.b === 1 && e._id === bid), 'o controle do bob chega ao controle virtual dele', br.inputs.filter(e => e.k === 'g').length);
+  // canal direto (DataChannel pelo SFU): os comandos deixam o gateway; a alice confere cada um (o servidor não vê)
+  const dcOf = (p) => p.evaluate(async () => (await window.__lc.import('remote.js')).dcState());
+  await B.waitForFunction(async (sid) => (await window.__lc.import('remote.js')).dcState().on.includes(sid), { timeout: 10000 }, bid).catch(() => { });
+  const dB = await dcOf(B), dA = await dcOf(A);
+  ok(dB.prod === 'open' && dB.on.includes(bid) && dA.host.includes(String(b.id)), 'comandos do bob pelo canal direto da mídia (DataChannel), confirmado pela alice', { dB, dA });
+  const dn0 = (await bridge(A)).inputs.length;
+  await pressPad(B, true); await pressPad(B, false);
+  br = await bridge(A);
+  ok(br.inputs.slice(dn0).some(e => e.k === 'g' && e.b === 1 && e._id === bid), 'pelo canal direto o controle continua chegando');
   const box = await B.evaluate((uid) => { const v = document.querySelector(`.tile.screen[data-sid="${uid}"] video`), r = v.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, a.id);
   await B.mouse.click(box.x, box.y); await B.keyboard.press('KeyW'); await sleep(300);
   br = await bridge(A);

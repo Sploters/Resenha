@@ -131,23 +131,41 @@ export function comboToAccel(c) {
   return c.split('+').map(p => p === 'Ctrl' ? 'CommandOrControl' : ACCEL_KEYS[p] || p.replace(/^Numpad(\d)$/, 'num$1').replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '')).join('+');
 }
 // mouse: aceita também o botão do meio e os laterais (Mouse3/4/5); esquerdo e direito não, para não travar a interface
-export function captureKey(button, current, onSet, { combo = true, label = '', mouse = false, empty = null } = {}) {
+// Só uma captura por vez; clicar fora, sair da janela ou Esc cancela (antes ficava "ouvindo" até a próxima tecla, em
+// qualquer lugar). Segurar só Ctrl/Alt/Shift mostra a combinação sendo montada.
+let capturing = null;
+export function captureKey(button, current, onSet, { combo = true, label = '', mouse = false, empty = null, placeholder = null } = {}) {
   const paint = (c) => (button.textContent = `${label}${!c && empty ? empty : comboLabel(c)}`);
   paint(current);
   button.onclick = () => {
-    button.textContent = mouse ? 'Pressione uma tecla ou botão do mouse… (Esc cancela)' : 'Pressione as teclas… (Esc cancela)'; button.classList.add('capturing');
+    if (capturing?.button === button) return;
+    capturing?.cancel();
+    const idle = placeholder || (mouse ? 'Pressione uma tecla ou botão do mouse… (Esc cancela)' : 'Pressione as teclas… (Esc cancela)');
+    button.textContent = idle; button.classList.add('capturing');
     const MB = { 1: 'Mouse3', 3: 'Mouse4', 4: 'Mouse5' };
-    const done = () => { button.classList.remove('capturing'); removeEventListener('keydown', on, true); removeEventListener('mousedown', onMouse, true); removeEventListener('auxclick', eat, true); setTimeout(() => removeEventListener('mouseup', eat, true), 0); };
-    const set = (c) => { current = c; onSet(c); done(); paint(c); };
+    const done = () => {
+      if (capturing?.button === button) capturing = null;
+      button.classList.remove('capturing'); removeEventListener('keydown', on, true); removeEventListener('keyup', onUp, true); removeEventListener('mousedown', onMouse, true); removeEventListener('auxclick', eat, true); removeEventListener('blur', cancel); setTimeout(() => removeEventListener('mouseup', eat, true), 0);
+    };
+    const cancel = () => { done(); paint(current); };
+    const set = (c) => { current = c; done(); paint(c); onSet(c); };
+    const held = (e) => [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift'].filter(Boolean);
     const on = (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (e.code === 'Escape') { done(); return paint(current); }
-      const c = combo ? comboFromEvent(e) : e.code; if (c) set(c);
+      if (e.code === 'Escape') return cancel();
+      const c = combo ? comboFromEvent(e) : e.code;
+      if (c) return set(c);
+      const m = held(e); if (combo && m.length) button.textContent = m.join(' + ') + ' + …';
     };
-    const onMouse = (e) => { if (!MB[e.button]) return; e.preventDefault(); e.stopPropagation(); set(MB[e.button]); };
+    const onUp = (e) => { if (combo && !held(e).length) button.textContent = idle; };
+    const onMouse = (e) => {
+      if (mouse && MB[e.button]) { e.preventDefault(); e.stopPropagation(); return set(MB[e.button]); }
+      if (e.button === 0 && !button.contains(e.target)) cancel(); // clicou em outro lugar
+    };
     const eat = (e) => { if (MB[e.button]) { e.preventDefault(); e.stopPropagation(); } }; // sem "voltar" no botão lateral
-    addEventListener('keydown', on, true);
-    if (mouse) { addEventListener('mousedown', onMouse, true); addEventListener('mouseup', eat, true); addEventListener('auxclick', eat, true); }
+    capturing = { button, cancel };
+    addEventListener('keydown', on, true); addEventListener('keyup', onUp, true); addEventListener('mousedown', onMouse, true); addEventListener('blur', cancel);
+    if (mouse) { addEventListener('mouseup', eat, true); addEventListener('auxclick', eat, true); }
   };
   return button;
 }

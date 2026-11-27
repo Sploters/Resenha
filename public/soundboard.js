@@ -1,7 +1,7 @@
 // Soundboard: sons pessoais (sincronizados na conta) + sons dos servidores, tocados para toda a sala de voz.
 import { h, icon, avatar, initials, whenGone, soundEmoji, debounce } from './util.js';
 import { S, api, tryApi, toast, savePrefs, modal, popout, closeFloating, can, PERM, confirmBox, menu, emojiPicker } from './state.js';
-import { toggle, slider, comboFromEvent, comboLabel, captureKey } from './ui.js';
+import { toggle, slider, comboFromEvent, comboLabel, captureKey, hotkey } from './ui.js';
 import { trimAudio, decodeAudio, MAX_FILE } from './soundtrim.js';
 
 const MAX_BYTES = 2 * 1024 * 1024, MAX_SECS = 15;
@@ -93,6 +93,25 @@ export function setSoundKey(id, combo) {
   const k = (S.prefs.sbKeys ||= {});
   if (combo) { for (const [x, c] of Object.entries(k)) if (c === combo && x !== id) delete k[x]; k[id] = combo; } else delete k[id];
   savePrefs(); document.dispatchEvent(new Event('sb-changed'));
+}
+// quem já usa a combinação (outro som, uma posição do teclado numérico ou um atalho do app)
+const APP_KEYS = { keyMute: 'Silenciar microfone', keyDeafen: 'Ensurdecer', keyClip: 'Salvar clipe', keyShare: 'Transmitir', keyFx: 'Efeito de voz', pttKey: 'Push-to-talk' };
+export function keyConflict(id, combo) {
+  if (!combo) return null;
+  for (const [x, c] of Object.entries(S.prefs.sbKeys || {})) if (c === combo && x !== id) { const s = findSound(x); if (s) return { sound: s, text: `o som "${s.name}"` }; }
+  const m = /^Alt\+Numpad([1-9])$/.exec(combo), slot = m && numpadSlots()[m[1] - 1];
+  if (slot && slot.sound.id !== id) return { slot: true, text: `Alt + NumPad ${m[1]} ("${slot.sound.name}")` };
+  for (const [k, l] of Object.entries(APP_KEYS)) if (hotkey(k) === combo) return { app: true, text: `o atalho "${l}" do app` };
+  return null;
+}
+// define o atalho e avisa o que mudou (um som que perdeu a tecla, ou o choque com um atalho do app)
+export function assignKey(s, combo) {
+  const was = (S.prefs.sbKeys || {})[s.id];
+  if (!combo) { setSoundKey(s.id, ''); if (was) toast(`Atalho de "${s.name}" removido`); return; }
+  const cf = keyConflict(s.id, combo);
+  setSoundKey(s.id, combo);
+  const k = comboLabel(combo);
+  toast(!cf ? `${k} toca "${s.name}"` : cf.app ? `${k} toca "${s.name}" (atenção: também é ${cf.text})` : `${k} agora toca "${s.name}" (antes era ${cf.text})`, !!cf?.app);
 }
 export function setSlot(i, id) { // id: som, '' vazio, null automático
   const a = slotPicks(); a[i] = id;
@@ -213,8 +232,9 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
       oncontextmenu: (e) => menu(e, [{ label: 'Tocar só para mim (prévia)', fn: () => trigger(s, voice, { preview: true }) }, { label: fav ? 'Remover dos favoritos' : 'Favoritar', fn: () => { toggleFav(s.id); draw(); } },
         { label: 'Definir atalho…', fn: () => keyDialog(s) }, (src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD))) && { label: 'Editar / excluir…', fn: () => { closeFloating(); editSound(src, s); } }]) },
       h('span.e', soundEmoji(s.emoji)), h('span.n', s.name), key && h('span.sbkey', comboLabel(key).replace('Alt + NumPad ', 'Alt+')),
-      // ao passar o mouse: prévia (só você ouve) e favoritar; clicar no resto do botão toca para a sala
+      // ao passar o mouse: prévia (só você ouve), atalho e favoritar; clicar no resto do botão toca para a sala
       h('div.sbov', h('button', { title: 'Prévia (só você ouve)', onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } }, icon('voice', 16)),
+        h('button.sbov-key' + (key ? '.on' : ''), { title: key ? `Atalho: ${comboLabel(key)} (trocar)` : 'Definir atalho', onclick: (e) => { e.stopPropagation(); keyDialog(s); } }, icon('keyboard', 16)),
         h('button' + (fav ? '.on' : ''), { title: fav ? 'Remover dos favoritos' : 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 16))));
   };
   const draw = () => {
@@ -290,8 +310,17 @@ function quickSounds(anchor, voice, openFull) {
   document.addEventListener('pointermove', sbqTrack, true);
 }
 function keyDialog(s) {
-  const btn = h('button.btn.grey');
-  captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { setSoundKey(s.id, c); toast('Atalho definido'); }, { empty: 'Clique e aperte as teclas' });
-  modal('Atalho do som', `"${s.name}" — ${window.lcDesktop?.setSoundKeys ? 'no app desktop funciona também com o jogo em foco, enquanto você está numa chamada' : 'funciona com o app em foco'}. Qualquer tecla ou combinação serve. Para escolher os sons do Alt + teclado numérico 1–9: Configurações → Atalhos.`, h('div', btn), [{ label: 'Remover atalho', cls: 'grey', fn: () => setSoundKey(s.id, '') }, { label: 'Concluir' }]);
+  // abre já esperando a tecla: é só apertar. Mostra quem perde a tecla antes de você confirmar com outra.
+  const btn = h('button.btn.grey.sbkey-cap'), info = h('div.sbkey-info');
+  const paintInfo = () => {
+    const own = (S.prefs.sbKeys || {})[s.id], pad = !own && keyOfSound(s.id, null);
+    info.textContent = own ? `Apertar ${comboLabel(own)} toca este som.` : pad ? `Hoje toca por ${comboLabel(pad)} (teclado numérico). Aperte outra tecla para um atalho próprio.` : 'Sem atalho ainda.';
+  };
+  captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { assignKey(s, c); paintInfo(); }, { empty: 'Clique e aperte as teclas', placeholder: 'Aperte a tecla ou combinação… (Esc cancela)' });
+  paintInfo();
+  const desk = window.lcDesktop?.setSoundKeys;
+  modal(`Atalho: ${s.name}`, desk ? 'Funciona também com o jogo em foco, enquanto você está numa chamada. Use Ctrl, Alt ou Shift + tecla para não atrapalhar o jogo.' : 'Funciona com o app em foco. Ex.: F6, Ctrl + 1, Shift + Q.',
+    h('div.sbkey-dlg', btn, info), [{ label: 'Remover atalho', cls: 'grey', keep: true, fn: () => { assignKey(s, ''); btn.textContent = 'Clique e aperte as teclas'; paintInfo(); } }, { label: 'Concluir' }]);
+  setTimeout(() => btn.click(), 50);
 }
 export { vol as soundVol };

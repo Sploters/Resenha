@@ -498,11 +498,12 @@ export async function sfuRequest(cid, uid, op, d) {
   switch (op) {
     case 'transport': {
       if ([...peer.transports.values()].filter(t => t.appData?.dir).length >= 2) throw new Error('transportes demais');
-      const t = await r.router.createWebRtcTransport({ webRtcServer: r.w.webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, initialAvailableOutgoingBitrate: 8_000_000, appData: { dir: d.dir === 'send' ? 'send' : 'recv' } });
+      // SCTP ligado: os comandos do jogar junto/controle remoto vão pelo mesmo caminho da mídia (DataChannel, produce_data)
+      const t = await r.router.createWebRtcTransport({ webRtcServer: r.w.webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, initialAvailableOutgoingBitrate: 8_000_000, enableSctp: true, numSctpStreams: { OS: 16, MIS: 16 }, maxSctpMessageSize: 16384, appData: { dir: d.dir === 'send' ? 'send' : 'recv' } });
       if (t.appData.dir === 'recv' && MIN_OUT_KBPS > 0) { await t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { }); t.appData.floorOn = true; }
       t.observer.on('close', () => clearTimeout(t.appData.floorTimer));
       peer.transports.set(t.id, t);
-      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters };
+      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
     }
     case 'connect': await transport().connect({ dtlsParameters: d.dtlsParameters }); return {};
     // conexão de mídia caiu (troca de Wi-Fi, 4G, oscilação): credenciais ICE novas para o app reconectar sem refazer tudo
@@ -513,6 +514,27 @@ export async function sfuRequest(cid, uid, op, d) {
       const p = await t.produce({ kind: d.kind, rtpParameters: d.rtpParameters, appData: { source } });
       registerProducer(r, peer, source, p);
       return { id: p.id };
+    }
+    // Comandos do jogar junto pelo caminho da mídia (UDP direto), em vez do gateway (que passa pela Cloudflare duas vezes:
+    // quem joga -> servidor -> quem transmite). Cada pessoa tem no máximo um canal de comandos ('input'); quem transmite
+    // escolhe de quem recebe (consume_data com o uid de quem joga) e confere cada evento no próprio app (public/remote.js),
+    // como o servidor faz no REMOTE_INPUT. O servidor só repassa: o canal não alcança ninguém que não pediu.
+    case 'produce_data': {
+      const t = transport(); if (t.appData.dir !== 'send') throw new Error('transporte inválido');
+      peer.dataProducer?.close();
+      const dp = await t.produceData({ sctpStreamParameters: d.sctpStreamParameters, label: 'input', protocol: '', appData: { input: true } });
+      peer.dataProducer = dp; dp.observer.on('close', () => { if (peer.dataProducer === dp) peer.dataProducer = null; });
+      return { id: dp.id };
+    }
+    case 'consume_data': {
+      const t = transport(), from = r.peers.get(String(d.from)), dp = from?.dataProducer;
+      if (t.appData.dir !== 'recv' || from === peer) throw new Error('transporte inválido');
+      if (!dp || dp.closed) return { none: true };
+      for (const c of t.appData.dataCons || []) if (c.appData.from === from.uid && !c.closed) c.close(); // um por pessoa
+      if ((t.appData.dataCons?.size || 0) >= 8) throw new Error('canais demais');
+      const c = await t.consumeData({ dataProducerId: dp.id, appData: { from: from.uid } });
+      (t.appData.dataCons ||= new Set()).add(c); c.observer.on('close', () => t.appData.dataCons?.delete(c));
+      return { id: c.id, dataProducerId: dp.id, sctpStreamParameters: c.sctpStreamParameters, label: c.label, protocol: c.protocol };
     }
     case 'close_producer': { const p = peer.producers.get(String(d.source)); p?.close(); return {}; }
     // vídeo da transmissão pausado por quem transmite (o jogo saiu do monitor capturado, ver voice.js applyOver): os

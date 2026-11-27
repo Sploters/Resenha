@@ -12,7 +12,7 @@ import { clipKeys, saveClip, clipSecs } from './clips.js';
 import { playSound } from './sounds.js';
 
 export const AUTO_MAX = 3, AUTO_GAP_MS = 90e3, AUTO_AFTER_MS = 5000;
-export const autoClipsOn = () => S.prefs.autoClips !== false && S.prefs.clipsOn !== false;
+export const autoClipsOn = () => S.prefs.autoClips === true && S.prefs.clipsOn !== false; // desligado por padrão (só liga à mão)
 export const setAutoClips = (v) => { S.prefs.autoClips = !!v; savePrefs(); };
 
 let run = null; // { key, ctx, det, nodes: Map<id, {node, src, sink, stream}>, count, lastAt, pend }

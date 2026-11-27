@@ -1487,3 +1487,13 @@ body:has(.menu.callopts) #vcall #stage > .bar.bar { opacity: 1; transform: none;
 .pt-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; } .pt-acts .btn { display: inline-flex; align-items: center; gap: 6px; }
 .pt-acts .btn[disabled] { opacity: .5; cursor: not-allowed; }
 @media (max-width: 640px) { .pt-btn span { display: none; } .pt-btn { padding: 0 8px; } }
+/* atalho de cada som: chip embaixo do pad (Configurações → Soundboard) e diálogo que já abre esperando a tecla */
+.sbp-keyrow { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 4px; }
+.sbp-key { max-width: 100%; padding: 2px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-muted); font: 600 11px var(--font-code, monospace); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sbp-key:hover { background: var(--bg-mod-hover); color: var(--text); } .sbp-key.on { background: var(--bg-mod-sel); color: var(--header); }
+.sbp-key.capturing { outline: 0; background: color-mix(in srgb, var(--brand) 25%, var(--bg-tert)); color: var(--header); }
+.sbp-keyrm { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text-muted); cursor: pointer; } .sbp-keyrm:hover { color: var(--red); } .sbp-keyrm .icon { fill: currentColor; }
+.sbkey-dlg { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.sbkey-cap { min-height: 48px; font: 600 15px var(--font-code, monospace); }
+.sbkey-cap.capturing { outline: 0; background: color-mix(in srgb, var(--brand) 25%, var(--bg-tert)); }
+.sbkey-info { font-size: 13px; color: var(--text-muted); }

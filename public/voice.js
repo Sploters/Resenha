@@ -613,6 +613,9 @@ export class Voice {
       if (dir === 'recv' && this.e2ee) t.handler?._pc?.addEventListener('track', (e) => this.e2eeAttach(e.receiver, 'dec'));
       if (dir === 'send') t.on('produce', ({ kind, rtpParameters, appData }, ok, fail) =>
         this.sfuReq('produce', { transport_id: t.id, kind, rtpParameters, source: appData.source }).then(ok, fail));
+      // canal dos comandos do jogar junto (public/remote.js), pelo mesmo caminho da mídia
+      if (dir === 'send') t.on('producedata', ({ sctpStreamParameters }, ok, fail) =>
+        this.sfuReq('produce_data', { transport_id: t.id, sctpStreamParameters }).then(ok, fail));
       return t;
     };
     // os dois canais (envio e recebimento) e a lista do que já está no ar: pedidos ao mesmo tempo (antes, um por vez)

@@ -46,7 +46,10 @@ try {
   ok(await pa.evaluate(() => window.__lc.S.prefs.clipsOn === undefined && window.__lc.S.prefs.autoClips === undefined), 'preferências no padrão (clipes da própria transmissão não ligados à mão)');
   ok(!(await dbg(pa)), 'sem transmitir: clipes automáticos parados');
   await pa.evaluate(() => window.__lc.voice.toggleScreen({ res: 720, fps: 30, audio: true })); await sleep(2500);
-  const keys = await pa.evaluate(async () => (await window.__lc.import('clips.js')).clipKeys());
+  const keys0 = await pa.evaluate(async () => (await window.__lc.import('clips.js')).clipKeys());
+  ok(!(await dbg(pa)) && !keys0.includes('s:' + A.id), 'padrão: clipes automáticos desligados (transmitindo, nada grava a própria transmissão)', keys0);
+  await pa.evaluate(() => { window.__lc.S.prefs.autoClips = true; document.dispatchEvent(new Event('voice-rerender')); }); await sleep(1500);
+  const keys =await pa.evaluate(async () => (await window.__lc.import('clips.js')).clipKeys());
   ok(keys.includes('s:' + A.id), 'transmitindo: a própria transmissão passa a gravar em segundo plano (por causa dos automáticos)', keys);
   await sleep(2500);
   const d1 = await dbg(pa);

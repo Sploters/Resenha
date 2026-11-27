@@ -5,7 +5,7 @@ import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHOD
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
-import { soundSources, addSound, editSound, playLocal, soundVol, findSound, numpadSlots, slotPicks, setSlot, setSoundKey, NUMPAD_SLOTS } from './soundboard.js';
+import { soundSources, addSound, editSound, playLocal, soundVol, findSound, numpadSlots, slotPicks, setSlot, NUMPAD_SLOTS, assignKey, keyOfSound } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
@@ -843,6 +843,13 @@ function soundsPage() {
 }
 
 // ============================ Soundboard (gerenciar) ============================
+// atalho direto no som: clicar e apertar a tecla (× remove). Mostra também o Alt + NumPad automático, se houver.
+function sbKeyChip(s) {
+  const own = (S.prefs.sbKeys || {})[s.id], pad = !own && keyOfSound(s.id, null);
+  const btn = captureKey(h('button.sbp-key' + (own ? '.on' : ''), { type: 'button', title: own ? 'Trocar o atalho' : 'Definir atalho: clique e aperte a tecla' }), own || '', (c) => assignKey(s, c),
+    { combo: true, empty: pad ? comboLabel(pad).replace('Alt + NumPad ', 'Alt+Num ') : '+ Atalho', placeholder: 'Aperte…' });
+  return h('div.sbp-keyrow', btn, own && h('button.sbp-keyrm', { type: 'button', title: 'Remover atalho', 'aria-label': 'Remover atalho de ' + s.name, onclick: () => assignKey(s, '') }, icon('x', 12)));
+}
 function soundboardPage() {
   const box = h('div');
   const draw = () => {
@@ -855,7 +862,8 @@ function soundboardPage() {
       const pads = src.sounds.length ? h('div.sbp-grid' + (src.off ? '.off' : ''), src.sounds.map(s => h('div.sbp-pad',
         h('button.sbp-play', { type: 'button', title: 'Ouvir ' + s.name, onclick: (e) => { playLocal(s.url, soundVol(s)); const b = e.currentTarget; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); } },
           h('span.sbp-e', soundEmoji(s.emoji)), h('span.sbp-n', s.name), h('small.sbp-v', icon('vol', 12), soundVol(s) + '%')),
-        canEdit && h('button.sbp-edit', { type: 'button', title: 'Editar ' + s.name, 'aria-label': 'Editar ' + s.name, onclick: () => editSound(src, s) }, icon('edit', 14)))),
+        canEdit && h('button.sbp-edit', { type: 'button', title: 'Editar ' + s.name, 'aria-label': 'Editar ' + s.name, onclick: () => editSound(src, s) }, icon('edit', 14)),
+        sbKeyChip(s))),
         canEdit && src.own && h('button.sbp-pad.sbp-add', { type: 'button', onclick: () => addSound(null) }, icon('plus', 26), h('span', 'Novo som')))
         : h('div.sbp-empty', icon('soundboard', 28), h('span', src.own ? 'Você ainda não tem sons. Adicione um curtinho (até 15 s; dá para cortar um áudio maior aqui).' : 'Nenhum som neste servidor ainda.'), src.own && h('button.btn', { onclick: () => addSound(null) }, '+ Novo som'));
       return card(head, pads);
@@ -866,7 +874,7 @@ function soundboardPage() {
   return h('div', h('h2', 'Soundboard'),
     card(toggleCards([{ on: !!S.prefs.sbMuted, label: 'Silenciar sons do soundboard', sub: 'Você deixa de ouvir os sons que os outros tocam', prev: h('span.snd-hero', icon('soundboard', 30), h('i.sh-x')), fn: v => { S.prefs.sbMuted = v; save(); } }]),
       h('label.f', { style: { marginTop: '12px' } }, 'Volume dos sons que você ouve', slider(0, 100, S.prefs.sbVolume ?? 70, 5, v => { S.prefs.sbVolume = v; save(); }, v => v + '%'))),
-    hint(['Abra o soundboard rapidamente pelo botão ', icon('soundboard', 14), ' da barra do usuário ou da chamada. Clique direito num som: favoritar, atalho, prévia.']), box);
+    hint(['Abra o soundboard rapidamente pelo botão ', icon('soundboard', 14), ' da barra do usuário ou da chamada. Clique direito num som: favoritar, atalho, prévia. O botão de atalho embaixo de cada som aqui define a tecla dele.']), box);
 }
 
 // ============================ Notificações ============================
@@ -969,7 +977,7 @@ function clipsPage(reg) {
         row('Gravar clipes', 'Com os clipes automáticos ligados (abaixo), a sua transmissão também grava, mesmo em "Transmissões dos outros". No app desktop, transmitindo a 60 ou 120 FPS pela placa de vídeo, o clipe da sua transmissão reaproveita o vídeo já comprimido para ela e quase não pesa. Nos outros casos (navegador, 30 FPS, PC sem codificador na placa) ele codifica o jogo de novo: em PCs mais fracos pode custar FPS; deixe só nas dos outros ou ligue o Modo leve.',
           seg({ off: 'Desligado', others: 'Transmissões dos outros', all: 'Todas, inclusive a minha' }, mode, (v) => { S.prefs.clipsOn = v === 'all' ? true : v === 'off' ? false : undefined; if (v === 'others') delete S.prefs.clipsOn; save(); restart(); draw(); })),
         row('Clipes automáticos', 'Transmitindo o seu jogo na call, quando a call explode (risada, grito, todo mundo junto) o lance é salvo sozinho, como se você tivesse apertado o atalho. No máximo 3 por transmissão, sempre neste aparelho (nunca posta sozinho). A análise das vozes é só do volume, feita aqui; nada vai para o servidor. Para funcionar, a sua transmissão também passa a ser gravada em segundo plano.',
-          toggle(S.prefs.autoClips !== false && S.prefs.clipsOn !== false, (v) => { S.prefs.autoClips = v; if (v && S.prefs.clipsOn === false) delete S.prefs.clipsOn; save(); restart(); draw(); })),
+          toggle(S.prefs.autoClips === true && S.prefs.clipsOn !== false, (v) => { S.prefs.autoClips = v; if (v && S.prefs.clipsOn === false) delete S.prefs.clipsOn; save(); restart(); draw(); })),
         row('Permitir que minha voz entre em clipes', 'Desligado, a sua voz fica fora dos clipes de todo mundo na call (inclusive os seus e os automáticos) e não conta para disparar um clipe automático. Quem está gravando clipes aparece com o ícone de clipe ao lado do nome na sala de voz.',
           toggle(!S.prefs.clipVoiceOff, (v) => { S.prefs.clipVoiceOff = !v; save(); window.__lc?.voice?.sendState?.(); restart(); })),
         row('Atalho do clipe', desktop ? 'Funciona com o jogo em foco (com "Atalhos globais" ligado no app desktop). Mostra um aviso no canto da tela, fora da transmissão, e toca um som.' : 'Com a aba em foco. No app desktop funciona também com o jogo em foco.', keyBtn()),
@@ -1059,22 +1067,20 @@ function keysPage() {
   };
   const customSbRows = () => Object.entries(S.prefs.sbKeys || {}).filter(([id, c]) => c && findSound(id)).map(([id, c]) => {
     const x = findSound(id);
-    const btn = captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), c, (nc) => { setSoundKey(id, nc); draw(); }, { combo: true });
+    const btn = captureKey(h('button.btn.grey', { style: { minWidth: '190px' } }), c, (nc) => { assignKey(x, nc); draw(); }, { combo: true });
     return row(`${x.emoji ? x.emoji + ' ' : ''}${x.name}`, null, h('div.keyctl', btn,
       h('button.ibtn', { type: 'button', title: 'Ouvir', 'aria-label': 'Ouvir ' + x.name, onclick: () => playLocal(x.url, soundVol(x)) }, icon('vol', 16)),
-      h('button.ibtn.key-rm', { type: 'button', title: 'Remover atalho', 'aria-label': 'Remover atalho', onclick: () => { setSoundKey(id, ''); draw(); toast('Atalho removido'); } }, icon('x', 16))));
+      h('button.ibtn.key-rm', { type: 'button', title: 'Remover atalho', 'aria-label': 'Remover atalho', onclick: () => { assignKey(x, ''); draw(); } }, icon('x', 16))));
   });
   const addSbRow = () => {
     const used = new Set(Object.entries(S.prefs.sbKeys || {}).filter(([, c]) => c).map(([id]) => id));
     const opts = soundOpts(null, used);
     if (!opts.some(g => g.children.length)) return row('Adicionar atalho', 'Nenhum som disponível. Adicione sons no Soundboard.', null);
-    const sel = h('select.sbk-sel', { 'aria-label': 'Som para o novo atalho' }, h('option', { value: '' }, 'Escolha um som…'), ...opts);
-    const btn = captureKey(h('button.btn', { style: { minWidth: '160px' } }), '', (c) => {
-      if (!sel.value) { toast('Escolha o som primeiro', true); draw(); return; }
-      const taken = KEY_ROWS.find(k => hotkey(k) === c);
-      setSoundKey(sel.value, c); draw(); toast(taken ? `Atalho definido (atenção: ${comboLabel(c)} também é um atalho do app)` : 'Atalho definido');
-    }, { combo: true, empty: 'Escolher tecla' });
-    return row('Adicionar atalho', 'Escolha o som e depois a tecla.', h('div.keyctl', sel, btn));
+    // escolheu o som: já fica esperando a tecla (sem precisar de um segundo clique)
+    const btn = captureKey(h('button.btn', { style: { minWidth: '160px' }, disabled: true }), '', (c) => { const s = findSound(sel.value); if (s) assignKey(s, c); draw(); },
+      { combo: true, empty: 'Escolher tecla', placeholder: 'Aperte a tecla…' });
+    const sel = h('select.sbk-sel', { 'aria-label': 'Som para o novo atalho', onchange: () => { btn.disabled = !sel.value; if (sel.value) btn.click(); } }, h('option', { value: '' }, 'Escolha um som…'), ...opts);
+    return row('Adicionar atalho', 'Escolha o som e aperte a tecla.', h('div.keyctl', sel, btn));
   };
   draw();
   return root;

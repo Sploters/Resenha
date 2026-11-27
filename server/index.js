@@ -976,7 +976,7 @@ function pushDevices(uid) {
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
   TYPING: [1, 4], VOICE_JOIN: [2, 10], VOICE_WHISPER: [4, 12], VOICE_HAND: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10], RPG: [6, 20],
-  REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], PING: [5, 10], WATCH: [12, 40],
+  REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], REMOTE_DC: [4, 12], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];
 // tipos em que só importa o último valor: passando do limite, o último pedido é guardado e aplicado depois (o estado
@@ -1311,9 +1311,9 @@ wss.on('connection', (ws) => {
           if (!!prev.length !== !!to.length) dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, uid, st), guild_id: ch.guild_id });
           break;
         }
-        case 'REMOTE_REQUEST': case 'REMOTE_ANSWER': case 'REMOTE_INPUT': case 'REMOTE_STOP': case 'REMOTE_PERMS': case 'REMOTE_INVITE': case 'REMOTE_JOIN': case 'REMOTE_PING': case 'REMOTE_PONG': {
+        case 'REMOTE_REQUEST': case 'REMOTE_ANSWER': case 'REMOTE_INPUT': case 'REMOTE_STOP': case 'REMOTE_PERMS': case 'REMOTE_INVITE': case 'REMOTE_JOIN': case 'REMOTE_PING': case 'REMOTE_PONG': case 'REMOTE_DC': {
           const c = currentVoice(uid);
-          if (msg.t !== 'REMOTE_STOP' && (!c || voice.get(c).get(uid).ws !== ws)) { if (!['REMOTE_INPUT', 'REMOTE_PING', 'REMOTE_PONG'].includes(msg.t)) send(ws, 'REMOTE_ERROR', { error: 'Entre na sala de voz neste aparelho' }); break; }
+          if (msg.t !== 'REMOTE_STOP' && (!c || voice.get(c).get(uid).ws !== ws)) { if (!['REMOTE_INPUT', 'REMOTE_PING', 'REMOTE_PONG', 'REMOTE_DC'].includes(msg.t)) send(ws, 'REMOTE_ERROR', { error: 'Entre na sala de voz neste aparelho' }); break; }
           const perms = { mouse: d.mouse === true, keyboard: d.keyboard === true, gamepad: d.gamepad === true };
           const r = msg.t === 'REMOTE_REQUEST' ? remote.request(uid, String(d.to || ''), d.kind === 'pad' || d.kind === 'play' ? d.kind : 'control')
             : msg.t === 'REMOTE_ANSWER' ? remote.answer(uid, d.id, { accept: d.accept === true, ...perms, capable: d.capable !== false, rel: d.rel === true })
@@ -1321,6 +1321,7 @@ wss.on('connection', (ws) => {
             : msg.t === 'REMOTE_PERMS' ? remote.setPerms(uid, d.id, perms)
             : msg.t === 'REMOTE_INVITE' ? remote.invite(uid, String(d.to || ''), { ...perms, rel: d.rel === true })
             : msg.t === 'REMOTE_JOIN' ? remote.joinInvite(uid, d.id, d.accept === true)
+            : msg.t === 'REMOTE_DC' ? remote.dc(uid, d.id, d)
             : msg.t === 'REMOTE_PING' || msg.t === 'REMOTE_PONG' ? remote.echo(uid, d.id, msg.t === 'REMOTE_PONG' ? 'pong' : 'ping', d)
             : remote.stop(uid, d.id, d.reason === 'panic' ? 'panic' : 'stopped');
           if (r.error) send(ws, 'REMOTE_ERROR', { error: r.error });
