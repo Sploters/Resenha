@@ -5,7 +5,7 @@ import { createMic, newAudioContext, NOISE_MODES, VOICE_BITRATES, CAPTURE_METHOD
 import { profileCard } from './card.js';
 import { seg, toggle, row, section, factChips, slider, qualityPanel, captureKey, comboLabel, hotkey, KEY_DEFAULTS, desktopHotkeys, infoTip, choiceCards, vrow, toggleCards, NOISE_INFO, noisePrev } from './ui.js';
 import { playSound, SOUND_DEFS, soundCfg, SOUND_GROUP_VOL } from './sounds.js';
-import { soundSources, addSound, editSound, playLocal, soundVol, findSound, numpadSlots, slotPicks, setSlot, NUMPAD_SLOTS, assignKey, keyOfSound } from './soundboard.js';
+import { soundSources, addSound, editSound, playLocal, soundVol, findSound, slotPicks, setSlot, NUMPAD_SLOTS, assignKey, keyOfSound } from './soundboard.js';
 import { applyOutput, FOCUS_TIMES, focusUntilOf, focusLabel } from './quick.js';
 import { timeoutDialog, removeTimeout, banDialog, timedOutUntil, bansPage, auditPage, repPage } from './mod.js';
 import { LANGS, myLang } from './translate.js';
@@ -1046,7 +1046,7 @@ function keysPage() {
         hint('O botão ↺ ao lado de um atalho volta só ele ao padrão; o × deixa ele sem tecla.')),
       section('Fixos'), card(...rows.map(([k, d]) => row(d, null, h('kbd', k)))),
       section('Soundboard'),
-      card(row('Alt + teclado numérico 1–9', (desktop ? 'Funciona com o jogo em foco enquanto você está numa chamada. ' : 'Com o app em foco. ') + 'Escolha o som de cada tecla abaixo; as em "Automático" pegam os primeiros sons: favoritos, depois os seus, depois os do servidor da chamada. O Num Lock precisa estar ligado.', toggle(S.prefs.sbNumpad !== false, (v) => { S.prefs.sbNumpad = v; save(); document.dispatchEvent(new Event('sb-changed')); draw(); }))),
+      card(row('Alt + teclado numérico 1–9', (desktop ? 'Funciona com o jogo em foco enquanto você está numa chamada. ' : 'Com o app em foco. ') + 'Escolha o som de cada tecla abaixo (nenhuma vem preenchida). O Num Lock precisa estar ligado.', toggle(S.prefs.sbNumpad !== false, (v) => { S.prefs.sbNumpad = v; save(); document.dispatchEvent(new Event('sb-changed')); draw(); }))),
       S.prefs.sbNumpad !== false && card(h('div.sbk-slots', numpadRows())),
       section('Outros atalhos do soundboard'),
       card(...customSbRows(), addSbRow()),
@@ -1056,12 +1056,11 @@ function keysPage() {
   const soundOpts = (selected, skip = new Set()) => soundSources().filter(src => src.sounds.length).map(src => h('optgroup', { label: src.title },
     src.sounds.filter(x => !skip.has(x.id) || x.id === selected).map(x => h('option', { value: x.id, selected: x.id === selected }, `${x.emoji ? x.emoji + ' ' : ''}${x.name}`))));
   const numpadRows = () => {
-    const picks = slotPicks(), cur = numpadSlots(S.view?.gid || null);
+    const picks = slotPicks();
     return Array.from({ length: NUMPAD_SLOTS }, (_, i) => {
-      const auto = cur[i]?.auto ? cur[i].sound : null, p = picks[i];
-      const sel = h('select.sbk-sel', { 'aria-label': `Som do Alt + Num ${i + 1}`, onchange: () => { setSlot(i, sel.value === '*' ? null : sel.value); draw(); } },
-        h('option', { value: '*', selected: p === null }, auto ? `Automático (agora: ${auto.name})` : 'Automático'),
-        h('option', { value: '', selected: p === '' }, 'Nenhum'),
+      const p = picks[i];
+      const sel = h('select.sbk-sel', { 'aria-label': `Som do Alt + Num ${i + 1}`, onchange: () => { setSlot(i, sel.value || null); draw(); } },
+        h('option', { value: '', selected: !p }, 'Nenhum'),
         ...soundOpts(p || null));
       return row(h('span', h('kbd', 'Alt'), ' + ', h('kbd', `Num ${i + 1}`)), null, sel);
     });

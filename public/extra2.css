@@ -69,18 +69,15 @@
 .sbsec-h b { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbsec-h:hover { color: var(--header); }
 .sbrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.sbsnd { position: relative; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; background: var(--bg-tert); cursor: pointer; transition: transform .08s, background .12s; }
+.sbsnd { position: relative; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 6px; border-radius: 8px; background: var(--bg-tert); cursor: pointer; transition: transform .08s, background .12s; }
 .sbsnd:hover { background: var(--bg-mod-hover, #35373c); } .sbsnd:active { transform: scale(.97); }
-.sbsnd .e { font-size: 18px; line-height: 1; flex: none; color: var(--text-muted); display: flex; }
-.sbt { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
-.sbsnd .n { max-width: 100%; font-size: 12.5px; font-weight: 600; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sbkey { max-width: 100%; height: 17px; padding: 0 5px; border: 0; border-radius: 4px; background: var(--bg-mod-sel, rgba(127,127,127,.18)); color: var(--text-muted); font: 600 10px var(--font-code, monospace); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.sbkey:hover { color: var(--header); background: color-mix(in srgb, var(--brand) 30%, var(--bg-tert)); }
-.sbkey.add { background: none; color: var(--text-muted); opacity: 0; padding: 0; } .sbsnd:hover .sbkey.add, .sbkey.add:focus-visible { opacity: 1; } .sbkey.add:hover { color: var(--brand); background: none; }
-.sbacts { flex: none; display: flex; flex-direction: column; gap: 2px; opacity: 0; transition: opacity .12s; } .sbsnd:hover .sbacts, .sbacts:focus-within { opacity: 1; }
-.sbacts button { width: 20px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; display: flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: pointer; }
-.sbacts button:hover { color: var(--header); background: var(--bg-mod-sel, rgba(127,127,127,.18)); } .sbacts button.on { color: var(--yellow, #f0b232); }
-.sbacts .icon { fill: currentColor; }
+.sbsnd .e { font-size: 18px; line-height: 1; flex: none; display: flex; color: var(--text-muted); }
+.sbsnd .n { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--header); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* emoji que vira prévia ao passar o mouse; estrela só ao passar o mouse */
+.sbpv { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--header); }
+.sbpv .pv { display: none; } .sbsnd:hover .sbpv .e { display: none; } .sbsnd:hover .sbpv .pv { display: flex; } .sbpv:hover { background: var(--bg-mod-sel, rgba(127,127,127,.18)); } .sbpv .icon { fill: currentColor; }
+.sbfav { flex: none; width: 0; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--text-muted); cursor: pointer; transition: width .12s; }
+.sbsnd:hover .sbfav, .sbfav:focus-visible { width: 22px; } .sbfav:hover { color: var(--header); background: var(--bg-mod-sel, rgba(127,127,127,.18)); } .sbfav.on { color: var(--yellow, #f0b232); } .sbfav .icon { fill: currentColor; }
 .sbadd { justify-content: center; gap: 4px; background: none; border: 1px dashed var(--divider-strong, rgba(255,255,255,.2)); color: var(--text-muted); } .sbadd .n { flex: none; color: inherit; }
 .sbadd:hover { color: var(--header); border-color: var(--text-muted); }
 .sbnote { font-size: 13px; color: var(--text-muted); padding: 4px 0 8px; } .sbnote.big { text-align: center; padding: 40px 8px; }

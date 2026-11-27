@@ -61,24 +61,15 @@ export function trigger(sound, voice, { preview = false } = {}) {
 }
 // Atalhos: os que a pessoa definiu em cada som (clique direito → "Definir atalho" ou Configurações → Atalhos) + Alt +
 // teclado numérico 1–9. Cada posição do teclado numérico pode ter um som escolhido (S.prefs.sbSlots[i] = id), ficar
-// vazia ('') ou automática (null: os primeiros sons na ordem favoritos, meus sons, sons do servidor da chamada — os que
-// já têm atalho próprio ou já estão numa posição ficam de fora). No app desktop valem com o jogo em foco enquanto você
+// vazia. Nada é preenchido sozinho: só vale o que a pessoa escolheu (antes as posições vazias pegavam os primeiros sons
+// automaticamente, e apareciam atalhos que ninguém tinha definido). No app desktop valem com o jogo em foco enquanto você
 // está numa chamada (syncSoundKeys).
 export const NUMPAD_SLOTS = 9;
 export const slotPicks = () => { const a = Array.isArray(S.prefs.sbSlots) ? S.prefs.sbSlots : []; return Array.from({ length: NUMPAD_SLOTS }, (_, i) => (typeof a[i] === 'string' ? a[i] : null)); };
 // lista de 9 posições (som ou null); `auto` diz se a posição foi preenchida automaticamente
 export function numpadSlots(gid = null) {
   if (S.prefs.sbNumpad === false) return [];
-  const own = S.prefs.sbKeys || {}, picks = slotPicks(), seen = new Set(picks.filter(Boolean));
-  const g = gid && S.guilds.get(gid);
-  const pool = [...favs().map(findSound), ...mySounds(), ...(g && !(S.prefs.sbOffGuilds || {})[g.id] ? g.sounds || [] : [])];
-  let k = 0;
-  return picks.map((id) => {
-    if (id) { const x = findSound(id); return x ? { sound: x, auto: false } : null; }
-    if (id === '') return null;
-    while (k < pool.length) { const x = pool[k++]; if (!x || seen.has(x.id) || own[x.id]) continue; seen.add(x.id); return { sound: x, auto: true }; }
-    return null;
-  });
+  return slotPicks().map((id) => { const x = id && findSound(id); return x ? { sound: x, auto: false } : null; });
 }
 export const numpadSounds = (gid = null) => numpadSlots(gid).filter(Boolean).map(x => x.sound);
 // combinação -> id do som (os atalhos próprios ganham de um padrão com a mesma tecla)
@@ -111,8 +102,10 @@ export function sbOpenKeyDialog() {
     toast(clash ? `${comboLabel(c)} abre o soundboard (atenção: também é usado por ${APP_KEYS[clash[0]] ? `"${APP_KEYS[clash[0]]}"` : `o som "${findSound(clash[0])?.name || '?'}"`})` : `${comboLabel(c)} abre o soundboard`, !!clash);
   }, { empty: 'Clique e aperte as teclas', placeholder: 'Aperte a tecla ou combinação… (Esc cancela)' });
   paint();
-  modal('Atalho do soundboard', 'Abre e fecha o soundboard sem tirar a mão do teclado. Ex.: Ctrl + Shift + B, F4.', h('div.sbkey-dlg', btn, info),
+  const pop = document.querySelector('.popout.sb-pop:not(.leaving)'); pop?.classList.add('pinned');
+  const dlg = modal('Atalho do soundboard', 'Abre e fecha o soundboard sem tirar a mão do teclado. Ex.: Ctrl + Shift + B, F4.', h('div.sbkey-dlg', btn, info),
     [{ label: 'Remover atalho', cls: 'grey', keep: true, fn: () => { S.prefs.keySb = ''; savePrefs(); btn.textContent = 'Clique e aperte as teclas'; paint(); } }, { label: 'Concluir' }]);
+  dlg.el.style.zIndex = '98'; if (pop) whenGone(dlg.el, () => pop.classList.remove('pinned'));
   setTimeout(() => btn.click(), 50);
 }
 export function keyConflict(id, combo) {
@@ -245,18 +238,21 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
         return (src.sounds.length || add) && { key: src.key, title: src.title, ic: () => src.own ? avatar(S.me, 18, { status: false }) : guildIcon(src.guild), items: src.sounds.map(s => ({ src, s })), add: add && (() => addSound(src.own ? null : src.guild.id)) };
       })].filter(Boolean);
   };
+  // como no Discord: o som é só emoji + nome. Passando o mouse, o emoji vira a prévia (só você ouve) e aparece a estrela.
+  // O atalho fica fora do botão: na dica (title) e no clique direito, onde também se define/remove
   const tile = ({ src, s }) => {
     const fav = favs().includes(s.id), key = keyOfSound(s.id, voice);
-    return h('div.sbsnd', { title: s.name + (key ? ` — atalho: ${comboLabel(key)}` : ''), onclick: () => trigger(s, voice),
-      oncontextmenu: (e) => menu(e, [{ label: 'Tocar só para mim (prévia)', fn: () => trigger(s, voice, { preview: true }) }, { label: fav ? 'Remover dos favoritos' : 'Favoritar', fn: () => { toggleFav(s.id); draw(); } },
-        { label: 'Definir atalho…', fn: () => keyDialog(s) }, (src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD))) && { label: 'Editar / excluir…', fn: () => { closeFloating(); editSound(src, s); } }]) },
-      h('span.e', soundEmoji(s.emoji)),
-      // nome inteiro em cima; embaixo o atalho (clicar troca). Prévia e favoritar à direita, sem cobrir o nome
-      h('div.sbt', h('span.n', s.name),
-        h('button.sbkey' + (key ? '' : '.add'), { type: 'button', title: key ? `Atalho: ${comboLabel(key)} (clique para trocar)` : 'Definir atalho', onclick: (e) => { e.stopPropagation(); keyDialog(s); } },
-          key ? comboLabel(key).replace('Alt + NumPad ', 'Alt+Num ') : '+ atalho')),
-      h('div.sbacts', h('button', { type: 'button', title: 'Prévia (só você ouve)', 'aria-label': 'Prévia', onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } }, icon('voice', 15)),
-        h('button' + (fav ? '.on' : ''), { type: 'button', title: fav ? 'Remover dos favoritos' : 'Favoritar', 'aria-label': 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 15))));
+    const canEdit = src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD));
+    return h('div.sbsnd', { title: s.name + (key ? ` · atalho: ${comboLabel(key)}` : ''), onclick: () => trigger(s, voice),
+      oncontextmenu: (e) => menu(e, [{ label: 'Tocar só para mim (prévia)', icon: 'voice', keepFloat: true, fn: () => trigger(s, voice, { preview: true }) },
+        { label: fav ? 'Remover dos favoritos' : 'Favoritar', icon: 'star', keepFloat: true, fn: () => { toggleFav(s.id); draw(); } }, '-',
+        { label: key ? 'Trocar atalho…' : 'Definir atalho…', icon: 'keyboard', hint: key ? comboLabel(key) : null, keepFloat: true, fn: () => keyDialog(s) },
+        key && { label: 'Remover atalho', keepFloat: true, fn: () => assignKey(s, '') },
+        canEdit && '-', canEdit && { label: 'Editar / excluir…', icon: 'edit', fn: () => { closeFloating(); editSound(src, s); } }].filter(Boolean), { keepFloat: true }) },
+      h('button.sbpv', { type: 'button', title: 'Prévia (só você ouve)', 'aria-label': 'Prévia de ' + s.name, onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } },
+        h('span.e', soundEmoji(s.emoji)), h('span.pv', icon('voice', 16))),
+      h('span.n', s.name),
+      h('button.sbfav' + (fav ? '.on' : ''), { type: 'button', title: fav ? 'Remover dos favoritos' : 'Favoritar', 'aria-label': 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 14)));
   };
   const draw = () => {
     const secs = sections(), top = list.scrollTop;
@@ -343,6 +339,7 @@ function keyDialog(s) {
   const pop = document.querySelector('.popout.sb-pop:not(.leaving)'); pop?.classList.add('pinned'); // Esc e cliques na janela não fecham o soundboard atrás
   const dlg = modal(`Atalho: ${s.name}`, desk ? 'Funciona também com o jogo em foco, enquanto você está numa chamada. Use Ctrl, Alt ou Shift + tecla para não atrapalhar o jogo.' : 'Funciona com o app em foco. Ex.: F6, Ctrl + 1, Shift + Q.',
     h('div.sbkey-dlg', btn, info), [{ label: 'Remover atalho', cls: 'grey', keep: true, fn: () => { assignKey(s, ''); btn.textContent = 'Clique e aperte as teclas'; paintInfo(); } }, { label: 'Concluir' }]);
+  dlg.el.style.zIndex = '98'; // acima do soundboard (os painéis flutuantes ficam acima das janelas comuns)
   if (pop) whenGone(dlg.el, () => pop.classList.remove('pinned'));
   setTimeout(() => btn.click(), 50);
 }

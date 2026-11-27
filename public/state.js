@@ -446,7 +446,7 @@ export function menu(e, items, opts = {}) {
     } else { row.onmouseenter = closeDeeper; row.onclick = () => {
         picked = true;
         if (i.ux) menuHooks.forEach(f => { try { f('pick', e, i.ux); } catch { } }); // telemetria: qual item (rótulo fixo, ex.: 'desenhar')
-        if (!cbx) { closeFloating(); i.fn?.(); return; }
+        if (!cbx) { if (i.keepFloat) layer().querySelectorAll('.menu:not(.leaving)').forEach(e => leave(e, 120)); else closeFloating(); i.fn?.(); return; } // keepFloat: fecha só o menu (o painel de onde ele saiu continua)
         i.checked = !i.checked; i.fn?.(); cbx.classList.toggle('on', i.checked); cbx.replaceChildren(...(i.checked ? [icon('check', 16)] : [])); // caixa de seleção: o menu fica aberto
       }; }
     return row;
