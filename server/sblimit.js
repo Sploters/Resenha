@@ -3,7 +3,7 @@
 // - Passou disso: espera de PENALTIES[0] (10 s). Os sons na espera são ignorados (não aumentam a espera).
 // - Estourou de novo até STRIKE_MEMORY_MS depois de liberado: a próxima espera é a seguinte da lista (20 s, 40 s, 60 s).
 // - Ficou STRIKE_MEMORY_MS sem estourar: volta tudo ao começo.
-export const BURST = 6, WINDOW_MS = 10e3, PENALTIES = [10e3, 20e3, 40e3, 60e3], STRIKE_MEMORY_MS = 120e3;
+export const BURST = 12, WINDOW_MS = 10e3, PENALTIES = [10e3, 20e3, 40e3, 60e3], STRIKE_MEMORY_MS = 120e3;
 
 export function createSbLimiter({ now = () => Date.now() } = {}) {
   const users = new Map(); // uid -> { times: [], until, strikes, freedAt }

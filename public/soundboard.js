@@ -43,7 +43,7 @@ export function onIncoming(msg, voice) {
     stage.append(el); setTimeout(() => el.remove(), 2600);
   }
 }
-// anti-spam (servidor: server/sblimit.js): até 6 sons em 10 s à vontade; passou disso, espera de 10 s, que cresce
+// anti-spam (servidor: server/sblimit.js): até 12 sons em 10 s à vontade; passou disso, espera de 10 s, que cresce
 // (20, 40, 60 s) para quem continua. O servidor avisa (SOUNDBOARD_LIMIT) e aqui o app segura os cliques até liberar.
 let sbUntil = 0;
 const sbWait = () => Math.ceil((sbUntil - Date.now()) / 1000);

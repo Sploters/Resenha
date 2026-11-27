@@ -248,7 +248,14 @@ function watchFromList(v) {
 }
 // quem está na sala de voz. Com "Separar por jogos" (clique direito na sala), em grupos: cada jogo com quem está jogando
 // (o mais jogado primeiro), depois quem só está conversando e, no fim, quem está "Em espera" (pausa na chamada)
+// Mesa de RPG aberta na sala: uma linha "bot" no fim da lista (não fala nada, só mostra que a turma está jogando)
+const rpgRow = () => h('div.vuser.vbot.vrpg', { title: 'Mesa de RPG aberta nesta sala' }, h('span.vrpg-av', icon('dice', 15)), h('span.nm', h('span.botnm', 'Mesa de RPG'), h('span.bottag', 'BOT')));
 export function vusersBlock(g, vs) {
+  const el = vusersList(g, vs);
+  if (vs.some(v => v.rpg)) el.append(rpgRow());
+  return el;
+}
+function vusersList(g, vs) {
   if (!S.prefs.voiceByGame || vs.length < 2) return h('div.vusers', vs.map(v => vuserRow(g, v)));
   const games = [], talk = [], hold = [];
   for (const v of vs) {
@@ -392,7 +399,7 @@ function vuserRow(g, v) {
   const row = h('div.vuser' + (v.hold ? '.hold' : '') + (drag ? '.vdraggable' : ''), { 'data-uid': v.user_id, oncontextmenu: (e) => userMenu(e, v.user_id, g.id), onclick: (e) => profile(e.currentTarget, v.user_id, g.id),
     ...(drag ? { draggable: true, title: 'Arraste para outra sala para mover', ondragstart: (e) => vDragStart(e, g, v), ondragend: vDragEnd } : {}) },
     (() => { const a = avatar(u, 24, { status: false }); if (voice?.speaking.has(v.user_id)) a.classList.add('speaking'); if (voice?.sbActive.has(v.user_id)) a.classList.add('sbplay'); a.dataset.uid = v.user_id; return a; })(),
-    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx)), handBadge(v), v.prio && h('span.vr-prio', { title: 'Falando com prioridade' }, icon('megaphone', 13)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', { title: v.screen_title ? 'Transmitindo ' + v.screen_title : 'Transmitindo' }, 'Ao vivo'), v.clips && h('span.vu-clip', { title: 'Gravando clipes: os últimos segundos da call (com as vozes) ficam no aparelho dessa pessoa. Para não entrar: Configurações → Clipes.' }, icon('clip', 14)), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
+    h('span.nm', nameOf(v.user_id, g.id), fxBadge(v.fx), v.rpg && h('span.vu-rpg', { title: 'Jogando na Mesa de RPG' }, icon('dice', 13))), handBadge(v), v.prio && h('span.vr-prio', { title: 'Falando com prioridade' }, icon('megaphone', 13)), voiceGameIcon(v.user_id), appBadge(v), v.screen && h('span.live', { title: v.screen_title ? 'Transmitindo ' + v.screen_title : 'Transmitindo' }, 'Ao vivo'), v.clips && h('span.vu-clip', { title: 'Gravando clipes: os últimos segundos da call (com as vozes) ficam no aparelho dessa pessoa. Para não entrar: Configurações → Clipes.' }, icon('clip', 14)), v.hold && h('span.vu-hold', { title: 'Em espera: volta já (não ouve nem fala até voltar)' }, 'Em espera'),
     h('span.ico', v.wt && h('span.vu-wt', { title: 'Assistindo no Watch Together' }, icon('tv', 14)), v.watching && h('span.vu-watch', { title: 'Assistindo a uma transmissão' }, icon('eye', 14)), v.video && icon('video', 14), muteIco(v), v.mod_deaf ? h('span.mico.lmute', { title: 'Ensurdecido pela moderação' }, icon('headoff', 14)) : v.deaf && icon('headoff', 14)));
   if (v.screen) { const mine = v.user_id === S.me.id; streamHover(row, { uid: v.user_id, mine, getStream: () => (mine ? voice.screen : voice.peers.get(v.user_id)?.streams.screen), onWatch: () => watchFromList(v) }); }
   return row;

@@ -145,7 +145,7 @@ try {
   await click(pb, '.rpg-sheet .rpg-prof'); await sleep(300);
   await click(pb, '.rpg-sheet .rpg-skill', /Acrobacia/); await sleep(600);
   const rs = await pa.evaluate(() => document.querySelector('.rpg-result')?.innerText || '');
-  ok(/Acrobacia/.test(rs) && /Inspiração/.test(rs) && /vantagem|20 natural|1 natural/.test(rs) && /PROF \+2/.test(rs), 'teste de perícia pela ficha: treinada (+2) e com a vantagem da inspiração', rs);
+  ok(/Acrobacia/.test(rs) && /Inspiração/.test(rs) && /vantagem|20 natural|1 natural|Crítico|Falha crítica/.test(rs) && /PROF \+2/.test(rs), 'teste de perícia pela ficha: treinada (+2) e com a vantagem da inspiração', rs);
   await pb.screenshot({ path: `${OUT}/07-ficha.png` });
   // inventário
   await click(pb, '.rpg-sheet .rpg-seg button', /Inventário/); await sleep(200);
@@ -200,8 +200,12 @@ try {
   // ---------- fechar: só o mestre; reabrir traz tudo ----------
   await pb.evaluate(() => window.__lc.voice.send('ROOM_ACT', { act: 'rpg', on: false })); await sleep(500);
   ok(await pb.$('#stage .rpgtile') !== null, 'jogador não fecha a mesa');
+  const side = (p) => p.evaluate(() => ({ bot: !!document.querySelector('#side .vrpg'), d20: document.querySelectorAll('#side .vuser .vu-rpg').length }));
+  { const s = await side(pb); ok(s.bot && s.d20 === 2, 'lista da sala: linha "Mesa de RPG" (bot) e d20 ao lado dos dois nomes', s); }
+  await pb.screenshot({ path: `${OUT}/10-lista-sala.png` });
   await pa.evaluate(() => window.__lc.voice.send('ROOM_ACT', { act: 'rpg', on: false })); await sleep(600);
   ok(await pb.$('#stage .rpgtile') === null, 'mestra fecha para todos');
+  { const s = await side(pb); ok(!s.bot && s.d20 === 0, 'mesa fechada: some o bot e o d20 da lista', s); }
   await pa.evaluate(() => window.__lc.voice.send('ROOM_ACT', { act: 'rpg', on: true })); await sleep(800);
   ok(/Bruk/.test(await st(pb)), 'reabrir traz a campanha de volta');
   

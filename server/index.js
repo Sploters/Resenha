@@ -270,7 +270,7 @@ function memberObj(gid, uid) {
 }
 const roomStart = new Map(); // channelId -> quando a sala deixou de estar vazia (cronômetro da chamada)
 const VOICE_FX = new Set(['robo', 'grossa', 'esquilo', 'monstro', 'alien', 'radio', 'megafone', 'eco', 'estadio']);
-const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), ...(s.clips ? { clips: true } : {}), ...(s.noclip ? { noclip: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, ...(s.screen && s.screenTitle ? { screen_title: s.screenTitle } : {}), watching: !!s.watching, ...(s.wt ? { wt: true } : {}), fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}), ...(s.hand ? { hand: s.hand } : {}), ...(s.prio ? { prio: true } : {}), ...(s.whisper ? { whisper: true } : {}) });
+const vsObj = (cid, uid, s) => ({ channel_id: cid, user_id: uid, mute: s.mute, deaf: s.deaf, ...(s.modMute ? { mod_mute: true } : {}), ...(s.modDeaf ? { mod_deaf: true } : {}), ...(s.noSpeak ? { no_speak: true } : {}), ...(s.noVideo ? { no_video: true } : {}), ...(s.hold ? { hold: true } : {}), ...(s.mirror ? { mirror: true } : {}), ...(s.clips ? { clips: true } : {}), ...(s.noclip ? { noclip: true } : {}), video: s.video, screen: s.screen, screen_note: s.screenNote || null, ...(s.screen && s.screenTitle ? { screen_title: s.screenTitle } : {}), watching: !!s.watching, ...(s.wt ? { wt: true } : {}), fx: s.fx || null, app: s.ws?.app || null, started_at: roomStart.get(cid), ...(s.bot ? { bot: s.bot } : {}), ...(s.hand ? { hand: s.hand } : {}), ...(s.prio ? { prio: true } : {}), ...(s.whisper ? { whisper: true } : {}), ...(!s.bot && acts.get(cid)?.rpg ? { rpg: true } : {}) }); // rpg: a sala está com a Mesa de RPG aberta (d20 ao lado do nome)
 // versão do app desktop: quem está na call vê quem está desatualizado; abaixo da mínima não entra na call
 // (mínima: DESKTOP_MIN_VERSION ou o arquivo <dados>/desktop-min-version.txt; sem nada, não há mínima)
 const VER_RE = /^\d+\.\d+\.\d+$/;
@@ -1183,7 +1183,7 @@ wss.on('connection', (ws) => {
             a.rpg = on;
           } else return;
           roomSend(c, 'ROOM_STATE', actState(c));
-          if (d.act === 'rpg') pushRpg(c);
+          if (d.act === 'rpg') { pushRpg(c); const ch = get('SELECT * FROM channels WHERE id=?', c); if (ch) for (const [id, st] of voice.get(c) || []) if (!st.bot) dispatch(channelAudience(ch), 'VOICE_STATE', { ...vsObj(c, id, st), guild_id: ch.guild_id }); } // quem vê a lista de voz fica sabendo da mesa
           break;
         }
         case 'ROOM_LOBBY': { // "Times e fila" (server/lobby.js): qualquer um da call mexe

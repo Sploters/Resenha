@@ -1,4 +1,4 @@
-// Anti-spam do soundboard (server/sblimit.js): 6 sons livres em 10 s, castigo de 10 s que cresce (20, 40, 60) para quem
+// Anti-spam do soundboard (server/sblimit.js): 12 sons livres em 10 s, castigo de 10 s que cresce (20, 40, 60) para quem
 // insiste e esfria depois de 2 min sem estourar. Uso: node scripts/sblimit-unit-test.mjs
 import { createSbLimiter, BURST } from '../server/sblimit.js';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
@@ -6,7 +6,7 @@ let t = 1e9; const L = createSbLimiter({ now: () => t });
 const spam = (n, gap = 100) => { const out = []; for (let i = 0; i < n; i++) { out.push(L.hit('ana')); t += gap; } return out; };
 let r = spam(BURST, 50);
 ok(r.every(x => x.ok), `${BURST} sons seguidos (50 ms entre eles): todos tocam`);
-r = L.hit('ana'); ok(!r.ok && r.fresh && r.secs === 10, '7º em menos de 10 s: espera de 10 s', r);
+r = L.hit('ana'); ok(!r.ok && r.fresh && r.secs === 10, `${BURST + 1}º em menos de 10 s: espera de 10 s`, r);
 t += 3000; r = L.hit('ana'); ok(!r.ok && !r.fresh && r.secs === 7, 'durante a espera: ignorado, sem aumentar a espera', r);
 ok(L.hit('beto').ok, 'outra pessoa não é afetada');
 t += 7100; r = spam(BURST, 50); ok(r.every(x => x.ok), 'liberou: rajada livre de novo');

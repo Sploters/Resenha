@@ -2875,3 +2875,8 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .rpg-jr { padding: var(--sp-3, 12px); border-radius: var(--r-m, 10px); background: var(--bg-sec); } .rpg-jr.done { opacity: .6; } .rpg-jr p { margin: 6px 0 0; }
 .rpg-jr-h { display: flex; align-items: center; gap: 8px; } .rpg-jr-h .sp { flex: 1; } .rpg-jr-h b { color: var(--header); } .rpg-jr-h time { color: var(--text-muted); font-size: var(--fs-xs, 11px); } .rpg-jr-h .ibtn { color: var(--interactive); }
 .rpg-jr-k { padding: 1px 6px; border-radius: 4px; background: var(--bg-tert); color: var(--text-muted); font-size: var(--fs-xs, 11px); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+
+/* Mesa de RPG na lista da sala de voz: linha "bot" e d20 ao lado do nome de quem está na mesa */
+.vrpg { cursor: default; } .vrpg-av { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: color-mix(in srgb, var(--brand) 22%, var(--bg-tert)); color: var(--brand); }
+.vrpg-av .icon, .vu-rpg .icon { fill: currentColor; }
+.vu-rpg { display: inline-flex; align-items: center; flex: none; margin-left: 5px; vertical-align: -2px; color: var(--brand); opacity: .85; }
