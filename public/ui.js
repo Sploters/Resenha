@@ -121,7 +121,7 @@ export const comboLabel = (c) => !c ? '—' : MOUSE_LABEL[c] || c.split('+').map
 const ACCEL_KEYS = { Backslash: '\\', IntlBackslash: '\\', Slash: '/', IntlRo: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',
   Minus: '-', Equal: '=', Backquote: '`', NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult', NumpadDivide: 'numdiv', NumpadDecimal: 'numdec', NumpadEnter: 'Enter' };
 // atalhos configuráveis: sem valor salvo = o padrão; '' = removido pela pessoa (nenhuma tecla)
-export const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS', pttKey: 'KeyV' };
+export const KEY_DEFAULTS = { keyMute: 'Ctrl+Shift+KeyM', keyDeafen: 'Ctrl+Shift+KeyD', keyClip: 'F8', keyFx: 'Ctrl+Shift+KeyE', keyShare: 'Ctrl+Shift+KeyS', pttKey: 'KeyV', keySb: 'Ctrl+Shift+KeyB' };
 export const hotkey = (k) => { const v = S.prefs[k]; return v === '' ? null : v || KEY_DEFAULTS[k] || null; };
 // os atalhos que o app desktop registra no Windows (funcionam com o jogo em foco)
 export const DESKTOP_HOTKEYS = { keyMute: 'hotkeyMute', keyDeafen: 'hotkeyDeafen', keyClip: 'hotkeyClip', keyShare: 'hotkeyShare' };

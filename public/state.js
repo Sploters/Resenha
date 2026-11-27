@@ -411,9 +411,9 @@ export function promptBox(title, label, value = '', okLabel = 'Salvar') {
 }
 // havia menu/emoji aberto quando o Esc foi apertado? (lido antes de closeFloating fechar; aí o Esc é só do menu)
 let escFloat = false;
-addEventListener('keydown', (e) => { if (e.key === 'Escape') escFloat = !!layer()?.querySelector('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)'); }, true);
-export function closeFloating() { layer().querySelectorAll('.menu:not(.leaving),.popout:not(.static):not(.leaving),.emoji-picker:not(.leaving)').forEach(e => leave(e, e.classList.contains('menu') ? 120 : 160)); } // voltam para onde foram abertos
-document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static),.emoji-picker,[data-keepfloat]')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos; [data-keepfloat]: botão que abre o próprio painel ao passar o mouse (o clique nele decide)
+addEventListener('keydown', (e) => { if (e.key === 'Escape') escFloat = !!layer()?.querySelector('.menu:not(.leaving),.popout:not(.static):not(.pinned):not(.leaving),.emoji-picker:not(.leaving)'); }, true); // .pinned: painel que abriu uma janela por cima (ex.: soundboard → atalho de um som) e fica até ela fechar
+export function closeFloating() { layer().querySelectorAll('.menu:not(.leaving),.popout:not(.static):not(.pinned):not(.leaving),.emoji-picker:not(.leaving)').forEach(e => leave(e, e.classList.contains('menu') ? 120 : 160)); } // voltam para onde foram abertos
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('.menu,.popout:not(.static):not(.pinned),.emoji-picker,[data-keepfloat]')) closeFloating(); }, true); // prévias (.static) não seguram menus abertos; [data-keepfloat]: botão que abre o próprio painel ao passar o mouse (o clique nele decide)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFloating(); }); // o visualizador de imagens trata o próprio Esc
 // (sem fechar no blur: o menu continua aberto ao dar alt+tab)
 

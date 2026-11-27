@@ -58,15 +58,30 @@ try {
   // soundboard aberto: ⌨ no som abre o diálogo já esperando a tecla
   await p.evaluate(() => window.__lc.closeSettings?.() ?? document.querySelector('#settings .close')?.click()); await sleep(300);
   await p.evaluate(async () => { const m = await window.__lc.import('soundboard.js'); const fn = m.openSoundboard || m.soundboardPopup || m.showSoundboard; fn?.(document.body, window.__lc.voice); }); await sleep(500);
-  const hasKeyBtn = await p.evaluate(() => !!document.querySelector('.sbov-key'));
-  ok(hasKeyBtn, 'soundboard: botão de atalho em cada som (ao passar o mouse)');
+  const hasKeyBtn = await p.evaluate(() => !!document.querySelector('.sb-pop .sbkey'));
+  ok(hasKeyBtn, 'soundboard: atalho clicável em cada som');
   if (hasKeyBtn) {
-    await p.evaluate(() => document.querySelector('.sbov-key').click()); await sleep(300);
+    await p.evaluate(() => document.querySelector('.sb-pop .sbkey').click()); await sleep(300);
     ok(await p.evaluate(() => !!document.querySelector('.modal .sbkey-cap.capturing')), 'o diálogo abre já esperando a tecla');
     await p.keyboard.press('F9'); await sleep(300);
     ok(/F9 toca este som/.test(await p.evaluate(() => document.querySelector('.modal .sbkey-info')?.textContent || '')), 'apertou: o diálogo confirma na hora');
     await p.screenshot({ path: '.testshots/sbkeys-dialogo.png' });
+    ok(/F9/.test(await p.evaluate(() => document.querySelector('.sb-pop .sbkey')?.textContent || '')), 'o som no soundboard já mostra F9 (com a janela aberta)');
+    await p.keyboard.press('Escape'); await sleep(400);
+    ok(!(await p.$('.modal')) && !!(await p.$('.popout.sb-pop:not(.leaving)')), 'Esc fecha só a janela do atalho; o soundboard continua aberto');
   }
+  if (!(await p.$('.sb-pop .sbsnd'))) { await p.evaluate(async () => (await window.__lc.import('soundboard.js')).openSoundboard(document.body, window.__lc.voice)); await sleep(500); }
+  // layout: nome inteiro (sem nada por cima) e o atalho na linha de baixo
+  const lay = await p.evaluate(() => { const t = document.querySelector('.sb-pop .sbsnd'); const n = t.querySelector('.n').getBoundingClientRect(), k = t.querySelector('.sbkey').getBoundingClientRect(); return { below: k.top >= n.bottom - 1, cover: !!t.querySelector('.sbov') }; });
+  ok(lay.below && !lay.cover, 'cada som: nome em cima, atalho embaixo, sem camada cobrindo o nome', lay);
+  await p.hover('.sb-pop .sbsnd'); await sleep(250);
+  await p.screenshot({ path: '.testshots/sbkeys-soundboard.png' });
+  // atalho para abrir/fechar o soundboard (Ctrl+Shift+B por padrão)
+  await p.evaluate(() => window.__lc.closeFloating?.() ?? document.body.click()); await sleep(200);
+  await p.evaluate(() => document.querySelectorAll('.popout.sb-pop').forEach(x => x.remove()));
+  await p.evaluate(() => { const b = document.createElement('button'); b.className = 'vp-sb'; b.onclick = () => { const d = document.createElement('div'); d.className = 'popout sb-pop'; document.body.append(d); }; document.body.append(b); });
+  await p.keyboard.down('Control'); await p.keyboard.down('Shift'); await p.keyboard.press('KeyB'); await p.keyboard.up('Shift'); await p.keyboard.up('Control'); await sleep(300);
+  ok(await p.evaluate(() => !!document.querySelector('.popout.sb-pop')), 'Ctrl + Shift + B abre o soundboard (o mesmo que clicar no botão)');
   ok(!errors.length, 'sem erros na página', errors);
 } catch (e) { console.log('  ERRO', e); fails++; }
 await browser.close(); srv.kill(); await sleep(500); try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { }

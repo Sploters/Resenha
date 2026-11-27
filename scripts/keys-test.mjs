@@ -23,7 +23,7 @@ try {
   await p.evaluate(() => window.__lc.openSettings('keys')); await sleep(600);
   const rowsOf = () => p.evaluate(() => [...document.querySelectorAll('#settings .keyctl')].map(k => ({ key: k.querySelector('.btn').textContent, def: !!k.querySelector('.key-def'), rm: !!k.querySelector('.key-rm') })));
   let rows = await rowsOf();
-  ok(rows.length === 6 && rows.every(x => x.rm && !x.def), 'seis atalhos, todos no padrão, cada um com ×', rows.map(x => x.key));
+  ok(rows.length === 7 && rows.every(x => x.rm && !x.def), 'sete atalhos (com o de abrir o soundboard), todos no padrão, cada um com ×', rows.map(x => x.key));
   const btn = (t) => p.evaluate((t) => { const b = [...document.querySelectorAll('#settings button')].find(x => x.textContent.trim() === t); return b ? !b.disabled : null; }, t);
   ok(await btn('Restaurar padrão') === false, '"Restaurar padrão" desabilitado com tudo no padrão');
 
@@ -61,7 +61,7 @@ try {
   await p.evaluate(() => [...document.querySelectorAll('#settings button')].find(x => x.textContent.trim() === 'Restaurar padrão').click()); await sleep(300);
   await p.evaluate(() => [...document.querySelectorAll('.modal .btn')].find(x => x.textContent.trim() === 'Restaurar').click()); await sleep(400);
   rows = await rowsOf();
-  ok(rows.map(x => x.key).join('|') === 'Ctrl + Shift + M|Ctrl + Shift + D|F8|Ctrl + Shift + S|Ctrl + Shift + E|V', 'Restaurar padrão: todos de volta', rows.map(x => x.key));
+  ok(rows.map(x => x.key).join('|') === 'Ctrl + Shift + M|Ctrl + Shift + D|F8|Ctrl + Shift + S|Ctrl + Shift + E|Ctrl + Shift + B|V', 'Restaurar padrão: todos de volta', rows.map(x => x.key));
   ok(JSON.stringify(await p.evaluate(() => window.__hk.at(-1))) === JSON.stringify({ hotkeyMute: 'CommandOrControl+Shift+M', hotkeyDeafen: 'CommandOrControl+Shift+D', hotkeyClip: 'F8', hotkeyShare: 'CommandOrControl+Shift+S' }), 'app desktop: atalhos globais padrão de volta', await p.evaluate(() => window.__hk.at(-1)));
   // persistência: recarrega e continua no padrão; remove um e recarrega
   await p.evaluate(() => document.querySelectorAll('#settings .keyctl')[2].querySelector('.key-rm').click()); await sleep(1500);

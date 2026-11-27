@@ -95,7 +95,26 @@ export function setSoundKey(id, combo) {
   savePrefs(); document.dispatchEvent(new Event('sb-changed'));
 }
 // quem já usa a combinação (outro som, uma posição do teclado numérico ou um atalho do app)
-const APP_KEYS = { keyMute: 'Silenciar microfone', keyDeafen: 'Ensurdecer', keyClip: 'Salvar clipe', keyShare: 'Transmitir', keyFx: 'Efeito de voz', pttKey: 'Push-to-talk' };
+const APP_KEYS = { keyMute: 'Silenciar microfone', keyDeafen: 'Ensurdecer', keyClip: 'Salvar clipe', keyShare: 'Transmitir', keyFx: 'Efeito de voz', pttKey: 'Push-to-talk', keySb: 'Abrir soundboard' };
+// atalho que abre/fecha o soundboard (o botão do painel de voz). Clique direito no botão ou Configurações → Atalhos
+export function toggleSoundboardKey() {
+  if (document.querySelector('.popout.sb-pop')) { closeFloating(); return; }
+  const b = document.querySelector('.vp-sb:not([disabled])');
+  if (b) b.click(); else toast(document.querySelector('.vp-sb') ? 'Soundboard indisponível enquanto você está ensurdecido.' : 'Entre numa sala de voz para abrir o soundboard.');
+}
+export function sbOpenKeyDialog() {
+  const btn = h('button.btn.grey.sbkey-cap'), info = h('div.sbkey-info');
+  const paint = () => { const k = hotkey('keySb'); info.textContent = k ? `Apertar ${comboLabel(k)} abre e fecha o soundboard (com o app em foco).` : 'Sem atalho: só pelo botão.'; };
+  captureKey(btn, hotkey('keySb'), (c) => {
+    const clash = Object.entries(APP_KEYS).find(([k]) => k !== 'keySb' && hotkey(k) === c) || Object.entries(S.prefs.sbKeys || {}).find(([, x]) => x === c);
+    S.prefs.keySb = c; savePrefs(); paint();
+    toast(clash ? `${comboLabel(c)} abre o soundboard (atenção: também é usado por ${APP_KEYS[clash[0]] ? `"${APP_KEYS[clash[0]]}"` : `o som "${findSound(clash[0])?.name || '?'}"`})` : `${comboLabel(c)} abre o soundboard`, !!clash);
+  }, { empty: 'Clique e aperte as teclas', placeholder: 'Aperte a tecla ou combinação… (Esc cancela)' });
+  paint();
+  modal('Atalho do soundboard', 'Abre e fecha o soundboard sem tirar a mão do teclado. Ex.: Ctrl + Shift + B, F4.', h('div.sbkey-dlg', btn, info),
+    [{ label: 'Remover atalho', cls: 'grey', keep: true, fn: () => { S.prefs.keySb = ''; savePrefs(); btn.textContent = 'Clique e aperte as teclas'; paint(); } }, { label: 'Concluir' }]);
+  setTimeout(() => btn.click(), 50);
+}
 export function keyConflict(id, combo) {
   if (!combo) return null;
   for (const [x, c] of Object.entries(S.prefs.sbKeys || {})) if (c === combo && x !== id) { const s = findSound(x); if (s) return { sound: s, text: `o som "${s.name}"` }; }
@@ -231,11 +250,13 @@ export function openSoundboard(anchor, voice, { openSettings } = {}) {
     return h('div.sbsnd', { title: s.name + (key ? ` — atalho: ${comboLabel(key)}` : ''), onclick: () => trigger(s, voice),
       oncontextmenu: (e) => menu(e, [{ label: 'Tocar só para mim (prévia)', fn: () => trigger(s, voice, { preview: true }) }, { label: fav ? 'Remover dos favoritos' : 'Favoritar', fn: () => { toggleFav(s.id); draw(); } },
         { label: 'Definir atalho…', fn: () => keyDialog(s) }, (src.own || (src.guild && can(src.guild.id, PERM.MANAGE_GUILD))) && { label: 'Editar / excluir…', fn: () => { closeFloating(); editSound(src, s); } }]) },
-      h('span.e', soundEmoji(s.emoji)), h('span.n', s.name), key && h('span.sbkey', comboLabel(key).replace('Alt + NumPad ', 'Alt+')),
-      // ao passar o mouse: prévia (só você ouve), atalho e favoritar; clicar no resto do botão toca para a sala
-      h('div.sbov', h('button', { title: 'Prévia (só você ouve)', onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } }, icon('voice', 16)),
-        h('button.sbov-key' + (key ? '.on' : ''), { title: key ? `Atalho: ${comboLabel(key)} (trocar)` : 'Definir atalho', onclick: (e) => { e.stopPropagation(); keyDialog(s); } }, icon('keyboard', 16)),
-        h('button' + (fav ? '.on' : ''), { title: fav ? 'Remover dos favoritos' : 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 16))));
+      h('span.e', soundEmoji(s.emoji)),
+      // nome inteiro em cima; embaixo o atalho (clicar troca). Prévia e favoritar à direita, sem cobrir o nome
+      h('div.sbt', h('span.n', s.name),
+        h('button.sbkey' + (key ? '' : '.add'), { type: 'button', title: key ? `Atalho: ${comboLabel(key)} (clique para trocar)` : 'Definir atalho', onclick: (e) => { e.stopPropagation(); keyDialog(s); } },
+          key ? comboLabel(key).replace('Alt + NumPad ', 'Alt+Num ') : '+ atalho')),
+      h('div.sbacts', h('button', { type: 'button', title: 'Prévia (só você ouve)', 'aria-label': 'Prévia', onclick: (e) => { e.stopPropagation(); trigger(s, voice, { preview: true }); } }, icon('voice', 15)),
+        h('button' + (fav ? '.on' : ''), { type: 'button', title: fav ? 'Remover dos favoritos' : 'Favoritar', 'aria-label': 'Favoritar', onclick: (e) => { e.stopPropagation(); toggleFav(s.id); draw(); } }, icon('star', 15))));
   };
   const draw = () => {
     const secs = sections(), top = list.scrollTop;
@@ -319,8 +340,10 @@ function keyDialog(s) {
   captureKey(btn, (S.prefs.sbKeys || {})[s.id], (c) => { assignKey(s, c); paintInfo(); }, { empty: 'Clique e aperte as teclas', placeholder: 'Aperte a tecla ou combinação… (Esc cancela)' });
   paintInfo();
   const desk = window.lcDesktop?.setSoundKeys;
-  modal(`Atalho: ${s.name}`, desk ? 'Funciona também com o jogo em foco, enquanto você está numa chamada. Use Ctrl, Alt ou Shift + tecla para não atrapalhar o jogo.' : 'Funciona com o app em foco. Ex.: F6, Ctrl + 1, Shift + Q.',
+  const pop = document.querySelector('.popout.sb-pop:not(.leaving)'); pop?.classList.add('pinned'); // Esc e cliques na janela não fecham o soundboard atrás
+  const dlg = modal(`Atalho: ${s.name}`, desk ? 'Funciona também com o jogo em foco, enquanto você está numa chamada. Use Ctrl, Alt ou Shift + tecla para não atrapalhar o jogo.' : 'Funciona com o app em foco. Ex.: F6, Ctrl + 1, Shift + Q.',
     h('div.sbkey-dlg', btn, info), [{ label: 'Remover atalho', cls: 'grey', keep: true, fn: () => { assignKey(s, ''); btn.textContent = 'Clique e aperte as teclas'; paintInfo(); } }, { label: 'Concluir' }]);
+  if (pop) whenGone(dlg.el, () => pop.classList.remove('pinned'));
   setTimeout(() => btn.click(), 50);
 }
 export { vol as soundVol };

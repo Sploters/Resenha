@@ -1003,7 +1003,7 @@ function clipsPage(reg) {
 
 // ============================ Atalhos ============================
 // cada atalho: trocar (clicar e apertar as teclas), remover (×: fica sem tecla) e, no fim, voltar todos ao padrão ou remover todos
-const KEY_ROWS = ['keyMute', 'keyDeafen', 'keyClip', 'keyShare', 'keyFx', 'pttKey'];
+const KEY_ROWS = ['keyMute', 'keyDeafen', 'keyClip', 'keyShare', 'keyFx', 'keySb', 'pttKey'];
 function applyKeys() { if (desktop) desktop.setSettings(desktopHotkeys()); syncGlobalPtt(); }
 function keysPage() {
   const root = h('div');
@@ -1026,6 +1026,7 @@ function keysPage() {
         row('Iniciar / encerrar transmissão', desktop ? 'Funciona com o jogo aberto. Começa na hora, sem escolher nada: transmite a janela em primeiro plano (jogo em janela ou em tela cheia) com a qualidade e o áudio da última vez.' : 'Transmite com a qualidade e o áudio da última vez; o navegador ainda pede para escolher a tela (no app desktop começa direto na janela da frente).', ctl('keyShare')),
         row('Oferecer transmitir o jogo', 'Ao abrir um jogo durante a chamada, pergunta se você quer transmitir (app desktop).', toggle(S.prefs.gameShareOffer !== false, (v) => { S.prefs.gameShareOffer = v; save(); })),
         row('Ligar / desligar efeito de voz', 'Liga o último efeito usado (Robô na primeira vez) ou desliga. Com o app em foco.', ctl('keyFx')),
+        row('Abrir / fechar soundboard', 'O mesmo que clicar no botão do soundboard no painel de voz. Com o app em foco. Também dá para trocar pelo clique direito no botão.', ctl('keySb')),
         row('Push-to-talk', 'Segurar para falar (modo "Push-to-talk" em Voz e vídeo). Aceita tecla ou botão do meio/lateral do mouse. ' + pttHint(), ctl('pttKey', { combo: false, mouse: true }))),
       card(h('div.btns.keybtns',
         h('button.btn.grey', { disabled: !changed, onclick: async () => {
@@ -1034,7 +1035,7 @@ function keysPage() {
           save(); applyKeys(); draw(); toast('Atalhos restaurados ao padrão');
         } }, icon('refresh', 16), 'Restaurar padrão'),
         h('button.btn.red', { disabled: !any, onclick: async () => {
-          if (!await confirmBox('Remover todos os atalhos', 'Nenhuma tecla vai silenciar, ensurdecer, clipar, transmitir, ligar efeito ou falar no push-to-talk até você definir de novo (ou restaurar o padrão).', 'Remover todos')) return;
+          if (!await confirmBox('Remover todos os atalhos', 'Nenhuma tecla vai silenciar, ensurdecer, clipar, transmitir, ligar efeito, abrir o soundboard ou falar no push-to-talk até você definir de novo (ou restaurar o padrão).', 'Remover todos')) return;
           for (const k of KEY_ROWS) S.prefs[k] = '';
           save(); applyKeys(); draw(); toast('Atalhos removidos');
         } }, 'Remover todos'),

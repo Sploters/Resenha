@@ -2,7 +2,7 @@
 import { h, avatar } from './util.js';
 import { S, user, notify, desktop, savePrefs, alertAllowed } from './state.js';
 import { playSound } from './sounds.js';
-import { handleKey as sbKey, syncSoundKeys, playSoundById } from './soundboard.js';
+import { handleKey as sbKey, syncSoundKeys, playSoundById, toggleSoundboardKey } from './soundboard.js';
 import { gameChanged, liteAutoOn } from './lite.js';
 import { setupPtt } from './ptt.js';
 import { comboFromEvent, comboToAccel, hotkey, desktopHotkeys } from './ui.js';
@@ -78,6 +78,7 @@ export function setupDesktop() {
     if (c && c === hotkey('keyDeafen')) { e.preventDefault(); voiceToggle('deaf'); }
     if (c && c === hotkey('keyClip')) { e.preventDefault(); clipHotkey(); }
     if (c && c === hotkey('keyFx')) { e.preventDefault(); fxHotkey(); }
+    if (c && c === hotkey('keySb') && !e.repeat && !(typing(e.target) && !e.ctrlKey && !e.altKey)) { e.preventDefault(); toggleSoundboardKey(); }
     if (c && c === shareKey() && !e.repeat) { e.preventDefault(); shareHotkey(); }
   });
   setupPtt(() => voice);

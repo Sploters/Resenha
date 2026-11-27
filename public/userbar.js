@@ -13,13 +13,13 @@ import { playInviteModal } from './callinvite.js';
 import { openBoraModal } from './bora.js';
 import { openDM } from './usermenu.js';
 import { openMusic } from './music.js';
-import { openSoundboard, quickSoundsHover } from './soundboard.js';
+import { openSoundboard, quickSoundsHover, sbOpenKeyDialog } from './soundboard.js';
 import { openAudioPanel, openStatusPanel, openMicPanel } from './quick.js';
 import { chName } from './chnames.js';
 import { pollModal } from './polls.js';
 import { openIntentModal } from './intents.js';
 import { track, startTimer, cancelTimer } from './ux.js';
-import { NOISE_INFO } from './ui.js';
+import { NOISE_INFO, hotkey, comboLabel } from './ui.js';
 import { styleName } from './themes.js';
 import { STATUS_TXT } from './card.js';
 import { swapIcon } from './motion.js';
@@ -87,7 +87,9 @@ export function activityButton(size, cls = '') {
 // Soundboard: último botão do painel; passar o mouse mostra os 6 sons mais usados, clicar abre a soundboard completa
 function sbButton() {
   const full = (a) => openSoundboard(a, voice, { openSettings: (k) => openSettings(k, ctxSettings()) });
-  const b = h('button.vp-sb', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : 'Soundboard', 'aria-label': 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => full(e.currentTarget) }, icon('soundboard', 20));
+  const k = hotkey('keySb');
+  const b = h('button.vp-sb', { title: voice.deafened ? 'Soundboard indisponível (ensurdecido)' : `Soundboard${k ? ` (${comboLabel(k)})` : ''} · clique direito: atalho`, 'aria-label': 'Soundboard', disabled: voice.deafened, style: voice.deafened ? { opacity: .4, cursor: 'not-allowed' } : null, onclick: (e) => full(e.currentTarget),
+    oncontextmenu: (e) => menu(e, [{ label: k ? `Atalho para abrir: ${comboLabel(k)}` : 'Definir atalho para abrir…', icon: 'keyboard', fn: () => sbOpenKeyDialog() }, { label: 'Atalhos dos sons…', icon: 'soundboard', fn: () => openSettings('soundboard', ctxSettings()) }]) }, icon('soundboard', 20));
   quickSoundsHover(b, voice, full);
   return b;
 }
