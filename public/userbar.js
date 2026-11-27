@@ -69,6 +69,7 @@ export function activityEntries() {
     srv && { id: 'play', icon: 'gamepad', title: 'Chamar pra jogar', desc: 'Escolha o jogo e quem chamar: recebem um aviso com toque', color: '#4b8bff', fn: () => playInviteModal() },
     lobbyEntry(),
     { id: 'gamenight', icon: 'compass', title: 'O que jogar hoje?', desc: 'Jogos que todo mundo da chamada tem', color: '#7c5cff', fn: () => openGameNight(voice.channelId) },
+    { id: 'rpg', icon: 'dice', title: 'Mesa de RPG', desc: 'Dados, fichas, mestre, combate e inimigos na chamada', on: !!room?.rpg, color: '#d9480f', fn: () => voice.send('ROOM_ACT', { act: 'rpg', on: !room?.rpg }) },
     { id: 'wb', icon: 'edit', title: 'Lousa compartilhada', desc: 'Desenhar junto em tempo real', on: !!room?.wb, color: '#2f9e5f', fn: () => voice.send('ROOM_ACT', { act: 'wb', on: !room?.wb }) },
     // Editor de código: fora do lançador por padrão (app de turma de jogo); aparece se alguém já abriu (para fechar) ou com
     // Configurações → Recursos extras → "Editor de código nas atividades"

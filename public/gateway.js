@@ -18,6 +18,7 @@ import { onIncoming as sbIncoming, sbLimited } from './soundboard.js';
 import { paintTyping as previewTyping, previewMessage } from './chpreview.js';
 import { initBoard, boardState, onDraw } from './board.js';
 import { initCode, codeSet, codeReset } from './code.js';
+import { rpgSet, rpgReset, rpgError } from './rpg.js';
 import { syncThrottle, startUsageWatch, startPressureWatch } from './lite.js';
 import { onRemoteEvent, remoteReconnected } from './remote.js';
 import { onLfgEvent, onLfgActivity } from './lfg.js';
@@ -475,12 +476,14 @@ export function onEvent(t, d) {
     case 'REMOTE_REQUEST': case 'REMOTE_STATE': case 'REMOTE_INPUT': case 'REMOTE_ERROR': case 'REMOTE_PING': case 'REMOTE_PONG': onRemoteEvent(t, d); break;
     case 'CALL_INVITE_UPDATE': onCallInviteUpdate(d); break;
     case 'ROOM_LOBBY_ERR': toast(d.code === 'full' ? 'O lobby está cheio.' : 'Precisa de pelo menos 2 pessoas para sortear times.', true); break;
-    case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null, prevLobby = S.room?.cid === d.channel_id ? S.room.lobby : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null, lobby: d.lobby || null }; if (JSON.stringify(prevLobby) !== JSON.stringify(d.lobby || null)) lobbyChanged(prevLobby, d.lobby || null); boardState(d.boards);
+    case 'ROOM_STATE': if (d.channel_id === voice?.channelId) { if (d.code && !(S.room?.cid === d.channel_id && S.room.code)) codeSet(d.code); if (!d.code) codeReset(); if (!d.rpg) rpgReset(); if (d.rpg && !(S.room?.cid === d.channel_id && S.room.rpg)) S.focus = 'rpg'; const prevSpot = S.room?.cid === d.channel_id ? S.room.spot : null, prevLobby = S.room?.cid === d.channel_id ? S.room.lobby : null; S.room = { cid: d.channel_id, wb: d.wb, code: !!d.code, spot: d.spot || null, spotBy: d.spot_by || null, lobby: d.lobby || null, rpg: !!d.rpg }; if (JSON.stringify(prevLobby) !== JSON.stringify(d.lobby || null)) lobbyChanged(prevLobby, d.lobby || null); boardState(d.boards);
       if ((d.spot || null) !== prevSpot && S.prefs.followSpot !== false) { // destaque para todos: acompanha, a não ser que tenha desligado
         if (d.spot) { S.focus = d.spot; if (d.spot_by && d.spot_by !== S.me.id) toast(`${nameOf(d.spot_by, channelById(d.channel_id)?.guild_id)} destacou uma transmissão para a sala`); } else if (S.focus === prevSpot) S.focus = null;
       } if (S.annot && !hasScreenOf(S.annot)) S.annot = null; renderVoiceUI(); } break;
     case 'ROOM_DRAW': if (d.channel_id === voice?.channelId) onDraw(d); break;
     case 'ROOM_CODE': if (d.channel_id === voice?.channelId) codeSet(d); break;
+    case 'RPG_STATE': if (d.channel_id === voice?.channelId && S.room?.rpg) rpgSet(d); break; // Mesa de RPG (public/rpg.js)
+    case 'RPG_ERR': rpgError(d); break;
     case 'MUSIC_STATE': if (d.channel_id === voice.channelId) musicOnState(d); break;
     case 'MUSIC_RES': musicOnRes(d); break;
     case 'WATCH_STATE': case 'WATCH_SYNC': case 'WATCH_MEMBERS': case 'WATCH_END': case 'WATCH_RES': case 'WATCH_ASK': onWatchEvent(t, d); break;

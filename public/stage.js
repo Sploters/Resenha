@@ -10,6 +10,7 @@ import { updatePip } from './livepip.js';
 import { zoomControls, pruneZoom } from './zoom.js';
 import { boardCanvas, boardTools, annotTools, clearBoard, pruneBoardCanvases } from './board.js';
 import { codeTile, keepEditorFocus } from './code.js';
+import { rpgTile } from './rpg.js';
 import { syncAutoClip, stopAutoClip, autoClipsOn } from './autoclip.js';
 import { startBuffer, stopBuffer, stopAllBuffers, pruneBuffers, clipping, saveClip, saveClipTrim, clipLengths, clipKeys, clipSecs, lenLabel, clipDest } from './clips.js';
 import { openShareClip } from './myclips.js';
@@ -337,6 +338,7 @@ export function renderVoiceUI(speakOnly) {
   if (inRoom && room?.wb) tiles.push(h('div.tile.wbtile', { 'data-key': 'wb' }, boardCanvas('wb', { interactive: true }), h('div.wbbar', boardTools('wb', [h('button.ibtn', { title: 'Destacar / voltar à grade', onclick: () => { S.focus = S.focus === 'wb' ? null : 'wb'; renderVoiceUI(); } }, icon('expand', 16)), h('button.ibtn', { title: 'Fechar a lousa para todos', onclick: () => { clearBoard('wb'); voice.send('ROOM_ACT', { act: 'wb', on: false }); } }, icon('x', 16))]))));
   { const wt = inRoom && watchTile(); if (wt) tiles.push(wt); }
   if (inRoom && room?.code) tiles.push(codeTile({ onFocus: () => { S.focus = S.focus === 'code' ? null : 'code'; renderVoiceUI(); }, onClose: () => voice.send('ROOM_ACT', { act: 'code', on: false }) }));
+  if (inRoom && room?.rpg) tiles.push(rpgTile({ onFocus: () => { S.focus = S.focus === 'rpg' ? null : 'rpg'; renderVoiceUI(); }, onClose: () => voice.send('ROOM_ACT', { act: 'rpg', on: false }) }));
   const hasScreen = tiles.some(t => t.classList.contains('screen') || t.classList.contains('cstream'));
   const allTiles = tiles.length; // antes dos filtros: o botão de layout (onde se religa o filtro) não pode sumir por causa dele
   if (S.hideMembers && hasScreen) tiles.splice(0, tiles.length, ...tiles.filter(t => !t.classList.contains('utile'))); // oculta os participantes: só as transmissões

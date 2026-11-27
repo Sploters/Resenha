@@ -42,6 +42,9 @@ export function codeTile({ onFocus, onClose }) {
 // redesenha a sala sem tirar o foco do editor
 export function keepEditorFocus(fn) {
   const had = ta && document.activeElement === ta, a = ta?.selectionStart, b = ta?.selectionEnd, top = ta?.scrollTop;
+  // campo da Mesa de RPG (public/rpg.js): o quadro também é reaproveitado e o campo não pode perder o foco
+  const rf = document.activeElement?.closest?.('.rpgtile') && document.activeElement, rs = rf?.selectionStart;
   fn();
+  if (rf?.isConnected && document.activeElement !== rf) { rf.focus({ preventScroll: true }); try { rf.setSelectionRange(rs, rs); } catch { /* campo sem seleção */ } }
   if (ta?.isConnected) { ta.scrollTop = top || 0; if (had) { ta.focus({ preventScroll: true }); ta.setSelectionRange(a, b); } }
 }

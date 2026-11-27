@@ -44,6 +44,7 @@ import { mountOpenCritic } from './opencritic.js';
 import { mountIntents } from './intents.js';
 import { mountBora } from './bora.js';
 import { createLobby } from './lobby.js';
+import { createRpg } from './rpg.js';
 import { createSbLimiter } from './sblimit.js';
 import { mountOnboarding } from './onboarding.js';
 import { mountAdmin } from './admin.js';
@@ -109,7 +110,11 @@ const lobby = createLobby({ db, get, run, all }); // "Times e fila" da sala (ser
 const sbLimit = createSbLimiter(); setInterval(() => sbLimit.prune(), 300e3).unref?.(); // soundboard: anti-spam
 const botIds = new Map(); // bots (música) não entram no lobby
 const isBotUser = (id) => { if (!botIds.has(id)) botIds.set(id, !!get("SELECT 1 x FROM users WHERE id=? AND username LIKE 'bot\\_%' ESCAPE '\\'", id)); return botIds.get(id); };
-const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, code: a.code, boards: a.boards, spot: a.spot, spot_by: a.spotBy, lobby: lobby.state(a.lobby) }; };
+const actState = (c) => { const a = actOf(c); return { channel_id: c, wb: a.wb, code: a.code, boards: a.boards, spot: a.spot, spot_by: a.spotBy, lobby: lobby.state(a.lobby), rpg: !!a.rpg }; };
+// Mesa de RPG (server/rpg.js): cada um recebe a sua visão (o mestre vê inimigos escondidos e rolagens secretas)
+const rpg = createRpg({ db, get, run });
+const roomIds = (c) => [...(voice.get(c)?.keys() || [])].filter(id => !isBotUser(id));
+const pushRpg = (c, only) => { const m = voice.get(c); if (!m || !acts.get(c)?.rpg) return; for (const [id, st] of m) if (!only || id === only) send(st.ws, 'RPG_STATE', rpg.view(c, id)); };
 const BOARD_OK = (b) => b === 'wb' || /^s:[w-]{1,40}$/.test(b);
 const voice = new Map(); // channelId -> Map<userId, {ws, mute, deaf, video, screen}>
 
@@ -970,7 +975,7 @@ function pushDevices(uid) {
 // O app normal fica bem abaixo (VOICE_STATE: cliques seguidos já se juntam no app; TYPING: 1 a cada 3 s).
 const WS_RATE = {
   VIEW: [3, 10], VOICE_STATE: [5, 15], CLIENT_INFO: [1, 5], ACTIVE: [2, 10], ACTIVITY_LOCAL: [1, 5], ROOM_CODE: [10, 30],
-  TYPING: [1, 4], VOICE_JOIN: [2, 10], VOICE_WHISPER: [4, 12], VOICE_HAND: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10],
+  TYPING: [1, 4], VOICE_JOIN: [2, 10], VOICE_WHISPER: [4, 12], VOICE_HAND: [2, 10], STREAM_WATCH: [6, 30], ROOM_ACT: [2, 10], ROOM_LOBBY: [8, 10], ROOM_SPOTLIGHT: [2, 10], MUSIC: [3, 10], RPG: [6, 20],
   REMOTE_REQUEST: [1, 5], REMOTE_INVITE: [1, 5], REMOTE_PERMS: [5, 20], REMOTE_PING: [8, 16], REMOTE_PONG: [8, 16], PING: [5, 10], WATCH: [12, 40],
 };
 const WS_ALL = [300, 600];
@@ -1098,7 +1103,7 @@ wss.on('connection', (ws) => {
           activity.onVoice(uid); // horas de jogo só contam em call
           musicOnJoin(ch.id, ws);
           watch.onVoiceJoin(uid, ch.id);
-          if (acts.has(ch.id)) { if (!isBotUser(uid) && lobby.onJoin(acts.get(ch.id), uid)) roomSend(ch.id, 'ROOM_STATE', actState(ch.id)); else send(ws, 'ROOM_STATE', actState(ch.id)); }
+          if (acts.has(ch.id)) { if (!isBotUser(uid) && lobby.onJoin(acts.get(ch.id), uid)) roomSend(ch.id, 'ROOM_STATE', actState(ch.id)); else send(ws, 'ROOM_STATE', actState(ch.id)); pushRpg(ch.id, uid); }
           for (const k of watchers.keys()) if (k.startsWith(ch.id + ':')) pushViewers(ch.id, k.slice(ch.id.length + 1));
           if (!sfuEnabled()) break;
           sfuJoin(ch.id, uid, sfuNotify(ch.id, uid)).then(sfu => {
@@ -1172,8 +1177,13 @@ wss.on('connection', (ws) => {
           const a = actOf(c), on = !!d.on;
           if (d.act === 'wb') { a.wb = on; if (!on) delete a.boards.wb; }
           else if (d.act === 'code') a.code = on ? (a.code || { text: '', lang: 'javascript' }) : null;
-          else return;
+          else if (d.act === 'rpg') { // a campanha fica no banco: fechar só tira a mesa da tela
+            if (!on && a.rpg && !rpg.canClose(c, uid, roomIds(c))) return send(ws, 'RPG_ERR', { error: 'Só o mestre fecha a mesa' });
+            if (on && !a.rpg) rpg.open(c, uid, roomIds(c));
+            a.rpg = on;
+          } else return;
           roomSend(c, 'ROOM_STATE', actState(c));
+          if (d.act === 'rpg') pushRpg(c);
           break;
         }
         case 'ROOM_LOBBY': { // "Times e fila" (server/lobby.js): qualquer um da call mexe
@@ -1209,6 +1219,12 @@ wss.on('connection', (ws) => {
             out = { id, color: s.color, w: s.w, pts };
           } else return;
           roomSend(c, 'ROOM_DRAW', { channel_id: c, board, op: d.op, stroke: out, ids, user_id: uid }, uid);
+          break;
+        }
+        case 'RPG': { // Mesa de RPG (server/rpg.js): dados, fichas, inimigos, combate
+          const c = currentVoice(uid); if (!c || !acts.get(c)?.rpg) return send(ws, 'RPG_ERR', { error: 'Abra a Mesa de RPG na chamada primeiro' });
+          const r = rpg.op(c, uid, d || {}, roomIds(c));
+          if (r.error) send(ws, 'RPG_ERR', { error: r.error }); else pushRpg(c);
           break;
         }
         case 'ROOM_CODE': {
