@@ -42,61 +42,75 @@ try {
   ok(entry?.title === 'Mesa de RPG', 'Mesa de RPG está nas atividades (foguete)', entry);
   await pa.evaluate(() => window.__lc.import('userbar.js').then(m => m.activityEntries().find(e => e.id === 'rpg').fn())); await sleep(900);
   for (const [p, n] of [[pa, 'mestra'], [pb, 'beto']]) ok(await p.$('#stage .spot .rpgtile') !== null, `quadro da mesa abre em destaque no palco (${n})`);
-  ok(await pa.$('.rpgtile .rpg-pill.me') !== null && await pb.$('.rpgtile .rpg-pill.me') === null && /mestra/.test(await st(pb)), 'mestre identificado: selo para a mestra, coroa com o nome para o jogador');
-
+  ok(/Você é o mestre/.test(await st(pa)) && !/Você é o mestre/.test(await st(pb)) && /mestra/.test(await st(pb)), 'mestre identificado: "Você é o mestre" para a mestra, coroa com o nome para o jogador');
+  ok(await pa.$$eval('.rpgtile .rpg-tab', b => b.map(x => x.textContent).join()) === 'Mesa,Mestre' && (await pb.$$('.rpgtile .rpg-tab')).length === 0, 'aba Mestre só existe para o mestre');
   ok(await pa.$eval('.rpg-togrow .rpg-tog:last-child', e => e.offsetParent !== null) && await pb.$eval('.rpg-togrow .rpg-tog:last-child', e => e.offsetParent === null), 'rolagem secreta: botão só para o mestre');
 
-  // ---------- ficha pela janela ----------
+  // ---------- ficha D&D pela janela ----------
   ok(await click(pb, '.rpgtile .rpg-player-h .btn', /Nova ficha/), 'botão "Nova ficha"');
   await sleep(300);
+  const pts0 = await pb.evaluate(() => document.querySelector('.modal .rpg-at-info')?.innerText || '');
+  ok(/Pontos: 0 de 27/.test(pts0), 'começa na compra de pontos: tudo 8, 27 pontos para gastar', pts0);
   await pb.evaluate(() => {
-    const m = [...document.querySelectorAll('.modal')].at(-1), set = (i, v) => { i.value = v; i.dispatchEvent(new Event('input')); };
-    const ins = m.querySelectorAll('.rpg-form input'); set(ins[0], 'Bruk'); set(ins[2], 'Bárbaro');
-    const attrs = m.querySelectorAll('.rpg-attr-in input'); set(attrs[0], '4');
-    [...m.querySelectorAll('.rpg-field')].find(f => /Vida máxima/.test(f.textContent)).querySelector('input').value = '30';
-    [...m.querySelectorAll('.rpg-field')].find(f => /^Tags/.test(f.textContent)).querySelector('input').value = 'meio-orc, faminto';
+    const m = [...document.querySelectorAll('.modal')].at(-1), fld = (re) => [...m.querySelectorAll('.rpg-field')].find(f => re.test(f.firstChild.textContent)).querySelector('input');
+    const set = (i, v, ev = 'input') => { i.value = v; i.dispatchEvent(new Event(ev)); };
+    set(fld(/^Nome$/), 'Bruk'); set(fld(/^Raça$/), 'Meio-orc', 'change'); set(fld(/^Classe$/), 'Bárbaro');
+    set(fld(/^Tags/), 'faminto');
   });
+  await sleep(100);
+  ok(await click(pb, '.modal .rpg-link', /Distribuir pela classe/), 'botão "Distribuir pela classe" aparece para Bárbaro');
+  const row = (k) => pb.evaluate((kk) => { const r = [...document.querySelectorAll('.modal .rpg-at-row')].find(x => x.querySelector('.rpg-at-k')?.textContent === kk); const b = r.querySelectorAll('b'); return { base: r.querySelector('.rpg-at-base input').value, bon: r.querySelector(':scope > input').value, tot: b[0].textContent, mod: b[1].textContent }; }, k);
+  const rf = await row('FOR'), rc = await row('CON'), ri = await row('INT');
+  ok(rf.base === '15' && rf.bon === '2' && rf.tot === '17' && rf.mod === '+3', 'FOR: 15 do conjunto padrão + 2 do meio-orc = 17, modificador +3 (não +17)', rf);
+  ok(rc.tot === '15' && rc.mod === '+2' && ri.tot === '8' && ri.mod === '−1', 'CON 14+1 = 15 (+2); INT 8 (−1)', { rc, ri });
+  const info = await pb.evaluate(() => document.querySelector('.modal .rpg-at-info').innerText);
+  ok(/d12/.test(info) && /proficiência \+2/.test(info), 'dicas: dado de vida da classe e proficiência do nível', info);
+  ok(await click(pb, '.modal .btn', /sugerida/), 'vida sugerida (d12 + CON)');
   await pb.screenshot({ path: `${OUT}/01-nova-ficha.png` });
   await click(pb, '.modal .mf .btn', /^Salvar$/); await sleep(700);
   const sa = await st(pa);
-  ok(/Bruk/.test(sa) && /Bárbaro/.test(sa) && /Vida 30\/30/.test(sa) && /faminto/.test(sa), 'mestra vê a ficha nova com vida e tags', sa.slice(0, 300));
+  ok(/Bruk/.test(sa) && /Meio-orc · Bárbaro · nível 1/.test(sa) && /Vida 14 \/ 14/.test(sa) && /faminto/.test(sa), 'mestra vê a ficha: raça, classe, vida 12+2', sa.slice(0, 300));
 
-  // ---------- dados pelos botões ----------
+  // ---------- dados ----------
   await click(pb, '.rpg-dbtn', /^d20$/); await click(pb, '.rpg-dbtn', /^d20$/); await click(pb, '.rpg-mbtn', /\+/); await click(pb, '.rpg-mbtn', /\+/);
   ok(await pb.$eval('.rpg-expr', e => e.value) === '2d20+2', 'clicar no d20 duas vezes e +2 monta 2d20+2');
   await pb.$eval('.rpg-expr', e => { e.value = '1d20+@FOR'; });
   await click(pb, '.rpg-togrow .rpg-tog', /^Vantagem$/);
   await click(pb, '.rpg-go'); await sleep(700);
-  const lastA = await pa.evaluate(() => document.querySelector('.rpg-side .rpg-log .rpg-li')?.innerText || '');
   const resA = await pa.evaluate(() => document.querySelector('.rpg-result')?.innerText || '');
-  ok(/Bruk/.test(lastA) && /=/.test(lastA), 'a rolagem do jogador aparece para a mestra (com a ficha)', lastA);
-  ok(/vantagem|Crítico|Falha/.test(resA), 'resultado em destaque com a vantagem', resA);
+  ok(/Bruk/.test(resA) && /FOR \+3/.test(resA) && /vantagem|Crítico|Falha/.test(resA), 'rolagem com @FOR usa o modificador (+3) e a mestra vê', resA);
+  const li = await pa.evaluate(() => { const x = document.querySelector('.rpg-side .rpg-log .rpg-li.roll'); return { txt: x?.querySelector('.rpg-li-row')?.innerText, det: x && getComputedStyle(x.querySelector('.rpg-li-det')).display }; });
+  ok(/Bruk/.test(li.txt) && li.det === 'none', 'histórico compacto: uma linha (os dados só ao clicar)', li);
   await pb.screenshot({ path: `${OUT}/02-rolagem.png` });
 
   // ---------- inimigo em vida oculta ----------
-  await rpg(pa, { op: 'foe.save', foe: { name: 'Dragão Ancião', boss: true, mode: 'hidden', hp: { max: 300 }, weak: 'gelo' } }); await sleep(400);
+  await rpg(pa, { op: 'foe.save', foe: { name: 'Dragão Ancião', boss: true, mode: 'hidden', hp: { max: 300 }, weak: 'gelo', ini: 2 } }); await sleep(400);
   ok(!/Dragão/.test(await st(pb)), 'inimigo preparado não aparece para o jogador');
   await click(pa, '.rpg-tab', /Mestre/); await sleep(300);
   await click(pa, '.rpg-card.foe .ibtn[title^="Pôr em cena"]'); await sleep(500);
   ok(/Dragão Ancião/.test(await st(pb)) && /Chefe/.test(await st(pb)), 'pôr em cena: o jogador vê o chefe');
-  await click(pa, '.rpg-card.foe .rpg-bar'); await sleep(300);
-  await pa.evaluate(() => { const m = [...document.querySelectorAll('.modal')].at(-1); m.querySelector('input').value = '45'; });
-  await click(pa, '.modal .mf .btn', /^Dano$/); await sleep(600);
-  const sb = await st(pb);
-  ok(/45 de dano causado/.test(sb) && !/255|300/.test(sb) && !/gelo/.test(sb), 'jogador vê só o dano (sem vida nem fraqueza)', sb.slice(0, 400));
   await pa.screenshot({ path: `${OUT}/03-mestre.png` });
 
-  // ---------- combate ----------
-  await click(pa, '.rpg-tab', /Combate/); await sleep(200);
-  ok(await click(pa, '.rpgtile .btn', /Começar combate/), 'mestra começa o combate pela aba');
-  await sleep(500);
-  await click(pa, '.rpgtile .btn', /Rolar iniciativas/); await sleep(600);
-  await click(pb, '.rpg-tab', /Combate/); await sleep(300);
-  const ord = await pb.evaluate(() => [...document.querySelectorAll('.rpg-ord')].map(e => e.innerText.replace(/\s+/g, ' ')));
-  ok(ord.length === 2 && ord.every(t => /^\d+/.test(t)), 'jogador vê a ordem com as iniciativas', ord);
-  await click(pa, '.rpgtile .btn', /Próximo turno/); await sleep(500);
-  ok(await pb.$('.rpg-ord.cur') !== null, 'a vez aparece marcada');
-  await pb.screenshot({ path: `${OUT}/04-combate.png` });
+  // ---------- combate na própria aba Mesa ----------
+  await click(pa, '.rpg-tab', /^Mesa/); await sleep(200);
+  ok(await click(pa, '.rpgtile .btn', /Começar combate/), 'mestra começa o combate na aba Mesa');
+  await sleep(600);
+  const tk = await pb.evaluate(() => [...document.querySelectorAll('.rpg-tk')].map(e => e.querySelector('.rpg-tk-init').textContent));
+  ok(tk.length === 2 && tk.every(t => /^-?\d+$/.test(t)), 'faixa de turnos com a iniciativa de todos já rolada', tk);
+  await click(pa, '.rpg-tk', /Dragão/); await sleep(200);
+  await pa.evaluate(() => { const i = document.querySelector('.rpg-focus .rpg-amt'); i.value = '45'; });
+  await click(pa, '.rpg-focus .btn', /^Dano$/); await sleep(500);
+  await click(pa, '.rpg-focus .rpg-chip.tog', /^Envenenado/); await sleep(500);
+  const sb = await st(pb);
+  ok(/45 de dano/.test(sb) && !/255|300/.test(sb) && !/gelo/.test(sb), 'dano pelo painel; jogador vê só o dano (sem vida nem fraqueza)', sb.slice(0, 400));
+  await click(pb, '.rpg-tk', /Dragão/); await sleep(200);
+  ok(/Envenenado/.test(await pb.evaluate(() => document.querySelector('.rpg-focus')?.innerText || '')), 'condição marcada com um clique aparece para o jogador');
+  const cur0 = await pa.evaluate(() => document.querySelector('.rpg-tk.cur')?.textContent);
+  await click(pa, '.rpg-next'); await sleep(500);
+  const cur1 = await pb.evaluate(() => document.querySelector('.rpg-tk.cur')?.textContent);
+  ok(cur0 && cur1 && cur0 !== cur1, 'próximo turno muda a vez para todos', { cur0, cur1 });
+  await pa.screenshot({ path: `${OUT}/04-combate-mestre.png` });
+  await pb.screenshot({ path: `${OUT}/05-combate-jogador.png` });
 
   // ---------- foco no campo da rolagem enquanto a mesa muda ----------
   await pb.focus('.rpg-expr'); await pb.$eval('.rpg-expr', e => { e.value = ''; }); await pb.keyboard.type('3d6');
@@ -111,7 +125,7 @@ try {
   ok(await pb.$('#stage .rpgtile') === null, 'mestra fecha para todos');
   await pa.evaluate(() => window.__lc.voice.send('ROOM_ACT', { act: 'rpg', on: true })); await sleep(800);
   ok(/Bruk/.test(await st(pb)), 'reabrir traz a campanha de volta');
-  await pa.screenshot({ path: `${OUT}/05-destaque.png` });
+  
   ok(!errs.length, 'sem erros de página', errs);
 } catch (e) { console.log('ERRO', e); fails++; }
 finally { await browser.close(); srv.kill(); }

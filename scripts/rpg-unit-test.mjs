@@ -1,7 +1,7 @@
 // Mesa de RPG (server/rpg.js) sem servidor: dados, fichas, permissões, inimigos escondidos, combate e persistência.
 // Uso: node scripts/rpg-unit-test.mjs
 import { DatabaseSync } from 'node:sqlite';
-import { createRpg, roll, parseRoll, narr } from '../server/rpg.js';
+import { createRpg, roll, parseRoll, narr, mod, prof } from '../server/rpg.js';
 let fails = 0; const ok = (c, m, x) => { console.log((c ? '  ok   ' : '  FAIL ') + m + (x !== undefined && !c ? '  ' + JSON.stringify(x) : '')); if (!c) fails++; };
 const throws = (fn, re) => { try { fn(); return false; } catch (e) { return re.test(e.message); } };
 const db = new DatabaseSync(':memory:');
@@ -102,6 +102,38 @@ ok(op('ana', { op: 'gm.set' }) && R.op(C, 'ana', { op: 'gm.set' }, ['ana', 'beto
 ok(R.op(C, 'ana', { op: 'cfg', attrs: ['Corpo', 'Mente'], attrRoll: '{v}d6' }, ['ana']).ok && R.view(C, 'beto').attrs.join() === 'Corpo,Mente', 'mestre troca os atributos e a rolagem (universal)');
 ok(R.op(C, 'ana', { op: 'cfg', attrRoll: 'abc' }, ['ana']).error, 'rolagem de atributo inválida é recusada');
 ok(R.op(C, 'beto', { op: 'char.save', char: { name: 'X', img: 'javascript:alert(1)' } }, ['ana', 'beto']).ok && R.view(C, 'ana').chars.at(-1).img === '', 'imagem só de /files, /avatars ou https');
+
+// ---------- D&D 5e: valor do atributo vira modificador ----------
+ok(mod(17) === 3 && mod(10) === 0 && mod(8) === -1 && mod(20) === 5 && mod(1) === -5, 'modificador: (valor − 10) ÷ 2, para baixo');
+ok(prof(1) === 2 && prof(4) === 2 && prof(5) === 3 && prof(13) === 5 && prof(20) === 6, 'proficiência pelo nível');
+{
+  const D = 'dnd', m2 = ['gm', 'joa'], o = (u, d) => R.op(D, u, d, m2);
+  R.open(D, 'gm', m2);
+  ok(R.view(D, 'gm').sys === 'dnd5e' && R.view(D, 'gm').attrRoll === '1d20+{m}', 'mesa nova já é D&D 5e');
+  o('joa', { op: 'char.save', char: { name: 'Tor', level: 5, attrs: { FOR: 15, DES: 12 }, abon: { FOR: 2 } } });
+  o('joa', { op: 'roll', expr: '1d20+@FOR+@PROF' });
+  const parts = R.view(D, 'joa').log.at(-1).roll.parts;
+  ok(parts[1].v === 3 && parts[2].v === 3, 'FOR 15 + 2 da raça = 17 → +3 no dado (não +17); proficiência do nível 5 = +3', parts);
+  ok(o('joa', { op: 'char.save', char: { name: 'Y', attrs: { FOR: 99 } } }).ok && R.view(D, 'joa').chars.at(-1).attrs.FOR === 30, 'valor do atributo vai até 30');
+  o('gm', { op: 'foe.save', foe: { name: 'Lobo', hp: { max: 11 }, ini: 2 } });
+  const lobo = R.view(D, 'gm').foes[0];
+  o('gm', { op: 'roll', expr: '1d20+4', as: 'f:' + lobo.id });
+  ok(R.view(D, 'gm').log.at(-1).who === 'Lobo' && R.view(D, 'gm').log.at(-1).gm && R.view(D, 'joa').log.at(-1)?.who !== 'Lobo', 'mestre rola pelo inimigo; fora de cena, só ele vê');
+  ok(o('joa', { op: 'roll', expr: '1d20', as: 'f:' + lobo.id }).error, 'jogador não rola pelo inimigo');
+  o('gm', { op: 'foe.show', id: lobo.id, on: true }); o('gm', { op: 'foe.dup', id: lobo.id });
+  o('gm', { op: 'combat.start' });
+  const cb = R.view(D, 'gm').combat;
+  ok(cb.order.length === 2 && cb.order.every(e => Number.isFinite(e.init)), 'começar combate já rola a iniciativa de todos (o lobo fora de cena não entra)', cb.order);
+  const first = cb.order[0], second = cb.order[1];
+  const foeE = cb.order.find(e => e.kind === 'f');
+  o('gm', { op: 'foe.hp', id: foeE.ref, set: 0 });
+  if (first.kind === 'c') { o('gm', { op: 'combat.next' }); ok(R.view(D, 'gm').combat.round === 2 && R.view(D, 'gm').combat.cur === first.id, 'inimigo derrotado é pulado no próximo turno'); }
+  else { o('gm', { op: 'combat.next' }); ok(R.view(D, 'gm').combat.cur === second.id, 'próximo turno vai para a ficha'); o('gm', { op: 'combat.next' }); ok(R.view(D, 'gm').combat.round === 2 && R.view(D, 'gm').combat.cur === second.id, 'inimigo derrotado é pulado no próximo turno'); }
+  // mesa salva antes do sistema de atributos
+  run('INSERT INTO rpg_tables(channel_id, data, updated_at) VALUES(?,?,?)', 'velha', JSON.stringify({ v: 1, gm: 'gm', name: 'X', attrs: ['FOR', 'DES', 'CON', 'INT', 'SAB', 'CAR'], conds: [], attrRoll: '1d20+{v}', initRoll: '1d20', chars: [{ id: 'a', owner: 'joa', name: 'A', attrs: { FOR: 3 }, tags: [], hp: { cur: 1, max: 1 } }], active: {}, foes: [], combat: null, log: [] }), 1);
+  const V = R.view('velha', 'gm');
+  ok(V.sys === 'dnd5e' && V.attrRoll === '1d20+{m}' && V.initRoll === '1d20+@DES' && V.chars[0].abon, 'mesa antiga com atributos de D&D passa para o sistema novo', V);
+}
 
 // ---------- persistência ----------
 const R2 = createRpg({ db, get, run });

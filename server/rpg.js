@@ -83,20 +83,44 @@ export function roll(expr, { attrs = {}, adv = null, rnd = Math.random } = {}) {
 }
 
 // estado narrativo pela fração de vida
+// D&D 5e: o valor do atributo (1 a 30, normal até 20) vira o modificador que entra no dado: 10-11 = +0, 20 = +5, 8 = -1.
+// Bônus de proficiência pelo nível: +2 (1-4), +3 (5-8), +4 (9-12), +5 (13-16), +6 (17-20).
+export const mod = (score) => Math.floor((score - 10) / 2);
+export const prof = (level) => 2 + Math.floor((Math.max(1, Math.min(20, level || 1)) - 1) / 4);
 export const narr = (cur, max) => { const f = max > 0 ? cur / max : 0; return cur <= 0 ? 'Derrotado' : f >= 1 ? 'Ileso' : f > .75 ? 'Arranhado' : f > .5 ? 'Ferido' : f > .25 ? 'Muito ferido' : 'Quase caindo'; };
 
 export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.now() }) {
   db.exec('CREATE TABLE IF NOT EXISTS rpg_tables(channel_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)');
   const tables = new Map(); // channelId -> mesa carregada
   const id = () => Math.floor(rnd() * 36 ** 8).toString(36).padStart(8, '0');
-  const fresh = (gm) => ({ v: 1, gm, name: 'Mesa de RPG', attrs: [...DEF_ATTRS], conds: [...DEF_CONDS], attrRoll: '1d20+{v}', initRoll: '1d20', chars: [], active: {}, foes: [], combat: null, log: [] });
+  const fresh = (gm) => ({ v: 1, gm, name: 'Mesa de RPG', attrs: [...DEF_ATTRS], conds: [...DEF_CONDS], sys: 'dnd5e', attrRoll: '1d20+{m}', initRoll: '1d20+@DES', chars: [], active: {}, foes: [], combat: null, log: [] });
   function load(c) {
     let T = tables.get(c); if (T) return T;
     const row = get('SELECT data FROM rpg_tables WHERE channel_id=?', c);
     try { T = row ? JSON.parse(row.data) : null; } catch { T = null; }
-    if (T) tables.set(c, T);
+    if (T) { migrate(T); tables.set(c, T); }
     return T;
   }
+  // mesas de antes do sistema de atributos: a com os atributos de sempre vira D&D 5e, as outras ficam no modo livre
+  function migrate(T) {
+    if (!T.sys) { T.sys = T.attrs.join() === DEF_ATTRS.join() ? 'dnd5e' : 'livre'; if (T.sys === 'dnd5e') { if (T.attrRoll === '1d20+{v}') T.attrRoll = '1d20+{m}'; if (T.initRoll === '1d20') T.initRoll = '1d20+@DES'; } }
+    for (const ch of T.chars) ch.abon ||= {};
+  }
+  // o que @ATRIBUTO vale na rolagem: o modificador (D&D) ou o próprio valor (livre); @PROF = bônus de proficiência
+  const rollAttrs = (T, ch) => {
+    const out = {}; if (!ch?.attrs) return out;
+    for (const [k, v] of Object.entries(ch.attrs)) { const sc = v + (ch.abon?.[k] || 0); out[k] = T.sys === 'dnd5e' ? mod(sc) : sc; }
+    if (T.sys === 'dnd5e') out.PROF = prof(ch.level);
+    return out;
+  };
+  // iniciativa de alguém do combate: a expressão da mesa (@DES da ficha; inimigo usa o bônus próprio)
+  const rollInit = (T, e) => {
+    const isF = e.kind === 'f', t = isF ? T.foes.find(x => x.id === e.ref) : T.chars.find(x => x.id === e.ref); if (!t) return null;
+    const attrs = isF ? {} : rollAttrs(T, t);
+    let expr = T.initRoll.replace(/@([\p{L}\d_]+)/gu, (m0, k) => (Object.keys(attrs).some(a => a.toLowerCase() === k.toLowerCase()) ? m0 : '0'));
+    if (isF && t.ini) expr += (t.ini > 0 ? '+' : '-') + Math.abs(t.ini);
+    const r = roll(expr, { attrs, rnd }); e.init = r.total; return r;
+  };
   const save = (c, T) => run('INSERT INTO rpg_tables(channel_id, data, updated_at) VALUES(?,?,?) ON CONFLICT(channel_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at', c, JSON.stringify(T), now());
   const log = (T, uid, kind, text, extra = {}) => { T.log.push({ id: id(), at: now(), uid, kind, text: clip(text, 300), ...extra }); if (T.log.length > LIMITS.log) T.log.splice(0, T.log.length - LIMITS.log); };
   const charOf = (T, cid) => T.chars.find(x => x.id === cid);
@@ -120,7 +144,7 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
     const combat = T.combat && { ...T.combat, order: gm ? T.combat.order : T.combat.order.filter(e => e.kind === 'c' || fShown.has(e.ref)) };
     // de quem é a vez (se for de um inimigo escondido, o jogador não vê ninguém marcado)
     if (combat) combat.cur = T.combat.order[T.combat.turn]?.id || null;
-    return { channel_id: c, gm: T.gm, me_gm: gm, name: T.name, attrs: T.attrs, conds: T.conds, attrRoll: T.attrRoll, initRoll: T.initRoll,
+    return { channel_id: c, gm: T.gm, me_gm: gm, name: T.name, sys: T.sys, attrs: T.attrs, conds: T.conds, attrRoll: T.attrRoll, initRoll: T.initRoll,
       chars: T.chars, active: T.active, foes, combat, log: gm ? T.log : T.log.filter(e => !e.gm).map(e => (e.pub != null ? { ...e, text: e.pub, pub: undefined, gmText: undefined } : e)) };
   }
 
@@ -142,12 +166,14 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
     try {
       switch (String(d.op || '')) {
         case 'roll': {
-          const ch = d.char ? charOf(T, String(d.char)) : charOf(T, T.active[uid]);
-          const attrs = ch && (ch.owner === uid || gm) ? ch.attrs : {};
+          // rolar como: a ficha em uso, ou (mestre) qualquer ficha ou inimigo
+          let actor = null, isF = false;
+          if (d.as) { const [k, rid] = String(d.as).split(':'); isF = k === 'f'; actor = isF ? foeOf(T, rid) : charOf(T, rid); need(actor && (isF ? gm : canChar(T, uid, actor)), 'Você não pode rolar por esse personagem'); }
+          else { actor = charOf(T, T.active[uid]) || null; if (actor && !canChar(T, uid, actor)) actor = null; }
           const adv = d.adv === 'adv' || d.adv === 'dis' ? d.adv : null;
-          const r = roll(d.expr, { attrs, adv, rnd });
-          const label = clip(d.label, 40), secret = !!d.secret && gm;
-          log(T, uid, 'roll', label || r.expr, { roll: r, label, char: ch && (ch.owner === uid || gm) ? ch.id : null, ...(secret ? { gm: true } : {}) });
+          const r = roll(d.expr, { attrs: isF ? {} : rollAttrs(T, actor), adv, rnd });
+          const label = clip(d.label, 40), secret = (!!d.secret && gm) || (isF && !actor.shown); // inimigo fora de cena: só o mestre vê
+          log(T, uid, 'roll', label || r.expr, { roll: r, label, ...(actor ? { who: actor.name, char: isF ? null : actor.id } : {}), ...(secret ? { gm: true } : {}) });
           break;
         }
         case 'char.save': { // cria ou edita uma ficha
@@ -156,10 +182,12 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
           else need(T.chars.length < LIMITS.chars, `A mesa já tem ${LIMITS.chars} personagens`);
           const owner = gm && x.owner ? clip(x.owner, 40) : (old?.owner || uid);
           const attrs = {};
-          for (const [k, v] of Object.entries(x.attrs || {}).slice(0, LIMITS.attrs)) { const kk = clip(k, 12); if (kk) attrs[kk] = int(v, -999, 9999); }
-          const ch = { id: old?.id || id(), owner, name: clip(x.name, 40) || 'Sem nome', img: imgUrl(x.img), cls: clip(x.cls, 40), level: int(x.level, 0, 999, 1),
+          const dnd = T.sys === 'dnd5e', abon = {};
+          for (const [k, v] of Object.entries(x.attrs || {}).slice(0, LIMITS.attrs)) { const kk = clip(k, 12); if (kk) attrs[kk] = dnd ? int(v, 1, 30, 10) : int(v, -999, 9999); }
+          for (const [k, v] of Object.entries(x.abon || {})) if (k in attrs && int(v, -10, 10)) abon[k] = int(v, -10, 10);
+          const ch = { id: old?.id || id(), owner, name: clip(x.name, 40) || 'Sem nome', img: imgUrl(x.img), cls: clip(x.cls, 40), race: clip(x.race, 30), level: int(x.level, 0, 999, 1),
             hp: pool(x.hp, old?.hp), res: x.res && clip(x.res.name, 20) ? { name: clip(x.res.name, 20), ...pool(x.res, old?.res) } : null,
-            attrs, tags: strList(x.tags, LIMITS.tags, 24), skills: clip(x.skills, 2000), notes: clip(x.notes, 2000), conds: old ? old.conds : [] };
+            attrs, abon, tags: strList(x.tags, LIMITS.tags, 24), skills: clip(x.skills, 2000), notes: clip(x.notes, 2000), conds: old ? old.conds : [] };
           if (old) Object.assign(old, ch); else { T.chars.push(ch); if (!T.active[owner]) T.active[owner] = ch.id; log(T, uid, 'info', `criou a ficha de ${ch.name}`); }
           break;
         }
@@ -199,7 +227,7 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
           if (!old) need(T.foes.length < LIMITS.foes, `No máximo ${LIMITS.foes} inimigos`);
           const f = { id: old?.id || id(), name: clip(x.name, 40) || 'Inimigo', img: imgUrl(x.img), boss: !!x.boss, mode: HP_MODES.includes(x.mode) ? x.mode : 'show',
             hp: pool(x.hp, old?.hp), attacks: clip(x.attacks, 2000), abilities: clip(x.abilities, 2000), resist: clip(x.resist, 300), weak: clip(x.weak, 300),
-            notes: clip(x.notes, 2000), conds: old ? old.conds : [], shown: old ? old.shown : !!x.shown };
+            notes: clip(x.notes, 2000), ini: int(x.ini, -20, 30), conds: old ? old.conds : [], shown: old ? old.shown : !!x.shown };
           if (old) Object.assign(old, f); else { T.foes.push(f); log(T, uid, 'info', `preparou ${f.boss ? 'o chefe' : 'o inimigo'} ${f.name}`, { gm: true }); }
           break;
         }
@@ -208,7 +236,7 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
           T.foes.push({ ...structuredClone(f), id: id(), name: `${base} ${n}`.slice(0, 40), hp: { ...f.hp, cur: f.hp.max }, conds: [], shown: false }); break; }
         case 'foe.del': { need(gm); const f = foeOf(T, String(d.id)); if (!f) break; T.foes = T.foes.filter(x => x !== f); if (T.combat) dropFromCombat(T, 'f', f.id); break; }
         case 'foe.show': { need(gm); const f = foeOf(T, String(d.id)); need(f, 'Inimigo não encontrado'); f.shown = !!d.on;
-          if (f.shown) log(T, uid, 'info', `${f.boss ? '👑 O chefe ' : ''}${f.name} entrou em cena`); break; }
+          if (f.shown) log(T, uid, 'scene', `${f.boss ? 'O chefe ' : ''}${f.name} entrou em cena`); break; }
         case 'gm.set': { // passar o mestre (o mestre) ou assumir (quando o mestre não está na chamada)
           const to = clip(d.uid || uid, 40);
           need(gm || (to === uid && !members.includes(T.gm)), 'Só o mestre passa o posto (ou assuma quando ele não estiver na chamada)');
@@ -218,8 +246,9 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
         case 'cfg': { need(gm);
           if (d.name != null) T.name = clip(d.name, 40) || 'Mesa de RPG';
           if (d.attrs) T.attrs = strList(d.attrs, LIMITS.attrs, 12);
+          if (d.sys === 'dnd5e' || d.sys === 'livre') T.sys = d.sys;
           if (d.conds) T.conds = strList(d.conds, 30, 30);
-          if (d.attrRoll != null) { const e = clip(d.attrRoll, 60) || '1d20+{v}'; roll(e.replace(/\{v\}/g, '1'), { rnd: () => 0 }); T.attrRoll = e; }
+          if (d.attrRoll != null) { const e = clip(d.attrRoll, 60) || '1d20+{m}'; roll(e.replace(/\{[vm]\}/g, '1'), { rnd: () => 0 }); T.attrRoll = e; }
           if (d.initRoll != null) { const e = clip(d.initRoll, 60) || '1d20'; roll(e.replace(/@[\p{L}\d_]+/gu, '0'), { rnd: () => 0 }); T.initRoll = e; }
           break;
         }
@@ -227,11 +256,13 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
           const order = [];
           for (const u of members) { const ch = charOf(T, T.active[u]); if (ch) order.push({ id: id(), kind: 'c', ref: ch.id, init: null }); }
           for (const f of T.foes) if (f.shown && f.hp.cur > 0) order.push({ id: id(), kind: 'f', ref: f.id, init: null });
-          T.combat = { round: 1, turn: 0, order }; log(T, uid, 'combat', '⚔️ Combate começou'); break;
+          need(order.length, 'Ninguém para o combate: crie fichas ou ponha inimigos em cena');
+          T.combat = { round: 1, turn: 0, order }; for (const e of order) rollInit(T, e); sortCombat(T); T.combat.turn = 0; // todo mundo entra com a iniciativa rolada
+          log(T, uid, 'combat', 'Combate começou'); break;
         }
         case 'combat.add': { need(gm); need(T.combat, 'Comece um combate primeiro'); const kind = d.kind === 'f' ? 'f' : 'c', ref = String(d.ref);
           need(kind === 'f' ? foeOf(T, ref) : charOf(T, ref), 'Não encontrado');
-          if (!T.combat.order.some(e => e.kind === kind && e.ref === ref)) T.combat.order.push({ id: id(), kind, ref, init: null }); break; }
+          if (!T.combat.order.some(e => e.kind === kind && e.ref === ref)) { const e = { id: id(), kind, ref, init: null }; T.combat.order.push(e); rollInit(T, e); sortCombat(T); } break; }
         case 'combat.remove': { need(gm); need(T.combat); const e = T.combat.order.find(x => x.id === String(d.id)); if (e) dropFromCombat(T, e.kind, e.ref); break; }
         case 'combat.init': { // valor exato ou rolagem da iniciativa (expr da mesa, @atributo da ficha); all: o mestre rola para quem falta
           need(T.combat, 'Não há combate');
@@ -241,16 +272,20 @@ export function createRpg({ db, get, run, rnd = Math.random, now = () => Date.no
             need(e.kind === 'c' ? canChar(T, uid, ch) : gm, 'Só o dono da ficha ou o mestre');
             if (d.set != null) e.init = int(d.set, -999, 9999);
             else {
-              const expr = T.initRoll.replace(/@([\p{L}\d_]+)/gu, (m0, k) => (ch.attrs && Object.keys(ch.attrs).some(a => a.toLowerCase() === k.toLowerCase()) ? m0 : '0'));
-              const r = roll(expr, { attrs: ch.attrs || {}, rnd }); e.init = r.total;
-              const hide = e.kind === 'f' && !ch.shown;
-              log(T, uid, 'roll', `Iniciativa de ${nm(ch)}`, { roll: r, label: `Iniciativa · ${nm(ch)}`, ...(hide ? { gm: true } : {}) });
+              const r = rollInit(T, e);
+              if (!d.all && r) log(T, uid, 'roll', 'Iniciativa', { roll: r, label: 'Iniciativa', who: ch.name, ...(e.kind === 'f' && !ch.shown ? { gm: true } : {}) });
             }
           }
           sortCombat(T); break;
         }
         case 'combat.next': case 'combat.prev': { need(gm); const C = T.combat; need(C && C.order.length, 'Não há combate');
-          if (d.op === 'combat.next') { C.turn++; if (C.turn >= C.order.length) { C.turn = 0; C.round++; log(T, uid, 'combat', `Rodada ${C.round}`); } tickConds(T, C.order[C.turn], uid); }
+          if (d.op === 'combat.next') { // pula inimigo derrotado (ficha a 0 ainda joga: testes contra a morte)
+            for (let i = 0; i < C.order.length; i++) {
+              C.turn++; if (C.turn >= C.order.length) { C.turn = 0; C.round++; log(T, uid, 'combat', `Rodada ${C.round}`); }
+              const e = C.order[C.turn], f = e.kind === 'f' && foeOf(T, e.ref); if (!f || f.hp.cur > 0) break;
+            }
+            tickConds(T, C.order[C.turn], uid);
+          }
           else { C.turn--; if (C.turn < 0) { if (C.round > 1) { C.round--; C.turn = C.order.length - 1; } else C.turn = 0; } }
           break;
         }
