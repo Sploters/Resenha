@@ -27,7 +27,20 @@ const sgn = (n) => (n >= 0 ? '+' : '−') + Math.abs(n);
 // vida: dado de vida cheio no 1º nível + CON; depois a média do dado (metade + 1) + CON por nível
 const hpSuggest = (cls, lvl, con) => { const d = CLASSES[cls]?.[0]; if (!d) return null; const m = mod(con), l = Math.max(1, lvl || 1); return Math.max(l, d + m + (l - 1) * Math.max(1, d / 2 + 1 + m)); };
 
-let T = null, node = null, tab = 'mesa', seen = null, adv = null, secret = false, lastExpr = '', rollAs = '', sel = null, selTurn = null, logAll = true;
+let T = null, node = null, tab = 'mesa', seen = null, adv = null, secret = false, lastExpr = '', rollAs = '', sel = null, selTurn = null, logAll = true, sheetOpen = null, jrFilter = '', known = null;
+// animação dos dados e som: escolha de cada um (fica neste aparelho)
+const fxp = (() => { try { return { anim: true, sound: false, ...JSON.parse(localStorage.rpgFx || '{}') }; } catch { return { anim: true, sound: false }; } })();
+const saveFx = () => { try { localStorage.rpgFx = JSON.stringify(fxp); } catch { /* sem armazenamento */ } };
+let actx = null;
+function beep(kind) {
+  if (!fxp.sound) return;
+  try {
+    actx ||= new AudioContext();
+    const notes = kind === 'crit' ? [523, 659, 784] : kind === 'fumble' ? [392, 311, 233] : kind === 'ping' ? [660, 880] : [440];
+    notes.forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + i * .09; o.type = 'triangle'; o.frequency.value = f;
+      g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(.08, t0 + .01); g.gain.exponentialRampToValueAtTime(.0001, t0 + .16); o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + .18); });
+  } catch { /* sem áudio */ }
+}
 let exprIn = null, bodyEl = null, sideLog = null, barInfo = null, tabsEl = null, asSel = null, resultEl = null, secretBtn = null, advBtns = null, logTabs = null;
 const send = (d) => voice?.send('RPG', d);
 const gid = () => channelById(voice?.channelId)?.guild_id;
@@ -51,16 +64,22 @@ export function rpgSet(d) {
   if (tab === 'mestre' && !d.me_gm) tab = 'mesa';
   // a seleção do combate acompanha a vez (até alguém clicar em outro)
   const cur = d.combat?.cur || null; if (cur !== selTurn) { selTurn = cur; sel = cur; }
-  if (prev !== seen) { const i = prev ? d.log.findIndex(e => e.id === prev) : -1, fresh = d.log.slice(i + 1).filter(e => e.kind === 'roll'); if (fresh.length) showResult(fresh.at(-1)); }
+  if (prev !== seen) { const i = prev ? d.log.findIndex(e => e.id === prev) : -1, fresh = d.log.slice(i + 1).filter(e => e.kind === 'roll'); if (fresh.length) showResult(fresh.at(-1), !!prev); }
+  // aviso (som) quando chega algo para mim: teste pedido, reação oferecida, momento decisivo
+  const mine = new Set(d.chars.filter(c => c.owner === me()).map(c => c.id));
+  const now = new Set([...d.asks.filter(a => a.open && a.targets.some(t => mine.has(t))).map(a => a.id), ...d.offers.filter(o => mine.has(o.char)).map(o => o.id), ...d.events.filter(e => e.open).map(e => e.id)]);
+  if (known && [...now].some(x => !known.has(x))) beep('ping');
+  known = now;
   render();
+  if (sheetOpen) { if (sheetOpen.el.isConnected) renderSheet(); else sheetOpen = null; }
 }
-export const rpgReset = () => { T = null; node = null; seen = null; sel = selTurn = null; rollAs = ''; };
+export const rpgReset = () => { T = null; node = null; seen = null; sel = selTurn = null; rollAs = ''; known = null; sheetOpen = null; };
 export const rpgError = (d) => toast(d.error || 'Não deu certo', true);
 
 // ---------- rolagem ----------
 function doRoll(expr, label, as = rollAs) {
   expr = String(expr || '').trim(); if (!expr) return toast('Escolha os dados ou digite uma rolagem, como 1d20+3', true);
-  lastExpr = expr; send({ op: 'roll', expr, label: label || '', adv, secret: secret && isGM(), ...(as ? { as } : {}) });
+  lastExpr = expr; send({ op: 'roll', expr, label: label || '', adv, ...(secret ? (isGM() ? { secret: true } : { priv: true }) : {}), ...(as ? { as } : {}) });
   if (adv) { adv = null; syncToggles(); } // vantagem/desvantagem valem para uma rolagem
 }
 function attrRoll(ch, k) {
@@ -79,7 +98,10 @@ function addMod(n) {
   let k = m ? (m[1] === '-' ? -m[2] : +m[2]) : 0; k += n;
   exprIn.value = (m ? v.slice(0, m.index) : v) + (k ? (k > 0 ? '+' : '-') + Math.abs(k) : ''); exprIn.dataset.fresh = '';
 }
-const syncToggles = () => { if (!advBtns) return; advBtns.adv.classList.toggle('on', adv === 'adv'); advBtns.dis.classList.toggle('on', adv === 'dis'); secretBtn.classList.toggle('on', secret); secretBtn.hidden = !isGM(); };
+const syncToggles = () => {
+  if (!advBtns) return; advBtns.adv.classList.toggle('on', adv === 'adv'); advBtns.dis.classList.toggle('on', adv === 'dis'); secretBtn.classList.toggle('on', secret);
+  secretBtn.textContent = isGM() ? 'Secreta' : 'Privada'; secretBtn.title = isGM() ? 'Só você (mestre) vê o resultado' : 'Só você e o mestre veem o resultado';
+};
 // quem rola: o mestre escolhe qualquer ficha ou inimigo; o jogador, uma das fichas dele
 function setAs(v) { rollAs = v; if (asSel) asSel.value = v; const [k, id] = v.split(':'); if (k === 'c' && charOf(id)?.owner === me() && T.active[me()] !== id) send({ op: 'char.active', id }); }
 
@@ -89,23 +111,35 @@ function diceChips(r) {
       { title: x.was != null ? `Rerrolado (era ${x.was})` : x.ex ? 'Explodiu' : x.drop ? 'Descartado' : `d${p.faces}` }, x.was != null && h('s', String(x.was)), String(x.v)))) : h('span.rpg-mod', p.t.startsWith('@') ? `${p.t.slice(1)} ${sgn(p.v)}` : String(p.v))]));
 }
 const rollWho = (e) => e.who || (e.char && charOf(e.char)?.name) || who(e.uid);
-function showResult(e) {
+const checkTxt = (c) => (c.ok == null ? null : `${c.ok ? 'Sucesso' : 'Falha'}${c.dc != null ? ` · CD ${c.dc}` : c.hid ? ' · CD escondida' : ''}`);
+// resultado em destaque; com animação, o número gira um instante antes de parar (e o crítico/falha pulsa)
+function showResult(e, live) {
   if (!resultEl) return;
-  const r = e.roll;
-  resultEl.replaceChildren(h('div.rpg-res' + (r.crit ? '.crit' : r.fumble ? '.fumble' : ''),
-    h('div.rpg-res-who', rollWho(e), e.label && e.label !== r.expr ? ` · ${e.label}` : '', e.gm && ' · secreta'),
-    h('div.rpg-res-total', String(r.total)),
-    h('div.rpg-res-tag', r.crit ? 'Crítico' : r.fumble ? 'Falha crítica' : r.expr + (r.adv === 'adv' ? ' · vantagem' : r.adv === 'dis' ? ' · desvantagem' : '')),
-    diceChips(r)));
+  const r = e.roll, c = e.check, cls = c?.ok === true ? '.ok' : c?.ok === false ? '.no' : r.crit ? '.crit' : r.fumble ? '.fumble' : '';
+  const tot = h('div.rpg-res-total', String(r.total));
+  const card = h('div.rpg-res' + cls,
+    h('div.rpg-res-who', rollWho(e), e.label && e.label !== r.expr ? ` · ${e.label}` : '', e.gm ? ' · secreta' : e.priv ? ' · privada' : ''),
+    tot,
+    h('div.rpg-res-tag', c?.ok != null ? checkTxt(c) + (r.crit ? ' (20 natural)' : r.fumble ? ' (1 natural)' : '') : r.crit ? 'Crítico' : r.fumble ? 'Falha crítica' : r.expr + (r.adv === 'adv' ? ' · vantagem' : r.adv === 'dis' ? ' · desvantagem' : '')),
+    diceChips(r), e.fx?.length > 0 && h('div.rpg-res-fx', e.fx.join(' · ')));
+  resultEl.replaceChildren(card);
+  if (!live) return;
+  beep(r.crit ? 'crit' : r.fumble ? 'fumble' : 'roll');
+  const max = r.parts.reduce((s, p) => s + (p.faces ? p.faces : 0), 0) || 20;
+  if (fxp.anim && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    card.classList.add('spin'); let k = 0;
+    const t = setInterval(() => { tot.textContent = String(1 + Math.floor(Math.random() * max)); if (++k >= 9) { clearInterval(t); tot.textContent = String(r.total); card.classList.remove('spin'); card.classList.add('land'); } }, 45);
+  }
 }
 
 // ---------- histórico (compacto: uma linha por coisa; clicar numa rolagem mostra os dados) ----------
 function logItem(e) {
   const when = new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (e.kind === 'roll') {
-    const r = e.roll, li = h('li.rpg-li.roll' + (r.crit ? '.crit' : r.fumble ? '.fumble' : ''), { title: `${when} · ${r.expr}`, onclick: () => li.classList.toggle('open') },
-      h('div.rpg-li-row', h('b', rollWho(e)), h('span.rpg-li-lab', e.label || r.expr), e.gm && h('span.rpg-li-sec', { title: 'Secreta: só o mestre vê' }, icon('eyeoff', 12)), h('span.rpg-total', String(r.total))),
-      h('div.rpg-li-det', diceChips(r)));
+    const r = e.roll, c = e.check, li = h('li.rpg-li.roll' + (r.crit ? '.crit' : r.fumble ? '.fumble' : ''), { title: `${when} · ${r.expr}`, onclick: () => li.classList.toggle('open') },
+      h('div.rpg-li-row', h('b', rollWho(e)), h('span.rpg-li-lab', e.label || r.expr), (e.gm || e.priv) && h('span.rpg-li-sec', { title: e.gm ? 'Secreta: só o mestre vê' : 'Privada: quem rolou e o mestre' }, icon('eyeoff', 12)),
+        c?.ok != null && h('span.rpg-li-chk' + (c.ok ? '.ok' : '.no'), c.ok ? '✓' : '✗'), h('span.rpg-total', String(r.total))),
+      h('div.rpg-li-det', diceChips(r), c?.ok != null && h('div.muted', checkTxt(c)), e.fx?.length > 0 && h('div.muted', e.fx.join(' · '))));
     return li;
   }
   return h('li.rpg-li.note', { title: when }, e.kind === 'info' ? `${who(e.uid)} ${e.text}` : e.text, e.gm && h('span.rpg-li-sec', { title: 'Só você vê' }, icon('eyeoff', 12)));
@@ -119,6 +153,7 @@ const portrait = (t, kind, size = 40) => (t.img ? h('img.rpg-img', { src: t.img,
     : avatar(user(t.owner), size, { status: false }));
 const chip = (txt, cls, onDel) => h('span.rpg-chip' + (cls ? '.' + cls : ''), txt, onDel && h('button.rpg-chip-x', { title: 'Tirar', onclick: (ev) => { ev.stopPropagation(); onDel(); } }, '×'));
 const condTxt = (c) => c.name + (c.turns != null ? ` · ${c.turns}` : '');
+const condDesc = (n) => { const d = T.conds.find(c => c.name.toLowerCase() === String(n).toLowerCase()); return d ? [d.desc, d.adv === 'adv' ? 'Vantagem no d20' : d.adv === 'dis' ? 'Desvantagem no d20' : '', d.bonus && `${d.bonus} no d20`, d.tick && `${d.tick} de dano por turno`].filter(Boolean).join(' · ') : ''; };
 const foeHp = (f) => (f.hp ? null : f.mode === 'hidden' ? (f.state === 'Derrotado' ? 'Derrotado' : `${f.dmg} de dano`) : f.state);
 function attrsRow(ch, canRoll) {
   const keys = Object.keys(ch.attrs); if (!keys.length) return null;
@@ -131,8 +166,9 @@ const subtitle = (ch) => [ch.race, ch.cls, ch.level ? `nível ${ch.level}` : '',
 function charCard(ch) {
   const mine = canChar(ch), active = T.active[ch.owner] === ch.id;
   return h('div.rpg-card',
-    h('div.rpg-card-head', portrait(ch, 'c'),
-      h('div.rpg-card-id', h('b', ch.name), h('span', subtitle(ch))),
+    h('div.rpg-card-head', h('button.rpg-open', { title: 'Abrir a ficha', onclick: () => openSheet(ch) }, portrait(ch, 'c')),
+      h('button.rpg-card-id.rpg-open', { title: 'Abrir a ficha', onclick: () => openSheet(ch) }, h('b', ch.name, ch.insp > 0 && h('span.rpg-insp', { title: `Inspiração ${ch.insp}/${T.insp.max}` }, icon('star', 12), ch.insp)), h('span', subtitle(ch))),
+      isGM() && h('button.ibtn', { title: `Dar inspiração (${ch.insp}/${T.insp.max})`, onclick: () => send({ op: 'insp', id: ch.id, delta: 1 }) }, icon('sparkle', 16)),
       ch.owner === me() && myChars().length > 1 && h('button.ibtn' + (active ? '.on' : ''), { title: active ? 'Ficha em uso nas rolagens' : 'Usar esta ficha nas rolagens', onclick: () => send({ op: 'char.active', id: ch.id }) }, icon('star', 16)),
       mine && h('button.ibtn', { title: 'Editar ficha', onclick: () => sheetModal(ch) }, icon('edit', 16))),
     bar(ch.hp, 'hp', 'Vida', mine ? () => hpModal(ch, 'c') : null),
@@ -171,7 +207,10 @@ function tracker() {
     gm && h('button.btn.rpg-next', { onclick: () => send({ op: 'combat.next' }) }, 'Próximo turno', icon('chevr', 16)),
     gm && h('button.ibtn', { title: 'Mais opções do combate', onclick: (ev) => {
       const inC = new Set(C.order.map(e => e.kind + e.ref)), out = [...T.chars.map(c => ['c', c]), ...T.foes.map(f => ['f', f])].filter(([k, x]) => !inC.has(k + x.id));
+      const s = C.order.find(e => e.id === sel), sn = s && ent(s.kind, s.ref)?.name;
       menu(ev, [{ label: 'Voltar um turno', icon: 'chevl', fn: () => send({ op: 'combat.prev' }) },
+        sn && { label: `${sn}: jogar antes`, icon: 'chevl', fn: () => send({ op: 'combat.move', id: s.id, dir: -1 }) },
+        sn && { label: `${sn}: jogar depois`, icon: 'chevr', fn: () => send({ op: 'combat.move', id: s.id, dir: 1 }) },
         out.length && { label: 'Adicionar ao combate', icon: 'plus', sub: out.map(([k, x]) => ({ label: x.name + (k === 'f' && !x.shown ? ' (fora de cena)' : ''), fn: () => send({ op: 'combat.add', kind: k, ref: x.id }) })) },
         '-', { label: 'Encerrar combate', icon: 'x', danger: true, fn: () => send({ op: 'combat.end' }) }]);
     } }, icon('more', 18)));
@@ -185,19 +224,30 @@ function focusPanel() {
   const active = new Map((t.conds || []).map(c => [c.name.toLowerCase(), c]));
   const turns = h('input.rpg-turns', { type: 'number', min: 1, max: 99, placeholder: '∞', title: 'Duração em turnos das condições que você marcar (vazio = até tirar)', onkeydown: (ev) => ev.stopPropagation() });
   const toggle = (name) => (active.has(name.toLowerCase()) ? send({ op: 'cond.del', kind: e.kind, id: t.id, name }) : send({ op: 'cond.add', kind: e.kind, id: t.id, name, turns: turns.value ? +turns.value : null }));
-  const condNames = [...new Set([...T.conds, ...(t.conds || []).map(c => c.name)])];
+  const condNames = [...new Set([...T.conds.map(c => c.name), ...(t.conds || []).map(c => c.name)])];
   const asVal = (isF ? 'f:' : 'c:') + t.id;
   return h('div.rpg-focus',
-    h('div.rpg-focus-head', portrait(t, e.kind, 48),
-      h('div.rpg-card-id', h('b', t.boss && icon('crown', 14), t.name), h('span', turn ? 'Vez agora' : 'Selecionado', ' · ', isF ? (t.boss ? 'Chefe' : 'Inimigo') : who(t.owner))),
+    h('div.rpg-focus-head', isF ? portrait(t, e.kind, 48) : h('button.rpg-open', { title: 'Abrir a ficha', onclick: () => openSheet(t) }, portrait(t, e.kind, 48)),
+      h('div.rpg-card-id', h('b', t.boss && icon('crown', 14), t.name, t.insp > 0 && h('span.rpg-insp', icon('star', 12), t.insp)),
+        h('span', turn ? 'Vez agora' : 'Selecionado', ' · ', isF ? [t.kind || (t.boss ? 'Chefe' : 'Inimigo'), (t.phaseName || t.phases?.[t.phase]?.name) && ` · fase ${t.phaseName || t.phases[t.phase].name}`] : who(t.owner))),
       h('button.rpg-init-btn', { title: can ? 'Mudar a iniciativa' : 'Iniciativa', disabled: !can, onclick: () => initModal(e, t) }, h('small', 'Inic.'), h('b', String(e.init ?? '–'))),
       gm && h('button.ibtn', { title: 'Tirar do combate', onclick: () => send({ op: 'combat.remove', id: e.id }) }, icon('x', 16))),
     h('div.rpg-focus-hp', t.hp ? bar(t.hp, 'hp' + (isF ? '.foe' : ''), 'Vida', null) : h('div.rpg-hptext', foeHp(t)),
       can && h('div.rpg-hit', amt, h('button.btn.red.sm', { onclick: () => hit(-1) }, 'Dano'), h('button.btn.green.sm', { onclick: () => hit(1) }, 'Cura'))),
     !isF && t.res && bar(t.res, 'res', t.res.name, can ? () => hpModal(t, 'c', true) : null),
+    T.economy?.length > 0 && h('div.rpg-focus-sec', h('span.rpg-lab', 'No turno'), h('div.rpg-chips', T.economy.map(n => { const used = (e.used || []).includes(n);
+      return h('button.rpg-chip.eco' + (used ? '.used' : ''), { title: used ? `${n}: gasta neste turno` : `${n}: disponível`, disabled: !can, onclick: () => send({ op: 'eco', id: e.id, name: n }) }, n); }))),
+    gm && !isF && h('div.rpg-quick',
+      T.reactions?.length > 0 && h('button.btn.grey.sm', { onclick: (ev) => menu(ev, T.reactions.map(r => ({ label: r.name, hint: r.desc, fn: () => send({ op: 'react.offer', char: t.id, name: r.name }) }))) }, 'Oferecer reação'),
+      h('button.btn.grey.sm', { onclick: () => askModal({ target: t.id }) }, 'Pedir teste'),
+      h('button.btn.grey.sm', { onclick: () => send({ op: 'insp', id: t.id, delta: 1 }) }, 'Dar inspiração')),
+    isF && t.desc && h('p.rpg-pre.muted', t.desc),
+    isF && gm && t.phases?.length > 0 && h('div.rpg-focus-sec', h('span.rpg-lab', 'Fases (mudam sozinhas pela vida)'), h('div.rpg-chips',
+      h('button.rpg-chip.tog' + (t.phase < 0 ? '.on' : ''), { onclick: () => send({ op: 'foe.phase', id: t.id, idx: -1 }) }, 'Normal'),
+      t.phases.map((p, i) => h('button.rpg-chip.tog' + (t.phase === i ? '.on' : ''), { title: `${p.at}% da vida${p.note ? ' · ' + p.note : ''}`, onclick: () => send({ op: 'foe.phase', id: t.id, idx: i }) }, p.name)))),
     h('div.rpg-focus-sec', h('span.rpg-lab', 'Condições'),
       can ? [h('div.rpg-chips', condNames.map(n => { const on = active.get(n.toLowerCase());
-        return h('button.rpg-chip.tog' + (on ? '.on' : ''), { onclick: () => toggle(n) }, n, on?.turns != null && h('small', ` ${on.turns}`)); })),
+        return h('button.rpg-chip.tog' + (on ? '.on' : ''), { title: condDesc(n), onclick: () => toggle(n) }, n, on?.turns != null && h('small', ` ${on.turns}`)); })),
       h('label.rpg-turns-row', 'Duração das próximas', turns, 'turnos')]
         : h('div.rpg-chips', (t.conds || []).length ? t.conds.map(c => chip(condTxt(c), 'cond')) : h('span.muted', 'Nenhuma'))),
     !isF && attrsRow(t, can),
@@ -231,24 +281,54 @@ function tabMesa() {
 function tabGM() {
   const others = callIds().filter(u => u !== me());
   return [
+    h('section.rpg-player', h('div.rpg-player-h', h('b', 'Conduzir')),
+      h('div.rpg-actions',
+        h('button.rpg-action', { onclick: () => askModal({}) }, icon('dice', 20), h('b', 'Pedir teste'), h('span', 'Perícia ou atributo, com CD, para um ou para o grupo')),
+        h('button.rpg-action', { onclick: () => eventModal() }, icon('compass', 20), h('b', 'Momento decisivo'), h('span', 'Opções para o grupo votar, com teste opcional')),
+        h('button.rpg-action', { onclick: () => jrModal({ kind: 'missao' }) }, icon('pin', 20), h('b', 'Nova missão'), h('span', 'Entra no diário para todos')),
+        h('button.rpg-action', { onclick: () => restModal() }, icon('moon', 20), h('b', 'Descanso'), h('span', 'Curto ou longo: recupera vida e recursos')))),
     h('section.rpg-player', h('div.rpg-player-h', h('b', 'Inimigos e NPCs'), h('span.muted', `${T.foes.filter(f => f.shown).length} em cena`),
       h('button.btn.grey.sm', { onclick: () => foeModal(null) }, icon('plus', 14), 'Novo')),
     T.foes.length ? h('div.rpg-grid', T.foes.map(foeCard)) : h('p.rpg-empty', 'Prepare os inimigos aqui. Ficam escondidos até você pôr em cena (o olho).')),
-    h('section.rpg-player', h('div.rpg-player-h', h('b', 'Regras da mesa')), cfgForm()),
+    h('details.rpg-player.rpg-rules', h('summary', h('b', 'Regras da mesa'), h('span.muted', 'sistema, atributos, perícias, condições, reações, inspiração, descanso')), cfgForm()),
     h('section.rpg-player', h('div.rpg-player-h', h('b', 'Mestre')),
       h('div.rpg-quick', others.map(u => h('button.btn.grey.sm', { onclick: () => modal('Passar o posto de mestre?', `${who(u)} passa a controlar inimigos, combate e regras.`, null, [{ label: 'Cancelar', cls: 'grey' }, { label: 'Passar', fn: () => send({ op: 'gm.set', uid: u }) }]) }, 'Passar para ', who(u))),
         h('button.btn.grey.sm', { onclick: () => modal('Limpar o histórico?', 'Some para todos. As fichas e os inimigos ficam.', null, [{ label: 'Cancelar', cls: 'grey' }, { label: 'Limpar', cls: 'red', fn: () => send({ op: 'log.clear' }) }]) }, 'Limpar histórico'))),
   ];
 }
+// condições em texto, uma por linha: "Nome; efeitos; descrição" — efeitos: vantagem, desvantagem, +1d4 (bônus), dano 1d4 (por turno)
+const condLine = (c) => [c.name, [c.adv === 'adv' && 'vantagem', c.adv === 'dis' && 'desvantagem', c.bonus, c.tick && `dano ${c.tick}`].filter(Boolean).join(', '), c.desc || ''].join('; ').replace(/(; )+$/, '');
+const parseConds = (txt) => txt.split('\n').map(l => l.split(';').map(s => s.trim())).filter(p => p[0]).map(([name, fx = '', desc = '']) => {
+  const c = { name, desc, adv: null, bonus: '', tick: '' };
+  for (const t of fx.split(',').map(s => s.trim()).filter(Boolean)) { if (/^vantagem$/i.test(t)) c.adv = 'adv'; else if (/^desvantagem$/i.test(t)) c.adv = 'dis'; else if (/^dano\s+/i.test(t)) c.tick = t.replace(/^dano\s+/i, '').replace(/\s*\/\s*turno$/i, ''); else if (/^[+-]/.test(t)) c.bonus = t; }
+  return c;
+});
+const lines = (v) => v.split('\n').map(l => l.trim()).filter(Boolean);
 function cfgForm() {
   const sys = h('select', [['dnd5e', 'D&D 5e: valor do atributo + modificador'], ['livre', 'Livre: o número do atributo vai direto no dado']].map(([v, l]) => h('option', { value: v, selected: v === T.sys }, l)));
-  const name = h('input', { value: T.name, maxlength: 40 }), attrs = h('input', { value: T.attrs.join(', ') }),
-    conds = h('input', { value: T.conds.join(', ') }), ar = h('input', { value: T.attrRoll }), ir = h('input', { value: T.initRoll });
+  const name = h('input', { value: T.name, maxlength: 40 }), attrs = h('input', { value: T.attrs.join(', ') }), ar = h('input', { value: T.attrRoll }), ir = h('input', { value: T.initRoll });
+  const skills = h('textarea', { rows: 5 }, T.skills.map(s => `${s.name}: ${s.attr}`).join('\n')), conds = h('textarea', { rows: 6 }, T.conds.map(condLine).join('\n'));
+  const eco = h('input', { value: T.economy.join(', '), placeholder: 'vazio = a mesa não usa' }), reacts = h('textarea', { rows: 3 }, T.reactions.map(r => [r.name, r.desc].filter(Boolean).join('; ')).join('\n'));
+  const imax = h('input', { type: 'number', min: 1, max: 10, value: T.insp.max }), ire = h('input', { type: 'checkbox', checked: T.insp.reroll }), iadv = h('input', { type: 'checkbox', checked: T.insp.adv }), nat = h('input', { type: 'checkbox', checked: T.nat });
+  const LV = [['none', 'nada'], ['quarter', '¼'], ['half', 'metade'], ['full', 'tudo']], rsel = (k, p) => h('select', { 'data-k': k, 'data-p': p }, LV.map(([v, l]) => h('option', { value: v, selected: T.rest[k][p] === v }, l)));
+  const rest = [rsel('short', 'hp'), rsel('short', 'res'), rsel('long', 'hp'), rsel('long', 'res')];
   const list = (v) => v.split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
-  return h('div.rpg-form', h('div.rpg-row', field('Nome da mesa', name), field('Sistema', sys)), field('Atributos das fichas', attrs), field('Condições prontas', conds),
+  return h('div.rpg-form',
+    h('div.rpg-row', field('Nome da mesa', name), field('Sistema', sys)), field('Atributos das fichas', attrs),
     h('div.rpg-row', field('Teste de atributo', ar), field('Iniciativa', ir)),
-    h('p.muted', '{m} = modificador, {v} = valor, @DES = modificador (D&D) ou valor (livre) do atributo da ficha, @PROF = proficiência. Ex.: 1d20+{m}, {v}d6, 1d100.'),
-    h('div', h('button.btn.sm', { onclick: () => send({ op: 'cfg', name: name.value, sys: sys.value, attrs: list(attrs.value), conds: list(conds.value), attrRoll: ar.value, initRoll: ir.value }) }, 'Salvar regras')));
+    h('p.muted', '{m} = modificador, {v} = valor, @DES = modificador (D&D) ou valor (livre) do atributo da ficha, @PROF = proficiência.'),
+    field('Perícias (uma por linha: Nome: ATRIBUTO)', skills),
+    field('Condições (uma por linha: Nome; efeitos; descrição)', conds),
+    h('p.muted', 'Efeitos: vantagem, desvantagem, +1d4 ou -2 (somam no d20), dano 1d4 (no começo do turno). Ex.: Abençoado; +1d4; Soma 1d4 em ataques e testes'),
+    h('div.rpg-row', field('Ações por turno', eco), field('Inspiração: máximo', imax)),
+    h('div.rpg-quick', h('label.rpg-check', ire, 'Inspiração rola de novo'), h('label.rpg-check', iadv, 'Inspiração dá vantagem'), h('label.rpg-check', nat, '20 natural passa e 1 natural falha nos testes')),
+    field('Reações permitidas (uma por linha: Nome; descrição)', reacts),
+    h('div.rpg-field', h('span', 'Descanso (quanto recupera)'), h('div.rpg-rest', h('span', 'Curto: vida'), rest[0], h('span', 'recurso'), rest[1], h('span', 'Longo: vida'), rest[2], h('span', 'recurso'), rest[3])),
+    h('div', h('button.btn.sm', { onclick: () => send({ op: 'cfg', name: name.value, sys: sys.value, attrs: list(attrs.value), attrRoll: ar.value, initRoll: ir.value,
+      skills: lines(skills.value).map(l => { const [n, a] = l.split(':').map(s => s.trim()); return { name: n, attr: (a || '').toUpperCase() }; }),
+      conds: parseConds(conds.value), economy: list(eco.value), reactions: lines(reacts.value).map(l => { const [n, ...d] = l.split(';'); return { name: n.trim(), desc: d.join(';').trim() }; }),
+      insp: { max: +imax.value, reroll: ire.checked, adv: iadv.checked }, nat: nat.checked,
+      rest: Object.fromEntries(['short', 'long'].map(k => [k, Object.fromEntries(rest.filter(s => s.dataset.k === k).map(s => [s.dataset.p, s.value]))])) }) }, 'Salvar regras')));
 }
 
 // ---------- janelas ----------
@@ -271,7 +351,8 @@ function sheetModal(ch) {
     race = h('input', { value: c.race || '', maxlength: 30, placeholder: D ? 'Humano, Elfo…' : 'Raça, origem…', list: 'rpg-race' }), img = imgField(c.img),
     hpMax = h('input', { type: 'number', value: c.hp.max, min: 0 }), hpCur = h('input', { type: 'number', value: c.hp.cur }),
     resName = h('input', { value: c.res?.name || '', placeholder: 'Mana, energia… (vazio = não usa)', maxlength: 20 }), resMax = h('input', { type: 'number', value: c.res?.max ?? 10, min: 0 }),
-    tags = h('input', { value: c.tags.join(', '), placeholder: 'curiosa, devendo favor…' }), skills = h('textarea', { rows: 3, maxlength: 2000 }, c.skills), notes = h('textarea', { rows: 2, maxlength: 2000 }, c.notes);
+    tags = h('input', { value: c.tags.join(', '), placeholder: 'curiosa, devendo favor…' }), skills = h('textarea', { rows: 3, maxlength: 2000 }, c.skills), notes = h('textarea', { rows: 2, maxlength: 2000 }, c.notes),
+    story = h('textarea', { rows: 3, maxlength: 3000, placeholder: 'De onde veio, o que quer, quem deixou para trás…' }, c.story || ''), pnotes = h('textarea', { rows: 2, maxlength: 3000, placeholder: 'Só você e o mestre veem' }, c.pnotes || '');
   // atributos: valor (o que você distribui) + bônus (raça, aumentos de nível) = total; o modificador sai do total
   const keys = [...new Set([...T.attrs, ...Object.keys(c.attrs)])], rows = new Map(), table = h('div.rpg-at');
   const info = h('div.rpg-at-info'), hpHint = h('button.btn.grey.sm', { type: 'button', hidden: true });
@@ -321,29 +402,33 @@ function sheetModal(ch) {
     h('div.rpg-field', h('span', 'Atributos'), methodSel, table, info, h('div.rpg-row', newAttr, h('button.btn.grey.sm', { type: 'button', onclick: () => { addAttr(newAttr.value.trim()); newAttr.value = ''; update(); } }, 'Adicionar'))),
     h('div.rpg-row', field('Vida máxima', hpMax), field('Vida atual', hpCur), h('div.rpg-field.end', hpHint)),
     h('div.rpg-row', field('Recurso extra', resName), field('Máximo', resMax)),
-    field('Tags (separadas por vírgula)', tags), field('Habilidades', skills), field('Observações', notes));
+    field('Tags (separadas por vírgula)', tags), field('Características', skills), field('História', story), field('Observações', notes), field('Anotações privadas', pnotes));
   update();
   const save = () => {
     const attrs = {}, abon = {}; for (const [k, r] of rows) { attrs[k] = +r.base.value || 0; if (+r.bon.value) abon[k] = +r.bon.value; }
     send({ op: 'char.save', char: { id: ch?.id, owner: owners?.value, name: name.value, cls: cls.value, race: race.value, level: +lvl.value, img: img.get(), hp: { max: +hpMax.value, cur: ch ? +hpCur.value : +hpMax.value },
-      res: resName.value.trim() ? { name: resName.value, max: +resMax.value, cur: ch?.res ? ch.res.cur : +resMax.value } : null, attrs, abon, tags: tags.value.split(',').map(x => x.trim()).filter(Boolean), skills: skills.value, notes: notes.value } });
+      res: resName.value.trim() ? { name: resName.value, max: +resMax.value, cur: ch?.res ? ch.res.cur : +resMax.value } : null, attrs, abon, tags: tags.value.split(',').map(x => x.trim()).filter(Boolean), skills: skills.value, notes: notes.value, story: story.value, pnotes: pnotes.value } });
   };
   modal(ch ? 'Editar ficha' : 'Nova ficha', ch ? null : 'Tudo pode mudar depois, até no meio da sessão.', body, [
     ch && { label: 'Apagar', cls: 'red', fn: () => { modal('Apagar a ficha?', `${ch.name} some da mesa.`, null, [{ label: 'Cancelar', cls: 'grey' }, { label: 'Apagar', cls: 'red', fn: () => send({ op: 'char.del', id: ch.id }) }]); } },
     { label: 'Cancelar', cls: 'grey' }, { label: 'Salvar', fn: save }].filter(Boolean), { width: '620px' });
 }
 function foeModal(f) {
-  const x = f || { name: '', boss: false, mode: 'show', hp: { cur: 10, max: 10 }, ini: 0, attacks: '', abilities: '', resist: '', weak: '', notes: '' };
+  const x = f || { name: '', boss: false, mode: 'show', hp: { cur: 10, max: 10 }, ini: 0, attacks: '', abilities: '', resist: '', weak: '', notes: '', kind: '', desc: '', phases: [] };
+  const kind = h('input', { value: x.kind || '', maxlength: 40, placeholder: 'Morto-vivo, besta, humanoide…' }), desc = h('textarea', { rows: 2, maxlength: 600, placeholder: 'O que os jogadores veem (aparece para todos)' }, x.desc || '');
+  const phases = h('textarea', { rows: 3, placeholder: 'Fúria; 50; passa a atacar duas vezes\nDesespero; 20; invoca lacaios' }, (x.phases || []).map(p => [p.name, p.at, p.note].filter(v => v !== '').join('; ')).join('\n'));
   const name = h('input', { value: x.name, maxlength: 40, placeholder: 'Goblin, Dragão vermelho…' }), img = imgField(x.img),
     boss = h('input', { type: 'checkbox', checked: x.boss }), hpMax = h('input', { type: 'number', value: x.hp.max, min: 0 }), hpCur = h('input', { type: 'number', value: x.hp.cur }), ini = h('input', { type: 'number', value: x.ini || 0 }),
     mode = h('select', [['show', 'Visível: números e barra'], ['hidden', 'Oculta: só o dano causado'], ['narr', 'Narrativa: só o estado (ferido, quase caindo…)']].map(([v, l]) => h('option', { value: v, selected: v === x.mode }, l))),
     attacks = h('textarea', { rows: 2, placeholder: 'Mordida: +5 para acertar, 2d6+3 perfurante' }, x.attacks), abilities = h('textarea', { rows: 2 }, x.abilities), resist = h('input', { value: x.resist, placeholder: 'fogo, veneno…' }), weak = h('input', { value: x.weak, placeholder: 'gelo, prata…' }), notes = h('textarea', { rows: 2 }, x.notes);
-  const body = h('div.rpg-form', field('Nome', name), field('Imagem', img.el), h('label.rpg-check', boss, 'Chefe'),
+  const body = h('div.rpg-form', h('div.rpg-row', field('Nome', name), field('Tipo', kind)), field('Imagem', img.el), field('Descrição', desc), h('label.rpg-check', boss, 'Chefe'),
     h('div.rpg-row', field('Vida máxima', hpMax), field('Vida atual', hpCur), field('Bônus de iniciativa', ini)), field('Como os jogadores veem a vida', mode),
-    field('Ataques', attacks), field('Habilidades', abilities), h('div.rpg-row', field('Resistências', resist), field('Fraquezas', weak)), field('Anotações', notes));
+    field('Ataques', attacks), field('Habilidades', abilities), h('div.rpg-row', field('Resistências', resist), field('Fraquezas', weak)),
+    field('Fases (opcional, uma por linha: Nome; % da vida em que começa; o que muda)', phases), field('Anotações', notes));
   modal(f ? 'Editar inimigo' : 'Novo inimigo', 'Ataques, defesas e anotações só o mestre vê.', body, [
     { label: 'Cancelar', cls: 'grey' },
-    { label: 'Salvar', fn: () => send({ op: 'foe.save', foe: { id: f?.id, name: name.value, img: img.get(), boss: boss.checked, mode: mode.value, ini: +ini.value, hp: { max: +hpMax.value, cur: f ? +hpCur.value : +hpMax.value }, attacks: attacks.value, abilities: abilities.value, resist: resist.value, weak: weak.value, notes: notes.value } }) },
+    { label: 'Salvar', fn: () => send({ op: 'foe.save', foe: { id: f?.id, name: name.value, img: img.get(), boss: boss.checked, mode: mode.value, ini: +ini.value, hp: { max: +hpMax.value, cur: f ? +hpCur.value : +hpMax.value }, attacks: attacks.value, abilities: abilities.value, resist: resist.value, weak: weak.value, notes: notes.value,
+      kind: kind.value, desc: desc.value, phases: lines(phases.value).map(l => { const [n, at, ...note] = l.split(';').map(s => s.trim()); return { name: n, at: +at || 50, note: note.join('; ') }; }) } }) },
   ], { width: '540px' });
 }
 function hpModal(t, kind, res = false) {
@@ -367,12 +452,12 @@ function initModal(e, t) {
 // ---------- quadro ----------
 function render() {
   if (!node || !T) return;
-  const gm = isGM(), tabs = [['mesa', T.combat ? `Mesa · rodada ${T.combat.round}` : 'Mesa'], gm && ['mestre', 'Mestre']].filter(Boolean);
+  const gm = isGM(), tabs = [['mesa', T.combat ? `Mesa · rodada ${T.combat.round}` : 'Mesa'], ['diario', 'Diário'], gm && ['mestre', 'Mestre']].filter(Boolean);
   barInfo.replaceChildren(h('b', T.name), h('span.rpg-gm', { title: 'Mestre da sessão' }, icon('crown', 12), gm ? 'Você é o mestre' : who(T.gm)),
     !gm && !callIds().includes(T.gm) && h('button.rpg-link', { onclick: () => send({ op: 'gm.set' }) }, 'Assumir como mestre'));
   tabsEl.replaceChildren(...(tabs.length > 1 ? tabs.map(([k, l]) => h('button.rpg-tab' + (tab === k ? '.on' : ''), { onclick: () => { tab = k; render(); } }, l)) : []));
   const top = bodyEl.scrollTop;
-  bodyEl.replaceChildren(...[tab === 'mestre' && gm ? tabGM() : tabMesa()].flat(2).filter(Boolean)); bodyEl.scrollTop = top;
+  bodyEl.replaceChildren(...[prompts(), tab === 'mestre' && gm ? tabGM() : tab === 'diario' ? tabJournal() : tabMesa()].flat(2).filter(Boolean)); bodyEl.scrollTop = top;
   // rolando como: o mestre escolhe qualquer um; o jogador, uma das fichas dele
   const choices = gm ? [['', 'Mestre'], ...T.chars.map(c => ['c:' + c.id, c.name]), ...T.foes.map(f => ['f:' + f.id, `${f.name} (inimigo)`])] : myChars().map(c => ['c:' + c.id, c.name]);
   if (!gm && (!rollAs || !choices.some(([v]) => v === rollAs))) rollAs = T.active[me()] ? 'c:' + T.active[me()] : '';
@@ -399,7 +484,9 @@ export function rpgTile({ onFocus, onClose }) {
   logTabs = [h('button.rpg-ltab', { 'data-all': '1', onclick: () => { logAll = true; render(); } }, 'Tudo'), h('button.rpg-ltab', { 'data-all': '0', onclick: () => { logAll = false; render(); } }, 'Rolagens')];
   const side = h('div.rpg-side',
     h('div.rpg-roller',
-      h('label.rpg-asrow', h('span', 'Rolando como'), asSel),
+      h('div.rpg-asrow', h('span', 'Rolando como'), asSel, h('button.ibtn', { title: 'Animação e som', onclick: (e) => menu(e, [
+        { label: 'Animação dos dados', checked: fxp.anim, fn: () => { fxp.anim = !fxp.anim; saveFx(); } },
+        { label: 'Som nas rolagens e avisos', checked: fxp.sound, fn: () => { fxp.sound = !fxp.sound; saveFx(); if (fxp.sound) beep('ping'); } }]) }, icon('sliders', 16))),
       resultEl,
       h('div.rpg-dicerow', [4, 6, 8, 10, 12, 20, 100].map(f => h('button.rpg-dbtn', { title: `Adicionar 1d${f}`, onclick: () => addDie(f) }, 'd' + f)), custom),
       h('div.rpg-exprrow', h('button.rpg-mbtn', { title: 'Modificador −1', onclick: () => addMod(-1) }, '−'), exprIn, h('button.rpg-mbtn', { title: 'Modificador +1', onclick: () => addMod(1) }, '+')),
@@ -415,4 +502,172 @@ export function rpgTile({ onFocus, onClose }) {
     h('div.rpg-main', bodyEl, side));
   render();
   return node;
+}
+
+// ---------- avisos: teste pedido, reação oferecida, momento decisivo (no topo de qualquer aba) ----------
+function prompts() {
+  const out = [], gm = isGM(), mine = new Set(myChars().map(c => c.id));
+  for (const o of T.offers || []) {
+    const ch = charOf(o.char); if (!ch) continue;
+    out.push(h('div.rpg-prompt.react', h('div.rpg-prompt-t', h('b', `Reação: ${o.name}`), h('span', ch.name, o.text && ` · ${o.text}`)), o.desc && h('p.muted', o.desc),
+      h('div.rpg-quick', ch.owner === me() ? [h('button.btn.sm', { onclick: () => send({ op: 'react.answer', id: o.id, accept: true }) }, 'Reagir'), h('button.btn.grey.sm', { onclick: () => send({ op: 'react.answer', id: o.id, accept: false }) }, 'Deixar passar')]
+        : gm && [h('span.muted', `Esperando ${who(ch.owner)}…`), h('button.btn.grey.sm', { onclick: () => send({ op: 'react.answer', id: o.id, accept: false }) }, 'Cancelar')])));
+  }
+  for (const a of (T.asks || []).filter(x => x.open)) {
+    const rows = a.targets.map(cid => {
+      const ch = charOf(cid), r = a.res[cid]; if (!ch) return null;
+      if (r) return h('span.rpg-rchip' + (r.ok === true ? '.ok' : r.ok === false ? '.no' : ''), `${ch.name} ${r.total}${r.ok == null ? '' : r.ok ? ' ✓' : ' ✗'}`);
+      if (mine.has(cid) || gm) return h('button.btn.sm', { onclick: () => send({ op: 'check', ask: a.id, as: 'c:' + cid }) }, `Rolar ${a.key}`, mine.size > 1 || gm ? ` (${ch.name})` : '');
+      return h('span.rpg-rchip', `${ch.name}…`);
+    });
+    out.push(h('div.rpg-prompt', h('div.rpg-prompt-t', h('b', `Teste de ${a.key}`), h('span', a.dc != null ? `CD ${a.dc}` : a.dcHidden ? 'CD escondida' : 'sem CD', a.label && ` · ${a.label}`)),
+      gm && (a.pass || a.fail) && h('p.muted', [a.pass && `Sucesso: ${a.pass}`, a.fail && `Falha: ${a.fail}`].filter(Boolean).join(' · ')),
+      h('div.rpg-chips', rows), gm && h('div.rpg-quick', h('button.btn.grey.sm', { onclick: () => send({ op: 'ask.close', id: a.id }) }, 'Encerrar teste'))));
+  }
+  for (const ev of (T.events || []).filter(x => x.open)) {
+    const my = ev.votes?.[me()], tally = ev.options.map((_, i) => Object.values(ev.votes || {}).filter(v => v === i).length);
+    out.push(h('div.rpg-prompt.event', h('div.rpg-prompt-t', h('b', ev.title), h('span', ev.mode === 'each' ? 'cada um responde' : 'o grupo vota')), ev.text && h('p', ev.text),
+      ev.options.length > 0 && h('div.rpg-opts', ev.options.map((t, i) => h('button.rpg-opt' + (my === i ? '.on' : ''), { onclick: () => send({ op: 'ev.vote', id: ev.id, opt: my === i ? -1 : i }) }, h('span', t), tally[i] > 0 && h('b', String(tally[i]))))),
+      ev.mode === 'each' && Object.keys(ev.votes || {}).length > 0 && h('p.muted', Object.entries(ev.votes).map(([u, i]) => `${who(u)}: ${ev.options[i]}`).join(' · ')),
+      ev.checkRes?.text && h('p.muted', ev.checkRes.text),
+      gm && h('div.rpg-quick', h('button.btn.sm', { onclick: () => closeEvent(ev) }, 'Decidir'), h('button.btn.grey.sm', { onclick: () => send({ op: 'ev.del', id: ev.id }) }, 'Descartar'))));
+  }
+  return out.length ? h('div.rpg-prompts', out) : null;
+}
+const keyOptions = (sel) => [h('optgroup', { label: 'Perícias' }, T.skills.map(s => h('option', { value: s.name, selected: s.name === sel }, `${s.name} (${s.attr})`))),
+  h('optgroup', { label: 'Atributos' }, T.attrs.map(a => h('option', { value: a, selected: a === sel }, a)))];
+function askModal({ target, key }) {
+  const k = h('select', keyOptions(key)), dc = h('input', { type: 'number', min: 1, max: 40, value: 15 }), hid = h('input', { type: 'checkbox' }),
+    tgt = h('select', h('option', { value: '' }, 'O grupo (fichas em uso na chamada)'), T.chars.map(c => h('option', { value: c.id, selected: c.id === target }, `${c.name} (${who(c.owner)})`))),
+    label = h('input', { maxlength: 80, placeholder: 'Ex.: abrir a fechadura' }), pass = h('input', { maxlength: 300, placeholder: 'O que acontece se passar (opcional)' }), fail = h('input', { maxlength: 300, placeholder: 'A complicação se falhar (opcional)' });
+  modal('Pedir teste', 'Cada jogador rola pelo aviso que aparece na mesa. A falha pode virar complicação em vez de travar a história.', h('div.rpg-form',
+    h('div.rpg-row', field('Perícia ou atributo', k), field('Dificuldade (CD)', dc)), h('label.rpg-check', hid, 'Esconder a CD dos jogadores'),
+    field('Para quem', tgt), field('Situação', label), field('Se passar', pass), field('Se falhar', fail)), [
+    { label: 'Cancelar', cls: 'grey' },
+    { label: 'Pedir', fn: () => send({ op: 'ask', key: k.value, dc: dc.value === '' ? null : +dc.value, dcHidden: hid.checked, targets: tgt.value ? [tgt.value] : [], label: label.value, pass: pass.value, fail: fail.value }) }], { width: '520px' });
+}
+function eventModal() {
+  const title = h('input', { maxlength: 80, placeholder: 'O guarda desconfia' }), text = h('textarea', { rows: 3, maxlength: 600, placeholder: 'O que está acontecendo' }),
+    opts = h('textarea', { rows: 3, placeholder: 'Convencer\nLutar\nFugir' }), mode = h('select', h('option', { value: 'vote' }, 'O grupo vota'), h('option', { value: 'each' }, 'Cada um responde')),
+    withCheck = h('input', { type: 'checkbox' }), k = h('select', keyOptions('Persuasão')), dc = h('input', { type: 'number', min: 1, max: 40, value: 13 }), fail = h('input', { maxlength: 300, placeholder: 'A complicação se falhar' });
+  modal('Momento decisivo', 'Aparece para todos na mesa. Quando decidir, a escolha e a consequência vão para o diário.', h('div.rpg-form',
+    field('Título', title), field('Situação', text), h('div.rpg-row', field('Opções (uma por linha)', opts), field('Como decidem', mode)),
+    h('label.rpg-check', withCheck, 'Com teste ligado (todos rolam)'), h('div.rpg-row', field('Perícia', k), field('CD', dc)), field('Se o teste falhar', fail)), [
+    { label: 'Cancelar', cls: 'grey' },
+    { label: 'Apresentar', fn: () => send({ op: 'ev.save', ev: { title: title.value, text: text.value, options: lines(opts.value), mode: mode.value, check: withCheck.checked ? { key: k.value, dc: +dc.value, fail: fail.value } : null } }) }], { width: '560px' });
+}
+function closeEvent(ev) {
+  const tally = ev.options.map((_, i) => Object.values(ev.votes || {}).filter(v => v === i).length), best = tally.indexOf(Math.max(...tally, 0));
+  const pick = h('select', h('option', { value: '' }, 'Nenhuma opção'), ev.options.map((t, i) => h('option', { value: i, selected: i === best && tally[i] > 0 }, `${t} (${tally[i]} voto${tally[i] === 1 ? '' : 's'})`)));
+  const txt = h('textarea', { rows: 3, maxlength: 400, placeholder: 'O que acontece agora (vai para o diário)' });
+  modal(ev.title, 'A decisão e a consequência ficam registradas no histórico e no diário.', h('div.rpg-form', field('Escolha do grupo', pick), field('Consequência', txt)), [
+    { label: 'Cancelar', cls: 'grey' }, { label: 'Decidir', fn: () => send({ op: 'ev.close', id: ev.id, opt: pick.value === '' ? -1 : +pick.value, text: txt.value }) }]);
+}
+function restModal() {
+  const d = (k) => ['hp', 'res'].map(p => `${p === 'hp' ? 'vida' : 'recurso'}: ${{ none: 'nada', quarter: '¼', half: 'metade', full: 'tudo' }[T.rest[k][p]]}`).join(', ');
+  modal('Descanso', 'Vale para todas as fichas da mesa e encerra o combate. Dá para mudar quanto recupera nas regras da mesa.', h('div.rpg-form',
+    h('p', h('b', 'Curto: '), d('short')), h('p', h('b', 'Longo: '), d('long'), ', e tira as condições')), [
+    { label: 'Cancelar', cls: 'grey' }, { label: 'Descanso curto', cls: 'grey', fn: () => send({ op: 'rest', kind: 'short' }) }, { label: 'Descanso longo', fn: () => send({ op: 'rest', kind: 'long' }) }]);
+}
+
+// ---------- ficha completa (janela que acompanha a mesa ao vivo) ----------
+function openSheet(ch, t = 'pericias') {
+  const el = h('div.rpg-sheet');
+  modal(ch.name, null, el, [{ label: 'Fechar', cls: 'grey' }], { width: '660px' });
+  sheetOpen = { id: ch.id, tab: t, el }; renderSheet();
+}
+const skillTotal = (ch, s) => { const sc = score(ch, s.attr), m = dnd() ? mod(sc) : (ch.attrs[s.attr] != null ? sc : 0); return m + (ch.prof.includes(s.name) && dnd() ? prof(ch.level) : 0) + (ch.sbon?.[s.name] || 0); };
+const KIND_ITEM = { comum: 'Comum', arma: 'Arma', armadura: 'Armadura', pocao: 'Poção', especial: 'Especial' }, KIND_ABIL = { habilidade: 'Habilidade', magia: 'Magia', caracteristica: 'Característica' };
+function renderSheet() {
+  const so = sheetOpen, ch = charOf(so.id);
+  if (!ch) return so.el.replaceChildren(h('p.rpg-empty', 'Essa ficha foi apagada.'));
+  const can = canChar(ch), mine = ch.owner === me(), gm = isGM(), as = 'c:' + ch.id;
+  const head = h('div.rpg-sheet-head', portrait(ch, 'c', 64),
+    h('div.rpg-card-id', h('b', ch.name), h('span', subtitle(ch), ' · ', who(ch.owner)),
+      h('div.rpg-sheet-insp', h('span', icon('star', 13), ` Inspiração ${ch.insp}/${T.insp.max}`), ch.inspAdv && h('span.muted', '· vantagem guardada'),
+        mine && ch.insp > 0 && T.insp.adv && !ch.inspAdv && h('button.rpg-link', { onclick: () => send({ op: 'insp.use', id: ch.id, mode: 'adv' }) }, 'Gastar: vantagem'),
+        mine && ch.insp > 0 && T.insp.reroll && h('button.rpg-link', { onclick: () => send({ op: 'insp.use', id: ch.id, mode: 'reroll' }) }, 'Gastar: rolar de novo a última'),
+        gm && h('button.rpg-link', { onclick: () => send({ op: 'insp', id: ch.id, delta: 1 }) }, '+1'), gm && ch.insp > 0 && h('button.rpg-link', { onclick: () => send({ op: 'insp', id: ch.id, delta: -1 }) }, '−1'))),
+    can && h('button.btn.grey.sm', { onclick: () => sheetModal(ch) }, icon('edit', 14), 'Editar'));
+  const bars = h('div.rpg-sheet-bars', bar(ch.hp, 'hp', 'Vida', can ? () => hpModal(ch, 'c') : null), ch.res && bar(ch.res, 'res', ch.res.name, can ? () => hpModal(ch, 'c', true) : null));
+  const tabs = [['pericias', 'Perícias'], ['inv', `Inventário${ch.items.length ? ` · ${ch.items.length}` : ''}`], ['abil', `Habilidades${ch.abil.length ? ` · ${ch.abil.length}` : ''}`], ['hist', 'História']];
+  const tabRow = h('div.rpg-seg', tabs.map(([k, l]) => h('button' + (so.tab === k ? '.on' : ''), { onclick: () => { so.tab = k; renderSheet(); } }, l)));
+  let body;
+  if (so.tab === 'inv') {
+    body = [ch.items.length ? h('ul.rpg-list', ch.items.map(it => h('li.rpg-row-it' + (it.eq ? '.eq' : ''),
+      h('div.rpg-it-main', h('b', it.name, it.qty > 1 && h('span.muted', ` ×${it.qty}`)), h('span.muted', [KIND_ITEM[it.kind], it.props, it.eq && 'equipado', it.heal && `cura ${it.heal}`].filter(Boolean).join(' · ')), it.desc && h('p.rpg-pre.muted', it.desc)),
+      can && (it.kind === 'arma' || it.kind === 'armadura' || it.kind === 'especial') && h('button.btn.grey.sm', { onclick: () => send({ op: 'item.eq', char: ch.id, id: it.id }) }, it.eq ? 'Guardar' : 'Equipar'),
+      can && (it.cons || it.heal) && h('button.btn.sm', { onclick: () => send({ op: 'item.use', char: ch.id, id: it.id }) }, 'Usar'),
+      can && h('button.ibtn', { title: 'Mais', onclick: (e) => menu(e, [{ label: 'Editar', icon: 'edit', fn: () => itemModal(ch, it) },
+        T.chars.length > 1 && { label: 'Entregar a', icon: 'gift', sub: T.chars.filter(c => c.id !== ch.id).map(c => ({ label: c.name, fn: () => send({ op: 'item.give', char: ch.id, id: it.id, to: c.id }) })) },
+        '-', { label: 'Jogar fora', icon: 'trash', danger: true, fn: () => send({ op: 'item.del', char: ch.id, id: it.id }) }]) }, icon('more', 16))))) : h('p.rpg-empty', 'Inventário vazio.'),
+    can && h('div', h('button.btn.grey.sm', { onclick: () => itemModal(ch, null) }, icon('plus', 14), gm && !mine ? 'Entregar item' : 'Adicionar item'))];
+  } else if (so.tab === 'abil') {
+    body = [ch.abil.length ? h('ul.rpg-list', ch.abil.map(a => h('li.rpg-row-it',
+      h('div.rpg-it-main', h('b', a.name), h('span.muted', [KIND_ABIL[a.kind], a.cost && ch.res ? `${a.cost} ${ch.res.name.toLowerCase()}` : a.cost ? `custo ${a.cost}` : '', a.roll].filter(Boolean).join(' · ')), a.desc && h('p.rpg-pre.muted', a.desc)),
+      can && h('button.btn.sm', { disabled: a.cost > 0 && (!ch.res || ch.res.cur < a.cost), onclick: () => send({ op: 'abil.use', char: ch.id, id: a.id }) }, 'Usar'),
+      can && h('button.ibtn', { title: 'Mais', onclick: (e) => menu(e, [{ label: 'Editar', icon: 'edit', fn: () => abilModal(ch, a) }, { label: 'Apagar', icon: 'trash', danger: true, fn: () => send({ op: 'abil.del', char: ch.id, id: a.id }) }]) }, icon('more', 16))))) : h('p.rpg-empty', 'Nenhuma habilidade ou magia ainda.'),
+    can && h('div', h('button.btn.grey.sm', { onclick: () => abilModal(ch, null) }, icon('plus', 14), 'Adicionar'))];
+  } else if (so.tab === 'hist') {
+    const sec = (t, v) => v && h('div.rpg-focus-sec', h('span.rpg-lab', t), h('p.rpg-pre', v));
+    body = [sec('História', ch.story), sec('Características', ch.skills), sec('Observações', ch.notes), ch.pnotes != null && sec('Anotações privadas (só você e o mestre)', ch.pnotes),
+      !ch.story && !ch.skills && !ch.notes && !ch.pnotes && h('p.rpg-empty', can ? 'Nada escrito ainda. Use "Editar" para contar a história do personagem.' : 'Nada escrito ainda.')];
+  } else {
+    body = [attrsRow(ch, can), T.skills.length ? h('ul.rpg-skills', T.skills.map(s => { const p = ch.prof.includes(s.name), tot = skillTotal(ch, s);
+      return h('li', h('button.rpg-prof' + (p ? '.on' : ''), { title: p ? 'Treinada (soma a proficiência)' : 'Não treinada', disabled: !can, onclick: () => send({ op: 'char.prof', id: ch.id, skill: s.name, on: !p }) }),
+        h('button.rpg-skill', { disabled: !can, title: can ? `Rolar ${s.name}` : s.name, onclick: () => send({ op: 'check', key: s.name, as }) }, h('span', s.name), h('small', s.attr), h('b', sgn(tot)))); }))
+      : h('p.rpg-empty', 'A mesa não tem perícias (o mestre configura nas regras).'),
+    can && T.skills.length > 0 && h('p.muted', 'Clique numa perícia para rolar; o círculo marca as treinadas.')];
+  }
+  so.el.replaceChildren(head, bars, ch.conds?.length > 0 && h('div.rpg-chips', ch.conds.map(c => h('span.rpg-chip.cond', { title: condDesc(c.name) }, condTxt(c)))), tabRow, h('div.rpg-sheet-body', body));
+}
+function itemModal(ch, it) {
+  const x = it || { name: '', kind: 'comum', qty: 1, props: '', desc: '', cons: false, heal: '' };
+  const name = h('input', { value: x.name, maxlength: 40, placeholder: 'Espada longa, Poção de cura…' }), kind = h('select', Object.entries(KIND_ITEM).map(([v, l]) => h('option', { value: v, selected: v === x.kind }, l))),
+    qty = h('input', { type: 'number', min: 0, value: x.qty }), props = h('input', { value: x.props, maxlength: 120, placeholder: '1d8 cortante, CA +2, mágico…' }), desc = h('textarea', { rows: 2, maxlength: 500 }, x.desc),
+    cons = h('input', { type: 'checkbox', checked: x.cons }), heal = h('input', { value: x.heal || '', maxlength: 40, placeholder: '2d4+2 (opcional)' });
+  kind.addEventListener('change', () => { if (kind.value === 'pocao') { cons.checked = true; if (!heal.value) heal.value = '2d4+2'; } });
+  modal(it ? 'Editar item' : `Item para ${ch.name}`, null, h('div.rpg-form', h('div.rpg-row', field('Nome', name), field('Tipo', kind), field('Qtd.', qty)), field('Propriedades', props), field('Descrição', desc),
+    h('div.rpg-row', h('label.rpg-check', cons, 'Consumível (gasta ao usar)'), field('Cura ao usar', heal))), [
+    { label: 'Cancelar', cls: 'grey' }, { label: 'Salvar', fn: () => send({ op: 'item.save', char: ch.id, item: { id: it?.id, name: name.value, kind: kind.value, qty: +qty.value, props: props.value, desc: desc.value, cons: cons.checked, heal: heal.value } }) }], { width: '520px' });
+}
+function abilModal(ch, a) {
+  const x = a || { name: '', kind: 'habilidade', cost: 0, roll: '', desc: '' };
+  const name = h('input', { value: x.name, maxlength: 40, placeholder: 'Ataque furtivo, Bola de fogo…' }), kind = h('select', Object.entries(KIND_ABIL).map(([v, l]) => h('option', { value: v, selected: v === x.kind }, l))),
+    cost = h('input', { type: 'number', min: 0, value: x.cost }), roll = h('input', { value: x.roll, maxlength: 40, placeholder: '8d6, 1d20+@INT+@PROF (opcional)' }), desc = h('textarea', { rows: 3, maxlength: 800 }, x.desc);
+  modal(a ? 'Editar habilidade' : 'Nova habilidade ou magia', ch.res ? `O custo sai de ${ch.res.name}.` : 'Para ter custo, a ficha precisa de um recurso extra (mana, energia…).', h('div.rpg-form',
+    h('div.rpg-row', field('Nome', name), field('Tipo', kind), field('Custo', cost)), field('Rolagem ao usar', roll), field('Descrição', desc)), [
+    { label: 'Cancelar', cls: 'grey' }, { label: 'Salvar', fn: () => send({ op: 'abil.save', char: ch.id, abil: { id: a?.id, name: name.value, kind: kind.value, cost: +cost.value, roll: roll.value, desc: desc.value } }) }], { width: '520px' });
+}
+
+// ---------- diário da campanha ----------
+const JR = { missao: 'Missão', pista: 'Pista', npc: 'NPC', local: 'Local', evento: 'Acontecimento', decisao: 'Decisão', nota: 'Anotação' }, JR_PLAYER = ['pista', 'npc', 'local', 'nota'];
+function tabJournal() {
+  const gm = isGM(), J = [...(T.journal || [])].reverse(), act = J.filter(j => j.kind === 'missao' && j.status === 'ativa'), dec = J.filter(j => j.kind === 'decisao').slice(0, 3);
+  const recap = (act.length || dec.length) && h('section.rpg-recap', h('span.rpg-lab', 'Para retomar'),
+    act.length > 0 && h('p', h('b', 'Missões ativas: '), act.map(j => j.title).join(' · ')), dec.length > 0 && h('p', h('b', 'Últimas decisões: '), dec.map(j => j.title).join(' · ')));
+  const kinds = Object.keys(JR).filter(k => J.some(j => j.kind === k));
+  const list = J.filter(j => !jrFilter || j.kind === jrFilter);
+  return [
+    h('div.rpg-bar-row', h('div.rpg-chips', h('button.rpg-chip.tog' + (!jrFilter ? '.on' : ''), { onclick: () => { jrFilter = ''; render(); } }, 'Tudo'),
+      kinds.map(k => h('button.rpg-chip.tog' + (jrFilter === k ? '.on' : ''), { onclick: () => { jrFilter = k; render(); } }, JR[k]))),
+      h('button.btn.grey.sm', { onclick: () => jrModal({ kind: gm ? 'evento' : 'nota' }) }, icon('plus', 14), 'Escrever')),
+    recap,
+    list.length ? h('ul.rpg-journal', list.map(j => h('li.rpg-jr' + (j.status === 'concluida' || j.status === 'falhou' ? '.done' : ''),
+      h('div.rpg-jr-h', h('span.rpg-jr-k', JR[j.kind]), h('b', j.title), j.status && h('span.muted', { ativa: 'ativa', concluida: 'concluída', falhou: 'fracassou' }[j.status]), j.priv && h('span.rpg-li-sec', { title: 'Só você (mestre) vê' }, icon('eyeoff', 12)),
+        h('span.sp'), h('time', new Date(j.at).toLocaleDateString([], { day: '2-digit', month: '2-digit' })),
+        (gm || j.by === me()) && j.kind !== 'decisao' && h('button.ibtn', { title: 'Editar', onclick: () => jrModal(j) }, icon('edit', 14)),
+        (gm || j.by === me()) && h('button.ibtn', { title: 'Apagar', onclick: () => send({ op: 'jr.del', id: j.id }) }, icon('trash', 14))),
+      j.text && h('p.rpg-pre', j.text),
+      gm && j.kind === 'missao' && j.status === 'ativa' && h('div.rpg-quick', h('button.rpg-link', { onclick: () => send({ op: 'jr.save', entry: { ...j, status: 'concluida' } }) }, 'Concluir'), h('button.rpg-link', { onclick: () => send({ op: 'jr.save', entry: { ...j, status: 'falhou' } }) }, 'Fracassou'))))) :
+      h('p.rpg-empty', 'O diário guarda missões, pistas, NPCs, lugares e as decisões do grupo — para retomar a campanha depois de semanas.'),
+  ];
+}
+function jrModal(j) {
+  const gm = isGM(), kinds = gm ? Object.keys(JR).filter(k => k !== 'decisao') : JR_PLAYER;
+  const kind = h('select', kinds.map(k => h('option', { value: k, selected: k === j.kind }, JR[k]))), title = h('input', { value: j.title || '', maxlength: 80 }), text = h('textarea', { rows: 5, maxlength: 2000 }, j.text || ''),
+    priv = h('input', { type: 'checkbox', checked: !!j.priv }), ann = h('input', { type: 'checkbox', checked: !j.id });
+  modal(j.id ? 'Editar no diário' : 'Escrever no diário', gm ? null : 'Pistas, NPCs, lugares e anotações que o grupo todo vê.', h('div.rpg-form', h('div.rpg-row', field('Tipo', kind), field('Título', title)), field('Texto', text),
+    gm && h('div.rpg-quick', h('label.rpg-check', priv, 'Privado (só o mestre)'), !j.id && h('label.rpg-check', ann, 'Avisar no histórico'))), [
+    { label: 'Cancelar', cls: 'grey' }, { label: 'Salvar', fn: () => send({ op: 'jr.save', announce: gm && ann.checked, entry: { id: j.id, kind: kind.value, title: title.value, text: text.value, status: j.status, priv: gm && priv.checked } }) }], { width: '520px' });
 }

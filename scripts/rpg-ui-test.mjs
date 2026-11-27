@@ -43,8 +43,8 @@ try {
   await pa.evaluate(() => window.__lc.import('userbar.js').then(m => m.activityEntries().find(e => e.id === 'rpg').fn())); await sleep(900);
   for (const [p, n] of [[pa, 'mestra'], [pb, 'beto']]) ok(await p.$('#stage .spot .rpgtile') !== null, `quadro da mesa abre em destaque no palco (${n})`);
   ok(/Você é o mestre/.test(await st(pa)) && !/Você é o mestre/.test(await st(pb)) && /mestra/.test(await st(pb)), 'mestre identificado: "Você é o mestre" para a mestra, coroa com o nome para o jogador');
-  ok(await pa.$$eval('.rpgtile .rpg-tab', b => b.map(x => x.textContent).join()) === 'Mesa,Mestre' && (await pb.$$('.rpgtile .rpg-tab')).length === 0, 'aba Mestre só existe para o mestre');
-  ok(await pa.$eval('.rpg-togrow .rpg-tog:last-child', e => e.offsetParent !== null) && await pb.$eval('.rpg-togrow .rpg-tog:last-child', e => e.offsetParent === null), 'rolagem secreta: botão só para o mestre');
+  ok(await pa.$$eval('.rpgtile .rpg-tab', b => b.map(x => x.textContent).join()) === 'Mesa,Diário,Mestre' && await pb.$$eval('.rpgtile .rpg-tab', b => b.map(x => x.textContent).join()) === 'Mesa,Diário', 'aba Mestre só existe para o mestre');
+  ok(await pa.$eval('.rpg-togrow .rpg-tog:last-child', e => e.textContent) === 'Secreta' && await pb.$eval('.rpg-togrow .rpg-tog:last-child', e => e.textContent) === 'Privada', 'mestre rola em segredo; jogador rola em privado (só ele e o mestre)');
 
   // ---------- ficha D&D pela janela ----------
   ok(await click(pb, '.rpgtile .rpg-player-h .btn', /Nova ficha/), 'botão "Nova ficha"');
@@ -101,6 +101,7 @@ try {
   await pa.evaluate(() => { const i = document.querySelector('.rpg-focus .rpg-amt'); i.value = '45'; });
   await click(pa, '.rpg-focus .btn', /^Dano$/); await sleep(500);
   await click(pa, '.rpg-focus .rpg-chip.tog', /^Envenenado/); await sleep(500);
+  await click(pb, '.rpg-tk', /Dragão/); await sleep(200); // a iniciativa é aleatória: o jogador olha o dragão
   const sb = await st(pb);
   ok(/45 de dano/.test(sb) && !/255|300/.test(sb) && !/gelo/.test(sb), 'dano pelo painel; jogador vê só o dano (sem vida nem fraqueza)', sb.slice(0, 400));
   await click(pb, '.rpg-tk', /Dragão/); await sleep(200);
@@ -111,6 +112,84 @@ try {
   ok(cur0 && cur1 && cur0 !== cur1, 'próximo turno muda a vez para todos', { cur0, cur1 });
   await pa.screenshot({ path: `${OUT}/04-combate-mestre.png` });
   await pb.screenshot({ path: `${OUT}/05-combate-jogador.png` });
+
+  // ---------- teste pedido pelo mestre (CD escondida) ----------
+  const modalSet = (p, pairs) => p.evaluate((pp) => { const m = [...document.querySelectorAll('.modal')].at(-1);
+    for (const [re, v, ev] of pp) { const f = [...m.querySelectorAll('.rpg-field, .rpg-check')].find(x => new RegExp(re).test(x.textContent)); const i = f.querySelector('input,select,textarea');
+      if (i.type === 'checkbox') i.checked = v; else i.value = v; i.dispatchEvent(new Event(ev || 'input')); } }, pairs);
+  await click(pa, '.rpg-tab', /Mestre/); await sleep(200);
+  ok(await click(pa, '.rpg-action', /Pedir teste/), 'mestre: "Pedir teste" no painel');
+  await sleep(200);
+  await modalSet(pa, [['^Perícia ou atributo', 'Furtividade', 'change'], ['^Dificuldade', '12'], ['Esconder a CD', true], ['^Se falhar', 'Os guardas ouvem.']]);
+  await click(pa, '.modal .mf .btn', /^Pedir$/); await sleep(500);
+  const pr = await pb.evaluate(() => document.querySelector('.rpg-prompt')?.innerText || '');
+  ok(/Teste de Furtividade/.test(pr) && /CD escondida/.test(pr) && !/12/.test(pr) && !/guardas/.test(pr), 'jogador recebe o aviso do teste, sem a CD nem a consequência', pr);
+  ok(await click(pb, '.rpg-prompt .btn', /Rolar Furtividade/), 'jogador rola o teste pelo aviso');
+  await sleep(500);
+  ok(/Bruk \d+ [✓✗]/.test(await pa.evaluate(() => document.querySelector('.rpg-prompt')?.innerText || '')), 'mestre vê o resultado (sucesso ou falha)');
+  await pb.screenshot({ path: `${OUT}/06-teste-pedido.png` });
+  await click(pa, '.rpg-prompt .btn', /Encerrar teste/); await sleep(500);
+  ok(/Furtividade CD 12: Bruk \d+/.test(await pb.evaluate(() => document.querySelector('.rpg-side .rpg-log .rpg-li.note')?.innerText || '')) && !(await pb.$('.rpg-prompt')), 'encerrado: resultado e CD no histórico, aviso some');
+
+  // ---------- inspiração e ficha completa ----------
+  await click(pa, '.rpg-tab', /^Mesa/); await sleep(200);
+  await click(pa, '.rpg-tk', /Bruk/); await sleep(200);
+  ok(await click(pa, '.rpg-focus .btn', /Dar inspiração/), 'mestre dá inspiração pelo painel do combate');
+  await sleep(400);
+  await click(pb, '.rpg-tk', /Bruk/); await sleep(200);
+  await click(pb, '.rpg-focus .rpg-open'); await sleep(400);
+  const sh = await pb.evaluate(() => document.querySelector('.rpg-sheet')?.innerText || '');
+  ok(/Inspiração 1\/4/.test(sh) && /Atletismo/.test(sh) && /Furtividade/.test(sh), 'ficha completa abre com inspiração e perícias', sh.slice(0, 200));
+  await click(pb, '.rpg-sheet .rpg-link', /vantagem/); await sleep(400);
+  ok(/vantagem guardada/.test(await pb.evaluate(() => document.querySelector('.rpg-sheet').innerText)), 'gastar inspiração: vantagem guardada (a ficha atualiza ao vivo)');
+  await click(pb, '.rpg-sheet .rpg-prof'); await sleep(300);
+  await click(pb, '.rpg-sheet .rpg-skill', /Acrobacia/); await sleep(600);
+  const rs = await pa.evaluate(() => document.querySelector('.rpg-result')?.innerText || '');
+  ok(/Acrobacia/.test(rs) && /Inspiração/.test(rs) && /vantagem|20 natural|1 natural/.test(rs) && /PROF \+2/.test(rs), 'teste de perícia pela ficha: treinada (+2) e com a vantagem da inspiração', rs);
+  await pb.screenshot({ path: `${OUT}/07-ficha.png` });
+  // inventário
+  await click(pb, '.rpg-sheet .rpg-seg button', /Inventário/); await sleep(200);
+  await click(pb, '.rpg-sheet .btn', /Adicionar item/); await sleep(200);
+  await modalSet(pb, [['^Nome', 'Poção de cura'], ['^Tipo', 'pocao', 'change']]);
+  await click(pb, '.modal .mf .btn', /^Salvar$/); await sleep(500);
+  ok(/Poção de cura/.test(await pb.evaluate(() => document.querySelector('.rpg-sheet').innerText)), 'item entra no inventário');
+  await click(pb, '.rpg-sheet .btn', /^Usar$/); await sleep(500);
+  ok(/Bruk usou Poção de cura/.test(await pa.evaluate(() => [...document.querySelectorAll('.rpg-side .rpg-log .rpg-li.note')].map(x => x.innerText).join('|'))) && !/Poção de cura/.test(await pb.evaluate(() => document.querySelector('.rpg-sheet .rpg-sheet-body').innerText)), 'usar a poção: some do inventário e todos veem');
+  await pb.keyboard.press('Escape'); await sleep(300);
+
+  // ---------- reação oferecida ----------
+  await click(pa, '.rpg-tk', /Bruk/); await sleep(200);
+  await click(pa, '.rpg-focus .btn', /Oferecer reação/); await sleep(200);
+  await click(pa, '.menu .it', /Proteger aliado/); await sleep(500);
+  ok(/Reação: Proteger aliado/.test(await pb.evaluate(() => document.querySelector('.rpg-prompt')?.innerText || '')), 'jogador vê a reação disponível');
+  await click(pb, '.rpg-prompt .btn', /^Reagir$/); await sleep(500);
+  ok(/Bruk reagiu: Proteger aliado/.test(await pa.evaluate(() => [...document.querySelectorAll('.rpg-side .rpg-log .rpg-li')].map(x => x.innerText).join('|'))), 'aceitou: registrado no histórico');
+
+  // ---------- momento decisivo ----------
+  await click(pa, '.rpg-tab', /Mestre/); await sleep(200);
+  await click(pa, '.rpg-action', /Momento decisivo/); await sleep(200);
+  await modalSet(pa, [['^Título', 'A ponte está caindo'], ['^Opções', 'Correr\nSegurar a corda']]);
+  await click(pa, '.modal .mf .btn', /^Apresentar$/); await sleep(500);
+  ok(await click(pb, '.rpg-opt', /Segurar a corda/), 'jogador vota numa opção');
+  await sleep(400);
+  await click(pa, '.rpg-prompt .btn', /^Decidir$/); await sleep(200);
+  await modalSet(pa, [['^Consequência', 'Todos atravessam, mas a corda se rompe.']]);
+  await click(pa, '.modal .mf .btn', /^Decidir$/); await sleep(500);
+  await click(pb, '.rpg-tab', /Diário/); await sleep(300);
+  const jr = await pb.evaluate(() => document.querySelector('.rpg-body').innerText);
+  ok(/A ponte está caindo/.test(jr) && /Decisão: Segurar a corda/.test(jr) && /corda se rompe/.test(jr), 'decisão e consequência vão para o diário', jr.slice(0, 300));
+  // diário: o jogador anota uma pista
+  await click(pb, '.rpg-body .btn', /Escrever/); await sleep(200);
+  const kinds = await pb.evaluate(() => [...document.querySelectorAll('.modal select option')].map(o => o.textContent).join());
+  ok(kinds === 'Pista,NPC,Local,Anotação', 'jogador escreve pistas, NPCs, locais e anotações (missões são do mestre)', kinds);
+  await modalSet(pb, [['^Tipo', 'pista', 'change'], ['^Título', 'Pegadas de lobo'], ['^Texto', 'Vão para o norte.']]);
+  await click(pb, '.modal .mf .btn', /^Salvar$/); await sleep(400);
+  await click(pa, '.rpg-tab', /Diário/); await sleep(300);
+  ok(/Pegadas de lobo/.test(await pa.evaluate(() => document.querySelector('.rpg-body').innerText)), 'a pista aparece para o mestre');
+  await pb.screenshot({ path: `${OUT}/08-diario.png` });
+  await click(pa, '.rpg-tab', /Mestre/); await sleep(200);
+  await pa.screenshot({ path: `${OUT}/09-painel-mestre.png` });
+  await click(pa, '.rpg-tab', /^Mesa/); await click(pb, '.rpg-tab', /^Mesa/); await sleep(200);
 
   // ---------- foco no campo da rolagem enquanto a mesa muda ----------
   await pb.focus('.rpg-expr'); await pb.$eval('.rpg-expr', e => { e.value = ''; }); await pb.keyboard.type('3d6');

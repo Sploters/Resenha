@@ -135,6 +135,144 @@ ok(prof(1) === 2 && prof(4) === 2 && prof(5) === 3 && prof(13) === 5 && prof(20)
   ok(V.sys === 'dnd5e' && V.attrRoll === '1d20+{m}' && V.initRoll === '1d20+@DES' && V.chars[0].abon, 'mesa antiga com atributos de D&D passa para o sistema novo', V);
 }
 
+// ---------- perícias, testes pedidos, inspiração, efeitos, reações, fases, inventário, eventos, diário, descanso ----------
+{
+  const B = 'bg', mm = ['gm', 'ana', 'beto'], o = (u, d) => R.op(B, u, d, mm), V = (u) => R.view(B, u), last = (u) => V(u).log.at(-1);
+  R.open(B, 'gm', mm);
+  ok(V('ana').skills.length === 18 && V('ana').skills.find(s => s.name === 'Furtividade').attr === 'DES', 'perícias do D&D prontas (configuráveis)');
+  o('ana', { op: 'char.save', char: { name: 'Lyra', level: 1, attrs: { FOR: 8, DES: 14, CON: 12, INT: 15, SAB: 10, CAR: 13 }, hp: { max: 20 }, res: { name: 'Mana', max: 10 }, pnotes: 'segredo da Lyra' } });
+  o('beto', { op: 'char.save', char: { name: 'Bruk', level: 1, attrs: { FOR: 16, DES: 10 }, hp: { max: 30 } } });
+  const lyra = V('ana').chars.find(c => c.name === 'Lyra'), bruk = V('ana').chars.find(c => c.name === 'Bruk');
+  ok(V('beto').chars.find(c => c.id === lyra.id).pnotes === undefined && V('gm').chars.find(c => c.id === lyra.id).pnotes === 'segredo da Lyra', 'anotação privada: só a dona e o mestre');
+  ok(o('beto', { op: 'char.prof', id: lyra.id, skill: 'Furtividade', on: true }).error, 'perícia treinada de outro: não');
+  o('ana', { op: 'char.prof', id: lyra.id, skill: 'Furtividade', on: true });
+  o('ana', { op: 'check', key: 'Furtividade', dc: 12 });
+  let e = last('ana');
+  ok(e.check?.key === 'Furtividade' && e.roll.parts.map(p => p.t).join() === '1d20,@DES,@PROF' && e.roll.parts[1].v === 2 && e.roll.parts[2].v === 2, 'teste: d20 + DES (+2) + proficiência (+2)', e.roll.parts);
+  ok(e.check.ok === (e.roll.crit || (!e.roll.fumble && e.roll.total >= 12)), 'sucesso contra a CD (20 natural passa, 1 natural falha)', e.check);
+  // teste pedido pelo mestre, com CD escondida
+  ok(o('ana', { op: 'ask', key: 'Atletismo', dc: 15 }).error, 'só o mestre pede teste');
+  o('gm', { op: 'ask', key: 'Atletismo', dc: 15, dcHidden: true, pass: 'A porta cede.', fail: 'O barulho acorda os guardas.' });
+  const ask = V('gm').asks.at(-1);
+  ok(ask.targets.length === 2 && V('ana').asks[0].dc === null && V('ana').asks[0].fail === undefined && V('gm').asks.at(-1).dc === 15, 'teste para o grupo; jogador não vê a CD escondida nem as consequências');
+  o('ana', { op: 'check', ask: ask.id });
+  ok(V('ana').asks[0].res[lyra.id] && last('beto').check.dc === null, 'resposta registrada; a CD continua escondida no histórico', last('beto').check);
+  ok(o('ana', { op: 'check', ask: ask.id }).error, 'não repete o teste pedido');
+  o('beto', { op: 'check', ask: ask.id, as: 'c:' + bruk.id });
+  o('gm', { op: 'ask.close', id: ask.id });
+  ok(/Atletismo CD 15: Lyra \d+ [✓✗], Bruk \d+ [✓✗]\. (Sucesso: A porta cede\.|Falha: O barulho acorda os guardas\.)/.test(last('ana').text) && !V('ana').asks.length, 'encerrar: resultado do grupo e a consequência para todos', last('ana').text);
+  // rolagem privada
+  o('ana', { op: 'roll', expr: '1d20', priv: true });
+  ok(last('ana').priv && last('gm').priv && !last('beto').priv, 'rolagem privada: quem rolou e o mestre');
+  // inspiração
+  ok(o('ana', { op: 'insp', id: lyra.id, delta: 1 }).error, 'jogador não se dá inspiração');
+  o('gm', { op: 'insp', id: lyra.id, delta: 1, why: 'boa ideia' });
+  ok(V('ana').chars.find(c => c.id === lyra.id).insp === 1 && /ganhou inspiração/.test(last('ana').text), 'mestre dá inspiração (registrado)');
+  ok(o('beto', { op: 'insp.use', id: lyra.id, mode: 'adv' }).error, 'só a dona gasta');
+  o('ana', { op: 'insp.use', id: lyra.id, mode: 'adv' });
+  o('ana', { op: 'roll', expr: '1d20+1' });
+  e = last('ana');
+  ok(e.roll.adv === 'adv' && e.fx?.includes('Inspiração') && V('ana').chars.find(c => c.id === lyra.id).insp === 0, 'inspiração: vantagem na próxima rolagem de d20', e);
+  ok(o('ana', { op: 'insp.use', id: lyra.id, mode: 'reroll' }).error, 'sem inspiração não rola de novo');
+  o('gm', { op: 'insp', id: lyra.id, delta: 1 });
+  o('ana', { op: 'check', key: 'Arcanismo', dc: 10 });
+  const before = last('ana').id;
+  o('ana', { op: 'insp.use', id: lyra.id, mode: 'reroll' });
+  e = last('ana');
+  ok(e.id !== before && /Arcanismo \(inspiração\)/.test(e.label) && e.check?.key === 'Arcanismo', 'inspiração: rola de novo a última (o mesmo teste)', e.label);
+  o('gm', { op: 'cfg', insp: { max: 2, reroll: false, adv: true } });
+  o('gm', { op: 'insp', id: lyra.id, delta: 1 });
+  ok(o('ana', { op: 'insp.use', id: lyra.id, mode: 'reroll' }).error, 'o mestre configura o que a inspiração faz');
+  // condições com efeito
+  o('gm', { op: 'cond.add', id: bruk.id, name: 'Envenenado' });
+  o('beto', { op: 'roll', expr: '1d20+3', as: 'c:' + bruk.id });
+  ok(last('beto').roll.adv === 'dis' && last('beto').fx?.includes('Envenenado'), 'envenenado: desvantagem no d20');
+  o('beto', { op: 'roll', expr: '2d6', as: 'c:' + bruk.id });
+  ok(!last('beto').roll.adv && !last('beto').fx, 'efeito não entra em rolagem sem d20 (dano)');
+  o('gm', { op: 'cond.add', id: bruk.id, name: 'Abençoado' });
+  o('beto', { op: 'check', key: 'Atletismo', as: 'c:' + bruk.id });
+  ok(last('beto').roll.parts.some(p => p.t === '1d4') && last('beto').roll.adv === 'dis', 'abençoado: +1d4 no teste (e o veneno continua)', last('beto').roll.parts.map(p => p.t));
+  o('gm', { op: 'cond.add', id: bruk.id, name: 'Invisível' });
+  o('beto', { op: 'roll', expr: '1d20', as: 'c:' + bruk.id });
+  ok(!last('beto').roll.adv, 'vantagem e desvantagem se anulam');
+  // combate: ações por turno, reações, ordem, dano por turno, fases do chefe
+  o('gm', { op: 'foe.save', foe: { name: 'Ogro', hp: { max: 100 }, desc: 'Fede.', kind: 'Gigante', phases: [{ name: 'Fúria', at: 50, note: 'ataca duas vezes' }] } });
+  const ogro = V('gm').foes[0];
+  o('gm', { op: 'foe.show', id: ogro.id, on: true });
+  o('gm', { op: 'combat.start' });
+  let C = V('gm').combat; const eBruk = C.order.find(x => x.ref === bruk.id), eOgro = C.order.find(x => x.ref === ogro.id);
+  o('beto', { op: 'eco', id: eBruk.id, name: 'Ação' });
+  ok(V('ana').combat.order.find(x => x.id === eBruk.id).used.includes('Ação'), 'ação gasta aparece para todos');
+  ok(o('ana', { op: 'eco', id: eBruk.id, name: 'Ação' }).error, 'ação de outro: não');
+  o('gm', { op: 'react.offer', char: bruk.id, name: 'Proteger aliado', text: 'o ogro ataca a Lyra' });
+  ok(V('beto').offers.length === 1 && V('ana').offers.length === 0, 'reação oferecida aparece só para o dono da ficha');
+  ok(o('gm', { op: 'react.offer', char: bruk.id, name: 'Voar' }).error, 'só reações permitidas pela mesa');
+  o('beto', { op: 'react.answer', id: V('beto').offers[0].id, accept: true });
+  ok(V('ana').combat.order.find(x => x.id === eBruk.id).used.includes('Reação') && /Bruk reagiu: Proteger aliado/.test(last('ana').text), 'aceitou: gasta a reação e fica no histórico');
+  o('gm', { op: 'react.offer', char: bruk.id, name: 'Contra-ataque' });
+  ok(o('beto', { op: 'react.answer', id: V('beto').offers[0].id, accept: true }).error, 'reação já usada na rodada: não');
+  const i0 = C.order.findIndex(x => x.id === eOgro.id);
+  o('gm', { op: 'combat.move', id: eOgro.id, dir: i0 === 0 ? 1 : -1 });
+  ok(V('gm').combat.order.findIndex(x => x.id === eOgro.id) === (i0 === 0 ? 1 : i0 - 1), 'mestre ajusta a ordem');
+  o('gm', { op: 'cond.add', kind: 'f', id: ogro.id, name: 'Queimando' });
+  const hp0 = V('gm').foes[0].hp.cur;
+  for (let k = 0; k < 4 && V('gm').combat.cur !== eOgro.id; k++) o('gm', { op: 'combat.next' });
+  if (V('gm').combat.cur !== eOgro.id) o('gm', { op: 'combat.next' });
+  ok(V('gm').foes[0].hp.cur < hp0, 'queimando: dano no começo do turno', { hp0, now: V('gm').foes[0].hp.cur });
+  o('gm', { op: 'foe.hp', id: ogro.id, set: 40 });
+  ok(V('ana').foes[0].phaseName === 'Fúria' && V('ana').foes[0].desc === 'Fede.' && !V('ana').log.some(x => /duas vezes/.test(x.text)) && V('gm').log.some(x => /duas vezes/.test(x.text)), 'chefe muda de fase sozinho; o que muda é só do mestre');
+  // inventário
+  o('ana', { op: 'item.save', char: lyra.id, item: { name: 'Poção de cura', kind: 'pocao', qty: 2, cons: true, heal: '2d4+2' } });
+  ok(o('ana', { op: 'item.save', char: lyra.id, item: { name: 'X', heal: 'bola' } }).error, 'cura inválida é recusada');
+  o('gm', { op: 'char.hp', id: lyra.id, delta: -15 });
+  const pot = V('ana').chars.find(c => c.id === lyra.id).items[0];
+  o('ana', { op: 'item.use', char: lyra.id, id: pot.id });
+  const ly = V('ana').chars.find(c => c.id === lyra.id);
+  ok(ly.hp.cur > 5 && ly.items[0].qty === 1 && /usou Poção de cura: \+\d+ de vida/.test(last('beto').text), 'poção: cura e gasta uma', ly.hp);
+  o('ana', { op: 'item.give', char: lyra.id, id: pot.id, to: bruk.id });
+  ok(!V('ana').chars.find(c => c.id === lyra.id).items.length && V('ana').chars.find(c => c.id === bruk.id).items[0].name === 'Poção de cura', 'entregar item a outra ficha');
+  o('gm', { op: 'item.save', char: lyra.id, item: { name: 'Espada longa', kind: 'arma', props: '1d8 cortante' } });
+  ok(/Lyra recebeu Espada longa/.test(last('ana').text), 'mestre entrega item (registrado)');
+  ok(o('beto', { op: 'item.save', char: lyra.id, item: { name: 'Roubo' } }).error, 'inventário de outro: não');
+  const sw = V('ana').chars.find(c => c.id === lyra.id).items[0];
+  o('ana', { op: 'item.eq', char: lyra.id, id: sw.id });
+  ok(V('ana').chars.find(c => c.id === lyra.id).items[0].eq, 'equipar');
+  // habilidades e magias
+  o('ana', { op: 'abil.save', char: lyra.id, abil: { name: 'Mísseis mágicos', kind: 'magia', cost: 3, roll: '3d4+3' } });
+  const mm1 = V('ana').chars.find(c => c.id === lyra.id).abil[0];
+  o('ana', { op: 'abil.use', char: lyra.id, id: mm1.id });
+  ok(V('ana').chars.find(c => c.id === lyra.id).res.cur === 7 && /Mísseis mágicos \(−3 mana\)/.test(last('ana').label), 'magia gasta mana e rola', last('ana').label);
+  o('ana', { op: 'abil.use', char: lyra.id, id: mm1.id }); o('ana', { op: 'abil.use', char: lyra.id, id: mm1.id });
+  ok(o('ana', { op: 'abil.use', char: lyra.id, id: mm1.id }).error, 'sem mana: não usa');
+  // momento decisivo
+  o('gm', { op: 'combat.end' });
+  ok(o('ana', { op: 'ev.save', ev: { title: 'X', options: ['a'] } }).error, 'só o mestre cria momentos decisivos');
+  o('gm', { op: 'ev.save', ev: { title: 'O guarda desconfia', text: 'Ele bloqueia o portão.', options: ['Convencer', 'Lutar', 'Fugir'], check: { key: 'Persuasão', dc: 13, fail: 'Ele chama reforços.' } } });
+  const ev = V('ana').events[0];
+  ok(ev.open && ev.options.length === 3 && V('ana').asks.at(-1).label === 'O guarda desconfia', 'momento decisivo com opções e teste ligado');
+  o('ana', { op: 'ev.vote', id: ev.id, opt: 0 }); o('beto', { op: 'ev.vote', id: ev.id, opt: 0 }); o('beto', { op: 'ev.vote', id: ev.id, opt: 2 });
+  ok(V('gm').events[0].votes.beto === 2, 'voto pode mudar');
+  o('gm', { op: 'ev.close', id: ev.id, text: 'O portão se abre.' });
+  ok(/Decisão: Convencer|Decisão: Fugir/.test(last('ana').text) && V('ana').journal.some(j => j.kind === 'decisao' && /O portão se abre/.test(j.text)), 'decisão registrada no histórico e no diário', last('ana').text);
+  // diário
+  ok(o('ana', { op: 'jr.save', entry: { kind: 'missao', title: 'X' } }).error && o('ana', { op: 'jr.save', entry: { kind: 'pista', title: 'Pegadas de lobo' } }).ok, 'jogador anota pistas; missões são do mestre');
+  o('gm', { op: 'jr.save', entry: { kind: 'missao', title: 'Resgatar o ferreiro' } });
+  o('gm', { op: 'jr.save', entry: { kind: 'nota', title: 'O ferreiro é o vilão', priv: true } });
+  ok(V('ana').journal.some(j => j.title === 'Resgatar o ferreiro' && j.status === 'ativa') && !V('ana').journal.some(j => /vilão/.test(j.title)) && V('gm').journal.some(j => /vilão/.test(j.title)), 'missão ativa para todos; anotação privada só do mestre');
+  const pista = V('gm').journal.find(j => j.kind === 'pista');
+  ok(o('beto', { op: 'jr.del', id: pista.id }).error && o('ana', { op: 'jr.del', id: pista.id }).ok, 'apaga só quem escreveu (ou o mestre)');
+  // descanso
+  o('gm', { op: 'char.hp', id: bruk.id, set: 2 });
+  o('gm', { op: 'rest', kind: 'short' });
+  ok(V('ana').chars.find(c => c.id === bruk.id).hp.cur === 2 + Math.ceil(30 * .25) && V('ana').chars.find(c => c.id === bruk.id).conds.length === 3, 'descanso curto: um quarto da vida, condições ficam');
+  o('gm', { op: 'rest', kind: 'long' });
+  const bk = V('ana').chars.find(c => c.id === bruk.id), lx = V('ana').chars.find(c => c.id === lyra.id);
+  ok(bk.hp.cur === 30 && !bk.conds.length && lx.res.cur === 10 && /Descanso longo/.test(last('ana').text), 'descanso longo: vida e mana cheias, condições somem');
+  ok(o('ana', { op: 'rest', kind: 'long' }).error, 'só o mestre manda descansar');
+  ok(R.op(B, 'gm', { op: 'cfg', conds: [{ name: 'Gelado', adv: 'dis', tick: '1d6', bonus: '-1' }] }, mm).ok && V('ana').conds[0].bonus === '-1', 'mestre cria condição com efeitos');
+  ok(R.op(B, 'gm', { op: 'cfg', conds: [{ name: 'Ruim', tick: 'abc' }] }, mm).error, 'efeito inválido é recusado');
+}
+
 // ---------- persistência ----------
 const R2 = createRpg({ db, get, run });
 ok(R2.view(C, 'ana').chars.length === 4 && R2.view(C, 'ana').me_gm, 'mesa volta do banco (servidor reiniciou)');
