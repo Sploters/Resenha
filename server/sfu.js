@@ -69,9 +69,19 @@ function readIp6() {
 }
 let ip6 = readIp6();
 const ip6Port = (port) => (port === PORT ? IP6_PORT : IP6_PORT + (port - EXTRA_PORT + 1));
-// IPs anunciados: RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN); e o IPv6 público
+// Rede de casa: quem está na mesma rede do servidor e abre o site pelo endereço público, sem VPN, não alcança o IP
+// anunciado (o da VPN) e ia pelo túnel, com a voz e o vídeo saindo para a internet e voltando. RTC_LAN_IP (o IP do
+// servidor na rede local, deploy/servidor.sh) também é anunciado, em porta própria, e vem primeiro: é o caminho mais curto.
+// Para quem está em outra rede, esse candidato só não responde
+const LAN_IP = (process.env.RTC_LAN_IP || '').trim(), LAN_PORT = Number(process.env.RTC_LAN_PORT || 40050);
+const lanPort = (port) => (port === PORT ? LAN_PORT : LAN_PORT + (port - EXTRA_PORT + 1));
+function listenInfosLan(port) {
+  if (!LAN_IP || !process.env.RTC_ANNOUNCED_IP || process.env.RTC_ANNOUNCED_IP.split(',')[0].trim() === LAN_IP) return [];
+  return ['udp', 'tcp'].map((protocol) => ({ protocol, ip: process.env.RTC_LAN_LISTEN || '0.0.0.0', announcedAddress: LAN_IP, port: lanPort(port) }));
+}
+// IPs anunciados: o da rede de casa; RTC_ANNOUNCED_IP (Docker/NAT) ou todos os IPv4 das interfaces (inclui a da VPN); e o IPv6 público
 function listenInfos(port) {
-  const out = listenInfos4(port);
+  const out = [...listenInfosLan(port), ...listenInfos4(port)];
   if (ip6) for (const protocol of ['udp', 'tcp']) out.push({ protocol, ip: process.env.RTC_IP6_LISTEN || '0.0.0.0', announcedAddress: ip6, port: ip6Port(port) });
   return out;
 }

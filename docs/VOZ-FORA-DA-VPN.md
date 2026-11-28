@@ -1,11 +1,12 @@
 # Voz fora da VPN
 
 A internet de casa do servidor tem **CGNAT**: ninguém de fora alcança o IPv4 dele, e abrir porta no roteador não
-resolve. O site e o chat chegam a todo mundo pelo Cloudflare Tunnel. A voz tenta três caminhos, nesta ordem, e o app
+resolve. O site e o chat chegam a todo mundo pelo Cloudflare Tunnel. A voz tenta estes caminhos e o app
 escolhe sozinho:
 
 | Caminho | Quem usa | Como | Observação |
 |---|---|---|---|
+| **Rede de casa** | quem está na mesma rede do servidor, mesmo abrindo o site pelo Cloudflare | direto ao IP local do servidor, porta 40050 (`RTC_LAN_IP`, detectado no deploy) | sem VPN; o programa nativo manda para o mesmo endereço |
 | **VPN** (Tailscale) | quem tem a VPN ligada | direto ao IP da VPN, porta 40000 | o melhor: voz, câmera e tela |
 | **IPv6 público** | quem tem IPv6 funcionando (o 4G costuma ter) | direto ao IPv6 do servidor, porta 40030 | voz, câmera e tela; ver abaixo |
 | **Pelo túnel** | todo o resto | pela conexão do site (WebSocket `/voz-tunel`) | voz, câmera e tela (com o som); entra se o direto não conectar em 5 s |

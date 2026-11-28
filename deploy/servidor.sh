@@ -89,7 +89,11 @@ trocar_container() { # $1 = hash da voz, $2 = hash do app
     -v "$HOME/resenha-data:/data" resenha node server/ipv6watch.js >/dev/null
   sleep 2
   echo "IPv6 público: $(cat "$HOME/resenha-data/ipv6" 2>/dev/null || echo 'nenhum')"
+  # IP do servidor na rede de casa: quem está na mesma rede liga a voz direto, sem VPN (server/sfu.js, porta 40050)
+  LAN=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1)
+  echo "IP na rede de casa: ${LAN:-nenhum}"
   docker run -d --name resenha --restart=always \
+    -p 40050:40050/udp -p 40050:40050/tcp -e RTC_LAN_IP="$LAN" \
     -p 3000:3000 -p 3443:3443 -p 40000:40000/udp -p 40000:40000/tcp -p 40001-40010:40001-40010/udp \
     -p 40030:40030/udp -p 40030:40030/tcp \
     -v "$HOME/resenha-data:/data" -e TLS_SAN=IP:$IP -e RTC_ANNOUNCED_IP=$IP $COOKIES $STEAM $VOZ resenha >/dev/null

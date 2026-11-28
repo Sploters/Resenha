@@ -2174,7 +2174,9 @@ export class Voice {
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; } // parou enquanto preparava: fecha só esta sessão
       const ss = r.ssrcs || [r.ssrc], layers = ss.length > 1 ? [{ ...low, ssrc: ss[0] }, { ...top, ssrc: ss[ss.length - 1] }] : [{ ...top, ssrc: ss[0] }];
       // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
-      const res = await d.nativeStart({ ...r, host: r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}), ...(this._natWinId ? { sourceId: this._natWinId } : {}) });
+      const reached = await this.mediaHost();
+      if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
+      const res = await d.nativeStart({ ...r, host: reached || r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}), ...(this._natWinId ? { sourceId: this._natWinId } : {}) });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
       Object.assign(my, { pending: false, encoder: res.encoder, w: res.w, h: res.h, producerId: r.producer_id, layers: res.layers || [], layerError: res.layerError || '', prio: res.prio || null, live: this._natLive.has(r.producer_id), capture: res.capture || null, method: my.method || res.capture?.method || (this._capMode ? null : 'wgc'), overlap: my.overlap ?? !!res.capture?.overlap });
@@ -2186,6 +2188,22 @@ export class Voice {
       if (!my.live) { const t0 = Date.now(); my.liveTimer = setInterval(() => this.nativeLiveCheck(my, t0), 1000); }
       this.onUpdate();
     } catch (e) { if (this.native === my) this.nativeRestart(e.message); }
+  }
+  // o IPv4 do servidor que a mídia desta chamada já alcança (rede de casa, VPN...): o programa nativo manda para o mesmo
+  // lugar. Sem isto ele mandava sempre para o IP da VPN, e sem a VPN a transmissão caía para o modo normal.
+  // null (sem medida, ou ligação por IPv6/relay, que o programa não usa): vale o endereço que o servidor informa
+  async mediaHost() {
+    for (const t of [this.sfu?.send, this.sfu?.recv]) {
+      if (!t || t.closed) continue;
+      try {
+        const rep = await t.getStats(), byId = new Map([...rep.values()].map(r => [r.id, r]));
+        const all = [...rep.values()], sel = byId.get(all.find(r => r.type === 'transport' && r.selectedCandidatePairId)?.selectedCandidatePairId)
+          || all.find(r => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded');
+        const rc = sel && byId.get(sel.remoteCandidateId), ip = rc?.address || rc?.ip;
+        if (rc && byId.get(sel.localCandidateId)?.candidateType !== 'relay' && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip || '')) return ip;
+      } catch { }
+    }
+    return null;
   }
   // sem o aviso de chegada ainda: espera, tenta outra porta ou volta ao Chromium (constantes NATIVE_* no topo)
   nativeLiveCheck(my, t0) {
