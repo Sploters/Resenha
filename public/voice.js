@@ -67,6 +67,9 @@ export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '6
 export const AUTO_MAX = 64, AUTO_STEPS = [32, 48, 64];
 // voz pelo túnel (public/voztunnel.js): sem conectar direto em tanto tempo na entrada, a voz segue pela conexão do site
 const TUNNEL_WAIT = 5000;
+// pelo túnel, testa se a mídia direta já alcança o servidor (VPN que terminou de ligar, rede que voltou) e volta sozinha.
+// A espera dobra a cada teste sem sucesso, até o teto
+const PROBE_FIRST = 15000, PROBE_MAX = 120000;
 const OPUS_MAX = 384; // teto anunciado no SDP; a taxa real é limitada por encodings[].maxBitrate
 // pede Opus em estéreo e até 384 kbps ao outro lado (mono do Opus para em ~256 kbps)
 const opusHi = (sdp) => {
@@ -567,7 +570,7 @@ export class Voice {
     clearTimeout(this._mrWait); this._mrWait = null;
     const jt = this._jt; if (jt?.sent && !jt.joined) { timing('voice_server', performance.now() - jt.sent); jt.joined = performance.now(); if (!sfu) this._jt = null; }
     // pela voz pelo túnel: a entrada (de novo) no servidor só pede para o túnel entrar na sala outra vez
-    if (sfu && this.tunnel) { this._sfuMode = true; this._gotJoined = true; this.tunnel.attach(); return; }
+    if (sfu && this.tunnel) { this._sfuMode = true; this._gotJoined = true; if (sfu.rtpCapabilities) this._sfuCaps = sfu.rtpCapabilities; this.tunnel.attach(); return; }
     if (sfu && (rejoin || this.sfu)) this.sfuTeardown(); // resposta de um SFU_REJOIN (ou chegou de novo): começa do zero
     // a falha só conta se esta conexão de mídia ainda for a atual: saiu (ou entrou de novo) no meio do caminho, o
     // envio cancelado ("queue stopped") não é falha de conexão nem vira erro na tela
@@ -595,6 +598,7 @@ export class Voice {
     const { Device } = await import('/vendor/msc/mediasoup-client.js');
     const cid = this.channelId, device = new Device();
     await device.load({ routerRtpCapabilities: rtpCapabilities });
+    this._sfuCaps = rtpCapabilities;
     const sfu = { cid, device, producers: {}, consumers: new Map(), seen: new Set(), ready: false };
     this.sfu = sfu;
     const transport = async (dir) => {
@@ -631,6 +635,7 @@ export class Voice {
     if (this.cam) await this.sfuProduce('cam', this.cam.getVideoTracks()[0]);
     if (this.screen) await this.sfuPublishScreen();
     if (this.screen && this.native && !this.native.pending) { window.lcDesktop?.nativeStop?.(); this.startNative().catch(() => { }); } // sessão anterior morreu com a conexão
+    if (this._nativeBack) { this._nativeBack = false; if (this.screen && !this.native) this.switchToNative().catch(() => { }); } // voltou do túnel: a transmissão volta ao programa nativo
     this.onUpdate();
     setTimeout(() => this.checkRecovered(sfu), 1500); // refez a mídia e não há nada para conectar agora: já conta como de volta
     // vigia da voz pelo túnel: tinha o que mandar ou receber e nada conectou em TUNNEL_WAIT (com ou sem eventos do ICE)
@@ -738,6 +743,7 @@ export class Voice {
       onAdd: (uid, source, stream) => {
         if (this.tunnel !== T) return;
         const p = this.ensurePeer(uid); p.consumers.set('tun:' + source, source);
+        if (source === 'screen') p.layer = undefined; // transmissão nova pelo túnel: o palco pede a camada de novo
         if (source === 'cam' || source === 'screen') {
           p.streams[source] = stream;
           const t = stream.getVideoTracks()[0]; if (t) t.onmute = t.onunmute = () => this.onUpdate();
@@ -767,12 +773,64 @@ export class Voice {
     });
     T.start().catch((e) => { if (this.tunnel === T) { this.recovering = false; this.error = 'Falha ao conectar a voz: ' + (e.message || e); this.onUpdate(); } });
     // o que já estava ligado continua pelo túnel (o programa nativo de 120 FPS não passa por ele: volta à captura do navegador)
-    if (this.native) this.stopNative();
-    if (this.cam) this.tunnelVideo('cam'); if (this.screen) this.tunnelVideo('screen');
+    if (this.native) {
+      // sem o nativo, a trilha que sobra é só a prévia local (pequena, até 10 FPS): volta à captura cheia antes de mandar
+      this._nativeBack = true; this.stopNative();
+      this.chromiumOnWindow().then((ok) => { const vt = ok && this.screen?.getVideoTracks()[0]; if (!vt || this.native) return; this.previewOnly(vt, false); if (this.tunnel === T) this.tunnelVideo('screen'); this.applyOver(); }).catch((e) => console.warn('túnel: captura da tela', e));
+    } else if (this.screen) this.tunnelVideo('screen');
+    if (this.cam) this.tunnelVideo('cam');
+    // caiu de novo logo depois de voltar: a mídia direta está instável aqui, espera mais antes do próximo teste
+    this._probeWait = Date.now() - (this._backAt || 0) < 180000 ? Math.min((this._probeWait || PROBE_FIRST) * 4, PROBE_MAX) : PROBE_FIRST;
+    this.scheduleProbe();
+    if (this._tunNote !== this.channelId) { this._tunNote = this.channelId; this.notice('A chamada está indo pela conexão do site (mais atraso e vídeo mais simples). Se você usa a VPN, confira se ela está ligada: a Resenha volta sozinha para a ligação direta.'); }
     this.onUpdate();
     return true;
   }
-  tunnelClose() { const T = this.tunnel; if (!T) return; this.tunnel = null; T.close(); }
+  notice(text) { try { document.dispatchEvent(new CustomEvent('voice-notice', { detail: text })); } catch { } }
+  scheduleProbe() {
+    clearTimeout(this._probeT); const T = this.tunnel; if (!T) return;
+    this._probeT = setTimeout(async () => {
+      if (this.tunnel !== T) return;
+      const ok = await this.probeDirect().catch(() => false);
+      if (!ok && this.tunnel === T) { this._probeWait = Math.min(this._probeWait * 2, PROBE_MAX); this.scheduleProbe(); }
+    }, this._probeWait);
+  }
+  // a mídia direta chega ao servidor agora? Um transporte de teste, sem mandar nem receber voz (o túnel segue tocando)
+  async probeDirect() {
+    const T = this.tunnel, caps = this._sfuCaps;
+    if (!T?.ready || !caps || this._probing || this._linkDown) return false;
+    this._probing = true; let t = null, ok = false;
+    try {
+      const { Device } = await import('/vendor/msc/mediasoup-client.js'), device = new Device();
+      await device.load({ routerRtpCapabilities: caps });
+      const info = await this.sfuReq('probe');
+      if (this.tunnel !== T) return false;
+      t = device.createSendTransport({ ...info, iceServers: this.ice });
+      t.on('connect', ({ dtlsParameters }, done, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(done, fail));
+      t.on('producedata', ({ sctpStreamParameters }, done, fail) => this.sfuReq('probe_data', { transport_id: t.id, sctpStreamParameters }).then(done, fail));
+      let timer;
+      const connected = new Promise((res) => { t.on('connectionstatechange', (st) => { if (st === 'connected') res(true); else if (st === 'failed') res(false); }); timer = setTimeout(() => res(false), TUNNEL_WAIT); });
+      t.produceData({ ordered: false, maxRetransmits: 0, label: 'probe' }).catch(() => { });
+      ok = await connected; clearTimeout(timer);
+    } catch (e) { console.warn('teste da mídia direta', e.message || e); }
+    finally { t?.close(); if (t) this.sfuReq('probe_close').catch(() => { }); this._probing = false; }
+    return ok && this.tunnel === T && this.leaveTunnel();
+  }
+  // sai do túnel e refaz a mídia direta, sem sair da sala
+  leaveTunnel() {
+    const T = this.tunnel; if (!T || !this.channelId) return false;
+    track('voice_direct', 'probe', { bg: true });
+    T.dropAll(); // com this.tunnel ainda valendo: as vozes e os vídeos que vinham por ele saem
+    for (const p of this.peers.values()) { for (const k of [...(p.consumers?.keys() || [])]) if (String(k).startsWith('tun:')) p.consumers.delete(k); p.layer = undefined; }
+    this.tunnelClose(); this._backAt = Date.now(); this._tunNote = null;
+    this.recovering = true; this._mrReason = 'tunnel_back'; this._mrAt = Date.now(); this._mrTries = 0;
+    this.send('SFU_REJOIN', { channel_id: this.channelId });
+    clearTimeout(this._mrWait); this._mrWait = setTimeout(() => { this._mrWait = null; if (this._linkDown) this._mrDeferred = true; else this.mediaReconnect('timeout'); }, 15000);
+    this.notice('Ligação direta com o servidor de volta.');
+    this.onUpdate();
+    return true;
+  }
+  tunnelClose() { const T = this.tunnel; if (!T) return; clearTimeout(this._probeT); this.tunnel = null; T.close(); }
   // câmera/tela pelo túnel (public/voztunnel-video.js): o vídeo é comprimido aqui e vai pela conexão do site; o áudio da
   // transmissão também. Sem WebCodecs de vídeo neste navegador: avisa que não passa (uma vez por chamada)
   tunnelVideo(kind) {
@@ -1528,7 +1586,12 @@ export class Voice {
   }
   // camada da transmissão pedida ao servidor: 0 = 1/4 da resolução (miniaturas), 2 = completa
   setStreamLayer(uid, spatial) {
-    const pref = this.layerPref?.[uid]; if (pref === 0 || pref === 1 || pref === 2) spatial = pref; // escolha manual do painel de qualidade vence a automática
+    const pref = this.layerPref?.[uid], manual = pref === 0 || pref === 1 || pref === 2; if (manual) spatial = pref; // escolha manual do painel de qualidade vence a automática
+    if (this.tunnel) { // pelo túnel, "automática" ainda é limitada pelo servidor ao que cabe na conexão do site
+      const q = this.peers.get(uid), tag = spatial + (manual ? 'm' : '');
+      if (q && q.layer !== tag) { q.layer = tag; this.tunnel.layer(uid, spatial, manual ? spatial : -1); }
+      return;
+    }
     const p = this.peers.get(uid); if (!p || !this.sfu?.ready || p.layer === spatial) return; p.layer = spatial;
     for (const [id, src] of p.consumers) if (src === 'screen') this.sfuReq('layers', { consumer_id: id, spatial }).catch(() => { });
   }
@@ -1550,6 +1613,7 @@ export class Voice {
   }
   // estatísticas de RECEPÇÃO de uma transmissão (SFU): resolução/fps/bitrate reais do que chega, perda, codec, áudio
   async streamStats(uid) {
+    if (this.tunnel) return this.tunnelStreamStats(uid);
     const p = this.peers.get(uid); if (!p || !this.sfu) return null;
     let vc = null, ac = null;
     for (const [id, src] of p.consumers) { const e = this.sfu.consumers.get(id); if (src === 'screen') vc = e?.c; else if (src === 'screenaudio') ac = e?.c; }
@@ -1569,6 +1633,15 @@ export class Voice {
       }
     } catch { return null; }
     out.quality = out.loss > 8 || out.freezes > 3 ? 'ruim' : out.loss > 2 ? 'média' : 'boa';
+    return out;
+  }
+  // o mesmo, para o vídeo que chega pelo túnel (contado no próprio app: não há conexão WebRTC para consultar)
+  tunnelStreamStats(uid) {
+    const T = this.tunnel, p = this.peers.get(uid), v = T?.videoStats(uid); if (!p || !v) return null;
+    this._rs ||= new Map(); const now = performance.now(), key = 'tun:' + uid, prev = this._rs.get(key);
+    this._rs.set(key, { t: now, b: v.bytes, f: v.frames, c: v.cuts });
+    const out = { tunnel: true, layerPref: this.layerPref?.[uid] ?? 'auto', audio: p.consumers.has('tun:screenaudio'), w: v.w, h: v.h, rtt: T.rtt, freezes: v.cuts, delay: v.delay, fps: null, kbps: null };
+    if (prev && now > prev.t) { const dt = (now - prev.t) / 1000; out.fps = Math.max(0, Math.round((v.frames - prev.f) / dt)); out.kbps = Math.max(0, Math.round((v.bytes - prev.b) * 8 / dt / 1000)); }
     return out;
   }
   applyVolume(uid) {

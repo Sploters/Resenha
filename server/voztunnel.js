@@ -10,6 +10,7 @@
 //                    texto  {"t":"vstart","source":"screen","codec":"vp8"|"h264","ssrc":123}  começa a mandar vídeo
 //                    texto  {"t":"stop","source":"screen"}  parou de mandar (cam, screen, screenaudio)
 //                    texto  {"t":"pause","slot":3,"on":false}  assiste (ou não) o que chega naquele slot
+//                    texto  {"t":"layer","slot":3,"want":2,"manual":-1}  camada da transmissão (simulcast) que quer receber
 //                    texto  {"t":"key","slot":3}           o vídeo que chega quebrou: pede um quadro-chave
 //                    texto  {"t":"nocodec","slot":3}       este navegador não abre o codec (H.264): quem transmite troca pelo VP8
 //                    binário [1][carimbo uint32][Opus]     20 ms do microfone (carimbo em amostras de 48 kHz)
@@ -27,8 +28,9 @@ import { sfuTunnelAttach } from './sfu.js';
 
 export const tunnelSig = (key, uid) => crypto.createHmac('sha256', key).update('voz-tunel:' + uid).digest('hex');
 // quem não dá conta de receber: descarta em vez de acumular atraso. O vídeo cede antes da voz (o app pede um quadro-chave
-// quando falta pedaço)
-const SLOW = 384 * 1024, SLOW_V = 160 * 1024;
+// quando falta pedaço). A fila do vídeo precisa caber um quadro-chave inteiro (em 1080p ele passa de 160 KB, o limite
+// antigo: o próprio quadro-chave saía picado e a imagem ficava parada até um que coubesse)
+const SLOW = 768 * 1024, SLOW_V = 512 * 1024;
 
 export function startTunnelServer() {
   const key = crypto.randomBytes(32).toString('hex');
@@ -58,9 +60,10 @@ function onConn(ws, uid, noVideo) {
       ws.send(b);
     },
     rtp: (slot, pkt) => {
-      if (ws.readyState !== 1 || ws.bufferedAmount > SLOW_V) return;
+      if (ws.readyState !== 1 || ws.bufferedAmount > SLOW_V) return false; // sfu.js conta e baixa a camada
       const b = Buffer.allocUnsafe(2 + pkt.length); b[0] = 3; b[1] = slot; pkt.copy(b, 2);
       ws.send(b);
+      return true;
     },
     key: (source) => sendJ({ t: 'key', source }),
     closed: () => { h = null; sendJ({ t: 'detached' }); }, // a pessoa saiu da sala no SFU (ou ele refez a sala): o app entra de novo
@@ -80,6 +83,7 @@ function onConn(ws, uid, noVideo) {
     if (m.t === 'off') return h?.setOff(!!m.on);
     if (m.t === 'pause') return h?.pause(m.slot | 0, !!m.on);
     if (m.t === 'key') return h?.key(m.slot | 0);
+    if (m.t === 'layer') return h?.layer(m.slot | 0, m.want | 0, Number.isInteger(m.manual) ? m.manual : -1);
     if (m.t === 'nocodec') return h?.nocodec(m.slot | 0);
     if (m.t === 'stop') return h?.stop(String(m.source || ''));
     if (m.t === 'vstart') { const ok = h ? await h.vstart(String(m.source || ''), String(m.codec || ''), Number(m.ssrc)) : false; return sendJ({ t: 'vstarted', source: m.source, ok }); }

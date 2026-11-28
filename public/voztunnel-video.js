@@ -6,6 +6,10 @@
 // - VideoReceiver: monta os quadros a partir do RTP que chega (VP8 ou H.264), descomprime (VideoDecoder) e entrega uma
 //   faixa de vídeo comum ao app. Faltou pacote (a rede descartou): espera o próximo quadro-chave e pede um.
 const MTU = 1100, CLOCK = 90;
+// Folga contra as rajadas do TCP (VideoReceiver.queue): pelo túnel os quadros chegam em blocos (um bloco atrasa e os
+// seguintes vêm todos juntos). Mostrados na hora em que chegavam, a imagem parava e depois "avançava". Agora cada quadro sai
+// no tempo do carimbo dele, com a folga que a conexão está pedindo (cresce na hora com um atraso, diminui devagar).
+const PACE_MAX = 400, PACE_SHRINK = 0.5, PACE_WINDOW = 8000, CATCH_UP = 4; // ms; CATCH_UP: intervalo mínimo ao tirar o atraso
 export const videoTunnelSupported = () => typeof VideoEncoder === 'function' && typeof VideoDecoder === 'function' && typeof VideoFrame === 'function';
 
 // ---------------------------------------------------------------- envio
@@ -169,6 +173,8 @@ export class VideoReceiver {
     this.decCodec = this.kind === 'vp8' ? 'vp8' : 'avc1.' + (codec?.profile || '42e01f');
     this.askKey = askKey; this.needKey = true; this.lastSeq = -1; this.curTs = null; this.parts = []; this.lost = false;
     this.frames = 0; this.lastAsk = 0; this.closed = false;
+    this.bytes = 0; this.cuts = 0; this.w = 0; this.h = 0; this.shown = 0; // o que o painel de qualidade mostra
+    this.q = []; this.timer = 0; this.rtpPrev = null; this.mt = 0; this.base = null; this.delay = 0; this.hist = []; this.lastPlay = 0;
     if (typeof MediaStreamTrackGenerator === 'function') {
       this.gen = new MediaStreamTrackGenerator({ kind: 'video' }); this.writer = this.gen.writable.getWriter();
       this.stream = new MediaStream([this.gen]);
@@ -186,6 +192,7 @@ export class VideoReceiver {
   }
   push(pkt) { // pacote RTP inteiro
     if (this.closed || !this.kind || pkt.length < 12) return;
+    this.bytes += pkt.length;
     const dv = new DataView(pkt.buffer, pkt.byteOffset, pkt.byteLength);
     let o = 12 + 4 * (pkt[0] & 0x0f);
     if (pkt[0] & 0x10) { if (pkt.length < o + 4) return; o += 4 + 4 * dv.getUint16(o + 2); }
@@ -196,7 +203,7 @@ export class VideoReceiver {
     this.lastSeq = seq;
     if (ts !== this.curTs) { this.curTs = ts; this.parts = []; this.key = false; this.started = false; this.fu = false; this.lost = false; }
     // faltou pacote (a rede descartou): este quadro e os seguintes até um quadro-chave não servem
-    if (gap) { this.lost = true; this.wantKey(); }
+    if (gap) { if (!this.needKey) this.cuts++; this.lost = true; this.wantKey(); }
     if (end <= o) { if (marker) this.finish(ts); return; }
     const pl = pkt.subarray(o, end);
     if (this.kind === 'vp8') this.vp8(pl); else this.h264(pl);
@@ -230,20 +237,54 @@ export class VideoReceiver {
     if (lost || (this.needKey && !key)) { this.wantKey(); return; }
     let n = 0; for (const x of parts) n += x.length;
     const data = new Uint8Array(n); let o = 0; for (const x of parts) { data.set(x, o); o += x.length; }
+    this.needKey = false;
+    this.queue(ts, key, data);
+  }
+  // quando mostrar: o tempo do carimbo + o menor atraso visto há pouco + a folga. A fila guarda o quadro ainda comprimido
+  // (barato); segurar quadros já descomprimidos travaria o decodificador da placa, que tem poucos
+  queue(ts, key, data) {
+    const now = performance.now();
+    if (this.rtpPrev != null) this.mt += ((ts - this.rtpPrev) | 0) / CLOCK;
+    this.rtpPrev = ts;
+    const transit = now - this.mt;
+    if (this.base == null || Math.abs(transit - this.base) > 5000) { this.hist = []; this.delay = 0; this.lastPlay = 0; } // começo, ou quem transmite recomeçou
+    // fila de mínimos: o 1º é sempre o menor atraso dos últimos segundos
+    while (this.hist.length && this.hist[this.hist.length - 1][1] >= transit) this.hist.pop();
+    this.hist.push([now, transit]);
+    while (this.hist[0][0] < now - PACE_WINDOW) this.hist.shift();
+    this.base = this.hist[0][1];
+    const late = transit - this.base;
+    this.delay = late > this.delay ? Math.min(PACE_MAX, late) : Math.max(0, this.delay - PACE_SHRINK);
+    const at = Math.max(this.mt + this.base + this.delay, this.lastPlay + CATCH_UP);
+    this.lastPlay = at;
+    this.q.push({ at, ts, key, data });
+    this.drain();
+  }
+  drain() {
+    if (this.closed || this.timer) return;
+    // janela escondida: o temporizador do navegador atrasa até 1 s, então passa direto. Fila grande demais: idem
+    const all = !!globalThis.document?.hidden || this.q.length > 90;
+    while (this.q.length && (all || this.q[0].at <= performance.now() + 2)) this.decode(this.q.shift());
+    if (this.q.length) this.timer = setTimeout(() => { this.timer = 0; this.drain(); }, Math.max(1, this.q[0].at - performance.now()));
+  }
+  decode({ ts, key, data }) {
+    if (this.closed || !this.kind) return;
     if (!this.dec || this.dec.state === 'closed') {
       if (!key) return this.wantKey();
       // erro seguido sem nenhum quadro saindo: o navegador não abre este codec (não adianta insistir)
       this.dec = new VideoDecoder({ output: (f) => { this.decErrors = 0; this.out(f); }, error: (e) => { console.warn('tunnel video decoder', e); this.dec = null; if (++this.decErrors >= 3 || e?.name === 'NotSupportedError') return this.giveUp(); this.wantKey(); } });
       try { this.dec.configure({ codec: this.decCodec, optimizeForLatency: true }); } catch (e) { console.warn('tunnel video decoder', e); this.dec = null; return this.giveUp(); }
     }
-    if (this.dec.decodeQueueSize > 8) { this.wantKey(); return; } // processador atrasado: pula até o próximo quadro-chave
+    // processador atrasado: pula até o próximo quadro-chave (o limite aguenta tirar o atraso de uma rajada sem cortar)
+    if (this.dec.decodeQueueSize > 30) { this.q = []; this.wantKey(); return; }
     try {
       this.dec.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: Math.round(ts * 1000 / CLOCK), data }));
-      this.needKey = false; this.frames++;
+      this.frames++;
     } catch { this.wantKey(); }
   }
   out(f) {
     if (this.closed) { f.close(); return; }
+    this.w = f.displayWidth; this.h = f.displayHeight; this.shown++;
     if (this.writer) { this.writer.write(f).catch(() => { }); return; } // o gerador fecha o quadro
     try {
       if (this.canvas.width !== f.displayWidth || this.canvas.height !== f.displayHeight) { this.canvas.width = f.displayWidth; this.canvas.height = f.displayHeight; }
@@ -252,6 +293,7 @@ export class VideoReceiver {
   }
   close() {
     if (this.closed) return; this.closed = true;
+    clearTimeout(this.timer); this.q = [];
     try { if (this.dec?.state !== 'closed') this.dec?.close(); } catch { }
     try { this.writer?.close(); } catch { }
     try { this.track?.stop(); } catch { }

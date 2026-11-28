@@ -301,6 +301,17 @@ function registerProducer(r, peer, source, p) {
 // out: { add(slot, uid, source, kind, codec), del(slot), frame(slot, seq, ts, payload), rtp(slot, packet), key(source), closed() }
 const TUN_PT = 100, TUN_MAX = 1500, TUN_VPT = { vp8: 101, h264: 102 };
 const noVideoOf = new Map(); // `${cid}:${uid}` -> sem permissão de vídeo (sfuDropVideo)
+// Camada da transmissão que vai pelo túnel. No DirectTransport não há estimativa de banda, e o servidor mandava sempre a
+// cheia: uma transmissão de 20 Mbps por TCP através do Cloudflare não passa, e a imagem travava e saltava. Agora vale a
+// maior camada que caiba em TUNNEL_VIDEO_KBPS (medida no que quem transmite está mandando); se mesmo assim o envio
+// descartar pacotes, desce mais um degrau por um tempo. A camada escolhida à mão no painel de qualidade vale como está.
+const TUN_VIDEO_KBPS = Number(process.env.TUNNEL_VIDEO_KBPS || 8000), TUN_TICK = Number(process.env.TUNNEL_LAYER_MS || 2000), TUN_DROPS = 40;
+export function tunnelLayer(kbps, { want = 2, limit = 2, cur = 0, max = TUN_VIDEO_KBPS } = {}) {
+  const top = Math.max(0, Math.min(want, limit, kbps.length - 1));
+  // subir pede folga (90% do teto); continuar na camada tolera um pouco acima (115%), para não ficar trocando
+  for (let i = top; i > 0; i--) if (kbps[i] > 0 && kbps[i] <= max * (i > cur ? 0.9 : 1.15)) return i;
+  return 0;
+}
 const TUN_AUDIO = { mic: { channels: 1 }, screenaudio: { channels: 2 } };
 export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   const r = rooms.get(cid), peer = r?.peers.get(uid);
@@ -313,6 +324,31 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
   const tun = { closed: false, off: false, slots: new Map(), used: new Set(), prod: new Map() };
   const freeSlot = () => { for (let i = 1; i < 256; i++) if (!tun.used.has(i)) { tun.used.add(i); return i; } return 0; };
   const slotOf = (n) => { for (const x of tun.slots.values()) if (x.slot === n) return x; return null; };
+  const setLayer = async (x, spatial) => {
+    if (x.c.closed || x.cur === spatial) return;
+    x.cur = spatial; await x.c.setPreferredLayers({ spatialLayer: spatial, temporalLayer: 2 }).catch(() => { });
+  };
+  // quanto cada camada está pesando agora (kbps), na ordem das camadas
+  const layerKbps = async (p) => {
+    const st = await p.getStats().catch(() => []);
+    return p.rtpParameters.encodings.map((e) => (st.find(s => (e.rid ? s.rid === e.rid : s.ssrc === e.ssrc))?.bitrate || 0) / 1000);
+  };
+  const tuneLayer = async (x) => {
+    if (x.c.closed || x.layers < 2 || x.source !== 'screen') return;
+    if (x.manual >= 0) return setLayer(x, Math.min(x.manual, x.layers - 1));
+    const now = Date.now(), drops = x.drops; x.drops = 0;
+    if (x.limitUntil && now > x.limitUntil) { x.limit = 2; x.limitUntil = 0; }
+    if (drops > TUN_DROPS && x.cur > 0) { x.limit = x.cur - 1; x.limitUntil = now + (x.wait = Math.min((x.wait || 15e3) * 2, 240e3)); }
+    const kbps = await layerKbps(x.p);
+    if (!kbps.some(k => k > 0)) return; // transmissão ainda começando
+    await setLayer(x, tunnelLayer(kbps, { want: x.want, limit: x.limit, cur: x.cur ?? 0 }));
+  };
+  tun.tick = setInterval(() => { for (const x of tun.slots.values()) tuneLayer(x).catch(() => { }); }, TUN_TICK);
+  tun.layer = (n, want, manual) => {
+    const x = slotOf(n); if (!x || x.c.kind !== 'video') return;
+    x.want = Math.max(0, Math.min(2, want | 0)); x.manual = manual >= 0 && manual <= 2 ? manual : -1;
+    tuneLayer(x).catch(() => { });
+  };
   tun.add = async (p, ownerUid) => {
     if (tun.closed || p.closed || ownerUid === uid) return;
     if ([...tun.slots.values()].some(x => x.c.producerId === p.id)) return;
@@ -322,13 +358,17 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
     if (tun.closed) { c.close(); return; }
     const source = p.appData.source, video = c.kind === 'video';
     c.appData.source = source; c.appData.tunnel = true; c.appData.from = ownerUid; if (source === 'mic' && blockedFor(r, uid, ownerUid)) c.appData.wBlocked = true;
-    tun.slots.set(c.id, { c, slot }); peer.consumers.set(c.id, c);
+    const x = { c, slot, p, source, want: 2, manual: -1, limit: 2, limitUntil: 0, drops: 0, cur: null, layers: 0 };
+    tun.slots.set(c.id, x); peer.consumers.set(c.id, c);
     const gone = () => { if (!tun.slots.delete(c.id)) return; peer.consumers.delete(c.id); tun.used.delete(slot); if (!tun.closed) out.del(slot); };
     c.on('producerclose', gone); c.on('transportclose', gone); c.observer.on('close', gone);
     if (video) {
       // sem estimativa de banda no DirectTransport: a camada vem da preferência (tela cheia; câmera a do meio)
-      if (c.type === 'simulcast' || c.type === 'svc') await c.setPreferredLayers({ spatialLayer: source === 'cam' ? 1 : 2, temporalLayer: 2 }).catch(() => { });
-      c.on('rtp', (b) => out.rtp(slot, b));
+      if (c.type === 'simulcast' || c.type === 'svc') {
+        x.layers = p.rtpParameters.encodings.length;
+        await setLayer(x, source === 'cam' ? 1 : 0); // a tela começa na leve e sobe quando se sabe quanto pesa cada camada
+      }
+      c.on('rtp', (b) => { if (out.rtp(slot, b) === false) x.drops++; });
     } else c.on('rtp', (b) => {
       // RTP -> só o Opus: cabeçalho (12) + CSRCs + extensões + preenchimento
       if (b.length < 12) return;
@@ -429,11 +469,11 @@ export async function sfuTunnelAttach(cid, uid, out, opts = {}) {
     tun.off = !!off;
     for (const { c } of tun.slots.values()) if (c.appData.source === 'mic' && !c.closed) (tun.off || peer.modDeaf || c.appData.wBlocked ? c.pause() : c.resume()).catch(() => { });
   };
-  tun.close = () => { if (tun.closed) return; tun.closed = true; if (peer.tunnel === tun) peer.tunnel = null; peer.transports.delete(t.id); try { t.close(); } catch { } };
+  tun.close = () => { if (tun.closed) return; tun.closed = true; clearInterval(tun.tick); if (peer.tunnel === tun) peer.tunnel = null; peer.transports.delete(t.id); try { t.close(); } catch { } };
   t.observer.on('close', () => { const was = tun.closed; tun.close(); if (!was) out.closed(); });
   peer.tunnel = tun;
   for (const o of r.peers.values()) if (o !== peer) for (const p of o.producers.values()) await tun.add(p, o.uid);
-  return { audio: tun.audio, vstart: tun.vstart, vrtp: tun.vrtp, stop: tun.stop, pause: tun.pause, key: tun.key, nocodec: tun.nocodec, setOff: tun.setOff, close: tun.close };
+  return { audio: tun.audio, vstart: tun.vstart, vrtp: tun.vrtp, stop: tun.stop, pause: tun.pause, key: tun.key, layer: tun.layer, nocodec: tun.nocodec, setOff: tun.setOff, close: tun.close };
 }
 
 // Bot de música: recebe RTP/Opus local (ffmpeg) e publica como o microfone de um participante.
@@ -505,6 +545,22 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.transports.set(t.id, t);
       return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
     }
+    // pelo túnel: testa se a mídia direta já alcança o servidor (public/voice.js probeDirect). Um transporte à parte, só com
+    // um canal de dados que ninguém recebe; some sozinho em 20 s
+    case 'probe': {
+      peer.probe?.close();
+      const t = await r.router.createWebRtcTransport({ webRtcServer: r.w.webRtcServer, enableUdp: true, enableTcp: true, preferUdp: true, enableSctp: true, numSctpStreams: { OS: 16, MIS: 16 }, appData: { probe: true } });
+      peer.probe = t; peer.transports.set(t.id, t);
+      const timer = setTimeout(() => t.close(), 20000); timer.unref?.();
+      t.observer.on('close', () => { clearTimeout(timer); peer.transports.delete(t.id); if (peer.probe === t) peer.probe = null; });
+      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
+    }
+    case 'probe_data': {
+      const t = transport(); if (!t.appData.probe) throw new Error('transporte inválido');
+      const dp = await t.produceData({ sctpStreamParameters: d.sctpStreamParameters, label: 'probe', protocol: '', appData: { probe: true } });
+      return { id: dp.id };
+    }
+    case 'probe_close': peer.probe?.close(); return {};
     case 'connect': await transport().connect({ dtlsParameters: d.dtlsParameters }); return {};
     // conexão de mídia caiu (troca de Wi-Fi, 4G, oscilação): credenciais ICE novas para o app reconectar sem refazer tudo
     case 'restart_ice': { const t = transport(); return { iceParameters: await t.restartIce() }; }

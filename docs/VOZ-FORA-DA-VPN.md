@@ -37,6 +37,13 @@ No app, o ícone de sinal do painel de voz mostra o caminho em "Conexão" (UDP/T
   perdeu pacote espera o próximo quadro-chave).
 - Limites: um pouco mais de atraso quando a internet oscila (TCP); precisa de navegador com WebCodecs (Chrome/Edge e o
   app desktop; Firefox recente); chamada protegida (ponta a ponta) não usa o túnel.
+- **Camada que vai pelo túnel** (28/11): a maior que cabe em `TUNNEL_VIDEO_KBPS` (padrão 8000), medida no que quem
+  transmite está mandando; descartando pacotes, desce um degrau. Antes ia sempre a cheia e uma transmissão de 20 Mbps
+  travava e saltava. "Baixa/Média/Alta" no painel de qualidade vale pelo túnel. Quem recebe tem uma folga de até 400 ms
+  contra as rajadas do TCP.
+- **Volta sozinha** (28/11): pelo túnel, o app testa a mídia direta (operação `probe` do SFU) depois de 15 s, com a
+  espera dobrando até 2 min; conectou, sai do túnel sem sair da sala. Antes ficava no túnel até a pessoa sair da chamada
+  (caso real: VPN ainda ligando na hora de entrar). A telemetria conta `voice_tunnel` e `voice_direct`.
 - Testes: `voztunnel-test` (voz), `voztunnel-todos-test` (todos pelo túnel), `voztunnel-video-test` (tela e som nos
   dois sentidos, túnel -> túnel).
 

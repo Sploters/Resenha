@@ -26,7 +26,7 @@ async function person(tok, blockDirect) {
     new MutationObserver(() => { const e = document.getElementById('toast'); if (e && window.__toasts.at(-1) !== e.textContent) window.__toasts.push(e.textContent); }).observe(document, { childList: true, subtree: true });
     if (block) { // o endereço que o servidor de voz anuncia não chega daqui (como fora da VPN, numa rede só IPv4)
       const srd = RTCPeerConnection.prototype.setRemoteDescription;
-      RTCPeerConnection.prototype.setRemoteDescription = function (d, ...a) { return srd.call(this, d?.sdp ? { type: d.type, sdp: d.sdp.replaceAll('127.0.0.1', '192.0.2.1') } : d, ...a); };
+      RTCPeerConnection.prototype.setRemoteDescription = function (d, ...a) { return srd.call(this, d?.sdp && !window.__direct ? { type: d.type, sdp: d.sdp.replaceAll('127.0.0.1', '192.0.2.1') } : d, ...a); };
     }
   }, tok, blockDirect);
   await p.goto(BASE); await p.waitForFunction(() => window.__lc?.S?.synced, { timeout: 60000 });
@@ -88,6 +88,21 @@ try {
   const pop = await B.evaluate(() => document.querySelector('.pingpop')?.innerText || '');
   ok(/Pelo site \(túnel\)/.test(pop) && /conexão do site/.test(pop), 'popup do sinal: "Pelo site (túnel)" e a explicação', pop.slice(0, 200));
   await B.keyboard.press('Escape');
+
+  // teste da mídia direta (probeDirect): ainda sem caminho, continua no túnel; com o caminho de volta, sai sozinho
+  ok(await B.evaluate(async () => (await window.__lc.voice.probeDirect()) === false && !!window.__lc.voice.tunnel?.ready), 'sem caminho direto: o teste falha e a voz continua no túnel');
+  await B.evaluate(() => { window.__direct = true; const v = window.__lc.voice; v._probeWait = 300; v.scheduleProbe(); });
+  ok(await B.waitForFunction(() => !window.__lc.voice.tunnel && window.__lc.voice.sfu?.ready && !window.__lc.voice.recovering, { timeout: 20000 }).then(() => true, () => false), 'o caminho voltou: saiu do túnel sozinho para a mídia direta');
+  a = 0; for (let i = 0; i < 12 && a < 2000; i++) a = await aliceHears(A, 1000);
+  ok(a > 2000, 'na mídia direta de novo: a Alice ouve o Bruno', a);
+  b = 0; for (let i = 0; i < 12 && b < 0.01; i++) b = await brunoHears(B, idA);
+  ok(b > 0.01, 'e o Bruno ouve a Alice', b);
+  ok(await B.evaluate(() => ![...window.__lc.voice.peers.values()].some(p => [...p.consumers.keys()].some(k => String(k).startsWith('tun:')))), 'nada do túnel ficou para trás');
+  // volta ao túnel para o resto do teste
+  await B.evaluate(() => { window.__direct = false; window.__lc.voice.startTunnel('ice_timeout'); });
+  ok(await B.waitForFunction(() => window.__lc.voice.tunnel?.ready, { timeout: 20000 }).then(() => true, () => false), 'de volta ao túnel');
+  a = 0; for (let i = 0; i < 12 && a < 2000; i++) a = await aliceHears(A, 1000);
+  ok(a > 2000, 'de volta ao túnel: a Alice ouve o Bruno', a);
 
   // câmera pelo túnel: vai comprimida pela conexão do site (public/voztunnel-video.js) e a Alice recebe
   await B.evaluate(() => window.__lc.voice.toggleCam?.() ?? window.__lc.voice.setCam?.(true)).catch(() => { });

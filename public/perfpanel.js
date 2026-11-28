@@ -56,6 +56,15 @@ async function viewerSample(uid, now) {
   const f = countFrames(uid), pf = delta('shown:' + uid, now, { n: f?.n ?? 0 });
   if (f && pf) out.fpsShown = (f.n - pf.n) / ((now - pf.t) / 1000);
   const tr = await transportOf(voice.sfu?.recv); if (tr) { out.rtt = tr.rtt; out.via = tr.via; }
+  if (voice.tunnel) { // pelo túnel não há conexão WebRTC: os números vêm do receptor do próprio app
+    out.rtt = voice.tunnel.rtt; out.via = 'Conexão do site (sem ligação direta)';
+    const v = voice.tunnel.videoStats(uid);
+    if (v) {
+      Object.assign(out, { w: v.w, h: v.h, codec: v.codec?.toUpperCase() || null, jbMs: v.delay });
+      const pv = delta('tun:' + uid, now, { f: v.frames, b: v.bytes });
+      if (pv) { const dt = (now - pv.t) / 1000; out.fpsDec = (v.frames - pv.f) / dt; out.kbps = (v.bytes - pv.b) * 8 / dt / 1000; }
+    }
+  }
   const s = myPlay(uid);
   if (s?.state === 'active') {
     const a = perf.rtt.get(s.id) || []; out.cmdRtt = pct(a.slice(-30).map(x => x.ms), .5); out.cmdRtt95 = pct(a.slice(-30).map(x => x.ms), .95); out.cmdN = a.length;
@@ -83,6 +92,7 @@ export async function hostSample(now = performance.now(), tag = 'painel') { // t
     }
   }
   const tr = await transportOf(voice.sfu?.send); if (tr) { out.rtt = tr.rtt; out.via = tr.via; }
+  if (voice.tunnel) { out.rtt = voice.tunnel.rtt; out.via = 'Conexão do site (sem ligação direta)'; }
   out.players = playersOf(S.me.id).map(p => { const a = perf.rtt.get(p.id) || [], c = perf.inputs.get(p.id); return { slot: p.slot, name: nm(p.controller), cmdRtt: r1(pct(a.slice(-30).map(x => x.ms), .5)), cmdRtt95: r1(pct(a.slice(-30).map(x => x.ms), .95)), cmdPerS: c ? c.rate : null }; });
   return out;
 }

@@ -140,6 +140,14 @@ export function pollQstats() {
     if (!body) return;
     if (!s) { body.textContent = 'Sem dados de recepção.'; return; }
     const L = ['Baixa', 'Média', 'Alta'];
+    if (s.tunnel) {
+      body.replaceChildren(
+        h('div', h('b', s.w ? `${s.w}×${s.h}` : '—'), ` · ${s.fps ?? '—'} FPS recebidos`),
+        h('div', `${s.kbps != null ? (s.kbps >= 1000 ? (s.kbps / 1000).toFixed(1) + ' Mbps' : s.kbps + ' kbps') : '—'} · ping ${s.rtt ?? '—'} ms · folga ${s.delay} ms`),
+        h('div', { title: 'Sem ligação direta com o servidor (VPN desligada ou rede sem IPv6). A Resenha testa de tempos em tempos e volta sozinha.' }, icon('wifi', 12), ' Pela conexão do site (sem ligação direta)', s.freezes ? ` · ${s.freezes} cortes` : ''),
+        h('div', `Áudio da transmissão: ${s.audio ? 'ligado' : 'sem áudio'} · Camada: ${s.layerPref === 'auto' ? 'auto' : L[s.layerPref]}`));
+      return;
+    }
     body.replaceChildren(
       h('div', h('b', s.w ? `${s.w}×${s.h}` : '—'), ` · ${s.fps ?? '—'} FPS recebidos`),
       h('div', `${s.kbps != null ? (s.kbps >= 1000 ? (s.kbps / 1000).toFixed(1) + ' Mbps' : s.kbps + ' kbps') : '—'} · perda ${s.loss ?? '—'}%${s.jitter != null ? ' · jitter ' + s.jitter + ' ms' : ''}`),

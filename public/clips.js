@@ -5,6 +5,7 @@ import { S, api, toast } from './state.js';
 import { addLocalClip } from './cliplocal.js';
 import { createBuffer, createMixer, createNativeBuffer, createTapBuffer } from './clipbuf.js';
 import { openTrimmer } from './cliptrim.js';
+import { uploadFile } from './upload.js';
 
 const bufs = new Map(); // chave da transmissão -> buffer
 export const clipping = (key) => bufs.has(key);
@@ -64,9 +65,13 @@ const stampTitle = (who) => { const d = new Date(); return `${who} — ${p2(d.ge
 // envia o vídeo e posta no canal (o servidor também guarda na galeria do servidor). Devolve true se deu certo.
 export async function postClip(blob, { channelId, secs, streamerId, hasAudio = true, title, who, quiet }) {
   const d = new Date(), name = `clipe-${secs}s-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.webm`;
-  toast('Enviando clipe…');
+  const mb = Math.max(1, Math.round(blob.size / 1048576));
+  toast(`Enviando clipe (${mb} MB)…`);
   try {
-    const r = await api('POST', `/upload?name=${encodeURIComponent(name)}`, blob);
+    // em pedaços, com o andamento na tela, continuando de onde parou se a conexão oscilar (um clipe longo passa do limite
+    // de 100 MB por pedido do Cloudflare)
+    let shown = 0;
+    const r = await uploadFile(new File([blob], name, { type: 'video/webm' }), { onProgress: (p) => { const n = Math.floor(p * 4) * 25; if (n > shown && n < 100) { shown = n; toast(`Enviando clipe (${mb} MB)… ${n}%`); } } });
     const t = title || stampTitle(who); // nome padrão distinto (dá para renomear na galeria)
     await api('POST', `/channels/${channelId}/clips`, { url: r.url, name: r.name, size: r.size, secs, streamer_id: streamerId, has_audio: hasAudio, title: t });
     if (!quiet) toast(hasAudio ? 'Clipe postado no chat' : 'Clipe postado, mas sem áudio: esta transmissão não está enviando som.', !hasAudio);

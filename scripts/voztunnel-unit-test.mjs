@@ -77,6 +77,32 @@ try {
   A.ws.close();
   ok(await until(() => notes.b.some(n => n.t === 'SFU_PRODUCER_CLOSED' && n.d.user_id === 'a'), 3000), 'saiu do túnel: microfone fechado para os outros');
   B.ws.close(); X.ws.close(); tun.close();
+
+  // camada da transmissão pelo túnel: a maior que cabe no teto da conexão do site (kbps de cada camada, da leve à cheia)
+  const L = (k, o) => sfu.tunnelLayer(k, { max: 8000, ...o });
+  ok(L([2500, 21000]) === 0, 'nativo de 21 Mbps: vai a camada leve');
+  ok(L([2500, 6000]) === 1, 'nativo de 6 Mbps: vai a cheia');
+  ok(L([1200, 4100, 10800]) === 1, 'três camadas, cheia de 10,8 Mbps: vai a do meio');
+  ok(L([1200, 4100, 10800], { want: 0 }) === 0, 'miniatura: vai a pequena');
+  ok(L([2500, 6000], { limit: 0 }) === 0, 'envio descartando pacotes: fica na leve');
+  ok(L([2500, 7800], { cur: 0 }) === 0 && L([2500, 7800], { cur: 1 }) === 1, 'perto do teto: não sobe, mas quem já está fica (sem ficar trocando)');
+
+  // folga contra as rajadas do TCP (VideoReceiver.queue): quadros a cada 16,7 ms que chegam em blocos saem espaçados
+  globalThis.MediaStreamTrackGenerator = class { writable = { getWriter: () => ({}) }; getVideoTracks() { return [{}]; } };
+  globalThis.MediaStream = class { constructor(t) { this.t = t; } getVideoTracks() { return [{}]; } };
+  globalThis.VideoDecoder = { isConfigSupported: async () => ({ supported: true }) };
+  const { VideoReceiver } = await import('../public/voztunnel-video.js');
+  const rx = new VideoReceiver({ mime: 'video/VP8' }, () => { }, () => { });
+  const shown = []; rx.decode = ({ ts }) => shown.push({ ts, at: performance.now() });
+  // quadro n tem carimbo n*16,7 ms; chega em blocos de 12 (um bloco a cada 200 ms)
+  let n = 0;
+  for (let b = 0; b < 15; b++) { await sleep(200); for (let i = 0; i < 12; i++, n++) rx.queue(n * 1500, n === 0, new Uint8Array(1)); }
+  await sleep(700);
+  ok(shown.length === n && shown.every((x, i) => x.ts === i * 1500), 'todos os quadros saem, na ordem', [shown.length, n]);
+  const gaps = shown.slice(-72).map((x, i, a) => (i ? x.at - a[i - 1].at : null)).filter(g => g != null).sort((a, b) => a - b);
+  ok(gaps.at(-1) < 80, 'depois de pegar a folga, nenhuma parada longa (chegando em blocos de 200 ms)', Math.round(gaps.at(-1)));
+  ok(rx.delay >= 120 && rx.delay <= 400, 'folga do tamanho da rajada', Math.round(rx.delay));
+  clearTimeout(rx.timer);
 } catch (e) { ok(false, 'erro: ' + e.stack); }
 console.log(fails ? `\n${fails} falha(s)` : '\ntudo ok');
 process.exit(fails ? 1 : 0);

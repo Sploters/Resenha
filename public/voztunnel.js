@@ -97,6 +97,16 @@ export class VoiceTunnel {
     this.slots.set(slot, { slot, uid, source, rx, video: true });
     this.h.onAdd(uid, source, rx.stream, slot);
   }
+  // qual camada da transmissão o servidor deve mandar: want = a maior que o quadro pede (0 a 2); manual = a escolhida no
+  // painel de qualidade (-1 = automática: o servidor escolhe a que cabe na conexão do site)
+  layer(uid, want, manual = -1) {
+    for (const s of this.slots.values()) if (s.uid === uid && s.source === 'screen' && s.video) this.sendJ({ t: 'layer', slot: s.slot, want, manual });
+  }
+  // números do vídeo que chega de alguém (painéis de qualidade e de desempenho)
+  videoStats(uid) {
+    for (const s of this.slots.values()) if (s.uid === uid && s.source === 'screen' && s.rx) return { w: s.rx.w, h: s.rx.h, bytes: s.rx.bytes, frames: s.rx.shown, cuts: s.rx.cuts, delay: Math.round(s.rx.delay), codec: s.rx.kind };
+    return null;
+  }
   // assistir (paused=false) ou não o que chega de alguém: fontes 'screen', 'screenaudio', 'cam'
   pause(uid, sources, paused) {
     for (const s of this.slots.values()) if (s.uid === uid && sources.includes(s.source)) {

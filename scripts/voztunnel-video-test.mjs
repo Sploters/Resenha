@@ -90,6 +90,16 @@ try {
   f = { n: -1 }; for (let i = 0; i < 10 && !(f.n > 10); i++) f = await framesFrom(B, idA);
   ok(f.n > 10 && f.w > 0, 'Bruno (túnel) vê a tela da Alice', f);
 
+  // camada pelo túnel: começa na leve e sobe até a cheia quando cabe no teto; o painel de qualidade tem números (antes:
+  // "Sem dados de recepção"); escolher "Baixa" à mão vale pelo túnel também
+  const stats = () => B.evaluate((idA) => window.__lc.voice.streamStats(idA), idA);
+  let q = null; for (let i = 0; i < 40 && !(q?.w >= 320 && q.fps > 10); i++) { await sleep(1000); q = await stats(); }
+  ok(q?.tunnel && q.w >= 320 && q.fps > 10 && q.kbps > 0, 'pelo túnel a tela sobe para a maior camada enviada (aqui o Chromium manda só duas) e o painel de qualidade mostra os números', q);
+  await B.evaluate((idA) => window.__lc.voice.setLayerPref(idA, 0), idA);
+  for (let i = 0; i < 15 && !(q?.w && q.w < 320); i++) { await sleep(1000); q = await stats(); }
+  ok(q?.w > 0 && q.w < 320, '"Baixa" escolhida à mão: chega a camada pequena', q);
+  await B.evaluate((idA) => window.__lc.voice.setLayerPref(idA, 'auto'), idA);
+
   // Carla, também sem caminho direto, assiste a tela do Bruno (túnel -> túnel) e ouve os dois
   const C = await person(rc.token, true, true); // Carla: como no Firefox
   await C.evaluate((vc) => window.__lc.voice.join(vc), vc);
