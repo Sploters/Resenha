@@ -853,6 +853,7 @@ export class Voice {
     const s = this[kind], vt = s?.getVideoTracks()[0];
     if (kind === 'screen') T.setAudio('screenaudio', s?.getAudioTracks()[0] || null);
     if (!vt) { T.setVideo(kind, null); return; }
+    if (kind === 'screen') this.fullCapture(vt);
     if (!videoTunnelSupported()) return this.tunnelNoVideo();
     const o = this.screenOpts || {};
     // pela conexão do site a banda é mais curta que a da mídia direta: tela até 1080p e ~3 Mbps, câmera 720p
@@ -901,7 +902,11 @@ export class Voice {
     }
     return undefined;
   }
+  // sem o programa nativo, o que vai para os outros é esta trilha: se ela ainda está como prévia (360p, 10 FPS) por
+  // algum caminho que não a restaurou, volta à qualidade escolhida antes de mandar
+  async fullCapture(track) { if (track && !this.native && this._prevSpec) await this.previewOnly(track, false); }
   async sfuProduce(source, track) {
+    if (source === 'screen') await this.fullCapture(track);
     if (this.tunnel) { if (source === 'mic') this.tunnel.setMic(track); else if (source === 'screenaudio') this.tunnel.setAudio('screenaudio', track); else this.tunnelVideo(source); return; } // pelo túnel (public/voztunnel.js)
     const s = this.sfu; if (!s?.ready || !track) return;
     const cur = s.producers[source];
@@ -2139,6 +2144,8 @@ export class Voice {
     const low = +o.fps < NATIVE_MIN_FPS;
     const why = mode === 'chromium' ? 'forced' : this.e2ee ? 'e2ee' : this._natNoCodec ? 'codec' : low && !game ? 'lowfps' : !this.sfu?.ready ? 'nosfu' : Date.now() - (this._natNoUdp || 0) <= (this._natNoUdpMs || NATIVE_NOUDP_MS) ? 'udp' : null;
     if (why) { this._natWhy = why; this._natWhyText = null; return false; }
+    // ligação pelo furo no CGNAT: o programa nativo não passa por ela. Nem tenta (e a captura nem vira prévia)
+    if (this._punchAddr && await this.mediaHost() === this._punchAddr) { this._natWhy = 'udp'; this._natWhyText = null; return false; }
     this._natUdpTries = 0; // transmissão (ou qualidade) nova: a tentativa em outra porta vale de novo
     const c = await this.nativeCapable(mode);
     if (c.ok && low && !this._fseNative && !(+c.os > 0 && +c.os < 22000)) { this._natWhy = 'lowfps'; this._natWhyText = null; return false; } // Windows 11: o Chromium dá conta
@@ -2166,7 +2173,7 @@ export class Voice {
     this._prevSpec = on ? p.fps + 'x' + p.h : null;
     const c = on ? { frameRate: capFps(p.fps), height: { ideal: p.h, max: p.h }, width: { ideal: Math.round(p.h * 16 / 9) } }
       : { frameRate: capFps(o.fps), ...(o.res !== 'source' ? { height: { ideal: +o.res, max: +o.res }, width: { ideal: Math.round(+o.res * 16 / 9) } } : {}) };
-    vt.applyConstraints(c).catch(() => { });
+    return vt.applyConstraints(c).catch((e) => { this.capLog({ t: 'capnote', msg: 'não consegui ajustar a captura: ' + (e.message || e.name) }); });
   }
   // clipes ligados/desligados durante a transmissão nativa: ajusta a prévia (chamado a cada redesenho; só mexe se mudou)
   syncPreview() {
