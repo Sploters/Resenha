@@ -15,6 +15,11 @@
 // - Ganho de cada faixa: subtração de potência sobre a potência suavizada (sobe em 4 ms, desce em 40 ms): o ruído que
 //   sobra não vira os "assobios" (ruído musical) da subtração simples e a fala fraca não é esmagada. Nunca abaixo de
 //   floorDb (não esvazia o som).
+// - Agudos (de 4-6 kHz para cima): essa subtração, com piso raso, quase não acrescentava nada ao RNNoise num chiado forte
+//   de interferência (amostra real de um usuário: chiado branco até 20 kHz + zumbido de 60 Hz) e o chiado saía junto com
+//   a voz. Ali o ganho é o MMSE log-espectral (Ephraim-Malah) com a voz/ruído por "decisão dirigida" (o quadro anterior
+//   já limpo pesa 98%), que tira o chiado também por baixo da voz: ~8 dB a menos de 5 a 10 kHz durante a fala. NÃO usar
+//   no espectro todo: nos graves e médios ele comia o corpo da voz (com zumbido forte, picote de 2% para 14% da fala).
 // - O ganho é suavizado entre faixas vizinhas, e faixas abaixo de 60 Hz e acima de 20 kHz seguem o mesmo princípio.
 // Sem ventilador (sala silenciosa), o ruído medido é quase nada e o ganho fica em 1: o filtro não mexe na voz.
 
@@ -39,12 +44,20 @@ function makeFft(n) {
   };
 }
 
+// integral exponencial E1(v), aproximação de Abramowitz e Stegun (ganho log-espectral dos agudos)
+const expint = (v) => (v < 1
+  ? -Math.log(v) - 0.57721566 + v * (0.99999193 + v * (-0.24991055 + v * (0.05519968 + v * (-0.00976004 + v * 0.00107857))))
+  : Math.exp(-v) / v * (v * v + 2.334733 * v + 0.250621) / (v * v + 3.330657 * v + 1.681534));
+
 // strength 0-100 (Configurações): mais alto = tira mais (piso mais baixo, um pouco mais de "sobressubtração")
 export function fanParams(strength = 50, over = {}) {
   const s = Math.max(0, Math.min(100, Number.isFinite(+strength) ? +strength : 50)) / 100, lerp = (a, b) => a + (b - a) * s;
   return {
     floorDb: lerp(-9, -20),   // atenuação máxima de uma faixa (só ruído)
     overSub: lerp(1.0, 2.0),  // o ruído medido é multiplicado por isso antes de calcular o ganho
+    hissFromHz: 4000,         // daqui para cima o ganho vai passando para o dos agudos (chiado)...
+    hissToHz: 6000,           // ...que daqui para cima vale sozinho
+    hissFloorDb: lerp(-16, -32), hissXiMinDb: lerp(-10, -20), hissOverSub: 1.05, dd: 0.98,
     attackMs: 4,              // potência usada no ganho: sobe rápido (começo das palavras inteiro)...
     releaseMs: 40,            // ...e desce devagar (o ruído que sobra não "pisca")
     smoothMs: 25,             // suavização da potência de cada faixa (antes do mínimo)
@@ -64,6 +77,7 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
   const inBuf = new Float64Array(N), outBuf = new Float64Array(N + HOP);
   const re = new Float64Array(N), im = new Float64Array(N);
   const smooth = new Float64Array(BINS), noise = new Float64Array(BINS).fill(1e-12), gp = new Float64Array(BINS);
+  const prev = new Float64Array(BINS); // agudos: potência do quadro anterior depois do ganho (decisão dirigida)
   const gain = new Float64Array(BINS), gs = new Float64Array(BINS);
   const fps = sampleRate / HOP; // quadros por segundo (375 a 48 kHz)
   // estatística de mínimo: U janelas parciais de D quadros; o ruído é o menor mínimo entre elas
@@ -110,6 +124,14 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
         gp[k] = P > gp[k] ? aA * gp[k] + (1 - aA) * P : aR * gp[k] + (1 - aR) * P;
         const r = 1 - p.overSub * noise[k] / Math.max(gp[k], 1e-15);
         gain[k] = r <= gMin2 ? gMin : Math.sqrt(r);
+        // agudos: ganho MMSE log-espectral (xi = voz/ruído "a priori" por decisão dirigida, gam = a do quadro atual)
+        const mix = Math.max(0, Math.min(1, (k * sampleRate / N - p.hissFromHz) / Math.max(1, p.hissToHz - p.hissFromHz)));
+        if (mix > 0) {
+          const N0 = p.hissOverSub * noise[k], gam = Math.min(1000, P / N0);
+          const xi = Math.max(10 ** (p.hissXiMinDb / 10), p.dd * prev[k] / N0 + (1 - p.dd) * Math.max(gam - 1, 0)), w = xi / (1 + xi);
+          const G = Math.min(1, Math.max(10 ** (p.hissFloorDb / 20), w * Math.exp(0.5 * expint(Math.max(gam * w, 1e-8)))));
+          prev[k] = G * G * P; gain[k] += (G - gain[k]) * mix;
+        }
       }
       // suaviza entre faixas vizinhas (menos ruído musical); o maior dos dois mantém os harmônicos da voz inteiros
       for (let k = 0; k < BINS; k++) { const a = gain[k > 0 ? k - 1 : 0], b = gain[k], c = gain[k < BINS - 1 ? k + 1 : k]; gs[k] = Math.max(b, 0.25 * a + 0.5 * b + 0.25 * c); }
