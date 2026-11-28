@@ -24,6 +24,13 @@ try {
   const a = await reg('ana'), b = await reg('bia');
   ok((await fetch(BASE + '/api/server-info').then(r => r.json())).max_upload === 12 * 1048576, 'server-info informa o limite');
 
+  // anexo .json num envio só: vai como application/json, e o leitor de JSON da API consumia o corpo (chegava com 0 bytes)
+  for (const [nome, corpo] of [['relatorio.json', Buffer.from(JSON.stringify({ a: 1, b: 'ção' }, null, 1))], ['quebrado.json', Buffer.from('isto nao e json {')], ['grande.json', Buffer.from(JSON.stringify({ x: 'a'.repeat(2 * 1048576) }))]]) {
+    const up = await fetch(`${BASE}/api/upload?name=${nome}`, { method: 'POST', headers: { authorization: 'Bearer ' + a.token, 'content-type': 'application/json' }, body: corpo }).then(async x => ({ status: x.status, ...(await x.json().catch(() => ({}))) }));
+    const back = up.url ? Buffer.from(await (await fetch(BASE + up.url)).arrayBuffer()) : Buffer.alloc(0);
+    ok(up.status === 200 && up.size === corpo.length && sha(back) === sha(corpo), `envio de ${nome} como application/json chega inteiro`, { status: up.status, size: up.size, want: corpo.length });
+  }
+
   // --- API ---
   const data = crypto.randomBytes(10 * 1048576 + 12345);
   ok((await call(a.token, 'POST', '/uploads', { name: 'x.bin', size: 13 * 1048576 })).status === 413, 'acima do limite: 413');

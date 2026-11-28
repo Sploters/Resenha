@@ -417,7 +417,10 @@ const broadcastPresence = (uid) => { const t0 = performance.now(), to = sharedAu
 const app = express();
 app.disable('x-powered-by');
 mountSecurity(app, { publicDir: path.join(__dirname, '..', 'public') }); // CSP da página e cabeçalhos de segurança (server/security.js)
-app.use(express.json({ limit: '1mb' }));
+// o corpo do envio de arquivo é o próprio arquivo: um .json anexado vai como application/json, e o leitor de JSON da API o
+// consumia antes da rota gravar (o anexo chegava com 0 bytes)
+const apiJson = express.json({ limit: '1mb' }), RAW_BODY = /^\/api\/upload\/?$/i;
+app.use((req, res, next) => (RAW_BODY.test(req.path) ? next() : apiJson(req, res, next)));
 
 // contas suspensas pelo administrador da instalação (server/admin.js): não usam a API nem entram
 const banned = new Set(all('SELECT id FROM users WHERE banned_at IS NOT NULL').map(r => r.id));
