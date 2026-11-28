@@ -28,7 +28,7 @@ hash_de() { (cd "$HOME/resenha" && find "$@" -type f 2>/dev/null | LC_ALL=C sort
 # ~/resenha-voz.env (opcional, fora do repositório): variáveis da voz, como TURN_URL e TURN_SECRET (docs/TURN.md). Só valem
 # com o container novo, então mudar o arquivo também conta como "a voz mudou" (sem o arquivo o hash fica igual ao de antes)
 hash_voz() {
-  H=$(hash_de server/voz.js server/sfu.js server/ipv6watch.js package.json package-lock.json Dockerfile)
+  H=$(hash_de server/voz.js server/sfu.js server/punch.js server/voztunnel.js server/ipv6watch.js package.json package-lock.json Dockerfile)
   if [ -f "$HOME/resenha-voz.env" ]; then echo "$H $(sha1sum < "$HOME/resenha-voz.env")" | sha1sum | cut -c1-40; else echo "$H"; fi
 }
 # o resto do servidor (o app reinicia sozinho dentro do container)

@@ -9,9 +9,19 @@ escolhe sozinho:
 | **Rede de casa** | quem está na mesma rede do servidor, mesmo abrindo o site pelo Cloudflare | direto ao IP local do servidor, porta 40050 (`RTC_LAN_IP`, detectado no deploy) | sem VPN; o programa nativo manda para o mesmo endereço |
 | **VPN** (Tailscale) | quem tem a VPN ligada | direto ao IP da VPN, porta 40000 | o melhor: voz, câmera e tela |
 | **IPv6 público** | quem tem IPv6 funcionando (o 4G costuma ter) | direto ao IPv6 do servidor, porta 40030 | voz, câmera e tela; ver abaixo |
+| **Furo no CGNAT** | quem não tem VPN nem IPv6 | UDP direto: o servidor manda o primeiro pacote para o endereço público da pessoa (`server/punch.js`) | sem servidor de fora; não passa em NAT que troca de porta por destino; o programa nativo não usa (vai pelo modo normal) |
 | **Pelo túnel** | todo o resto | pela conexão do site (WebSocket `/voz-tunel`) | voz, câmera e tela (com o som); entra se o direto não conectar em 5 s |
 
 No app, o ícone de sinal do painel de voz mostra o caminho em "Conexão" (UDP/TCP = direto; "Pelo site (túnel)").
+
+## Furo no CGNAT
+
+- Só funciona porque o CGNAT daqui usa a **mesma porta pública para qualquer destino** (medido em 28/11 com 4 servidores
+  STUN, no host e na rede do Docker). Se a operadora mudar isso, o log mostra `[furo] ... furo desligado`.
+- Um socket UDP no processo da voz descobre o próprio endereço público por STUN; o app manda o dele (`punch`); o
+  repassador liga cada pessoa ao mediasoup por um socket local. Só aceita IPs informados por quem está numa chamada.
+- No log: `[furo] endereço público ...` e `[furo] ligação direta aberta (N agora)`.
+- Variáveis: `RTC_PUNCH=0` desliga; `RTC_PUNCH_STUN=host:porta,host:porta`.
 
 ## IPv6 público
 

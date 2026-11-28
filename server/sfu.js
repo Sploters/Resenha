@@ -100,6 +100,24 @@ function listenInfos4(port) {
   return out;
 }
 
+// Furo no CGNAT (server/punch.js): o candidato que dá ligação direta a quem não tem VPN nem IPv6. Ligado quando há IP
+// anunciado (servidor atrás de NAT, no Docker); RTC_PUNCH=0 desliga, =1 liga sempre. Prioridade menor que a de todos os
+// caminhos diretos: só vale quando nenhum deles responde
+let punch = null;
+const PUNCH_PRIORITY = 1_000_000_000;
+const withPunch = (candidates) => {
+  const a = punch?.address();
+  return a ? [...candidates, { foundation: 'furo', priority: PUNCH_PRIORITY, ip: a.ip, address: a.ip, protocol: 'udp', port: a.port, type: 'host' }] : candidates;
+};
+async function openPunch() {
+  const flag = process.env.RTC_PUNCH;
+  if (punch || flag === '0' || (flag !== '1' && !process.env.RTC_ANNOUNCED_IP)) return;
+  try {
+    const { startPunch } = await import('./punch.js');
+    punch = await startPunch({ stun: process.env.RTC_PUNCH_STUN, allowPrivate: process.env.RTC_PUNCH_PRIVATE === '1', log: (m) => console.log('  [furo] ' + m) });
+  } catch (e) { console.log('  [furo] não abriu: ' + e.message); }
+}
+
 export async function startSfu() {
   if (process.env.RTC === '0') return false;
   const want = process.env.SFU_WORKERS === 'auto' ? Math.min(os.availableParallelism?.() || os.cpus().length, 4) : Math.max(1, Math.min(16, Number(process.env.SFU_WORKERS) || 1));
@@ -119,6 +137,7 @@ export async function startSfu() {
   if (workers.length > 1) console.log(`  SFU: ${workers.length} workers (portas ${workers.map(w => w.port).join(', ')})`);
   if (ip6) console.log(`  SFU: IPv6 público ${ip6}, porta ${IP6_PORT} UDP/TCP`);
   watchIp6();
+  await openPunch();
   return true;
 }
 // o arquivo do IPv6 mudou (prefixo novo da operadora): recria os workers para anunciar o endereço novo
@@ -553,8 +572,10 @@ export async function sfuRequest(cid, uid, op, d) {
       if (t.appData.dir === 'recv' && MIN_OUT_KBPS > 0) { await t.setMinOutgoingBitrate(MIN_OUT_KBPS * 1000).catch(() => { }); t.appData.floorOn = true; }
       t.observer.on('close', () => clearTimeout(t.appData.floorTimer));
       peer.transports.set(t.id, t);
-      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
+      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: withPunch(t.iceCandidates), dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
     }
+    // o endereço público de quem está na chamada: o servidor manda o primeiro pacote para lá (furo no CGNAT)
+    case 'punch': return { n: punch?.open(uid, d.candidates, r.w.port) || 0 };
     // pelo túnel: testa se a mídia direta já alcança o servidor (public/voice.js probeDirect). Um transporte à parte, só com
     // um canal de dados que ninguém recebe; some sozinho em 20 s
     case 'probe': {
@@ -563,7 +584,7 @@ export async function sfuRequest(cid, uid, op, d) {
       peer.probe = t; peer.transports.set(t.id, t);
       const timer = setTimeout(() => t.close(), 20000); timer.unref?.();
       t.observer.on('close', () => { clearTimeout(timer); peer.transports.delete(t.id); if (peer.probe === t) peer.probe = null; });
-      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates, dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
+      return { id: t.id, iceParameters: t.iceParameters, iceCandidates: withPunch(t.iceCandidates), dtlsParameters: t.dtlsParameters, sctpParameters: t.sctpParameters };
     }
     case 'probe_data': {
       const t = transport(); if (!t.appData.probe) throw new Error('transporte inválido');

@@ -605,6 +605,7 @@ export class Voice {
       const info = await this.sfuReq('transport', { dir });
       if (info.iceCandidates?.some(c => /^[23][0-9a-f]*:/i.test(c.address || ''))) sfu.has6 = true; // o servidor anuncia IPv6 público (connInfo)
       const t = device[dir === 'send' ? 'createSendTransport' : 'createRecvTransport']({ ...info, iceServers: this.ice, ...(this.e2eeLegacy() ? { additionalSettings: { encodedInsertableStreams: true } } : {}) });
+      this.punchFor(t, info);
       t.on('connect', ({ dtlsParameters }, ok, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(ok, fail));
       t.on('connectionstatechange', (st) => {
         if (st === 'disconnected' || st === 'failed') this._cq?.drop();
@@ -806,6 +807,7 @@ export class Voice {
       const info = await this.sfuReq('probe');
       if (this.tunnel !== T) return false;
       t = device.createSendTransport({ ...info, iceServers: this.ice });
+      this.punchFor(t, info);
       t.on('connect', ({ dtlsParameters }, done, fail) => this.sfuReq('connect', { transport_id: t.id, dtlsParameters }).then(done, fail));
       t.on('producedata', ({ sctpStreamParameters }, done, fail) => this.sfuReq('probe_data', { transport_id: t.id, sctpStreamParameters }).then(done, fail));
       let timer;
@@ -815,6 +817,19 @@ export class Voice {
     } catch (e) { console.warn('teste da mídia direta', e.message || e); }
     finally { t?.close(); if (t) this.sfuReq('probe_close').catch(() => { }); this._probing = false; }
     return ok && this.tunnel === T && this.leaveTunnel();
+  }
+  // Furo no CGNAT (server/punch.js): o servidor anunciou o candidato dele; conto o meu endereço público (o srflx que o
+  // WebRTC descobre pelo STUN, o mesmo que esta conexão usa) para ele mandar o primeiro pacote para cá
+  punchFor(t, info) {
+    const furo = info.iceCandidates?.find(c => c.foundation === 'furo'); if (!furo) return;
+    this._punchAddr = furo.address || furo.ip;
+    const seen = new Set();
+    t.handler?._pc?.addEventListener('icecandidate', (e) => {
+      const c = e.candidate; if (!c || c.type !== 'srflx' || c.protocol !== 'udp') return;
+      const ip = c.address, port = c.port, k = ip + ':' + port;
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip || '') || seen.has(k)) return;
+      seen.add(k); this.sfuReq('punch', { candidates: [{ ip, port }] }).catch(() => { });
+    });
   }
   // sai do túnel e refaz a mídia direta, sem sair da sala
   leaveTunnel() {
@@ -2176,6 +2191,9 @@ export class Voice {
       // cursor: o programa respeita "mostrar o cursor" a partir do app lançado com esta mudança (programas antigos ignoram e sempre mostram)
       const reached = await this.mediaHost();
       if (this.native !== my) { this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
+      // pelo furo no CGNAT só passa a mídia do próprio WebRTC: o programa nativo não alcança o servidor. Já vai pelo modo
+      // normal, sem esperar o vídeo dele nunca chegar
+      if (reached && reached === this._punchAddr) { Object.assign(my, { pending: false, producerId: r.producer_id }); return this.nativeFallback('esta ligação direta (sem VPN) não abre as portas UDP da transmissão pela placa'); }
       const res = await d.nativeStart({ ...r, host: reached || r.host || location.hostname, ...top, layers, cursor: o.cursor !== false, ...(this._capMode ? { capture: this._capMode } : {}), ...(this._natWinId ? { sourceId: this._natWinId } : {}) });
       if (this.native !== my) { if (!this.native) d.nativeStop(); this.sfuReq('native_stop', { producer_id: r.producer_id }).catch(() => { }); return; }
       if (!res?.ok) throw new Error(res?.error || 'falhou');
