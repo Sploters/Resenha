@@ -1,17 +1,20 @@
 // Segurar e arrastar para trocar a ordem (abas de canais, servidores e conversas fixadas na barra da esquerda).
 // O próprio item segue o mouse e os vizinhos do mesmo grupo abrem espaço; ao soltar, onDrop recebe a nova ordem (data-id).
+// Com combine(el, alvo) verdadeiro, soltar no MEIO do alvo junta os dois (onCombine) em vez de trocar a ordem; as bordas
+// (um quarto de cada lado) continuam reordenando.
 // No toque, é preciso segurar um instante antes de arrastar (senão é só rolar a lista).
 // O arrastar nativo do navegador (imagem que abre em outra aba ou cai no chat) fica desligado nesses contêineres.
 let active = null;
 export const reordering = () => !!active;
 
-export function sortable(box, { items, ignore, axis = 'y', group = () => '', onDrop }) {
+export function sortable(box, { items, ignore, axis = 'y', group = () => '', onDrop, combine, onCombine }) {
   box.addEventListener('dragstart', (e) => e.preventDefault());
   box.addEventListener('pointerdown', (e) => {
     if (active || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const el = e.target.closest(items); if (!el || !box.contains(el) || (ignore && e.target.closest(ignore))) return;
     const touch = e.pointerType === 'touch', x0 = e.clientX, y0 = e.clientY, id = e.pointerId;
-    let started = false, ready = !touch, t = 0, off = 0, timer = 0, last = e;
+    let started = false, ready = !touch, t = 0, off = 0, timer = 0, last = e, into = null;
+    const setInto = (s) => { if (into !== s) { into?.classList.remove('drop-into'); (into = s)?.classList.add('drop-into'); } };
     const pos = (ev) => axis === 'y' ? ev.clientY : ev.clientX;
     const near = (r) => axis === 'y' ? r.top : r.left, size = (r) => axis === 'y' ? r.height : r.width;
     const peers = () => [...box.querySelectorAll(items)].filter(p => p !== el && group(p) === group(el));
@@ -34,12 +37,16 @@ export function sortable(box, { items, ignore, axis = 'y', group = () => '', onD
       }
       ev.preventDefault();
       const p = pos(ev), list = peers(), all = [...el.parentNode.children];
+      let over = null;
       for (const s of list) {
         const r = s.getBoundingClientRect(), a = near(r), b = a + size(r); if (p < a || p > b) continue;
-        const after = all.indexOf(s) > all.indexOf(el);
-        if (after && p > a + size(r) / 2) s.after(el); else if (!after && p < a + size(r) / 2) s.before(el);
+        const after = all.indexOf(s) > all.indexOf(el), can = !!combine?.(el, s), at = (p - a) / size(r);
+        if (can && at >= .25 && at <= .75) { over = s; break; }
+        const edge = can ? .75 : .5;
+        if (after && at > edge) s.after(el); else if (!after && at < 1 - edge) s.before(el);
         break;
       }
+      setInto(over);
       // perto da borda da lista que rola: rola junto
       const sc = el.parentNode, rr = sc.getBoundingClientRect(), lo = near(rr), hi = lo + size(rr);
       const d = p < lo + 24 ? -12 : p > hi - 24 ? 12 : 0;
@@ -53,10 +60,12 @@ export function sortable(box, { items, ignore, axis = 'y', group = () => '', onD
       removeEventListener('pointermove', move); removeEventListener('pointerup', end); removeEventListener('pointercancel', end);
       removeEventListener('touchmove', noScroll);
       if (!started) return;
+      const target = into; setInto(null);
       active = null; el.classList.remove('reordering'); el.style.transform = ''; document.body.classList.remove('reorder-on');
       // o clique que vem junto com o soltar não abre o item
       const eat = (c) => { c.stopPropagation(); c.preventDefault(); };
       addEventListener('click', eat, { capture: true, once: true }); setTimeout(() => removeEventListener('click', eat, { capture: true }), 0);
+      if (target?.isConnected && ev?.type === 'pointerup') return onCombine(el, target);
       onDrop([el, ...peers()].sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1).map(p => p.dataset.id), el);
     };
     if (touch) timer = setTimeout(() => { ready = true; start(); }, 350);

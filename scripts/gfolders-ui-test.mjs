@@ -86,6 +86,65 @@ try {
   // recarregar mantém (fica na conta)
   await p.reload({ waitUntil: 'domcontentloaded' }); await p.waitForSelector('#rail', { timeout: 20000 }); await sleep(1200);
   ok(JSON.stringify(await railIds()) === JSON.stringify(ids), 'depois de recarregar, a barra continua igual');
+  // ---------- arrastar ----------
+  const box = async (sel) => (await p.$(sel)).boundingBox();
+  const rail = (id) => `#rail .rail-wrap[data-id="${id}"]`;
+  const tileSel = (key) => `.fold-panel .fold-tile[data-key="${key}"]`;
+  // arrasta o centro de um item até um alvo (fy = fração da altura do alvo) ou até um ponto { x, y }
+  const drag = async (from, to, fy = .5, shot) => {
+    const a = await box(from), b = typeof to === 'string' ? await box(to) : null;
+    const x = b ? b.x + b.width / 2 : to.x, y = b ? b.y + b.height * fy : to.y;
+    await p.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await p.mouse.down();
+    await p.mouse.move(x, y, { steps: 12 }); await sleep(200);
+    if (shot) await p.screenshot({ path: `.testshots/${shot}.png` });
+    await p.mouse.up(); await sleep(500);
+  };
+  const prefs = () => p.evaluate(() => window.__lc.S.prefs.gfolders.map(f => ({ id: f.id, name: f.name, parent: f.parent, items: f.items })));
+  const openF = async (key) => { if (!await p.$('.fold-panel')) { await p.click(rail(key) + ' .fold-item'); await sleep(300); } };
+  const [a, b, c, d] = (await railIds()).filter(x => !x.startsWith('f:'));
+  await drag(rail(a), rail(b), .5, 'gfolders-arrastando');
+  ids = await railIds();
+  let made = (await prefs()).find(f => f.items.includes('g:' + a));
+  ok(made && made.items.includes('g:' + b) && ids.includes('f:' + made.id) && !ids.includes(a) && !ids.includes(b), 'arrastar um servidor para o meio de outro cria uma pasta com os dois', { ids, made });
+  const nova = 'f:' + made?.id, mine = async () => (await prefs()).find(f => 'f:' + f.id === nova);
+  await drag(rail(c), rail(nova));
+  made = await mine();
+  ok(made.items.includes('g:' + c) && !(await railIds()).includes(c), 'arrastar um servidor para o meio de uma pasta põe ele dentro', made);
+  const before = await railIds(), nf = (await prefs()).length;
+  await drag(rail(d), rail(before[0]), .08);
+  ids = await railIds();
+  ok(ids[0] === d && ids.length === before.length && (await prefs()).length === nf, 'soltar na borda só muda a ordem (não cria pasta)', ids);
+  // do painel para a barra, na posição em que soltar
+  await openF(nova);
+  await drag(tileSel('g:' + c), rail(d), .08);
+  ids = await railIds(); made = await mine();
+  ok(ids[0] === c && !made.items.includes('g:' + c), 'arrastar do painel para a barra tira da pasta e entra onde soltou', { ids, made });
+  await openF(nova);
+  const pb = await box('.fold-panel'), same = JSON.stringify(await prefs());
+  await drag(tileSel('g:' + a), { x: pb.x + pb.width - 12, y: pb.y + pb.height - 8 });
+  ok(JSON.stringify(await prefs()) === same && !!await p.$('.fold-panel'), 'soltar no vazio dentro do painel não muda nada');
+  const order0 = (await mine()).items, t1 = await box(tileSel(order0[0]));
+  await drag(tileSel(order0[1]), { x: t1.x + 4, y: t1.y + t1.height / 2 });
+  made = await mine();
+  ok(JSON.stringify(made.items) === JSON.stringify([order0[1], order0[0]]), 'arrastar para a borda de outro item reordena dentro da pasta', made.items);
+  await drag(tileSel('g:' + a), { x: 900, y: 600 }, .5);
+  ids = await railIds(); made = await mine();
+  ok(made && !made.items.includes('g:' + a) && ids[ids.indexOf(nova) + 1] === a, 'soltar fora do painel tira da pasta (fica logo abaixo dela)', { ids, made });
+  await openF(nova);
+  await drag(tileSel('g:' + b), { x: 900, y: 600 });
+  ids = await railIds();
+  ok(ids.includes(b) && !ids.includes(nova) && !await mine() && !await p.$('.fold-panel'), 'tirar o último servidor apaga a pasta vazia e fecha o painel', ids);
+  // dentro do painel, juntar dois servidores cria uma subpasta
+  await drag(rail(a), rail(b));
+  const root = (await prefs()).find(f => f.items.includes('g:' + a)), rk = 'f:' + root.id;
+  await drag(rail(c), rail(rk));
+  await openF(rk);
+  await drag(tileSel('g:' + c), tileSel('g:' + a));
+  const all = await prefs(), subf = all.find(f => f.parent === root.id);
+  ok(subf && subf.items.includes('g:' + a) && subf.items.includes('g:' + c) && !!await p.$(tileSel('f:' + subf.id)), 'juntar dois servidores dentro do painel cria uma subpasta', all);
+  await sleep(1500); const saved = JSON.stringify(await prefs()), savedRail = JSON.stringify(await railIds());
+  await p.reload({ waitUntil: 'domcontentloaded' }); await p.waitForSelector('#rail', { timeout: 20000 }); await sleep(1200);
+  ok(JSON.stringify(await prefs()) === saved && JSON.stringify(await railIds()) === savedRail, 'o que foi arrastado fica salvo depois de recarregar');
   ok(!errors.length, 'sem erros na página', errors);
 } catch (e) { console.log('  ERRO', e); fails++; }
 await browser.close(); srv.kill(); await sleep(500); try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { }

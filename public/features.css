@@ -2908,4 +2908,14 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .fold-n { max-width: 100%; font-size: 11.5px; line-height: 1.25; text-align: center; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); }
 .fold-tile small { font-size: 10px; color: var(--text-muted); margin-top: -3px; }
 .fold-tile.add .fold-ic { background: none; border: 2px dashed var(--divider); color: var(--text-muted); }
+/* arrastar: o alvo cresce quando soltar junta os dois; uma linha mostra onde o item vai entrar */
+.rail-wrap.drop-into > .rail-item, .fold-tile.drop-into .fold-ic, .fold-tile.drop-into .fold-glyph { box-shadow: 0 0 0 2px var(--bg-tert), 0 0 0 4px var(--brand); transform: scale(1.1); }
+.fold-crumb.drop-into { color: var(--header); outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+.rail-wrap.drop-before { box-shadow: 0 -6px 0 -2px var(--brand); } .rail-wrap.drop-after { box-shadow: 0 6px 0 -2px var(--brand); }
+.fold-tile.drop-before { box-shadow: -3px 0 0 var(--brand); } .fold-tile.drop-after { box-shadow: 3px 0 0 var(--brand); }
+.fold-tile.fold-dragging { opacity: .35; }
+.fold-tile { touch-action: manipulation; user-select: none; }
+.fold-ghost { position: fixed; z-index: 200; transform: translate(-50%, -50%); pointer-events: none; opacity: .9; filter: drop-shadow(0 6px 12px rgba(0,0,0,.45)); }
+/* arrastando, os cartões de hover não abrem por cima dos alvos */
+body.reorder-on .gf-popout, body.reorder-on #vcard { display: none !important; }
 .fold-empty { grid-column: 1 / -1; padding: 18px 8px; text-align: center; color: var(--text-muted); font-size: 13px; }

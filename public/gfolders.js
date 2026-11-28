@@ -1,7 +1,8 @@
 // Pastas de servidores (barra da esquerda). Pastas com nome e cor, uma dentro da outra, sem limite de servidores.
 // Na barra a pasta é um quadrado com as miniaturas dos primeiros servidores; clicar abre um painel quadrado à direita com a
 // grade de servidores e subpastas, busca (para quem está em centenas de servidores) e o caminho (Jogos › FPS) para voltar.
-// Organizar: clique direito no servidor → "Mover para pasta", ou clique direito num item dentro do painel.
+// Organizar arrastando: soltar um servidor no meio de outro cria uma pasta; no meio de uma pasta, entra nela. Arrastar um
+// item do painel e soltar fora dele tira da pasta (na barra, entra onde soltar). Também pelo clique direito → "Mover para pasta".
 // Fica na conta (S.prefs.gfolders): [{ id, name, color, parent: id|null, items: ['g:<guild>' | 'f:<pasta>'] }].
 // Na ordem da barra (S.prefs.guildOrder) a pasta entra como 'f:<id>', junto com os ids dos servidores soltos.
 import { h, icon, imgUrl } from './util.js';
@@ -40,6 +41,117 @@ export function moveTo(key, dest) {
   else S.prefs.guildOrder = [...(S.prefs.guildOrder || []), key.startsWith('g:') ? key.slice(2) : key];
   save();
 }
+// ---------- arrastar ----------
+const orderKey = (key) => key.startsWith('g:') ? key.slice(2) : key; // como o item aparece na ordem da barra
+const railOrder = () => [...document.querySelectorAll('#rail .rail-wrap.railg')].map(w => w.dataset.id);
+const newFolder = (name, parent) => { const f = { id: newId(), name, color: COLORS[list().length % COLORS.length], parent: parent ? parent.id : null, items: [] }; list().push(f); return f; };
+// pasta que ficou vazia depois de arrastar o último item para fora some sozinha (e a de cima, se esvaziar junto)
+function prune(f) {
+  for (let x = f; x && folder(x.id) && !itemsOf(x).length;) { const up = folder(x.parent); detach('f:' + x.id); S.prefs.gfolders = list().filter(y => y !== x); x = up; }
+}
+export function canJoin(src, dst) {
+  if (src === dst) return false;
+  if (!dst.startsWith('f:')) return src.startsWith('g:'); // dois servidores viram uma pasta
+  const to = folder(dst.slice(2));
+  return !!to && parentOf(src) !== to && !(src.startsWith('f:') && isInside(to, folder(src.slice(2))));
+}
+// soltar um item em cima de outro: numa pasta, entra nela; num servidor, os dois viram uma pasta no lugar dele
+export function join(src, dst) {
+  if (!canJoin(src, dst)) return;
+  const from = parentOf(src);
+  if (dst.startsWith('f:')) {
+    const to = folder(dst.slice(2));
+    detach(src); if (src.startsWith('f:')) folder(src.slice(2)).parent = to.id;
+    to.items.push(src); toast(`Movido para ${to.name}`);
+  } else {
+    const up = parentOf(dst), order = railOrder().filter(k => k !== orderKey(src)), f = newFolder('Pasta', up);
+    if (up) up.items[up.items.indexOf(dst)] = 'f:' + f.id;
+    detach(src); detach(dst); f.items.push(dst, src);
+    if (!up) S.prefs.guildOrder = order.map(k => k === orderKey(dst) ? 'f:' + f.id : k);
+    toast('Pasta criada. Clique direito nela para renomear.');
+  }
+  prune(from); save();
+}
+// tira o item de onde estiver e põe solto na barra, antes ou depois de outro item dela
+function dropOnRail(key, ref, after) {
+  const from = parentOf(key), me = orderKey(key), order = railOrder().filter(k => k !== me), i = order.indexOf(ref);
+  detach(key);
+  if (key.startsWith('f:')) folder(key.slice(2)).parent = null;
+  order.splice(i < 0 ? order.length : i + (after ? 1 : 0), 0, me);
+  S.prefs.guildOrder = order;
+  prune(from); save();
+}
+// muda a posição dentro da pasta
+function reorderIn(f, key, ref, after) {
+  const items = f.items.filter(k => k !== key), i = items.indexOf(ref);
+  items.splice(i + (after ? 1 : 0), 0, key); f.items = items; save();
+}
+// o que acontece se soltar aqui: { el, cls (marca no alvo), run }; null = nada
+function dropAt(x, y, key, p) {
+  const hit = document.elementFromPoint(x, y); if (!hit) return null;
+  if (p.el.contains(hit)) {
+    const crumb = hit.closest('.fold-crumb');
+    if (crumb) { const to = 'f:' + crumb.dataset.folder; return canJoin(key, to) ? { el: crumb, cls: 'drop-into', run: () => join(key, to) } : null; }
+    const t = hit.closest('.fold-tile[data-key]'), dst = t?.dataset.key; if (!dst || dst === key) return null;
+    const r = t.getBoundingClientRect(), at = (x - r.left) / r.width, can = canJoin(key, dst);
+    if (can && at >= .25 && at <= .75) return { el: t, cls: 'drop-into', run: () => join(key, dst) };
+    // na busca a grade mostra itens de subpastas; reordenar só entre itens do mesmo tipo da pasta aberta
+    if (!p.cur.items.includes(key) || !p.cur.items.includes(dst) || key.slice(0, 2) !== dst.slice(0, 2)) return null;
+    return { el: t, cls: at > .5 ? 'drop-after' : 'drop-before', run: () => reorderIn(p.cur, key, dst, at > .5) };
+  }
+  const w = hit.closest('#rail .rail-wrap.railg');
+  if (w) {
+    const id = w.dataset.id, dst = id.startsWith('f:') ? id : 'g:' + id;
+    if (dst === key) return null;
+    const r = w.getBoundingClientRect(), at = (y - r.top) / r.height, can = canJoin(key, dst);
+    if (can && at >= .25 && at <= .75) return { el: w, cls: 'drop-into', run: () => join(key, dst) };
+    return { el: w, cls: at > .5 ? 'drop-after' : 'drop-before', run: () => dropOnRail(key, id, at > .5) };
+  }
+  // soltou fora do painel, em qualquer outro lugar: sai da pasta e fica na barra, logo abaixo dela
+  return { el: null, run: () => { dropOnRail(key, 'f:' + p.root, true); toast('Tirado da pasta'); } };
+}
+// arrastar um item do painel: uma cópia segue o mouse e o alvo fica marcado. No toque, segurar antes (senão é rolar a grade)
+function dragTile(e, key, p) {
+  if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const tile = e.currentTarget, touch = e.pointerType === 'touch', x0 = e.clientX, y0 = e.clientY, id = e.pointerId;
+  let ghost = null, ready = !touch, timer = 0, drop = null, last = e;
+  const mark = (d) => { drop?.el?.classList.remove(drop.cls); drop = d; d?.el?.classList.add(d.cls); };
+  const follow = () => { ghost.style.left = last.clientX + 'px'; ghost.style.top = last.clientY + 'px'; };
+  const start = () => {
+    ghost = h('div.fold-ghost', tile.querySelector('.fold-ic, .fold-glyph').cloneNode(true));
+    ghost.querySelector('.badge')?.remove();
+    document.body.append(ghost); document.body.classList.add('reorder-on'); tile.classList.add('fold-dragging'); p.dragging = true; follow();
+    if (navigator.vibrate && touch) try { navigator.vibrate(15); } catch { /* sem vibração */ }
+  };
+  const move = (ev) => {
+    if (ev.pointerId !== id) return; last = ev;
+    if (!ghost) {
+      const far = Math.hypot(ev.clientX - x0, ev.clientY - y0) > (touch ? 8 : 5);
+      if (!ready) { if (far) end(); return; }
+      if (!far) return; start();
+    }
+    ev.preventDefault(); follow(); mark(dropAt(ev.clientX, ev.clientY, key, p));
+  };
+  const noScroll = (ev) => { if (ghost) ev.preventDefault(); };
+  const esc = (ev) => { if (ev.key === 'Escape' && ghost) { ev.stopPropagation(); ev.preventDefault(); end(); } };
+  const end = (ev) => {
+    if (ev && ev.pointerId !== id) return;
+    clearTimeout(timer);
+    removeEventListener('pointermove', move); removeEventListener('pointerup', end); removeEventListener('pointercancel', end);
+    removeEventListener('touchmove', noScroll); removeEventListener('keydown', esc, true);
+    if (!ghost) return;
+    const d = ev?.type === 'pointerup' ? dropAt(ev.clientX, ev.clientY, key, p) : null;
+    mark(null); ghost.remove(); ghost = null; document.body.classList.remove('reorder-on'); tile.classList.remove('fold-dragging'); p.dragging = false;
+    // o clique que vem junto com o soltar não abre o item
+    const eat = (c) => { c.stopPropagation(); c.preventDefault(); };
+    addEventListener('click', eat, { capture: true, once: true }); setTimeout(() => removeEventListener('click', eat, { capture: true }), 0);
+    d?.run();
+  };
+  if (touch) timer = setTimeout(() => { ready = true; start(); }, 350);
+  addEventListener('pointermove', move, { passive: false }); addEventListener('pointerup', end); addEventListener('pointercancel', end);
+  addEventListener('touchmove', noScroll, { passive: false }); addEventListener('keydown', esc, true);
+}
+
 export async function createFolder(parent = null, first = null) {
   const name = (await promptBox(parent ? `Nova pasta em ${parent.name}` : 'Nova pasta', 'Nome da pasta', ''))?.trim();
   if (!name) return null;
@@ -115,14 +227,15 @@ export function openFolder(anchor, f) {
   const el = h('div.fold-panel', { role: 'dialog', 'aria-label': 'Pasta ' + f.name }, head, h('label.fold-search', icon('search', 14), q), grid);
   const p = panel = { el, root: f.id, cur: f, anchor };
   const go2 = (gid) => { closeFolder(); goGuild(gid); };
+  const drag = (key) => ({ 'data-key': key, onpointerdown: (e) => dragTile(e, key, p), ondragstart: (e) => e.preventDefault() });
   const tile = (key) => {
     if (key.startsWith('f:')) {
       const sub = folder(key.slice(2)), n = guildsIn(sub).length;
-      return h('button.fold-tile.sub', { type: 'button', title: sub.name, onclick: () => { p.cur = sub; q.value = ''; draw(); }, oncontextmenu: (e) => folderMenu(e, sub) },
+      return h('button.fold-tile.sub', { ...drag(key), type: 'button', title: sub.name, onclick: () => { p.cur = sub; q.value = ''; draw(); }, oncontextmenu: (e) => folderMenu(e, sub) },
         folderGlyph(sub, 56), h('span.fold-n', sub.name), h('small', `${n} ${n === 1 ? 'servidor' : 'servidores'}`));
     }
     const g = S.guilds.get(key.slice(2)), m = mentions(g);
-    return h('button.fold-tile' + (g.id === S.view.gid ? '.on' : '') + (unread(g) ? '.unread' : ''), { type: 'button', title: g.name, onclick: () => go2(g.id),
+    return h('button.fold-tile' + (g.id === S.view.gid ? '.on' : '') + (unread(g) ? '.unread' : ''), { ...drag(key), type: 'button', title: g.name, onclick: () => go2(g.id),
       oncontextmenu: (e) => menu(e, [{ icon: 'folder', label: 'Mover para pasta', sub: moveMenuItems(key) }, { icon: 'logout', label: 'Tirar da pasta', fn: () => moveTo(key, folder(p.cur.parent) || null) }]) },
       h('div.fold-ic', gIcon(g, 64), m > 0 && h('span.badge', m > 99 ? '99+' : m)), h('span.fold-n', g.name));
   };
@@ -135,10 +248,10 @@ export function openFolder(anchor, f) {
     const crumbs = path(cur).filter(x => isInside(x, folder(p.root)) || x.id === p.root);
     const startAt = crumbs.findIndex(x => x.id === p.root);
     head.replaceChildren(h('span.fold-dot', { style: { background: cur.color } }),
-        h('div.fold-crumbs', ...crumbs.slice(Math.max(0, startAt)).flatMap((x, i) => [i ? h('span.fold-sep', icon('chevr', 14)) : null, x.id === cur.id ? h('b', x.name) : h('button.fold-crumb', { type: 'button', onclick: () => { p.cur = x; q.value = ''; draw(); } }, x.name)])),
+        h('div.fold-crumbs', ...crumbs.slice(Math.max(0, startAt)).flatMap((x, i) => [i ? h('span.fold-sep', icon('chevr', 14)) : null, x.id === cur.id ? h('b', x.name) : h('button.fold-crumb', { type: 'button', 'data-folder': x.id, onclick: () => { p.cur = x; q.value = ''; draw(); } }, x.name)])),
         h('button.ibtn', { type: 'button', title: 'Opções da pasta', onclick: (e) => folderMenu(e, cur) }, icon('more', 18)),
         h('button.ibtn', { type: 'button', title: 'Fechar', onclick: closeFolder }, icon('x', 18)));
-    grid.replaceChildren(...(keys.length ? keys.map(tile) : [h('div.fold-empty', term ? 'Nenhum servidor com esse nome.' : 'Pasta vazia. Clique direito num servidor → Mover para pasta.')]),
+    grid.replaceChildren(...(keys.length ? keys.map(tile) : [h('div.fold-empty', term ? 'Nenhum servidor com esse nome.' : 'Pasta vazia. Arraste um servidor para cima dela na barra.')]),
         !term && h('button.fold-tile.add', { type: 'button', title: 'Nova subpasta', onclick: () => createFolder(cur) }, h('div.fold-ic', icon('plus', 24)), h('span.fold-n', 'Nova subpasta')));
     place();
   };
@@ -151,7 +264,7 @@ export function openFolder(anchor, f) {
     el.style.top = Math.round(Math.max(8, Math.min(r.top - 8, innerHeight - w.height - 8))) + 'px';
   };
   p.out = (e) => { if (!el.contains(e.target) && !e.target.closest('.menu, .backdrop, .fold-item')) closeFolder(); };
-  p.esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.menu, .backdrop')) { e.stopPropagation(); closeFolder(); } };
+  p.esc = (e) => { if (e.key === 'Escape' && !p.dragging && !document.querySelector('.menu, .backdrop')) { e.stopPropagation(); closeFolder(); } };
   document.body.append(el); draw();
   document.addEventListener('mousedown', p.out, true); document.addEventListener('keydown', p.esc, true);
   if (itemsOf(f).length > 12) setTimeout(() => q.focus(), 0);

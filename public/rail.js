@@ -20,7 +20,7 @@ import { profile, pinnedDMs, dmWith, ensureDM, initialsOf, openDM, userMenu } fr
 import { jumpTo } from './msgactions.js';
 import { openBoraModal } from './bora.js';
 import { notifCard, inboxBadge, showInbox } from './inbox.js';
-import { initFolders, folder, inAnyFolder, folderRailItem, moveMenuItems, refreshFolder, closeFolder } from './gfolders.js';
+import { initFolders, folder, inAnyFolder, folderRailItem, moveMenuItems, refreshFolder, closeFolder, canJoin, join } from './gfolders.js';
 initFolders({ change: () => { renderRail(); refreshFolder(); }, go: (gid) => { gFlyHide(); S.favMode = false; go(gid); } });
 // ---------- trilho de servidores ----------
 function guildUnread(g) { return g.channels.some(c => S.unread[c.id]); }
@@ -68,9 +68,13 @@ function railGuilds() {
   const tops = (Array.isArray(S.prefs.gfolders) ? S.prefs.gfolders : []).filter(f => !f.parent || !folder(f.parent)).map(f => ({ id: 'f:' + f.id, folder: f }));
   return [...tops, ...[...S.guilds.values()].filter(g => !inAnyFolder(g.id))].map((g, i) => [g, i]).sort((a, b) => (at(a[0].id) - at(b[0].id)) || (a[1] - b[1])).map(x => x[0]);
 }
-// segurar e arrastar: servidores trocam de lugar entre si, conversas fixadas entre si
+// segurar e arrastar: servidores trocam de lugar entre si, conversas fixadas entre si. Soltar um servidor no meio de outro
+// cria uma pasta com os dois; no meio de uma pasta, entra nela
+const railKey = (el) => el.dataset.id.startsWith('f:') ? el.dataset.id : 'g:' + el.dataset.id;
 export function railSortable(rail) {
   sortable(rail, { items: '.rail-wrap.railg, .rail-wrap.raildm', axis: 'y', group: (el) => el.classList.contains('railg') ? 'g' : 'dm',
+    combine: (el, to) => el.classList.contains('railg') && canJoin(railKey(el), railKey(to)),
+    onCombine: (el, to) => { closeFolder(); join(railKey(el), railKey(to)); },
     onDrop: (ids, el) => {
       if (el.classList.contains('railg')) { closeFolder(); S.prefs.guildOrder = ids; } else S.prefs.pinnedDMs = ids;
       savePrefs(); renderRail(); if (!el.classList.contains('railg')) renderSide();
