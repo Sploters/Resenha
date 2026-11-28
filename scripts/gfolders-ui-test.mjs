@@ -32,42 +32,53 @@ try {
   let ids = await railIds();
   ok(ids.length === 6 && ids[0].startsWith('f:') && !ids.includes(gs[0].id), 'pasta "Jogos" entra na barra no lugar do servidor', ids);
   const fid = ids[0];
+  // com um servidor só, a miniatura continua quadrada (a grade 2x2 não estica) e os servidores são quadrados sem o mouse em cima
+  const shape = await p.evaluate(() => { const m = document.querySelector('#rail .fold-mini').getBoundingClientRect(); return { w: m.width, h: m.height, radius: getComputedStyle(document.querySelector('#rail [data-gid]')).borderRadius }; });
+  ok(Math.abs(shape.w - shape.h) < 1, 'pasta com um servidor: miniatura quadrada', shape);
+  ok(shape.radius === '14px', 'servidor na barra é um quadrado arredondado', shape.radius);
+  await p.screenshot({ path: '.testshots/gfolders-um.png', clip: { x: 0, y: 0, width: 300, height: 500 } });
   // mais três servidores para dentro de Jogos
   for (const g of gs.slice(1, 4)) { await rclick(`#rail [data-gid="${g.id}"]`); await pick(/Mover para pasta/); await pick(/^Jogos$/); }
   ids = await railIds();
   ok(ids.length === 3 && ids[0] === fid, 'quatro servidores dentro de Jogos: na barra sobram a pasta e dois servidores', ids);
-  ok(await p.evaluate(() => document.querySelectorAll('#rail .railfolder .gf-mini').length) === 4, 'o quadrado da pasta mostra 4 miniaturas');
+  ok(await p.evaluate(() => document.querySelectorAll('#rail .railfolder .fold-mini').length) === 4, 'o quadrado da pasta mostra 4 miniaturas');
   // abre o painel à direita
-  await p.click('#rail .railfolder .gf-item'); await sleep(300);
-  const pan = () => p.evaluate(() => { const el = document.querySelector('.gf-panel'); if (!el) return null; const r = el.getBoundingClientRect(), rail = document.querySelector('#rail').getBoundingClientRect(); return { right: r.left >= rail.right, w: Math.round(r.width), h: Math.round(r.height), title: el.querySelector('.gf-crumbs').innerText.replace(/\s+/g, ' '), tiles: [...el.querySelectorAll('.gf-tile:not(.add) .gf-n')].map(x => x.textContent) }; });
+  await p.click('#rail .railfolder .fold-item'); await sleep(300);
+  const pan = () => p.evaluate(() => { const el = document.querySelector('.fold-panel'); if (!el) return null; const r = el.getBoundingClientRect(), rail = document.querySelector('#rail').getBoundingClientRect(); return { right: r.left >= rail.right, w: Math.round(r.width), h: Math.round(r.height), title: el.querySelector('.fold-crumbs').innerText.replace(/\s+/g, ' '), tiles: [...el.querySelectorAll('.fold-tile:not(.add) .fold-n')].map(x => x.textContent) }; });
   let s = await pan();
   ok(s && s.right && s.tiles.length === 4, 'clicar na pasta abre o painel à direita da barra com a grade de servidores', s);
+  // o menu "…" do painel abre por cima dele
+  await p.click('.fold-head .ibtn[title="Opções da pasta"]'); await sleep(350);
+  ok(await p.evaluate(() => { const m = document.querySelector('.menu'), r = m.getBoundingClientRect(); return [...m.querySelectorAll('.it')].every(it => { const b = it.getBoundingClientRect(); return m.contains(document.elementFromPoint(b.x + 10, b.y + b.height / 2)); }); }), 'o menu "…" fica por cima do painel');
+  await p.screenshot({ path: '.testshots/gfolders-menu.png' });
+  await p.keyboard.press('Escape'); await sleep(300);
+  if (!await p.$('.fold-panel')) { await p.click('#rail .railfolder .fold-item'); await sleep(300); }
   // subpasta "FPS" com Valorant e CS (clique direito no servidor dentro do painel)
-  await p.click('.gf-tile.add'); await prompt('FPS'); await sleep(200);
+  await p.click('.fold-tile.add'); await prompt('FPS'); await sleep(200);
   s = await pan(); ok(s.tiles[0] === 'FPS', 'nova subpasta "FPS" aparece primeiro na grade', s.tiles);
   for (const n of ['Valorant BR', 'CS da Firma']) {
-    const h = await p.evaluateHandle((n) => [...document.querySelectorAll('.gf-panel .gf-tile')].find(t => t.querySelector('.gf-n')?.textContent === n), n);
+    const h = await p.evaluateHandle((n) => [...document.querySelectorAll('.fold-panel .fold-tile')].find(t => t.querySelector('.fold-n')?.textContent === n), n);
     const b = await h.asElement().boundingBox(); await p.mouse.click(b.x + b.width / 2, b.y + b.height / 2, { button: 'right' }); await sleep(250);
     await pick(/Mover para pasta/); await pick(/Jogos › FPS/);
   }
   s = await pan(); ok(JSON.stringify(s.tiles) === '["FPS","Minecraft SMP","Lolzinho"]', 'Valorant e CS foram para Jogos › FPS', s.tiles);
-  await p.evaluate(() => [...document.querySelectorAll('.gf-panel .gf-tile.sub')][0].click()); await sleep(250);
+  await p.evaluate(() => [...document.querySelectorAll('.fold-panel .fold-tile.sub')][0].click()); await sleep(250);
   s = await pan(); ok(s.title === 'Jogos FPS' && s.tiles.length === 2, 'abrir a subpasta: caminho "Jogos › FPS" e os dois servidores', s);
   await p.screenshot({ path: '.testshots/gfolders-sub.png' });
-  await p.evaluate(() => document.querySelector('.gf-crumb').click()); await sleep(250);
+  await p.evaluate(() => document.querySelector('.fold-crumb').click()); await sleep(250);
   s = await pan(); ok(s.title === 'Jogos', 'clicar em "Jogos" no caminho volta', s.title);
   // busca procura em toda a pasta (inclusive subpastas)
-  await p.type('.gf-q', 'cs'); await sleep(200);
+  await p.type('.fold-q', 'cs'); await sleep(200);
   s = await pan(); ok(JSON.stringify(s.tiles) === '["CS da Firma"]', 'busca acha o servidor dentro da subpasta', s.tiles);
   await p.screenshot({ path: '.testshots/gfolders-busca.png' });
-  await p.evaluate(() => { const i = document.querySelector('.gf-q'); i.value = ''; i.dispatchEvent(new Event('input')); }); await sleep(150);
+  await p.evaluate(() => { const i = document.querySelector('.fold-q'); i.value = ''; i.dispatchEvent(new Event('input')); }); await sleep(150);
   await p.screenshot({ path: '.testshots/gfolders-painel.png' });
   // clicar num servidor entra nele e fecha o painel
-  await p.evaluate(() => [...document.querySelectorAll('.gf-panel .gf-tile')].find(t => t.querySelector('.gf-n')?.textContent === 'Lolzinho').click()); await sleep(500);
-  ok(await p.evaluate((gid) => window.__lc.S.view.gid === gid && !document.querySelector('.gf-panel'), gs[3].id), 'clicar num servidor entra nele e fecha o painel');
+  await p.evaluate(() => [...document.querySelectorAll('.fold-panel .fold-tile')].find(t => t.querySelector('.fold-n')?.textContent === 'Lolzinho').click()); await sleep(500);
+  ok(await p.evaluate((gid) => window.__lc.S.view.gid === gid && !document.querySelector('.fold-panel'), gs[3].id), 'clicar num servidor entra nele e fecha o painel');
   ok(await p.evaluate(() => document.querySelector('#rail .railfolder').classList.contains('active')), 'a pasta fica marcada na barra enquanto você está num servidor dela');
   // desfazer a pasta Jogos: tudo volta para a barra (a FPS vira pasta solta)
-  await rclick('#rail .railfolder .gf-item'); await pick(/Desfazer pasta/);
+  await rclick('#rail .railfolder .fold-item'); await pick(/Desfazer pasta/);
   await p.evaluate(() => [...document.querySelectorAll('.modal .mf .btn')].at(-1).click()); await sleep(400);
   ids = await railIds();
   ok(ids.filter(x => x.startsWith('f:')).length === 1 && ids.length === 5, 'desfazer: Minecraft e Lol voltam soltos, FPS continua como pasta', ids);

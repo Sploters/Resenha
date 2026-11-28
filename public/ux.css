@@ -153,7 +153,7 @@ button.mgroup .mg-n::before { content: '— '; }
 
 /* ---------- barra da esquerda ---------- */
 #rail .rail-tool { background: transparent; color: var(--interactive, var(--text-muted)); }
-#rail .rail-wrap:hover .rail-tool, #rail .rail-wrap.active .rail-tool { background: var(--bg-pri); color: var(--header); border-radius: 16px; }
+#rail .rail-wrap:hover .rail-tool, #rail .rail-wrap.active .rail-tool { background: var(--bg-pri); color: var(--header); }
 #rail .rail-wrap.active .rail-tool { background: var(--brand); color: #fff; }
 #rail .rail-tool .icon { fill: currentColor; }
 #rail .rail-inbox { margin-top: auto; padding-top: 8px; }
@@ -859,7 +859,7 @@ code.e2-kid { font: 13px Consolas, "Cascadia Mono", monospace; color: var(--text
 /* ---------- segurar e arrastar para trocar a ordem (abas, servidores e conversas fixadas) ---------- */
 #rail img, #chtabs img { -webkit-user-drag: none; user-select: none; }
 .reordering { position: relative; z-index: 20; transition: none !important; pointer-events: none; }
-.rail-wrap.reordering .rail-item { box-shadow: 0 6px 18px rgba(0,0,0,.45); border-radius: 16px; }
+.rail-wrap.reordering .rail-item { box-shadow: 0 6px 18px rgba(0,0,0,.45); }
 .ct-tab.reordering { background: var(--bg-mod-sel); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
 body.reorder-on, body.reorder-on * { cursor: grabbing !important; user-select: none !important; }
 body.reorder-on .rail-wrap[data-tip]:hover::after, body.reorder-on .rail-wrap::after { display: none !important; }

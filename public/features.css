@@ -52,7 +52,7 @@ html.anim .sw { animation: lc-switch .22s ease-out; }
 html.anim #members.sw { animation-name: lc-left; }
 html.anim .msg.fresh { animation: lc-msg .32s ease-out; }
 html.anim .react { transition: background .12s, border-color .12s, transform .12s; } html.anim .react:active { transform: scale(.92); }
-html.anim .rail-item { transition: border-radius .18s, transform .12s, background .18s; } html.anim .rail-item:hover { border-radius: 30%; } html.anim .rail-item:active { transform: scale(.92); }
+html.anim .rail-item { transition: transform .12s, background .18s; } html.anim .rail-item:active { transform: scale(.92); }
 /* sem padding-left na transição: a lateral reaproveita a linha (morph) e o recuo de uma DM animava até o de "Clipes" */
 html.anim .ch, html.anim .mem, html.anim .frow { transition: background .12s, color .12s; }
 html.anim .btn, html.anim .roundbtn, html.anim .ibtn { transition: background .12s, transform .1s, color .12s; }
@@ -2882,30 +2882,30 @@ body:has(#call-banner):has(#intent-banner) #samegame-banner { top: 230px; }
 .vu-rpg { display: inline-flex; align-items: center; flex: none; margin-left: 5px; vertical-align: -2px; color: var(--brand); opacity: .85; }
 
 /* ---------- Pastas de servidores (public/gfolders.js) ---------- */
-.rail-item.gf-item { border-radius: 16px; background: none; overflow: visible; }
-.gf-glyph { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 3px; padding: 6px; box-sizing: border-box; border-radius: 16px; background: color-mix(in srgb, var(--gf) 30%, var(--bg-pri)); color: var(--gf); place-items: center; transition: background .15s; }
-.gf-glyph > .icon { grid-column: span 2; grid-row: span 2; fill: currentColor; }
-.gf-item:hover .gf-glyph, .railfolder.active .gf-glyph { background: color-mix(in srgb, var(--gf) 45%, var(--bg-pri)); }
-.gf-mini { width: 100%; height: 100%; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--bg-pri); font-size: 7px; font-weight: 700; color: var(--text); }
-.gf-mini img { width: 100%; height: 100%; object-fit: cover; }
-.gf-panel { position: fixed; z-index: 95; width: 360px; max-width: calc(100vw - 96px); max-height: min(520px, calc(100vh - 16px)); display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: var(--bg-float, #111214); border: 1px solid var(--divider); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: sbqIn .12s ease-out; }
-.gf-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gf-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.gf-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; font-size: 15px; }
-.gf-crumbs b { color: var(--header); overflow: hidden; text-overflow: ellipsis; }
-.gf-crumb { border: 0; background: none; padding: 0; color: var(--text-muted); font: inherit; cursor: pointer; flex: none; } .gf-crumb:hover { color: var(--header); text-decoration: underline; }
-.gf-sep { color: var(--text-muted); flex: none; display: flex; } .gf-sep .icon { fill: currentColor; }
-.gf-head .ibtn { flex: none; color: var(--interactive); }
-.gf-search { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px; border-radius: 8px; background: var(--bg-tert); color: var(--text-muted); }
-.gf-search .icon { fill: currentColor; flex: none; } .gf-q { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; outline: none; }
-.gf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow-y: auto; padding: 2px; }
-.gf-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 4px; border: 0; border-radius: 10px; background: none; color: var(--text); cursor: pointer; font: inherit; min-width: 0; }
-.gf-tile:hover { background: var(--bg-mod-hover); } .gf-tile.on { background: var(--bg-mod-sel); }
-.gf-ic { position: relative; width: 56px; height: 56px; border-radius: 50%; overflow: visible; display: flex; align-items: center; justify-content: center; background: var(--bg-pri); font-weight: 600; transition: border-radius .15s; }
-.gf-ic > img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; } .gf-tile:hover .gf-ic { border-radius: 18px; }
-.gf-ic .badge { position: absolute; right: -4px; bottom: -4px; } .gf-ic .icon { fill: currentColor; }
-.gf-tile.unread .gf-n { color: var(--header); font-weight: 700; }
-.gf-n { max-width: 100%; font-size: 11.5px; line-height: 1.25; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-.gf-tile small { font-size: 10px; color: var(--text-muted); margin-top: -3px; }
-.gf-tile.add .gf-ic { background: none; border: 2px dashed var(--divider); color: var(--text-muted); }
-.gf-empty { grid-column: 1 / -1; padding: 18px 8px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.rail-item.fold-item { border-radius: var(--srv-r, 14px); background: none; overflow: visible; }
+.fold-glyph { display: grid; grid-template: repeat(2, minmax(0, 1fr)) / repeat(2, minmax(0, 1fr)); gap: 3px; padding: 6px; box-sizing: border-box; border-radius: var(--srv-r, 14px); background: color-mix(in srgb, var(--gf) 30%, var(--bg-pri)); color: var(--gf); place-items: center; transition: background .15s; }
+.fold-glyph > .icon { grid-column: span 2; grid-row: span 2; fill: currentColor; }
+.fold-item:hover .fold-glyph, .railfolder.active .fold-glyph { background: color-mix(in srgb, var(--gf) 45%, var(--bg-pri)); }
+.fold-mini { width: 100%; height: 100%; min-width: 0; min-height: 0; white-space: nowrap; border-radius: 5px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--bg-pri); font-size: 7px; font-weight: 700; color: var(--text); }
+.fold-mini img { width: 100%; height: 100%; object-fit: cover; }
+.fold-panel { position: fixed; z-index: 75; width: 360px; max-width: calc(100vw - 96px); max-height: min(520px, calc(100vh - 16px)); display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: var(--bg-float, #111214); border: 1px solid var(--divider); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: sbqIn .12s ease-out; }
+.fold-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fold-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.fold-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; font-size: 15px; }
+.fold-crumbs b { color: var(--header); overflow: hidden; text-overflow: ellipsis; }
+.fold-crumb { border: 0; background: none; padding: 0; color: var(--text-muted); font: inherit; cursor: pointer; flex: none; } .fold-crumb:hover { color: var(--header); text-decoration: underline; }
+.fold-sep { color: var(--text-muted); flex: none; display: flex; } .fold-sep .icon { fill: currentColor; }
+.fold-head .ibtn { flex: none; color: var(--interactive); }
+.fold-search { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px; border-radius: 8px; background: var(--bg-tert); color: var(--text-muted); }
+.fold-search .icon { fill: currentColor; flex: none; } .fold-q { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; outline: none; }
+.fold-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow-y: auto; padding: 2px; }
+.fold-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 4px; border: 0; border-radius: 10px; background: none; color: var(--text); cursor: pointer; font: inherit; min-width: 0; }
+.fold-tile:hover { background: var(--bg-mod-hover); } .fold-tile.on { background: var(--bg-mod-sel); }
+.fold-ic { position: relative; width: 56px; height: 56px; border-radius: 16px; overflow: visible; display: flex; align-items: center; justify-content: center; background: var(--bg-pri); font-weight: 600; }
+.fold-ic > img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.fold-ic .badge { position: absolute; right: -4px; bottom: -4px; } .fold-ic .icon { fill: currentColor; }
+.fold-tile.unread .fold-n { color: var(--header); font-weight: 700; }
+.fold-n { max-width: 100%; font-size: 11.5px; line-height: 1.25; text-align: center; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); }
+.fold-tile small { font-size: 10px; color: var(--text-muted); margin-top: -3px; }
+.fold-tile.add .fold-ic { background: none; border: 2px dashed var(--divider); color: var(--text-muted); }
+.fold-empty { grid-column: 1 / -1; padding: 18px 8px; text-align: center; color: var(--text-muted); font-size: 13px; }

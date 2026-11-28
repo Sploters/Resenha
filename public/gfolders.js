@@ -88,17 +88,17 @@ export function moveMenuItems(key) {
 // ---------- na barra ----------
 const unread = (g) => g.channels.some(c => S.unread[c.id]);
 const mentions = (g) => g.channels.reduce((n, c) => n + (S.mentions[c.id] || 0), 0);
-const gIcon = (g, px) => g.icon ? h('img', { src: imgUrl(g.icon, px), alt: '', draggable: 'false' }) : h('span.gf-ini', g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3));
+const gIcon = (g, px) => g.icon ? h('img', { src: imgUrl(g.icon, px), alt: '', draggable: 'false' }) : h('span.fold-ini', g.name.split(/\s+/).map(w => w[0]).join('').slice(0, 3));
 // o quadrado da pasta: até 4 miniaturas (2x2) sobre a cor da pasta
 export function folderGlyph(f, size = 48) {
   const gs = guildsIn(f).slice(0, 4);
-  return h('div.gf-glyph', { style: { '--gf': f.color, width: size + 'px', height: size + 'px' } },
-    gs.length ? gs.map(g => h('div.gf-mini', gIcon(g, 32))) : icon('folder', size / 2));
+  return h('div.fold-glyph', { style: { '--gf': f.color, width: size + 'px', height: size + 'px' } },
+    gs.length ? gs.map(g => h('div.fold-mini', gIcon(g, 32))) : icon('folder', size / 2));
 }
 export function folderRailItem(f, { wrap, badge, activeGid }) {
   const gs = guildsIn(f), here = gs.some(g => g.id === activeGid);
   const w = wrap('.railg.railfolder' + (here ? '.active' : '') + (gs.some(g => unread(g) && g.id !== activeGid) ? '.unread' : ''), f.name,
-    h('div.rail-item.gf-item', { onclick: (e) => openFolder(e.currentTarget, f), oncontextmenu: (e) => folderMenu(e, f) }, folderGlyph(f)),
+    h('div.rail-item.fold-item', { onclick: (e) => openFolder(e.currentTarget, f), oncontextmenu: (e) => folderMenu(e, f) }, folderGlyph(f)),
     badge(gs.reduce((n, g) => n + mentions(g), 0)), 'f:' + f.id);
   return w;
 }
@@ -109,22 +109,22 @@ export const closeFolder = () => { panel?.el.remove(); document.removeEventListe
 export function openFolder(anchor, f) {
   if (panel?.root === f.id) return closeFolder();
   closeFolder();
-  const q = h('input.gf-q', { placeholder: 'Buscar nesta pasta', oninput: () => draw() });
+  const q = h('input.fold-q', { placeholder: 'Buscar nesta pasta', oninput: () => draw() });
   // cabeçalho e grade redesenham; a busca fica (redesenhar tudo tirava o foco dela a cada letra)
-  const head = h('div.gf-head'), grid = h('div.gf-grid');
-  const el = h('div.gf-panel', { role: 'dialog', 'aria-label': 'Pasta ' + f.name }, head, h('label.gf-search', icon('search', 14), q), grid);
+  const head = h('div.fold-head'), grid = h('div.fold-grid');
+  const el = h('div.fold-panel', { role: 'dialog', 'aria-label': 'Pasta ' + f.name }, head, h('label.fold-search', icon('search', 14), q), grid);
   const p = panel = { el, root: f.id, cur: f, anchor };
   const go2 = (gid) => { closeFolder(); goGuild(gid); };
   const tile = (key) => {
     if (key.startsWith('f:')) {
       const sub = folder(key.slice(2)), n = guildsIn(sub).length;
-      return h('button.gf-tile.sub', { type: 'button', title: sub.name, onclick: () => { p.cur = sub; q.value = ''; draw(); }, oncontextmenu: (e) => folderMenu(e, sub) },
-        folderGlyph(sub, 56), h('span.gf-n', sub.name), h('small', `${n} ${n === 1 ? 'servidor' : 'servidores'}`));
+      return h('button.fold-tile.sub', { type: 'button', title: sub.name, onclick: () => { p.cur = sub; q.value = ''; draw(); }, oncontextmenu: (e) => folderMenu(e, sub) },
+        folderGlyph(sub, 56), h('span.fold-n', sub.name), h('small', `${n} ${n === 1 ? 'servidor' : 'servidores'}`));
     }
     const g = S.guilds.get(key.slice(2)), m = mentions(g);
-    return h('button.gf-tile' + (g.id === S.view.gid ? '.on' : '') + (unread(g) ? '.unread' : ''), { type: 'button', title: g.name, onclick: () => go2(g.id),
+    return h('button.fold-tile' + (g.id === S.view.gid ? '.on' : '') + (unread(g) ? '.unread' : ''), { type: 'button', title: g.name, onclick: () => go2(g.id),
       oncontextmenu: (e) => menu(e, [{ icon: 'folder', label: 'Mover para pasta', sub: moveMenuItems(key) }, { icon: 'logout', label: 'Tirar da pasta', fn: () => moveTo(key, folder(p.cur.parent) || null) }]) },
-      h('div.gf-ic', gIcon(g, 64), m > 0 && h('span.badge', m > 99 ? '99+' : m)), h('span.gf-n', g.name));
+      h('div.fold-ic', gIcon(g, 64), m > 0 && h('span.badge', m > 99 ? '99+' : m)), h('span.fold-n', g.name));
   };
   const draw = () => {
     const cur = p.cur = folder(p.cur.id) || folder(p.root); if (!cur) return closeFolder();
@@ -134,21 +134,23 @@ export function openFolder(anchor, f) {
       : [...itemsOf(cur).filter(k => k.startsWith('f:')), ...itemsOf(cur).filter(k => k.startsWith('g:'))];
     const crumbs = path(cur).filter(x => isInside(x, folder(p.root)) || x.id === p.root);
     const startAt = crumbs.findIndex(x => x.id === p.root);
-    head.replaceChildren(h('span.gf-dot', { style: { background: cur.color } }),
-        h('div.gf-crumbs', ...crumbs.slice(Math.max(0, startAt)).flatMap((x, i) => [i ? h('span.gf-sep', icon('chevr', 14)) : null, x.id === cur.id ? h('b', x.name) : h('button.gf-crumb', { type: 'button', onclick: () => { p.cur = x; q.value = ''; draw(); } }, x.name)])),
+    head.replaceChildren(h('span.fold-dot', { style: { background: cur.color } }),
+        h('div.fold-crumbs', ...crumbs.slice(Math.max(0, startAt)).flatMap((x, i) => [i ? h('span.fold-sep', icon('chevr', 14)) : null, x.id === cur.id ? h('b', x.name) : h('button.fold-crumb', { type: 'button', onclick: () => { p.cur = x; q.value = ''; draw(); } }, x.name)])),
         h('button.ibtn', { type: 'button', title: 'Opções da pasta', onclick: (e) => folderMenu(e, cur) }, icon('more', 18)),
         h('button.ibtn', { type: 'button', title: 'Fechar', onclick: closeFolder }, icon('x', 18)));
-    grid.replaceChildren(...(keys.length ? keys.map(tile) : [h('div.gf-empty', term ? 'Nenhum servidor com esse nome.' : 'Pasta vazia. Clique direito num servidor → Mover para pasta.')]),
-        !term && h('button.gf-tile.add', { type: 'button', title: 'Nova subpasta', onclick: () => createFolder(cur) }, h('div.gf-ic', icon('plus', 24)), h('span.gf-n', 'Nova subpasta')));
+    grid.replaceChildren(...(keys.length ? keys.map(tile) : [h('div.fold-empty', term ? 'Nenhum servidor com esse nome.' : 'Pasta vazia. Clique direito num servidor → Mover para pasta.')]),
+        !term && h('button.fold-tile.add', { type: 'button', title: 'Nova subpasta', onclick: () => createFolder(cur) }, h('div.fold-ic', icon('plus', 24)), h('span.fold-n', 'Nova subpasta')));
     place();
   };
   // ao lado da barra, alinhado com a pasta (sem sair da tela)
   const place = () => {
+    // a barra é redesenhada quando a pasta muda: o item antigo sai da tela e mediria zero (o painel pulava para o topo)
+    if (!anchor.isConnected) anchor = document.querySelector(`#rail [data-id="f:${p.root}"] .rail-item`) || anchor;
     const r = anchor.getBoundingClientRect(), w = el.getBoundingClientRect();
     el.style.left = Math.round(Math.max(r.right, document.getElementById('rail')?.getBoundingClientRect().right || 0) + 8) + 'px';
     el.style.top = Math.round(Math.max(8, Math.min(r.top - 8, innerHeight - w.height - 8))) + 'px';
   };
-  p.out = (e) => { if (!el.contains(e.target) && !e.target.closest('.menu, .backdrop, .gf-item')) closeFolder(); };
+  p.out = (e) => { if (!el.contains(e.target) && !e.target.closest('.menu, .backdrop, .fold-item')) closeFolder(); };
   p.esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.menu, .backdrop')) { e.stopPropagation(); closeFolder(); } };
   document.body.append(el); draw();
   document.addEventListener('mousedown', p.out, true); document.addEventListener('keydown', p.esc, true);
