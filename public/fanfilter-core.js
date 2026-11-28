@@ -20,6 +20,9 @@
 //   a voz. Ali o ganho é o MMSE log-espectral (Ephraim-Malah) com a voz/ruído por "decisão dirigida" (o quadro anterior
 //   já limpo pesa 98%), que tira o chiado também por baixo da voz: ~8 dB a menos de 5 a 10 kHz durante a fala. NÃO usar
 //   no espectro todo: nos graves e médios ele comia o corpo da voz (com zumbido forte, picote de 2% para 14% da fala).
+// - Chiado forte (muito ruído entre 6 e 12 kHz: interferência, microfone com ganho alto): esse ganho dos agudos passa a
+//   começar em 1,5-3 kHz e a tirar mais. Medido com o mesmo ruído: a sobra de 2 a 6 kHz durante a fala caiu de ~5 dB
+//   para perto de zero. Zumbido, ventilador e sala quieta quase não têm ruído ali, então não mudam.
 // - O ganho é suavizado entre faixas vizinhas, e faixas abaixo de 60 Hz e acima de 20 kHz seguem o mesmo princípio.
 // Sem ventilador (sala silenciosa), o ruído medido é quase nada e o ganho fica em 1: o filtro não mexe na voz.
 
@@ -58,6 +61,9 @@ export function fanParams(strength = 50, over = {}) {
     hissFromHz: 4000,         // daqui para cima o ganho vai passando para o dos agudos (chiado)...
     hissToHz: 6000,           // ...que daqui para cima vale sozinho
     hissFloorDb: lerp(-16, -32), hissXiMinDb: lerp(-10, -20), hissOverSub: 1.05, dd: 0.98,
+    // chiado forte (ruído medido entre 6 e 12 kHz acima de heavyFromDb, em dBFS; vale inteiro em heavyToDb): o ganho dos
+    // agudos começa mais embaixo e tira mais
+    heavyFromDb: -62, heavyToDb: -50, heavyFromHz: 1500, heavyToHz: 3000, heavyFloorDb: lerp(-20, -36), heavyXiMinDb: lerp(-13, -23),
     attackMs: 4,              // potência usada no ganho: sobe rápido (começo das palavras inteiro)...
     releaseMs: 40,            // ...e desce devagar (o ruído que sobra não "pisca")
     smoothMs: 25,             // suavização da potência de cada faixa (antes do mínimo)
@@ -79,6 +85,8 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
   const smooth = new Float64Array(BINS), noise = new Float64Array(BINS).fill(1e-12), gp = new Float64Array(BINS);
   const prev = new Float64Array(BINS); // agudos: potência do quadro anterior depois do ganho (decisão dirigida)
   const gain = new Float64Array(BINS), gs = new Float64Array(BINS);
+  const h0 = Math.round(6000 * N / sampleRate), h1 = Math.min(BINS, Math.round(12000 * N / sampleRate));
+  const WIN2 = N / 2; // soma da janela ao quadrado: potência da faixa -> potência média do sinal
   const fps = sampleRate / HOP; // quadros por segundo (375 a 48 kHz)
   // estatística de mínimo: U janelas parciais de D quadros; o ruído é o menor mínimo entre elas
   const U = 6;
@@ -93,7 +101,7 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
   const fl = () => 10 ** (p.floorDb / 20);
   let gMin = fl(), gMin2 = gMin * gMin;
   const g = {
-    get noise() { return noise; }, get frames() { return frames; },
+    heavy: 0, get noise() { return noise; }, get frames() { return frames; },
     setParams(np) { p = np; gMin = fl(); gMin2 = gMin * gMin; const keep = noise.slice(); setup(); noise.set(keep); },
     // processa um bloco de HOP amostras (entrada x, saída y; podem ser o mesmo array) — atraso de N - HOP amostras
     process(x, y, on = true) {
@@ -116,6 +124,13 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
         // no começo (antes de completar a janela) o mínimo é o de até agora: vale do mesmo jeito
         noise[k] = Number.isFinite(m) ? Math.max(m * p.bias, 1e-12) : 1e-12;
       }
+      // quanto chiado há (0-1): ruído medido de 6 a 12 kHz. Zumbido, ventilador e sala quieta quase não têm nada ali
+      let hn = 0; for (let k = h0; k < h1; k++) hn += noise[k];
+      const heavy = Math.max(0, Math.min(1, (10 * Math.log10(hn / (h1 - h0) / WIN2 + 1e-20) - p.heavyFromDb) / (p.heavyToDb - p.heavyFromDb)));
+      g.heavy = heavy;
+      const to = (a, b) => a + (b - a) * heavy;
+      const mixFrom = to(p.hissFromHz, p.heavyFromHz), mixTo = to(p.hissToHz, p.heavyToHz);
+      const hMin = 10 ** (to(p.hissFloorDb, p.heavyFloorDb) / 20), hXi = 10 ** (to(p.hissXiMinDb, p.heavyXiMinDb) / 10);
       // ganho: subtração de potência sobre a potência suavizada com ataque rápido e soltura lenta (gp). Ataque rápido:
       // o começo das palavras passa inteiro; soltura lenta: o ruído que sobra não "pisca" (sem ruído musical). Antes era
       // Wiener com SNR por decisão dirigida, que a 375 quadros/s esmagava a fala fraca (-18 dB com SNR de 5 dB).
@@ -125,11 +140,11 @@ export function createFanFilter(sampleRate = 48000, params = fanParams()) {
         const r = 1 - p.overSub * noise[k] / Math.max(gp[k], 1e-15);
         gain[k] = r <= gMin2 ? gMin : Math.sqrt(r);
         // agudos: ganho MMSE log-espectral (xi = voz/ruído "a priori" por decisão dirigida, gam = a do quadro atual)
-        const mix = Math.max(0, Math.min(1, (k * sampleRate / N - p.hissFromHz) / Math.max(1, p.hissToHz - p.hissFromHz)));
+        const mix = Math.max(0, Math.min(1, (k * sampleRate / N - mixFrom) / Math.max(1, mixTo - mixFrom)));
         if (mix > 0) {
           const N0 = p.hissOverSub * noise[k], gam = Math.min(1000, P / N0);
-          const xi = Math.max(10 ** (p.hissXiMinDb / 10), p.dd * prev[k] / N0 + (1 - p.dd) * Math.max(gam - 1, 0)), w = xi / (1 + xi);
-          const G = Math.min(1, Math.max(10 ** (p.hissFloorDb / 20), w * Math.exp(0.5 * expint(Math.max(gam * w, 1e-8)))));
+          const xi = Math.max(hXi, p.dd * prev[k] / N0 + (1 - p.dd) * Math.max(gam - 1, 0)), w = xi / (1 + xi);
+          const G = Math.min(1, Math.max(hMin, w * Math.exp(0.5 * expint(Math.max(gam * w, 1e-8)))));
           prev[k] = G * G * P; gain[k] += (G - gain[k]) * mix;
         }
       }
