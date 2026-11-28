@@ -52,7 +52,7 @@ export const NATIVE_SENT_MS = 6000, NATIVE_LIVE_MAX_MS = 25000, NATIVE_UDP_TRIES
 // "quem fala" pelo nível dos pacotes (watch): limiar, folga e idade máxima do último pacote
 const SSRC_LOUD = .015, SSRC_HOLD_MS = 400, SSRC_FRESH_MS = 250;
 export const FSE_TICK = 3000, FSE_CONFIRM_TICKS = 2, FSE_FROZEN_TICKS = 4; // aviso de tela cheia exclusiva: a cada 3 s; 2 leituras com as duas evidências; 12 s sem quadro = "congelada"
-export const GOV_TICK = 2000, GOV_BAD = 3, GOV_VIEWERS_MS = 10e3; // controle da transmissão (govTick): leitura a cada 2 s, 6 s ruins para descer
+export const GOV_TICK = 2000, GOV_BAD = 3, GOV_VIEWERS_MS = 10e3, GOV_TRIAL_READS = 5; // controle da transmissão (govTick): leitura a cada 2 s, 6 s ruins para descer
 export const NATIVE_RESTARTS = 3, NATIVE_RESTART_WIN = 30e3, NATIVE_RESTART_DELAY = 1000;
 // "nenhum metodo de captura nativa": o programa já tentou WGC e DXGI (e recriou cada um) e nenhum serviu: reiniciar não ajuda
 const NATIVE_FATAL = /janela transmitida foi fechada|nenhum codificador|não encontrado|desktop sem suporte|nenhum metodo de captura nativa/i;
@@ -67,6 +67,20 @@ export const VOICE_BITRATES = [['auto', 'Automático'], [32, '32 kbps'], [64, '6
 export const AUTO_MAX = 64, AUTO_STEPS = [32, 48, 64];
 // voz pelo túnel (public/voztunnel.js): sem conectar direto em tanto tempo na entrada, a voz segue pela conexão do site
 const TUNNEL_WAIT = 5000;
+// Muda os parâmetros de um envio de vídeo: edit(prm) altera o que getParameters devolveu. Com H.264 o Chromium devolve um
+// scalabilityMode que o próprio setParameters recusa ("unsupported value for the current codecs"), e a mudança INTEIRA se
+// perdia calada: teto de FPS, troca de qualidade e o controle da transmissão não faziam nada. Recusou por isso: de novo sem ele
+const TUNNEL_FITS = 8e6; // o que passa pelo túnel (server/sfu.js TUNNEL_VIDEO_KBPS)
+export async function setSender(sender, edit) {
+  const prm = sender.getParameters(); edit(prm);
+  try { return await sender.setParameters(prm); }
+  catch (e) {
+    if (!/scalabilityMode/i.test(e.message || '')) throw e;
+    const again = sender.getParameters(); edit(again);
+    for (const x of again.encodings) delete x.scalabilityMode;
+    return sender.setParameters(again);
+  }
+}
 // pelo túnel, testa se a mídia direta já alcança o servidor (VPN que terminou de ligar, rede que voltou) e volta sozinha.
 // A espera dobra a cada teste sem sucesso, até o teto
 const PROBE_FIRST = 15000, PROBE_MAX = 120000;
@@ -1285,19 +1299,38 @@ export class Voice {
     const slow = (top.framesPerSecond || 0) < want * 0.8;
     const over = top.qualityLimitationReason === 'cpu' || slow || shrunk;
     if (over) { g.bad++; g.good = 0; } else { g.bad = 0; if (top.qualityLimitationReason === 'none') g.good++; }
+    // quadros enviados nas últimas leituras ruins: a base para saber se desligar as camadas adiantou
+    g.lost = over && (top.framesPerSecond || 0) < want * 0.7 ? [...(g.lost || []), top.framesPerSecond || 0].slice(-GOV_BAD) : [];
+    // teste em andamento (abaixo): mede algumas leituras e só fica sem as camadas leves se o envio melhorou de verdade
+    if (g.trial) {
+      g.trial.reads.push(top.framesPerSecond || 0);
+      if (g.trial.reads.length < GOV_TRIAL_READS) return;
+      const { before, reads } = g.trial, after = reads.reduce((a, b) => a + b, 0) / reads.length; g.trial = null;
+      g.trialResult = { before: Math.round(before), after: Math.round(after) };
+      if (after >= before * 1.25) { g.proved = true; g.note = `Sem as camadas leves o envio foi de ${Math.round(before)} para ${Math.round(after)} FPS: continuam desligadas.`; this.capLog({ t: 'capnote', msg: 'controle da transmissão: ' + g.note }); return; }
+      return this.govApply(g, { layersOff: false }, `Desligar as camadas leves não ajudou (${Math.round(before)} → ${Math.round(after)} FPS): religadas.`);
+    }
     // espectador com banda fraca (ou perda) precisando da camada pequena: religa as camadas, mesmo custando processador
     if (g.layersOff && Date.now() - (g.vAt || 0) > GOV_VIEWERS_MS) {
       g.vAt = Date.now();
       const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate, isGameShare(this.screenOpts));
-      if (v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7))) return this.govApply(g, { layersOff: false }, 'Um espectador com internet fraca: camadas leves religadas.');
+      // provado que elas custavam quadros a todos: só voltam para quem está de fato recebendo mal (nota baixa)
+      if (v?.viewers?.some(x => (!g.proved && (x.avail === null || (x.avail && x.avail < topBps * 1.1))) || (x.avail === null && topBps > TUNNEL_FITS) || (x.score != null && x.score < 7))) return this.govApply(g, { layersOff: false }, 'Um espectador com internet fraca: camadas leves religadas.');
     }
     if (g.bad >= GOV_BAD) {
       if (g.upAt && Date.now() - g.upAt < 20e3) g.upWait = Math.min(g.upWait * 2, 150); // subiu e não aguentou: espera mais
       g.upAt = 0;
       if (!g.layersOff && (p.rtpSender.getParameters().encodings?.length || 0) > 1) {
         const v = await this.sfuReq('screen_viewers').catch(() => null), topBps = bitrateFor(this.screenOpts?.res || 1080, lv.f, this.screenOpts?.bitrate, isGameShare(this.screenOpts));
-        const need = v?.viewers?.some(x => (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7));
+        // (avail null = assiste pelo túnel: o servidor não mede a banda dele, e é das camadas leves que ele se serve)
+        const need = v?.viewers?.some(x => x.avail === null || (x.avail && x.avail < topBps * 1.1) || (x.score != null && x.score < 7));
         if (!need) return this.govApply(g, { layersOff: true }, 'Processador no limite: camadas leves desligadas (ninguém precisava delas).');
+        // a estimativa de banda de alguém está só um pouco justa (não é internet fraca de verdade) e ninguém recebe mal, e o envio perde muitos quadros: baixar
+        // o teto de FPS não alivia a placa. Testa uma vez sem as camadas leves e mede
+        if (!g.tried && g.lost?.length >= GOV_BAD && !v?.viewers?.some(x => (x.avail === null && topBps > TUNNEL_FITS) || (x.avail && x.avail < topBps * 0.7) || (x.score != null && x.score < 7))) {
+          g.tried = true; g.trial = { before: g.lost.reduce((a, b) => a + b, 0) / g.lost.length, reads: [] };
+          return this.govApply(g, { layersOff: true }, 'Perdendo muitos quadros no envio: testando sem as camadas leves.');
+        }
       }
       if (g.level < g.ladder.length - 1) { const n = g.ladder[g.level + 1]; return this.govApply(g, { level: g.level + 1 }, `Processador no limite: ${n.h}p a ${n.f} FPS.`); }
       g.bad = 0; return;
@@ -1313,17 +1346,14 @@ export class Voice {
     g.applying = true; // os parâmetros mudam em duas etapas (passando por 'balanced'); quem lê o estado espera terminar
     const lv = g.ladder[g.level], capH = this.screen?.getVideoTracks()[0]?.getSettings?.().height || lv.h, s = Math.max(1, capH / lv.h);
     try {
-      const prm = p.rtpSender.getParameters(), n = prm.encodings.length;
-      prm.encodings.forEach((e, i) => { e.scaleResolutionDownBy = s * 2 ** (n - 1 - i); e.maxFramerate = lv.f; if (i < n - 1) e.active = !g.layersOff; });
+      const layers = (prm) => { const n = prm.encodings.length; prm.encodings.forEach((e, i) => { e.scaleResolutionDownBy = s * 2 ** (n - 1 - i); e.maxFramerate = lv.f; if (i < n - 1) e.active = !g.layersOff; }); };
       // engajado: a resolução fica com este controle (o codificador derruba quadros, não a imagem)
       // passar por 'balanced' zera as restrições que o próprio WebRTC acumulou (ex.: fps cortado por CPU em 1080p). Sem
       // isso, depois de descer para 720p o fps ficava preso nos ~34 da restrição antiga (medido: 720p fixo desde o
       // início dá 60 fps sem limite no mesmo processador)
-      prm.degradationPreference = 'balanced'; await p.rtpSender.setParameters(prm);
+      await setSender(p.rtpSender, (prm) => { layers(prm); prm.degradationPreference = 'balanced'; });
       if (this.gov !== g) return; // a qualidade mudou (ou a transmissão parou) no meio: não sobrescreve o que veio depois
-      const p2 = p.rtpSender.getParameters();
-      p2.degradationPreference = g.level > 0 || g.layersOff || this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
-      await p.rtpSender.setParameters(p2);
+      await setSender(p.rtpSender, (prm) => { prm.degradationPreference = g.level > 0 || g.layersOff || this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate'; });
     } catch (e) { console.warn('controle da transmissão', e); } finally { g.applying = false; }
     this.onUpdate();
   }
@@ -1332,16 +1362,17 @@ export class Voice {
     // qualidade nova: desliga o controle já (uma aplicação dele em andamento desiste) e espera ela soltar os parâmetros
     clearInterval(this._gt); this.gov = null; await Promise.resolve(this._govP).catch(() => { });
     try {
-      const prm = p.rtpSender.getParameters(), enc = this.sfuEncodings('screen');
-      prm.encodings.forEach((e, i) => { const { scalabilityMode, ...rest } = enc[i] || {}; Object.assign(e, rest); e.active = true; }); // scalabilityMode não muda depois de criado; camadas que o controle desligou voltam
-      prm.degradationPreference = this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
-      await p.rtpSender.setParameters(prm);
+      const enc = this.sfuEncodings('screen');
+      await setSender(p.rtpSender, (prm) => {
+        prm.encodings.forEach((e, i) => { const { scalabilityMode, ...rest } = enc[i] || {}; Object.assign(e, rest); e.active = true; }); // scalabilityMode não muda depois de criado; camadas que o controle desligou voltam
+        prm.degradationPreference = this.screenOpts?.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+      });
     } catch (e) { console.warn('screen params', e); }
     // teto de fps no codificador (a captura tem 25% de folga, capFps). À parte: se esta versão do Chromium recusar
     // maxFramerate no simulcast, o resto (taxa e preferência) já ficou aplicado acima
     try {
-      const fps = +this.screenOpts?.fps || 30, prm = p.rtpSender.getParameters();
-      if (prm.encodings?.length && prm.encodings.some(e => e.maxFramerate !== fps)) { prm.encodings.forEach(e => { e.maxFramerate = fps; }); await p.rtpSender.setParameters(prm); }
+      const fps = +this.screenOpts?.fps || 30;
+      if (p.rtpSender.getParameters().encodings?.some(e => e.maxFramerate !== fps)) await setSender(p.rtpSender, (prm) => prm.encodings.forEach(e => { e.maxFramerate = fps; }));
     } catch { }
     this.govStart(); // qualidade nova escolhida (ou transmissão nova): o controle recomeça do topo
   }

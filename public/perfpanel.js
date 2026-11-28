@@ -92,6 +92,14 @@ export async function hostSample(now = performance.now(), tag = 'painel') { // t
     }
   }
   const tr = await transportOf(voice.sfu?.send); if (tr) { out.rtt = tr.rtt; out.via = tr.via; }
+  // no arquivo exportado: cada camada do envio e o que o controle da transmissão fez (para achar onde os quadros somem)
+  const g = voice.gov, o = voice.screenOpts;
+  if (o) out.asked = { res: o.res, fps: o.fps, mbps: o.bitrate || 'auto' };
+  if (g) out.gov = { step: g.ladder?.[g.level], layersOff: g.layersOff, note: g.note || null, trial: g.trialResult || null };
+  if (!voice.native && voice.sfu?.producers.screen?.closed === false) {
+    out.layers = (await voice.sfu.producers.screen.getStats().then(st => [...st.values()], () => [])).filter(r => r.type === 'outbound-rtp' && r.kind === 'video')
+      .map(r => ({ rid: r.rid || '0', w: r.frameWidth || 0, h: r.frameHeight || 0, fps: r.framesPerSecond ?? 0, active: r.active, limit: r.qualityLimitationReason, targetKbps: r.targetBitrate ? Math.round(r.targetBitrate / 1000) : null, encoded: r.framesEncoded, sent: r.framesSent, encodeSecs: r.totalEncodeTime, pli: r.pliCount, nack: r.nackCount, huge: r.hugeFramesSent }));
+  }
   if (voice.tunnel) { out.rtt = voice.tunnel.rtt; out.via = 'Conexão do site (sem ligação direta)'; }
   out.players = playersOf(S.me.id).map(p => { const a = perf.rtt.get(p.id) || [], c = perf.inputs.get(p.id); return { slot: p.slot, name: nm(p.controller), cmdRtt: r1(pct(a.slice(-30).map(x => x.ms), .5)), cmdRtt95: r1(pct(a.slice(-30).map(x => x.ms), .95)), cmdPerS: c ? c.rate : null }; });
   return out;

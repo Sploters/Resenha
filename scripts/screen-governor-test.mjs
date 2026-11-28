@@ -120,6 +120,28 @@ try {
   ok(await until(A, () => { const v = window.__lc.voice, g = v.gov, e = v.sfu.producers.screen.rtpSender.getParameters().encodings; return g?.layersOff && !g.applying && e[0].active === false && e[1].active === false && e[2].active !== false; }, null, 8000), 'modo leve: começa só com a camada cheia');
   await A.evaluate(() => { window.__lc.voice.prefs.lightMode = false; });
 
+  // 7c) banda de alguém só um pouco justa e o envio perdendo muitos quadros sem "limite de processador": testa sem as camadas
+  // leves e decide pela medida. Aqui desligar ajuda (o fps simulado sobe quando só a camada cheia fica ativa)
+  const trial = async (helps) => {
+    await A.evaluate(() => window.__lc.voice.changeScreenQuality({ fps: 60 })); await sleep(1500);
+    await A.evaluate((helps) => {
+      const v = window.__lc.voice, s = v.sfu.producers.screen.rtpSender; v.captureFps = 40; window.__weak = [{ avail: 7_000_000, score: 10 }]; // 1080p60 pede 7,2 Mbps: justa, não fraca
+      s.getStats = async () => { const e = s.getParameters().encodings, top = e.at(-1), alone = e[0].active === false;
+        return new Map([['o', { type: 'outbound-rtp', kind: 'video', frameHeight: Math.round(1080 / (top.scaleResolutionDownBy || 1)), framesPerSecond: alone && helps ? 39 : 18, qualityLimitationReason: 'none' }]]); };
+      v.govStart();
+    }, helps);
+    await until(A, () => !!window.__lc.voice.gov?.trialResult && !window.__lc.voice.gov.applying, null, 40000);
+    await sleep(500);
+    return A.evaluate(() => { const v = window.__lc.voice; return { result: v.gov?.trialResult, off: v.gov?.layersOff, first: v.sfu.producers.screen.rtpSender.getParameters().encodings[0].active }; });
+  };
+  let t = await trial(true);
+  ok(t.result?.before === 18 && t.result.after === 39 && t.off && t.first === false, 'o envio melhorou sem as camadas leves: continuam desligadas', t);
+  await sleep(12000);
+  ok(await A.evaluate(() => window.__lc.voice.gov.layersOff === true), 'e a estimativa de banda justa não religa o que foi provado que atrapalha');
+  t = await trial(false);
+  ok(t.result?.after === 18 && !t.off && t.first !== false, 'não melhorou: religa as camadas leves', t);
+  await A.evaluate(() => { window.__weak = null; });
+
   // 8) "qualidade automática" ligada (modo antigo, que muda a captura): o controle não roda
   await A.evaluate(() => { window.__lc.voice.prefs.autoQuality = true; window.__lc.voice.govStart(); });
   ok(await A.evaluate(() => window.__lc.voice.gov === null), 'com a qualidade automática antiga ligada, o controle fica desligado');
